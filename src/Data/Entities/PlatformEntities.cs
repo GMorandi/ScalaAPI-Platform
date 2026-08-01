@@ -275,3 +275,178 @@ public class UsageSummaryDailyEntity
     [SugarColumn(ColumnName = "total_cost_usd", DecimalDigits = 6)]
     public decimal TotalCostUsd { get; set; }
 }
+
+[SugarTable("referral_codes")]
+public class ReferralCodeEntity
+{
+    [SugarColumn(IsPrimaryKey = true, IsIdentity = true, ColumnName = "id")]
+    public long Id { get; set; }
+
+    [SugarColumn(ColumnName = "user_id")]
+    public long UserId { get; set; }
+
+    [SugarColumn(ColumnName = "code")]
+    public string Code { get; set; } = "";
+
+    [SugarColumn(ColumnName = "total_referrals")]
+    public int TotalReferrals { get; set; }
+
+    [SugarColumn(ColumnName = "total_bonus_usd", DecimalDigits = 2)]
+    public decimal TotalBonusUsd { get; set; }
+
+    [SugarColumn(ColumnName = "created_at")]
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+}
+
+[SugarTable("referral_records")]
+public class ReferralRecordEntity
+{
+    [SugarColumn(IsPrimaryKey = true, IsIdentity = true, ColumnName = "id")]
+    public long Id { get; set; }
+
+    [SugarColumn(ColumnName = "referrer_user_id")]
+    public long ReferrerUserId { get; set; }
+
+    [SugarColumn(ColumnName = "referred_user_id")]
+    public long ReferredUserId { get; set; }
+
+    [SugarColumn(ColumnName = "bonus_usd", DecimalDigits = 2)]
+    public decimal BonusUsd { get; set; }
+
+    [SugarColumn(ColumnName = "created_at")]
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+}
+
+[SugarTable("content_audit_rules")]
+public class ContentAuditRuleEntity
+{
+    [SugarColumn(IsPrimaryKey = true, IsIdentity = true, ColumnName = "id")]
+    public long Id { get; set; }
+
+    [SugarColumn(ColumnName = "pattern")]
+    public string Pattern { get; set; } = "";
+
+    [SugarColumn(ColumnName = "action_type")]
+    public string ActionType { get; set; } = "log";
+
+    [SugarColumn(ColumnName = "scope", IsNullable = true)]
+    public string? Scope { get; set; }
+
+    [SugarColumn(ColumnName = "status")]
+    public string Status { get; set; } = "active";
+
+    [SugarColumn(ColumnName = "created_at")]
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+}
+
+[SugarTable("content_audit_logs")]
+public class ContentAuditLogEntity
+{
+    [SugarColumn(IsPrimaryKey = true, IsIdentity = true, ColumnName = "id")]
+    public long Id { get; set; }
+
+    [SugarColumn(ColumnName = "user_id")]
+    public long UserId { get; set; }
+
+    [SugarColumn(ColumnName = "request_id", IsNullable = true)]
+    public string? RequestId { get; set; }
+
+    [SugarColumn(ColumnName = "matched_rule")]
+    public string MatchedRule { get; set; } = "";
+
+    [SugarColumn(ColumnName = "action")]
+    public string Action { get; set; } = "";
+
+    [SugarColumn(ColumnName = "content_snippet", IsNullable = true, ColumnDataType = "text")]
+    public string? ContentSnippet { get; set; }
+
+    [SugarColumn(ColumnName = "created_at")]
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+}
+
+[SugarTable("proxies")]
+public class ProxyEntity
+{
+    [SugarColumn(IsPrimaryKey = true, IsIdentity = true, ColumnName = "id")]
+    public long Id { get; set; }
+
+    [SugarColumn(ColumnName = "name")]
+    public string Name { get; set; } = "";
+
+    [SugarColumn(ColumnName = "type")]
+    public string Type { get; set; } = "http";
+
+    [SugarColumn(ColumnName = "host")]
+    public string Host { get; set; } = "";
+
+    [SugarColumn(ColumnName = "port")]
+    public int Port { get; set; }
+
+    [SugarColumn(ColumnName = "username", IsNullable = true)]
+    public string? Username { get; set; }
+
+    [SugarColumn(ColumnName = "password", IsNullable = true)]
+    public string? Password { get; set; }
+
+    [SugarColumn(ColumnName = "status")]
+    public string Status { get; set; } = "active";
+
+    [SugarColumn(ColumnName = "latency_ms")]
+    public int LatencyMs { get; set; }
+
+    [SugarColumn(ColumnName = "created_at")]
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+}
+
+[SugarTable("tls_fingerprint_profiles")]
+public class TlsFingerprintProfileEntity
+{
+    [SugarColumn(IsPrimaryKey = true, IsIdentity = true, ColumnName = "id")]
+    public long Id { get; set; }
+
+    [SugarColumn(ColumnName = "name")]
+    public string Name { get; set; } = "";
+
+    [SugarColumn(ColumnName = "ja3_hash", IsNullable = true)]
+    public string? Ja3Hash { get; set; }
+
+    [SugarColumn(ColumnName = "ja4_hash", IsNullable = true)]
+    public string? Ja4Hash { get; set; }
+
+    [SugarColumn(ColumnName = "cipher_suites", IsNullable = true, ColumnDataType = "text")]
+    public string? CipherSuites { get; set; }
+
+    [SugarColumn(ColumnName = "status")]
+    public string Status { get; set; } = "active";
+
+    [SugarColumn(ColumnName = "created_at")]
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+}
+
+[SugarTable("user_api_keys")]
+public class UserApiKeyEntity
+{
+    [SugarColumn(IsPrimaryKey = true, IsIdentity = true, ColumnName = "id")]
+    public long Id { get; set; }
+
+    [SugarColumn(ColumnName = "user_email")]
+    public string UserEmail { get; set; } = "";
+
+    [SugarColumn(ColumnName = "key_hash")]
+    public string KeyHash { get; set; } = "";
+
+    [SugarColumn(ColumnName = "key_prefix")]
+    public string KeyPrefix { get; set; } = "";
+
+    [SugarColumn(ColumnName = "name", IsNullable = true)]
+    public string? Name { get; set; }
+
+    [SugarColumn(ColumnName = "status")]
+    public string Status { get; set; } = "active";
+
+    [SugarColumn(ColumnName = "created_at")]
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+
+    [SugarColumn(ColumnName = "last_used_at", IsNullable = true)]
+    public DateTime? LastUsedAt { get; set; }
+}
