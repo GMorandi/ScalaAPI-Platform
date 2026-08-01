@@ -56,6 +56,11 @@ builder.Services.AddHostedService<CapnpRpcHostedService>();
 // Garnet write-through service (used by grains)
 builder.Services.AddSingleton<GarnetWriteThroughService>();
 
+// Invalidation publisher (bumps Garnet version on auth data changes)
+builder.Services.AddSingleton<Sub2Api.Host.Services.InvalidationService>();
+builder.Services.AddSingleton<Sub2Api.Grains.Interfaces.IInvalidationService>(sp =>
+    sp.GetRequiredService<Sub2Api.Host.Services.InvalidationService>());
+
 // Dispatch service (bridges Cap'n Proto RPC to Orleans grains)
 builder.Services.AddSingleton<DispatchService>();
 

@@ -33,6 +33,7 @@ public class AccountGrain : Grain, IAccountGrain
 {
     private readonly IPersistentState<AccountState> _state;
     private readonly ILogger<AccountGrain> _logger;
+    private readonly IInvalidationService _invalidation;
 
     private readonly Dictionary<string, long> _activeSlots = new();
     private int _rpmCount;
@@ -40,10 +41,12 @@ public class AccountGrain : Grain, IAccountGrain
 
     public AccountGrain(
         [PersistentState("account", "postgres")] IPersistentState<AccountState> state,
-        ILogger<AccountGrain> logger)
+        ILogger<AccountGrain> logger,
+        IInvalidationService invalidation)
     {
         _state = state;
         _logger = logger;
+        _invalidation = invalidation;
     }
 
     public Task<AccountProjection> GetProjection()
@@ -146,6 +149,7 @@ public class AccountGrain : Grain, IAccountGrain
         s.ProxyUrl = input.ProxyUrl;
         s.TlsFingerprint = input.TlsFingerprint;
         await _state.WriteStateAsync();
+        _invalidation.NotifyChange("account", s.Id.ToString());
     }
 
     public async Task Update(AccountUpsert input)
@@ -166,16 +170,20 @@ public class AccountGrain : Grain, IAccountGrain
         s.ProxyUrl = input.ProxyUrl;
         s.TlsFingerprint = input.TlsFingerprint;
         await _state.WriteStateAsync();
+        _invalidation.NotifyChange("account", s.Id.ToString());
     }
 
     public async Task SetStatus(string status)
     {
         _state.State.Status = status;
         await _state.WriteStateAsync();
+        _invalidation.NotifyChange("account", _state.State.Id.ToString());
     }
 
     public async Task Delete()
     {
+        var id = _state.State.Id;
         await _state.ClearStateAsync();
+        _invalidation.NotifyChange("account", id.ToString());
     }
 }

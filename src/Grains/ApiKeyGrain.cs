@@ -27,13 +27,16 @@ public class ApiKeyGrain : Grain, IApiKeyGrain
 {
     private readonly IPersistentState<ApiKeyState> _state;
     private readonly ILogger<ApiKeyGrain> _logger;
+    private readonly IInvalidationService _invalidation;
 
     public ApiKeyGrain(
         [PersistentState("apiKey", "postgres")] IPersistentState<ApiKeyState> state,
-        ILogger<ApiKeyGrain> logger)
+        ILogger<ApiKeyGrain> logger,
+        IInvalidationService invalidation)
     {
         _state = state;
         _logger = logger;
+        _invalidation = invalidation;
     }
 
     public async Task<AuthResult> Validate(AuthRequest req)
@@ -87,6 +90,7 @@ public class ApiKeyGrain : Grain, IApiKeyGrain
         s.RateLimit7d = input.RateLimit7d;
         s.Version = 1;
         await _state.WriteStateAsync();
+        _invalidation.NotifyChange("apiKey", this.GetPrimaryKeyLong().ToString());
     }
 
     public async Task Update(ApiKeyUpsert input)
@@ -103,6 +107,7 @@ public class ApiKeyGrain : Grain, IApiKeyGrain
         s.RateLimit7d = input.RateLimit7d;
         s.Version++;
         await _state.WriteStateAsync();
+        _invalidation.NotifyChange("apiKey", this.GetPrimaryKeyLong().ToString());
     }
 
     public async Task Revoke()
@@ -110,5 +115,6 @@ public class ApiKeyGrain : Grain, IApiKeyGrain
         _state.State.Status = "revoked";
         _state.State.Version++;
         await _state.WriteStateAsync();
+        _invalidation.NotifyChange("apiKey", this.GetPrimaryKeyLong().ToString());
     }
 }

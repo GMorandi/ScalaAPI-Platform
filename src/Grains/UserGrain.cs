@@ -22,15 +22,18 @@ public class UserGrain : Grain, IUserGrain
 {
     private readonly IPersistentState<UserState> _state;
     private readonly ILogger<UserGrain> _logger;
+    private readonly IInvalidationService _invalidation;
     private readonly Dictionary<string, long> _activeSlots = new();
     private readonly Dictionary<string, decimal> _holds = new();
 
     public UserGrain(
         [PersistentState("user", "postgres")] IPersistentState<UserState> state,
-        ILogger<UserGrain> logger)
+        ILogger<UserGrain> logger,
+        IInvalidationService invalidation)
     {
         _state = state;
         _logger = logger;
+        _invalidation = invalidation;
     }
 
     public Task<UserProjection> GetAuthProjection()
@@ -102,6 +105,7 @@ public class UserGrain : Grain, IUserGrain
         s.RpmLimit = input.RpmLimit;
         s.AllowedGroups = input.AllowedGroups;
         await _state.WriteStateAsync();
+        _invalidation.NotifyChange("user", s.Id.ToString());
     }
 
     public async Task Update(UserUpsert input)
@@ -112,12 +116,14 @@ public class UserGrain : Grain, IUserGrain
         s.RpmLimit = input.RpmLimit;
         s.AllowedGroups = input.AllowedGroups;
         await _state.WriteStateAsync();
+        _invalidation.NotifyChange("user", s.Id.ToString());
     }
 
     public async Task SetStatus(string status)
     {
         _state.State.Status = status;
         await _state.WriteStateAsync();
+        _invalidation.NotifyChange("user", _state.State.Id.ToString());
     }
 
     public async Task AdjustBalance(double delta)
@@ -128,6 +134,8 @@ public class UserGrain : Grain, IUserGrain
 
     public async Task Delete()
     {
+        var id = _state.State.Id;
         await _state.ClearStateAsync();
+        _invalidation.NotifyChange("user", id.ToString());
     }
 }
