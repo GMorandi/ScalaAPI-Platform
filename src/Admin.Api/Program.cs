@@ -37,6 +37,7 @@ builder.Services.AddScoped<ISqlSugarClient>(_ => new SqlSugarClient(new Connecti
 }));
 builder.Services.AddScoped<ListingRepository>();
 builder.Services.AddScoped<IUsageLogRepository, UsageLogRepository>();
+builder.Services.AddHttpClient();
 
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(opts => opts.TokenValidationParameters = jwtService.GetValidationParameters());
@@ -63,5 +64,7 @@ app.MapUserEndpoints();
 app.MapApiKeyEndpoints();
 app.MapConfigEndpoints();
 app.MapUsageEndpoints();
+app.MapUserAuthEndpoints();
+app.MapPlatformEndpoints();
 
 app.Run();
