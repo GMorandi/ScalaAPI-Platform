@@ -3,5 +3,6 @@
     <Project Path="src/Garnet.Host/Garnet.Host.csproj" />
     <Project Path="src/Grains.Interfaces/Grains.Interfaces.csproj" />
     <Project Path="src/Grains/Grains.csproj" />
+    <Project Path="src/Admin.Api/Admin.Api.csproj" />
   </Folder>
 </Solution>
