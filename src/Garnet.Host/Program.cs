@@ -20,7 +20,6 @@ builder.UseOrleans(silo =>
     {
         opts.ConnectionString = pgConnection;
         opts.Invariant = "Npgsql";
-        opts.UseJson = true;
     });
 
     silo.UseAdoNetReminderService(opts =>
