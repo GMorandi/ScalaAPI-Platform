@@ -17,6 +17,7 @@ public interface IUserGrain : IGrainWithIntegerKey
     Task CommitUsage(HoldHandle handle, decimal actual);
     Task ReleaseHold(HoldHandle handle);
     Task<bool> CheckBalance(decimal required);
+    Task<bool> CheckAndRecordRpm(int limit);
 
     Task Create(UserUpsert input);
     Task Update(UserUpsert input);

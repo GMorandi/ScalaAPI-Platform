@@ -5,4 +5,8 @@
     <Project Path="src/Grains/Grains.csproj" />
     <Project Path="src/Admin.Api/Admin.Api.csproj" />
   </Folder>
+  <Folder Name="/test/">
+    <Project Path="test/Grains.Tests/Grains.Tests.csproj" />
+    <Project Path="test/Platform.Benchmarks/Platform.Benchmarks.csproj" />
+  </Folder>
 </Solution>

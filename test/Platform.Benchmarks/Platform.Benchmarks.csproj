@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>Sub2Api.Platform.Benchmarks</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="BenchmarkDotNet" Version="0.14.*" />
+    <PackageReference Include="NSubstitute" Version="5.*" />
+    <PackageReference Include="Microsoft.Orleans.TestingHost" Version="10.2.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/Grains/Grains.csproj" />
+    <ProjectReference Include="../../src/Grains.Interfaces/Grains.Interfaces.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -21,6 +21,12 @@ public class ApiKeyState
     [Id(10)] public double RateLimit1d { get; set; }
     [Id(11)] public double RateLimit7d { get; set; }
     [Id(12)] public long Version { get; set; }
+    [Id(13)] public double Usage5h { get; set; }
+    [Id(14)] public double Usage1d { get; set; }
+    [Id(15)] public double Usage7d { get; set; }
+    [Id(16)] public long Window5hStart { get; set; }
+    [Id(17)] public long Window1dStart { get; set; }
+    [Id(18)] public long Window7dStart { get; set; }
 }
 
 public class ApiKeyGrain : Grain, IApiKeyGrain
@@ -55,6 +61,16 @@ public class ApiKeyGrain : Grain, IApiKeyGrain
         if (s.IpWhitelist.Length > 0 && !s.IpWhitelist.Contains(req.ClientIp))
             throw new InvalidOperationException("IP not in whitelist");
 
+        var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        ResetWindowIfExpired(s, now);
+
+        if (s.RateLimit5h > 0 && s.Usage5h >= s.RateLimit5h)
+            throw new InvalidOperationException("Rate limit exceeded (5h)");
+        if (s.RateLimit1d > 0 && s.Usage1d >= s.RateLimit1d)
+            throw new InvalidOperationException("Rate limit exceeded (1d)");
+        if (s.RateLimit7d > 0 && s.Usage7d >= s.RateLimit7d)
+            throw new InvalidOperationException("Rate limit exceeded (7d)");
+
         var userGrain = GrainFactory.GetGrain<IUserGrain>(s.UserId);
         var user = await userGrain.GetAuthProjection();
 
@@ -71,9 +87,41 @@ public class ApiKeyGrain : Grain, IApiKeyGrain
 
     public async Task AddUsage(decimal usd)
     {
-        _state.State.QuotaUsed += (double)usd;
-        _state.State.Version++;
+        var s = _state.State;
+        var amount = (double)usd;
+        s.QuotaUsed += amount;
+
+        var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        ResetWindowIfExpired(s, now);
+        s.Usage5h += amount;
+        s.Usage1d += amount;
+        s.Usage7d += amount;
+
+        s.Version++;
         await _state.WriteStateAsync();
+    }
+
+    private static void ResetWindowIfExpired(ApiKeyState s, long nowMs)
+    {
+        const long fiveHoursMs = 5 * 3600 * 1000L;
+        const long oneDayMs = 24 * 3600 * 1000L;
+        const long sevenDaysMs = 7 * 24 * 3600 * 1000L;
+
+        if (nowMs - s.Window5hStart >= fiveHoursMs)
+        {
+            s.Usage5h = 0;
+            s.Window5hStart = nowMs;
+        }
+        if (nowMs - s.Window1dStart >= oneDayMs)
+        {
+            s.Usage1d = 0;
+            s.Window1dStart = nowMs;
+        }
+        if (nowMs - s.Window7dStart >= sevenDaysMs)
+        {
+            s.Usage7d = 0;
+            s.Window7dStart = nowMs;
+        }
     }
 
     public async Task Create(ApiKeyUpsert input)

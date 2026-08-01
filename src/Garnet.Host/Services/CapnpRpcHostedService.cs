@@ -5,7 +5,8 @@ using Orleans;
 using Sub2Api.Grains.Interfaces;
 using System.Buffers.Binary;
 using System.Net.Sockets;
-using System.Text.Json;
+using Capnp;
+using CapnpGen;
 
 namespace Sub2Api.Host.Services;
 
@@ -44,7 +45,7 @@ public class CapnpRpcHostedService : IHostedService
         _cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         _acceptLoop = AcceptLoopAsync(_cts.Token);
 
-        _logger.LogInformation("Dispatch RPC server listening on {Path}", _socketPath);
+        _logger.LogInformation("Dispatch RPC server listening on {Path} (capnp binary)", _socketPath);
         return Task.CompletedTask;
     }
 
@@ -92,7 +93,10 @@ public class CapnpRpcHostedService : IHostedService
                 var payload = new byte[len];
                 if (!await ReadExactAsync(stream, payload, (int)len, ct)) break;
 
-                var response = await ProcessMessageAsync(payload);
+                var method = payload[0];
+                var capnpData = new ReadOnlyMemory<byte>(payload, 1, payload.Length - 1);
+
+                var response = await ProcessMessageAsync(method, capnpData);
                 var respHdr = new byte[4];
                 BinaryPrimitives.WriteUInt32LittleEndian(respHdr, (uint)response.Length);
                 await stream.WriteAsync(respHdr, ct);
@@ -117,121 +121,205 @@ public class CapnpRpcHostedService : IHostedService
         return true;
     }
 
-    private async Task<byte[]> ProcessMessageAsync(byte[] payload)
+    private async Task<byte[]> ProcessMessageAsync(byte method, ReadOnlyMemory<byte> capnpData)
     {
         var dispatchService = _services.GetRequiredService<DispatchService>();
 
         try
         {
-            using var doc = JsonDocument.Parse(payload);
-            var root = doc.RootElement;
-            var method = root.GetProperty("method").GetString();
-
             return method switch
             {
-                "dispatch" => await HandleDispatchAsync(dispatchService, root),
-                "reportUsage" => await HandleReportUsageAsync(dispatchService, root),
-                "abort" => await HandleAbortAsync(dispatchService, root),
-                "reportUpstreamError" => await HandleUpstreamErrorAsync(dispatchService, root),
-                _ => SerializeError("unknown method"),
+                1 => await HandleDispatchAsync(dispatchService, capnpData),
+                2 => await HandleReportUsageAsync(dispatchService, capnpData),
+                3 => await HandleAbortAsync(dispatchService, capnpData),
+                4 => await HandleUpstreamErrorAsync(dispatchService, capnpData),
+                _ => SerializeRejectResponse("unknown method"),
             };
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "RPC processing error");
-            return SerializeError(ex.Message);
+            return SerializeRejectResponse(ex.Message);
         }
     }
 
-    private static async Task<byte[]> HandleDispatchAsync(DispatchService svc, JsonElement root)
+    private static DeserializerState DeserializeRoot(ReadOnlyMemory<byte> data)
     {
-        var excluded = root.TryGetProperty("excludedAccounts", out var ea)
-            ? ea.EnumerateArray().Select(e => e.GetInt64()).ToArray()
-            : [];
-
-        var req = new DispatchRequest(
-            ApiKeyHash: root.GetProperty("apiKeyHash").GetString() ?? "",
-            RequestedModel: root.GetProperty("requestedModel").GetString() ?? "",
-            SessionHash: root.GetProperty("sessionHash").GetString() ?? "",
-            ClientIp: root.GetProperty("clientIp").GetString() ?? "",
-            RequestId: root.GetProperty("requestId").GetString() ?? "",
-            ExcludedAccountIds: excluded,
-            CachedAuthVersion: root.TryGetProperty("cachedAuthVersion", out var cav) ? cav.GetInt64() : 0,
-            Endpoint: root.TryGetProperty("endpoint", out var ep) ? ep.GetInt32().ToString() : "1",
-            MetadataUserId: root.TryGetProperty("metadataUserId", out var mui) ? mui.GetString() : null);
-
-        var result = await svc.HandleDispatch(req);
-        return JsonSerializer.SerializeToUtf8Bytes(new
-        {
-            outcome = result.Outcome,
-            authVersion = result.AuthVersion,
-            leaseToken = result.Upstream?.LeaseToken ?? "",
-            rejectMessage = result.RejectMessage ?? "",
-            rejectCode = 0,
-            waitTimeoutMs = result.WaitTimeoutMs,
-            accountId = result.Upstream?.AccountId ?? 0,
-            platform = result.Upstream?.Platform ?? "",
-            baseUrl = result.Upstream?.BaseUrl ?? "",
-            upstreamPath = "",
-            mappedModel = result.Upstream?.MappedModel ?? "",
-            proxyUrl = result.Upstream?.ProxyUrl ?? "",
-            userId = result.Upstream?.UserId ?? 0,
-            groupId = result.Upstream?.GroupId ?? 0,
-            rateMultiplier = result.Upstream?.RateMultiplier ?? 1.0,
-            holdHandle = result.Upstream?.HoldHandle ?? "",
-            tlsFingerprint = result.Upstream?.TlsFingerprint ?? false,
-            authHeaders = result.Upstream?.AuthHeaders
-                .Select(kv => new { key = kv.Key, value = kv.Value }).ToArray() ?? [],
-        });
+        using var ms = new MemoryStream(data.ToArray());
+        using var reader = new BinaryReader(ms);
+        var frame = Framing.ReadWireFrame(reader);
+        return DeserializerState.CreateRoot(frame);
     }
 
-    private static async Task<byte[]> HandleReportUsageAsync(DispatchService svc, JsonElement root)
+    private static byte[] SerializeToFrame(byte responseMethod, SerializerState state)
     {
+        DeserializerState dState = state;
+        var frame = new WireFrame(dState.Segments);
+        using var ms = new MemoryStream();
+        ms.WriteByte(responseMethod);
+        var pump = new FramePump(ms);
+        pump.Send(frame);
+        pump.Flush();
+        return ms.ToArray();
+    }
+
+    private static async Task<byte[]> HandleDispatchAsync(DispatchService svc, ReadOnlyMemory<byte> capnpData)
+    {
+        var state = DeserializeRoot(capnpData);
+        var capnpReq = CapnpSerializable.Create<CapnpGen.DispatchRequest>(state);
+
+        var req = new DispatchRequest(
+            ApiKeyHash: capnpReq.ApiKeyHash ?? "",
+            RequestedModel: capnpReq.RequestedModel ?? "",
+            SessionHash: capnpReq.SessionHash ?? "",
+            ClientIp: capnpReq.ClientIp ?? "",
+            RequestId: capnpReq.RequestId ?? "",
+            ExcludedAccountIds: capnpReq.ExcludedAccounts?.ToArray() ?? [],
+            CachedAuthVersion: capnpReq.CachedAuthVersion,
+            Endpoint: ((int)capnpReq.Endpoint).ToString(),
+            MetadataUserId: capnpReq.MetadataUserId);
+
+        var result = await svc.HandleDispatch(req);
+        return BuildDispatchResponse(result);
+    }
+
+    private static byte[] BuildDispatchResponse(DispatchResult result)
+    {
+        var writer = SerializerState.CreateForRpc<CapnpGen.DispatchResponse.WRITER>();
+
+        writer.TheOutcome = result.Outcome switch
+        {
+            "ok" => CapnpGen.DispatchResponse.Outcome.ok,
+            "wait" => CapnpGen.DispatchResponse.Outcome.wait,
+            "reauth" => CapnpGen.DispatchResponse.Outcome.reauth,
+            _ => CapnpGen.DispatchResponse.Outcome.rejected,
+        };
+
+        writer.AuthVersion = result.AuthVersion;
+        writer.LeaseToken = result.Upstream?.LeaseToken ?? "";
+
+        if (result.Outcome == "rejected")
+        {
+            var reject = writer.Reject;
+            reject.Message = result.RejectMessage ?? "";
+            reject.Code = MapRejectCode(result.RejectCode);
+        }
+        else if (result.Outcome == "wait")
+        {
+            var waitPlan = writer.WaitPlan;
+            waitPlan.TimeoutMs = result.WaitTimeoutMs;
+        }
+        else if (result.Outcome == "ok" && result.Upstream is not null)
+        {
+            var up = writer.Upstream;
+            up.AccountId = result.Upstream.AccountId;
+            up.Platform = result.Upstream.Platform;
+            up.BaseUrl = result.Upstream.BaseUrl;
+            up.UpstreamPath = "";
+            up.MappedModel = result.Upstream.MappedModel;
+            up.UserId = result.Upstream.UserId;
+            up.GroupId = result.Upstream.GroupId;
+            up.TlsFingerprint = result.Upstream.TlsFingerprint;
+
+            if (!string.IsNullOrEmpty(result.Upstream.ProxyUrl))
+            {
+                var proxy = up.Proxy;
+                proxy.Enabled = true;
+                proxy.Url = result.Upstream.ProxyUrl;
+            }
+
+            var billing = up.Billing;
+            billing.RateMultiplier = result.Upstream.RateMultiplier;
+            billing.HoldHandle = result.Upstream.HoldHandle ?? "";
+
+            if (result.Upstream.AuthHeaders.Count > 0)
+            {
+                var headers = result.Upstream.AuthHeaders
+                    .Select(kv => new CapnpGen.UpstreamTarget.Header { Key = kv.Key, Value = kv.Value })
+                    .ToList();
+                up.AuthHeaders.Init(headers, (w, v) => { w.Key = v.Key; w.Value = v.Value; });
+            }
+        }
+
+        return SerializeToFrame(0x81, writer);
+    }
+
+    private static CapnpGen.RejectInfo.RejectCode MapRejectCode(string? code) => code switch
+    {
+        "invalidKey" => CapnpGen.RejectInfo.RejectCode.invalidKey,
+        "expired" => CapnpGen.RejectInfo.RejectCode.expired,
+        "noBalance" => CapnpGen.RejectInfo.RejectCode.noBalance,
+        "rateLimited" or "rpmExceeded" => CapnpGen.RejectInfo.RejectCode.rateLimited,
+        "noAccount" => CapnpGen.RejectInfo.RejectCode.noAccount,
+        "concurrencyExceeded" => CapnpGen.RejectInfo.RejectCode.concurrencyExceeded,
+        "ipBlocked" => CapnpGen.RejectInfo.RejectCode.ipBlocked,
+        "quotaExhausted" => CapnpGen.RejectInfo.RejectCode.quotaExhausted,
+        _ => CapnpGen.RejectInfo.RejectCode.invalidKey,
+    };
+
+    private static async Task<byte[]> HandleReportUsageAsync(DispatchService svc, ReadOnlyMemory<byte> capnpData)
+    {
+        var state = DeserializeRoot(capnpData);
+        var report = CapnpSerializable.Create<CapnpGen.UsageReport>(state);
+
         var req = new UsageReportRequest(
-            LeaseToken: root.GetProperty("leaseToken").GetString() ?? "",
-            RequestId: root.GetProperty("requestId").GetString() ?? "",
+            LeaseToken: report.LeaseToken ?? "",
+            RequestId: report.RequestId ?? "",
             ApiKeyHash: "",
-            ApiKeyId: root.TryGetProperty("apiKeyId", out var aki) ? aki.GetInt64() : 0,
-            UserId: root.TryGetProperty("userId", out var ui) ? ui.GetInt64() : 0,
-            AccountId: root.TryGetProperty("accountId", out var ai) ? ai.GetInt64() : 0,
-            GroupId: root.TryGetProperty("groupId", out var gi) ? gi.GetInt64() : 0,
-            Model: root.TryGetProperty("model", out var m) ? m.GetString() ?? "" : "",
-            UpstreamModel: root.TryGetProperty("upstreamModel", out var um) ? um.GetString() ?? "" : "",
-            InputTokens: root.TryGetProperty("inputTokens", out var it) ? it.GetInt32() : 0,
-            OutputTokens: root.TryGetProperty("outputTokens", out var ot) ? ot.GetInt32() : 0,
-            CacheCreateTokens: root.TryGetProperty("cacheCreateTokens", out var cct) ? cct.GetInt32() : 0,
-            CacheReadTokens: root.TryGetProperty("cacheReadTokens", out var crt) ? crt.GetInt32() : 0,
-            DurationMs: root.TryGetProperty("durationMs", out var dm) ? dm.GetInt32() : 0,
-            FirstTokenMs: root.TryGetProperty("firstTokenMs", out var ftm) ? ftm.GetInt32() : 0,
-            Stream: root.TryGetProperty("stream", out var s) && s.GetBoolean(),
-            ClientDisconnect: root.TryGetProperty("clientDisconnect", out var cd) && cd.GetBoolean(),
+            ApiKeyId: report.ApiKeyId,
+            UserId: report.UserId,
+            AccountId: report.AccountId,
+            GroupId: report.GroupId,
+            Model: report.Model ?? "",
+            UpstreamModel: report.UpstreamModel ?? "",
+            InputTokens: report.InputTokens,
+            OutputTokens: report.OutputTokens,
+            CacheCreateTokens: report.CacheCreateTokens,
+            CacheReadTokens: report.CacheReadTokens,
+            DurationMs: report.DurationMs,
+            FirstTokenMs: report.FirstTokenMs,
+            Stream: report.Stream,
+            ClientDisconnect: report.ClientDisconnect,
             RateMultiplier: 1.0,
             HoldHandle: null);
 
         await svc.HandleReportUsage(req);
-        return "{}"u8.ToArray();
+        return SerializeEmptyResponse(0x82);
     }
 
-    private static async Task<byte[]> HandleAbortAsync(DispatchService svc, JsonElement root)
+    private static async Task<byte[]> HandleAbortAsync(DispatchService svc, ReadOnlyMemory<byte> capnpData)
     {
-        var leaseToken = root.GetProperty("leaseToken").GetString() ?? "";
-        var reason = root.TryGetProperty("reason", out var r) ? r.GetString() ?? "" : "";
+        var state = DeserializeRoot(capnpData);
+        var reader = CapnpGen.GatewayDispatch.Params_Abort.READER.create(state);
+        var leaseToken = reader.LeaseToken ?? "";
+        var reason = reader.Reason ?? "";
+
         await svc.HandleAbort(leaseToken, reason, 0, 0);
-        return "{}"u8.ToArray();
+        return SerializeEmptyResponse(0x83);
     }
 
-    private static async Task<byte[]> HandleUpstreamErrorAsync(DispatchService svc, JsonElement root)
+    private static async Task<byte[]> HandleUpstreamErrorAsync(DispatchService svc, ReadOnlyMemory<byte> capnpData)
     {
-        var accountId = root.TryGetProperty("accountId", out var ai) ? ai.GetInt64() : 0;
-        var statusCode = root.TryGetProperty("statusCode", out var sc) ? sc.GetInt32() : 0;
-        var retryAfterMs = root.TryGetProperty("retryAfterMs", out var ram) ? ram.GetInt32() : 0;
-        await svc.HandleUpstreamError(accountId, statusCode, retryAfterMs > 0 ? retryAfterMs : null);
-        return "{}"u8.ToArray();
+        var state = DeserializeRoot(capnpData);
+        var report = CapnpSerializable.Create<CapnpGen.ErrorReport>(state);
+
+        await svc.HandleUpstreamError(report.AccountId, report.StatusCode,
+            report.RetryAfterMs > 0 ? report.RetryAfterMs : null);
+        return SerializeEmptyResponse(0x84);
     }
 
-    private static byte[] SerializeError(string message)
+    private static byte[] SerializeEmptyResponse(byte method)
     {
-        return JsonSerializer.SerializeToUtf8Bytes(new { outcome = "rejected", rejectMessage = message });
+        return [method];
+    }
+
+    private static byte[] SerializeRejectResponse(string message)
+    {
+        var writer = SerializerState.CreateForRpc<CapnpGen.DispatchResponse.WRITER>();
+        writer.TheOutcome = CapnpGen.DispatchResponse.Outcome.rejected;
+        writer.Reject.Message = message;
+        writer.Reject.Code = CapnpGen.RejectInfo.RejectCode.invalidKey;
+        return SerializeToFrame(0x81, writer);
     }
 }
 
@@ -239,19 +327,20 @@ public class DispatchService
 {
     private readonly IClusterClient _cluster;
     private readonly GarnetWriteThroughService _garnet;
+    private readonly ModelPricingService _pricing;
     private readonly ILogger<DispatchService> _logger;
 
     public DispatchService(IClusterClient cluster, GarnetWriteThroughService garnet,
-                           ILogger<DispatchService> logger)
+                           ModelPricingService pricing, ILogger<DispatchService> logger)
     {
         _cluster = cluster;
         _garnet = garnet;
+        _pricing = pricing;
         _logger = logger;
     }
 
     public async Task<DispatchResult> HandleDispatch(DispatchRequest req)
     {
-        // Step 1: Validate API key (with version fast-path)
         var apiKeyGrain = _cluster.GetGrain<IApiKeyGrain>(req.ApiKeyHash);
 
         AuthResult auth;
@@ -260,8 +349,6 @@ public class DispatchService
             var currentVersion = await apiKeyGrain.GetVersion();
             if (req.CachedAuthVersion == currentVersion && req.CachedAuthVersion > 0)
             {
-                // Fast path: gateway's cached auth is still valid
-                // Still need to validate for IP/status changes
                 auth = await apiKeyGrain.Validate(new AuthRequest(req.ClientIp, req.RequestId));
             }
             else
@@ -274,21 +361,24 @@ public class DispatchService
             return DispatchResult.Rejected("invalidKey", ex.Message);
         }
 
-        // Step 2: Check user balance
         var userGrain = _cluster.GetGrain<IUserGrain>(auth.UserId);
         if (!await userGrain.CheckBalance(0.01m))
         {
             return DispatchResult.Rejected("noBalance", "Insufficient balance");
         }
 
-        // Step 3: Acquire user concurrency slot
         var userSlot = await userGrain.TryAcquireSlot(req.RequestId);
         if (!userSlot.Acquired)
         {
             return DispatchResult.Rejected("concurrencyExceeded", "User concurrency limit reached");
         }
 
-        // Step 4: Schedule account selection
+        if (auth.RpmLimit > 0 && !await userGrain.CheckAndRecordRpm(auth.RpmLimit))
+        {
+            await userGrain.ReleaseSlot(req.RequestId);
+            return DispatchResult.Rejected("rpmExceeded", "User RPM limit reached");
+        }
+
         var schedulerGrain = _cluster.GetGrain<ISchedulerGrain>(auth.GroupId);
         var selection = await schedulerGrain.Select(new SelectRequest(
             req.RequestedModel, req.SessionHash, req.RequestId,
@@ -306,14 +396,12 @@ public class DispatchService
             return DispatchResult.Wait(selection.WaitTimeoutMs ?? 45_000);
         }
 
-        // Step 5: Hydrate account credentials
         var accountGrain = _cluster.GetGrain<IAccountGrain>(selection.AccountId!.Value);
         var creds = await accountGrain.Hydrate();
+        await accountGrain.RecordRpm();
 
-        // Step 6: Reserve balance hold
         var hold = await userGrain.ReserveBalance(1.00m);
 
-        // Step 7: Write-through to Garnet for future fast-path reads
         _garnet.WriteStickySession(auth.GroupId, req.SessionHash,
             selection.AccountId.Value, TimeSpan.FromHours(1));
 
@@ -337,15 +425,12 @@ public class DispatchService
 
     public async Task HandleReportUsage(UsageReportRequest req)
     {
-        // Release account slot
         var accountGrain = _cluster.GetGrain<IAccountGrain>(req.AccountId);
         await accountGrain.ReleaseSlot(req.RequestId);
 
-        // Release user slot
         var userGrain = _cluster.GetGrain<IUserGrain>(req.UserId);
         await userGrain.ReleaseSlot(req.RequestId);
 
-        // Commit billing
         if (req.HoldHandle is not null)
         {
             var cost = ComputeCost(req);
@@ -353,7 +438,6 @@ public class DispatchService
                 new HoldHandle(req.HoldHandle, 1.00m), cost);
         }
 
-        // Record usage
         var usageGrain = _cluster.GetGrain<IUsageGrain>($"u:{req.UserId}");
         await usageGrain.Record(new UsageEventData(
             req.LeaseToken, req.RequestId, req.ApiKeyId, req.UserId,
@@ -362,7 +446,6 @@ public class DispatchService
             req.CacheReadTokens, req.DurationMs, req.FirstTokenMs,
             req.Stream, req.ClientDisconnect));
 
-        // Update API key quota
         var apiKeyGrain = _cluster.GetGrain<IApiKeyGrain>(req.ApiKeyHash);
         await apiKeyGrain.AddUsage(ComputeCost(req));
     }
@@ -383,16 +466,17 @@ public class DispatchService
         await accountGrain.ReportUpstreamError(new ErrorInfo(statusCode, retryAfterMs, null));
     }
 
-    private static decimal ComputeCost(UsageReportRequest req)
+    private decimal ComputeCost(UsageReportRequest req)
     {
-        // Simplified cost model — in production: per-model pricing table
-        var inputCost = req.InputTokens * 0.000003m;
-        var outputCost = req.OutputTokens * 0.000015m;
-        return (inputCost + outputCost) * (decimal)req.RateMultiplier;
+        var price = _pricing.GetPrice(req.Model);
+        var inputCost = req.InputTokens * price.InputPerMillion / 1_000_000m;
+        var outputCost = req.OutputTokens * price.OutputPerMillion / 1_000_000m;
+        var cacheCreateCost = req.CacheCreateTokens * price.CacheCreatePerMillion / 1_000_000m;
+        var cacheReadCost = req.CacheReadTokens * price.CacheReadPerMillion / 1_000_000m;
+        return (inputCost + outputCost + cacheCreateCost + cacheReadCost) * (decimal)req.RateMultiplier;
     }
 }
 
-// Request/Response DTOs for the RPC bridge
 public record DispatchRequest(
     string ApiKeyHash, string RequestedModel, string SessionHash,
     string ClientIp, string RequestId, long[] ExcludedAccountIds,

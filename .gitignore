@@ -2,3 +2,5 @@ bin/
 obj/
 *.user
 .vs/
+BenchmarkDotNet.Artifacts/
+src/Garnet.Host/CapnpApiProbe.cs

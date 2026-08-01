@@ -62,6 +62,7 @@ builder.Services.AddSingleton<Sub2Api.Grains.Interfaces.IInvalidationService>(sp
     sp.GetRequiredService<Sub2Api.Host.Services.InvalidationService>());
 
 // Dispatch service (bridges Cap'n Proto RPC to Orleans grains)
+builder.Services.AddSingleton<ModelPricingService>();
 builder.Services.AddSingleton<DispatchService>();
 
 var app = builder.Build();

@@ -25,6 +25,8 @@ public class UserGrain : Grain, IUserGrain
     private readonly IInvalidationService _invalidation;
     private readonly Dictionary<string, long> _activeSlots = new();
     private readonly Dictionary<string, decimal> _holds = new();
+    private int _rpmCount;
+    private long _rpmWindowStart;
 
     public UserGrain(
         [PersistentState("user", "postgres")] IPersistentState<UserState> state,
@@ -93,6 +95,20 @@ public class UserGrain : Grain, IUserGrain
     {
         var available = (decimal)(_state.State.Balance - _state.State.FrozenBalance);
         return Task.FromResult(available >= required);
+    }
+
+    public Task<bool> CheckAndRecordRpm(int limit)
+    {
+        var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        if (now - _rpmWindowStart > 60_000)
+        {
+            _rpmCount = 0;
+            _rpmWindowStart = now;
+        }
+        if (_rpmCount >= limit)
+            return Task.FromResult(false);
+        _rpmCount++;
+        return Task.FromResult(true);
     }
 
     public async Task Create(UserUpsert input)
