@@ -89,4 +89,54 @@ public class GroupGrain : Grain, IGroupGrain
             return model.StartsWith(pattern[..^1], StringComparison.OrdinalIgnoreCase);
         return string.Equals(model, pattern, StringComparison.OrdinalIgnoreCase);
     }
+
+    public async Task Create(GroupUpsert input)
+    {
+        var s = _state.State;
+        s.Id = this.GetPrimaryKeyLong();
+        s.Platform = input.Platform;
+        s.RateMultiplier = input.RateMultiplier;
+        s.IsExclusive = input.IsExclusive;
+        s.DailyLimitUsd = input.DailyLimitUsd;
+        s.ClaudeCodeOnly = input.ClaudeCodeOnly;
+        s.FallbackGroupId = input.FallbackGroupId;
+        s.ModelRoutingEnabled = input.ModelRoutingEnabled;
+        s.ModelRouting = input.ModelRouting;
+        s.MemberAccountIds = input.MemberAccountIds;
+        s.RpmLimit = input.RpmLimit;
+        s.PeakMultiplier = input.PeakMultiplier;
+        s.PeakStartHour = input.PeakStartHour;
+        s.PeakEndHour = input.PeakEndHour;
+        await _state.WriteStateAsync();
+    }
+
+    public async Task Update(GroupUpsert input)
+    {
+        var s = _state.State;
+        s.Platform = input.Platform;
+        s.RateMultiplier = input.RateMultiplier;
+        s.IsExclusive = input.IsExclusive;
+        s.DailyLimitUsd = input.DailyLimitUsd;
+        s.ClaudeCodeOnly = input.ClaudeCodeOnly;
+        s.FallbackGroupId = input.FallbackGroupId;
+        s.ModelRoutingEnabled = input.ModelRoutingEnabled;
+        s.ModelRouting = input.ModelRouting;
+        s.MemberAccountIds = input.MemberAccountIds;
+        s.RpmLimit = input.RpmLimit;
+        s.PeakMultiplier = input.PeakMultiplier;
+        s.PeakStartHour = input.PeakStartHour;
+        s.PeakEndHour = input.PeakEndHour;
+        await _state.WriteStateAsync();
+    }
+
+    public async Task SetStatus(string status)
+    {
+        _state.State.Status = status;
+        await _state.WriteStateAsync();
+    }
+
+    public async Task Delete()
+    {
+        await _state.ClearStateAsync();
+    }
 }

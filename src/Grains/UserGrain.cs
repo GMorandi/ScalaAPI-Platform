@@ -91,4 +91,43 @@ public class UserGrain : Grain, IUserGrain
         var available = (decimal)(_state.State.Balance - _state.State.FrozenBalance);
         return Task.FromResult(available >= required);
     }
+
+    public async Task Create(UserUpsert input)
+    {
+        var s = _state.State;
+        s.Id = this.GetPrimaryKeyLong();
+        s.Role = input.Role;
+        s.Balance = input.Balance;
+        s.Concurrency = input.Concurrency;
+        s.RpmLimit = input.RpmLimit;
+        s.AllowedGroups = input.AllowedGroups;
+        await _state.WriteStateAsync();
+    }
+
+    public async Task Update(UserUpsert input)
+    {
+        var s = _state.State;
+        s.Role = input.Role;
+        s.Concurrency = input.Concurrency;
+        s.RpmLimit = input.RpmLimit;
+        s.AllowedGroups = input.AllowedGroups;
+        await _state.WriteStateAsync();
+    }
+
+    public async Task SetStatus(string status)
+    {
+        _state.State.Status = status;
+        await _state.WriteStateAsync();
+    }
+
+    public async Task AdjustBalance(double delta)
+    {
+        _state.State.Balance += delta;
+        await _state.WriteStateAsync();
+    }
+
+    public async Task Delete()
+    {
+        await _state.ClearStateAsync();
+    }
 }

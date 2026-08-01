@@ -26,9 +26,18 @@ public record GroupProjection(
     double RateMultiplier, double? DailyLimitUsd, bool ClaudeCodeOnly,
     long? FallbackGroupId, bool ModelRoutingEnabled);
 
+public record ApiKeyUpsert(
+    long UserId, long GroupId, double Quota,
+    long? ExpiresAt, string[] IpWhitelist, string[] IpBlacklist,
+    double RateLimit5h, double RateLimit1d, double RateLimit7d);
+
 public interface IApiKeyGrain : IGrainWithStringKey
 {
     Task<AuthResult> Validate(AuthRequest req);
     Task<long> GetVersion();
     Task AddUsage(decimal usd);
+
+    Task Create(ApiKeyUpsert input);
+    Task Update(ApiKeyUpsert input);
+    Task Revoke();
 }

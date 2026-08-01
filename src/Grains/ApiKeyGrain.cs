@@ -72,4 +72,43 @@ public class ApiKeyGrain : Grain, IApiKeyGrain
         _state.State.Version++;
         await _state.WriteStateAsync();
     }
+
+    public async Task Create(ApiKeyUpsert input)
+    {
+        var s = _state.State;
+        s.UserId = input.UserId;
+        s.GroupId = input.GroupId;
+        s.Quota = input.Quota;
+        s.ExpiresAt = input.ExpiresAt;
+        s.IpWhitelist = input.IpWhitelist;
+        s.IpBlacklist = input.IpBlacklist;
+        s.RateLimit5h = input.RateLimit5h;
+        s.RateLimit1d = input.RateLimit1d;
+        s.RateLimit7d = input.RateLimit7d;
+        s.Version = 1;
+        await _state.WriteStateAsync();
+    }
+
+    public async Task Update(ApiKeyUpsert input)
+    {
+        var s = _state.State;
+        s.UserId = input.UserId;
+        s.GroupId = input.GroupId;
+        s.Quota = input.Quota;
+        s.ExpiresAt = input.ExpiresAt;
+        s.IpWhitelist = input.IpWhitelist;
+        s.IpBlacklist = input.IpBlacklist;
+        s.RateLimit5h = input.RateLimit5h;
+        s.RateLimit1d = input.RateLimit1d;
+        s.RateLimit7d = input.RateLimit7d;
+        s.Version++;
+        await _state.WriteStateAsync();
+    }
+
+    public async Task Revoke()
+    {
+        _state.State.Status = "revoked";
+        _state.State.Version++;
+        await _state.WriteStateAsync();
+    }
 }

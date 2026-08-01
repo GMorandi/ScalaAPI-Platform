@@ -11,6 +11,13 @@ public record ModelRoute(string Pattern, long[] AccountIds);
 public record CompositeRouteDecision(
     string TargetPlatform, string UpstreamModel, string Endpoint);
 
+public record GroupUpsert(
+    string Platform, double RateMultiplier, bool IsExclusive,
+    double? DailyLimitUsd, bool ClaudeCodeOnly, long? FallbackGroupId,
+    bool ModelRoutingEnabled, Dictionary<string, long[]> ModelRouting,
+    long[] MemberAccountIds, int RpmLimit,
+    double? PeakMultiplier, int? PeakStartHour, int? PeakEndHour);
+
 public interface IGroupGrain : IGrainWithIntegerKey
 {
     Task<GroupConfig> GetConfig();
@@ -19,4 +26,9 @@ public interface IGroupGrain : IGrainWithIntegerKey
     Task<long[]> GetMemberAccountIds();
     Task<CompositeRouteDecision?> ResolveCompositeRoute(string model, string endpoint);
     Task<double> GetEffectiveMultiplier(DateTimeOffset now);
+
+    Task Create(GroupUpsert input);
+    Task Update(GroupUpsert input);
+    Task SetStatus(string status);
+    Task Delete();
 }

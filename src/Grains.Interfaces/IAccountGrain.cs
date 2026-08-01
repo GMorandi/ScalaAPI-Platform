@@ -16,6 +16,13 @@ public record SlotResult(bool Acquired, string? LeaseToken, int CurrentLoad, int
 
 public record ErrorInfo(int StatusCode, int? RetryAfterMs, string? Message);
 
+public record AccountUpsert(
+    string Name, string Platform, string Type, string BaseUrl,
+    int Priority, int Concurrency, int LoadFactor, double RateMultiplier,
+    bool Schedulable, Dictionary<string, string> Credentials,
+    Dictionary<string, string> ModelMapping, string[] SupportedModels,
+    string? ProxyUrl, bool TlsFingerprint);
+
 public interface IAccountGrain : IGrainWithIntegerKey
 {
     Task<AccountProjection> GetProjection();
@@ -26,4 +33,9 @@ public interface IAccountGrain : IGrainWithIntegerKey
     Task ReportUpstreamError(ErrorInfo error);
     Task ReportSuccess();
     Task RecordRpm();
+
+    Task Create(AccountUpsert input);
+    Task Update(AccountUpsert input);
+    Task SetStatus(string status);
+    Task Delete();
 }
