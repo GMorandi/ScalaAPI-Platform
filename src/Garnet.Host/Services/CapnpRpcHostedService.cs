@@ -3,6 +3,8 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Orleans;
 using Sub2Api.Grains.Interfaces;
+using Sub2Api.Data.Entities;
+using Sub2Api.Data.Infrastructure;
 using System.Buffers.Binary;
 using System.Net.Sockets;
 using Capnp;
@@ -328,14 +330,17 @@ public class DispatchService
     private readonly IClusterClient _cluster;
     private readonly GarnetWriteThroughService _garnet;
     private readonly ModelPricingService _pricing;
+    private readonly BatchWriter<UsageLogEntity> _usageWriter;
     private readonly ILogger<DispatchService> _logger;
 
     public DispatchService(IClusterClient cluster, GarnetWriteThroughService garnet,
-                           ModelPricingService pricing, ILogger<DispatchService> logger)
+                           ModelPricingService pricing, BatchWriter<UsageLogEntity> usageWriter,
+                           ILogger<DispatchService> logger)
     {
         _cluster = cluster;
         _garnet = garnet;
         _pricing = pricing;
+        _usageWriter = usageWriter;
         _logger = logger;
     }
 
@@ -472,6 +477,28 @@ public class DispatchService
 
         var apiKeyGrain = _cluster.GetGrain<IApiKeyGrain>(req.ApiKeyHash);
         await apiKeyGrain.AddUsage(ComputeCost(req));
+
+        _usageWriter.Enqueue(new UsageLogEntity
+        {
+            RequestId = req.RequestId,
+            LeaseToken = req.LeaseToken,
+            ApiKeyId = req.ApiKeyId,
+            UserId = req.UserId,
+            AccountId = req.AccountId,
+            GroupId = req.GroupId,
+            Model = req.Model,
+            UpstreamModel = req.UpstreamModel,
+            InputTokens = req.InputTokens,
+            OutputTokens = req.OutputTokens,
+            CacheCreateTokens = req.CacheCreateTokens,
+            CacheReadTokens = req.CacheReadTokens,
+            CostUsd = ComputeCost(req),
+            DurationMs = req.DurationMs,
+            FirstTokenMs = req.FirstTokenMs,
+            Stream = req.Stream,
+            ClientDisconnect = req.ClientDisconnect,
+            CreatedAt = DateTime.UtcNow,
+        });
     }
 
     public async Task HandleAbort(string leaseToken, string requestId,

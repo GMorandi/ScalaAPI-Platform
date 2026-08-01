@@ -1,4 +1,5 @@
 using Sub2Api.Host.Services;
+using Sub2Api.Data.Infrastructure;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -64,6 +65,9 @@ builder.Services.AddSingleton<Sub2Api.Grains.Interfaces.IInvalidationService>(sp
 // Dispatch service (bridges Cap'n Proto RPC to Orleans grains)
 builder.Services.AddSingleton<ModelPricingService>();
 builder.Services.AddSingleton<DispatchService>();
+
+// SqlSugar data layer (usage_logs batch writer)
+builder.Services.AddSqlSugarData(pgConnection);
 
 var app = builder.Build();
 

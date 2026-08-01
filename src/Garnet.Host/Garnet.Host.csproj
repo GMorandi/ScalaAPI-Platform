@@ -21,6 +21,7 @@
   <ItemGroup>
     <ProjectReference Include="../Grains/Grains.csproj" />
     <ProjectReference Include="../Grains.Interfaces/Grains.Interfaces.csproj" />
+    <ProjectReference Include="../Data/Sub2Api.Data.csproj" />
   </ItemGroup>
 
 </Project>
