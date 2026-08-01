@@ -3,7 +3,9 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Orleans;
 using Sub2Api.Grains.Interfaces;
+using System.Buffers.Binary;
 using System.Net.Sockets;
+using System.Text.Json;
 
 namespace Sub2Api.Host.Services;
 
@@ -42,7 +44,7 @@ public class CapnpRpcHostedService : IHostedService
         _cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         _acceptLoop = AcceptLoopAsync(_cts.Token);
 
-        _logger.LogInformation("Cap'n Proto RPC server listening on {Path}", _socketPath);
+        _logger.LogInformation("Dispatch RPC server listening on {Path}", _socketPath);
         return Task.CompletedTask;
     }
 
@@ -52,7 +54,7 @@ public class CapnpRpcHostedService : IHostedService
         _listener?.Dispose();
         if (_acceptLoop is not null)
             await _acceptLoop.WaitAsync(cancellationToken);
-        _logger.LogInformation("Cap'n Proto RPC server stopped");
+        _logger.LogInformation("Dispatch RPC server stopped");
     }
 
     private async Task AcceptLoopAsync(CancellationToken ct)
@@ -75,22 +77,25 @@ public class CapnpRpcHostedService : IHostedService
     private async Task HandleClientAsync(Socket client, CancellationToken ct)
     {
         using var stream = new NetworkStream(client, ownsSocket: true);
-        _logger.LogDebug("Gateway connected");
+        _logger.LogInformation("Gateway connected");
 
-        // Cap'n Proto RPC message loop:
-        // Read message → decode → dispatch to handler → encode response → write
-        // In production: use Capnp.Rpc library's RpcEngine over this stream
-        var buffer = new byte[64 * 1024];
+        var hdrBuf = new byte[4];
 
         try
         {
             while (!ct.IsCancellationRequested)
             {
-                var n = await stream.ReadAsync(buffer, ct);
-                if (n == 0) break;
+                if (!await ReadExactAsync(stream, hdrBuf, 4, ct)) break;
+                var len = BinaryPrimitives.ReadUInt32LittleEndian(hdrBuf);
+                if (len == 0 || len > 1024 * 1024) break;
 
-                // Decode Cap'n Proto message and route
-                var response = await ProcessMessageAsync(buffer.AsMemory(0, n));
+                var payload = new byte[len];
+                if (!await ReadExactAsync(stream, payload, (int)len, ct)) break;
+
+                var response = await ProcessMessageAsync(payload);
+                var respHdr = new byte[4];
+                BinaryPrimitives.WriteUInt32LittleEndian(respHdr, (uint)response.Length);
+                await stream.WriteAsync(respHdr, ct);
                 await stream.WriteAsync(response, ct);
             }
         }
@@ -100,17 +105,133 @@ public class CapnpRpcHostedService : IHostedService
         }
     }
 
-    private async Task<byte[]> ProcessMessageAsync(ReadOnlyMemory<byte> message)
+    private static async Task<bool> ReadExactAsync(NetworkStream stream, byte[] buf, int count, CancellationToken ct)
     {
-        // In production: Cap'n Proto zero-copy deserialization
-        // Route based on interface + method ID:
-        //   GatewayDispatch.dispatch → HandleDispatch
-        //   GatewayDispatch.reportUsage → HandleReportUsage
-        //   GatewayDispatch.abort → HandleAbort
-        //   InvalidationStream.subscribe → HandleSubscribe (long-lived)
+        int offset = 0;
+        while (offset < count)
+        {
+            var n = await stream.ReadAsync(buf.AsMemory(offset, count - offset), ct);
+            if (n == 0) return false;
+            offset += n;
+        }
+        return true;
+    }
 
-        // Placeholder: return empty ack
-        return [];
+    private async Task<byte[]> ProcessMessageAsync(byte[] payload)
+    {
+        var dispatchService = _services.GetRequiredService<DispatchService>();
+
+        try
+        {
+            using var doc = JsonDocument.Parse(payload);
+            var root = doc.RootElement;
+            var method = root.GetProperty("method").GetString();
+
+            return method switch
+            {
+                "dispatch" => await HandleDispatchAsync(dispatchService, root),
+                "reportUsage" => await HandleReportUsageAsync(dispatchService, root),
+                "abort" => await HandleAbortAsync(dispatchService, root),
+                "reportUpstreamError" => await HandleUpstreamErrorAsync(dispatchService, root),
+                _ => SerializeError("unknown method"),
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "RPC processing error");
+            return SerializeError(ex.Message);
+        }
+    }
+
+    private static async Task<byte[]> HandleDispatchAsync(DispatchService svc, JsonElement root)
+    {
+        var excluded = root.TryGetProperty("excludedAccounts", out var ea)
+            ? ea.EnumerateArray().Select(e => e.GetInt64()).ToArray()
+            : [];
+
+        var req = new DispatchRequest(
+            ApiKeyHash: root.GetProperty("apiKeyHash").GetString() ?? "",
+            RequestedModel: root.GetProperty("requestedModel").GetString() ?? "",
+            SessionHash: root.GetProperty("sessionHash").GetString() ?? "",
+            ClientIp: root.GetProperty("clientIp").GetString() ?? "",
+            RequestId: root.GetProperty("requestId").GetString() ?? "",
+            ExcludedAccountIds: excluded,
+            CachedAuthVersion: root.TryGetProperty("cachedAuthVersion", out var cav) ? cav.GetInt64() : 0,
+            Endpoint: root.TryGetProperty("endpoint", out var ep) ? ep.GetInt32().ToString() : "1",
+            MetadataUserId: root.TryGetProperty("metadataUserId", out var mui) ? mui.GetString() : null);
+
+        var result = await svc.HandleDispatch(req);
+        return JsonSerializer.SerializeToUtf8Bytes(new
+        {
+            outcome = result.Outcome,
+            authVersion = result.AuthVersion,
+            leaseToken = result.Upstream?.LeaseToken ?? "",
+            rejectMessage = result.RejectMessage ?? "",
+            rejectCode = 0,
+            waitTimeoutMs = result.WaitTimeoutMs,
+            accountId = result.Upstream?.AccountId ?? 0,
+            platform = result.Upstream?.Platform ?? "",
+            baseUrl = result.Upstream?.BaseUrl ?? "",
+            upstreamPath = "",
+            mappedModel = result.Upstream?.MappedModel ?? "",
+            proxyUrl = result.Upstream?.ProxyUrl ?? "",
+            userId = result.Upstream?.UserId ?? 0,
+            groupId = result.Upstream?.GroupId ?? 0,
+            rateMultiplier = result.Upstream?.RateMultiplier ?? 1.0,
+            holdHandle = result.Upstream?.HoldHandle ?? "",
+            tlsFingerprint = result.Upstream?.TlsFingerprint ?? false,
+            authHeaders = result.Upstream?.AuthHeaders
+                .Select(kv => new { key = kv.Key, value = kv.Value }).ToArray() ?? [],
+        });
+    }
+
+    private static async Task<byte[]> HandleReportUsageAsync(DispatchService svc, JsonElement root)
+    {
+        var req = new UsageReportRequest(
+            LeaseToken: root.GetProperty("leaseToken").GetString() ?? "",
+            RequestId: root.GetProperty("requestId").GetString() ?? "",
+            ApiKeyHash: "",
+            ApiKeyId: root.TryGetProperty("apiKeyId", out var aki) ? aki.GetInt64() : 0,
+            UserId: root.TryGetProperty("userId", out var ui) ? ui.GetInt64() : 0,
+            AccountId: root.TryGetProperty("accountId", out var ai) ? ai.GetInt64() : 0,
+            GroupId: root.TryGetProperty("groupId", out var gi) ? gi.GetInt64() : 0,
+            Model: root.TryGetProperty("model", out var m) ? m.GetString() ?? "" : "",
+            UpstreamModel: root.TryGetProperty("upstreamModel", out var um) ? um.GetString() ?? "" : "",
+            InputTokens: root.TryGetProperty("inputTokens", out var it) ? it.GetInt32() : 0,
+            OutputTokens: root.TryGetProperty("outputTokens", out var ot) ? ot.GetInt32() : 0,
+            CacheCreateTokens: root.TryGetProperty("cacheCreateTokens", out var cct) ? cct.GetInt32() : 0,
+            CacheReadTokens: root.TryGetProperty("cacheReadTokens", out var crt) ? crt.GetInt32() : 0,
+            DurationMs: root.TryGetProperty("durationMs", out var dm) ? dm.GetInt32() : 0,
+            FirstTokenMs: root.TryGetProperty("firstTokenMs", out var ftm) ? ftm.GetInt32() : 0,
+            Stream: root.TryGetProperty("stream", out var s) && s.GetBoolean(),
+            ClientDisconnect: root.TryGetProperty("clientDisconnect", out var cd) && cd.GetBoolean(),
+            RateMultiplier: 1.0,
+            HoldHandle: null);
+
+        await svc.HandleReportUsage(req);
+        return "{}"u8.ToArray();
+    }
+
+    private static async Task<byte[]> HandleAbortAsync(DispatchService svc, JsonElement root)
+    {
+        var leaseToken = root.GetProperty("leaseToken").GetString() ?? "";
+        var reason = root.TryGetProperty("reason", out var r) ? r.GetString() ?? "" : "";
+        await svc.HandleAbort(leaseToken, reason, 0, 0);
+        return "{}"u8.ToArray();
+    }
+
+    private static async Task<byte[]> HandleUpstreamErrorAsync(DispatchService svc, JsonElement root)
+    {
+        var accountId = root.TryGetProperty("accountId", out var ai) ? ai.GetInt64() : 0;
+        var statusCode = root.TryGetProperty("statusCode", out var sc) ? sc.GetInt32() : 0;
+        var retryAfterMs = root.TryGetProperty("retryAfterMs", out var ram) ? ram.GetInt32() : 0;
+        await svc.HandleUpstreamError(accountId, statusCode, retryAfterMs > 0 ? retryAfterMs : null);
+        return "{}"u8.ToArray();
+    }
+
+    private static byte[] SerializeError(string message)
+    {
+        return JsonSerializer.SerializeToUtf8Bytes(new { outcome = "rejected", rejectMessage = message });
     }
 }
 
