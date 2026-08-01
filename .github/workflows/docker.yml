@@ -1,0 +1,32 @@
+name: Docker Publish
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push platform
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: src/Garnet.Host/Dockerfile
+          push: true
+          tags: |
+            ghcr.io/gmorandi/subdata-platform:${{ github.ref_name }}
+            ghcr.io/gmorandi/subdata-platform:latest
