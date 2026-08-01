@@ -9,12 +9,14 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.Orleans.Client" Version="10.2.2" />
     <PackageReference Include="Microsoft.Orleans.Clustering.AdoNet" Version="10.2.2" />
-    <PackageReference Include="Npgsql" Version="9.0.3" />
+    <PackageReference Include="Npgsql" Version="10.0.3" />
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.0" />
+    <PackageReference Include="SqlSugarCore" Version="5.1.4.183" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="../Grains.Interfaces/Grains.Interfaces.csproj" />
+    <ProjectReference Include="../Data/Sub2Api.Data.csproj" />
   </ItemGroup>
 
 </Project>

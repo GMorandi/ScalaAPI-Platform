@@ -1,8 +1,10 @@
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Orleans.Configuration;
+using SqlSugar;
 using Sub2Api.Admin.Auth;
 using Sub2Api.Admin.Data;
 using Sub2Api.Admin.Endpoints;
+using Sub2Api.Data.Repositories;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -25,7 +27,16 @@ builder.UseOrleansClient(client =>
 
 var jwtService = new JwtService(builder.Configuration);
 builder.Services.AddSingleton(jwtService);
-builder.Services.AddSingleton(new ListingRepository(pgConnection));
+
+builder.Services.AddScoped<ISqlSugarClient>(_ => new SqlSugarClient(new ConnectionConfig
+{
+    ConnectionString = pgConnection,
+    DbType = DbType.PostgreSQL,
+    IsAutoCloseConnection = true,
+    InitKeyType = InitKeyType.Attribute,
+}));
+builder.Services.AddScoped<ListingRepository>();
+builder.Services.AddScoped<IUsageLogRepository, UsageLogRepository>();
 
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(opts => opts.TokenValidationParameters = jwtService.GetValidationParameters());
@@ -51,5 +62,6 @@ app.MapGroupEndpoints();
 app.MapUserEndpoints();
 app.MapApiKeyEndpoints();
 app.MapConfigEndpoints();
+app.MapUsageEndpoints();
 
 app.Run();
