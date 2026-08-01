@@ -1,0 +1,7 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Garnet.Host/Garnet.Host.csproj" />
+    <Project Path="src/Grains.Interfaces/Grains.Interfaces.csproj" />
+    <Project Path="src/Grains/Grains.csproj" />
+  </Folder>
+</Solution>
