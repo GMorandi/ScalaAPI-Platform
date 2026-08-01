@@ -1,5 +1,6 @@
 namespace Sub2Api.Grains.Interfaces;
 
+[GenerateSerializer]
 public record UsageEventData(
     string LeaseToken, string RequestId, long ApiKeyId, long UserId,
     long AccountId, long GroupId, string Model, string UpstreamModel,

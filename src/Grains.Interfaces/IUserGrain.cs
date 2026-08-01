@@ -1,7 +1,9 @@
 namespace Sub2Api.Grains.Interfaces;
 
+[GenerateSerializer]
 public record HoldHandle(string Id, decimal Amount);
 
+[GenerateSerializer]
 public record UserUpsert(
     string Role, double Balance, int Concurrency,
     int RpmLimit, long[] AllowedGroups);

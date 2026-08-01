@@ -1,5 +1,6 @@
 namespace Sub2Api.Grains.Interfaces;
 
+[GenerateSerializer]
 public record AccountProjection(
     long Id, string Name, string Platform, int Priority,
     int Concurrency, int CurrentLoad, bool Schedulable,
@@ -7,15 +8,19 @@ public record AccountProjection(
     long? RateLimitResetAt, long? OverloadUntil,
     long? TempUnschedulableUntil, string[] SupportedModels);
 
+[GenerateSerializer]
 public record AccountCredentials(
     long Id, string Platform, string Type, string BaseUrl,
     Dictionary<string, string> AuthHeaders, string? ProxyUrl,
     bool TlsFingerprint, Dictionary<string, string> ModelMapping);
 
+[GenerateSerializer]
 public record SlotResult(bool Acquired, string? LeaseToken, int CurrentLoad, int MaxConcurrency);
 
+[GenerateSerializer]
 public record ErrorInfo(int StatusCode, int? RetryAfterMs, string? Message);
 
+[GenerateSerializer]
 public record AccountUpsert(
     string Name, string Platform, string Type, string BaseUrl,
     int Priority, int Concurrency, int LoadFactor, double RateMultiplier,

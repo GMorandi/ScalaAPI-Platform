@@ -28,6 +28,7 @@ builder.UseOrleans(silo =>
         opts.Invariant = "Npgsql";
     });
 
+    silo.AddMemoryGrainStorage("PubSubStore");
     silo.AddMemoryStreams("InvalidationStream");
 
     silo.Configure<Orleans.Configuration.ClusterOptions>(opts =>

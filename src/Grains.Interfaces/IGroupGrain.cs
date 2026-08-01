@@ -1,16 +1,20 @@
 namespace Sub2Api.Grains.Interfaces;
 
+[GenerateSerializer]
 public record GroupConfig(
     long Id, string Platform, double RateMultiplier,
     bool ModelRoutingEnabled, bool ClaudeCodeOnly,
     long? FallbackGroupId, int RpmLimit,
     double? PeakMultiplier, int? PeakStartHour, int? PeakEndHour);
 
+[GenerateSerializer]
 public record ModelRoute(string Pattern, long[] AccountIds);
 
+[GenerateSerializer]
 public record CompositeRouteDecision(
     string TargetPlatform, string UpstreamModel, string Endpoint);
 
+[GenerateSerializer]
 public record GroupUpsert(
     string Platform, double RateMultiplier, bool IsExclusive,
     double? DailyLimitUsd, bool ClaudeCodeOnly, long? FallbackGroupId,

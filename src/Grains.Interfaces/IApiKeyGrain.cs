@@ -1,7 +1,9 @@
 namespace Sub2Api.Grains.Interfaces;
 
+[GenerateSerializer]
 public record AuthRequest(string ClientIp, string RequestId);
 
+[GenerateSerializer]
 public record AuthResult(
     long ApiKeyId,
     long UserId,
@@ -17,15 +19,18 @@ public record AuthResult(
     UserProjection User,
     GroupProjection Group);
 
+[GenerateSerializer]
 public record UserProjection(
     long Id, string Status, string Role, double Balance,
     int Concurrency, long[] AllowedGroups, int RpmLimit);
 
+[GenerateSerializer]
 public record GroupProjection(
     long Id, string Platform, bool IsExclusive, string Status,
     double RateMultiplier, double? DailyLimitUsd, bool ClaudeCodeOnly,
     long? FallbackGroupId, bool ModelRoutingEnabled);
 
+[GenerateSerializer]
 public record ApiKeyUpsert(
     long UserId, long GroupId, double Quota,
     long? ExpiresAt, string[] IpWhitelist, string[] IpBlacklist,

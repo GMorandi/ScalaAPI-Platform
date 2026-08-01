@@ -8,7 +8,7 @@ public class ListingRepository(string connectionString)
     {
         await using var conn = new NpgsqlConnection(connectionString);
         await using var cmd = new NpgsqlCommand(
-            """SELECT "GrainIdN0" FROM "OrleansStorage" WHERE "GrainTypeString" = @type AND "GrainIdN0" IS NOT NULL ORDER BY "GrainIdN0" LIMIT @size OFFSET @offset""",
+            """SELECT grainidn1 FROM orleansstorage WHERE graintypestring = @type AND grainidn1 IS NOT NULL AND payloadbinary IS NOT NULL ORDER BY grainidn1 LIMIT @size OFFSET @offset""",
             conn);
         cmd.Parameters.AddWithValue("type", grainType);
         cmd.Parameters.AddWithValue("size", size);
@@ -26,7 +26,7 @@ public class ListingRepository(string connectionString)
     {
         await using var conn = new NpgsqlConnection(connectionString);
         await using var cmd = new NpgsqlCommand(
-            """SELECT "GrainIdExtensionString" FROM "OrleansStorage" WHERE "GrainTypeString" = @type AND "GrainIdExtensionString" IS NOT NULL ORDER BY "GrainIdExtensionString" LIMIT @size OFFSET @offset""",
+            """SELECT grainidextensionstring FROM orleansstorage WHERE graintypestring = @type AND grainidextensionstring IS NOT NULL AND payloadbinary IS NOT NULL ORDER BY grainidextensionstring LIMIT @size OFFSET @offset""",
             conn);
         cmd.Parameters.AddWithValue("type", grainType);
         cmd.Parameters.AddWithValue("size", size);
@@ -44,7 +44,7 @@ public class ListingRepository(string connectionString)
     {
         await using var conn = new NpgsqlConnection(connectionString);
         await using var cmd = new NpgsqlCommand(
-            """SELECT COUNT(*) FROM "OrleansStorage" WHERE "GrainTypeString" = @type""",
+            """SELECT COUNT(*) FROM orleansstorage WHERE graintypestring = @type AND payloadbinary IS NOT NULL""",
             conn);
         cmd.Parameters.AddWithValue("type", grainType);
 
