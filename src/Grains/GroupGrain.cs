@@ -67,7 +67,39 @@ public class GroupGrain : Grain, IGroupGrain
 
     public Task<CompositeRouteDecision?> ResolveCompositeRoute(string model, string endpoint)
     {
-        return Task.FromResult<CompositeRouteDecision?>(null);
+        var s = _state.State;
+        if (string.IsNullOrEmpty(s.Platform))
+            return Task.FromResult<CompositeRouteDecision?>(null);
+
+        var upstreamModel = model;
+        if (s.ModelRoutingEnabled)
+        {
+            foreach (var (pattern, _) in s.ModelRouting)
+            {
+                if (MatchesPattern(model, pattern))
+                {
+                    var mapped = pattern.Contains(':')
+                        ? pattern[(pattern.IndexOf(':') + 1)..]
+                        : model;
+                    upstreamModel = mapped;
+                    break;
+                }
+            }
+        }
+
+        var targetEndpoint = endpoint;
+        if (string.IsNullOrEmpty(targetEndpoint))
+        {
+            targetEndpoint = s.Platform switch
+            {
+                "anthropic" or "claude" => "/v1/messages",
+                "gemini" or "google" => $"/v1beta/models/{upstreamModel}:generateContent",
+                _ => "/v1/chat/completions"
+            };
+        }
+
+        return Task.FromResult<CompositeRouteDecision?>(
+            new CompositeRouteDecision(s.Platform, upstreamModel, targetEndpoint));
     }
 
     public Task<double> GetEffectiveMultiplier(DateTimeOffset now)
