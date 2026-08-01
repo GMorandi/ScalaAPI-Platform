@@ -44,8 +44,11 @@ builder.UseOrleans(silo =>
 });
 
 // Embedded Garnet (in-memory hot cache, RESP on UDS for C++ gateway reads)
-builder.Services.AddSingleton<IGarnetService>(new EmbeddedGarnetService(garnetSocket));
-builder.Services.AddHostedService(sp => (EmbeddedGarnetService)sp.GetRequiredService<IGarnetService>());
+builder.Services.AddSingleton<EmbeddedGarnetService>(sp =>
+    new EmbeddedGarnetService(garnetSocket,
+        sp.GetRequiredService<ILogger<EmbeddedGarnetService>>()));
+builder.Services.AddSingleton<IGarnetService>(sp => sp.GetRequiredService<EmbeddedGarnetService>());
+builder.Services.AddHostedService(sp => sp.GetRequiredService<EmbeddedGarnetService>());
 
 // Cap'n Proto RPC Server (dispatch service)
 builder.Services.AddHostedService<CapnpRpcHostedService>();
