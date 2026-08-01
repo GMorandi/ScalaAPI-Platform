@@ -379,10 +379,31 @@ public class DispatchService
             return DispatchResult.Rejected("rpmExceeded", "User RPM limit reached");
         }
 
+        var groupGrain = _cluster.GetGrain<IGroupGrain>(auth.GroupId);
+        var groupProj = await groupGrain.GetAuthProjection();
+
+        if (groupProj.DailyLimitUsd.HasValue)
+        {
+            var dailySpend = await groupGrain.GetDailySpend();
+            if (dailySpend >= groupProj.DailyLimitUsd.Value)
+            {
+                await userGrain.ReleaseSlot(req.RequestId);
+                return DispatchResult.Rejected("quotaExhausted", "Group daily limit reached");
+            }
+        }
+
         var schedulerGrain = _cluster.GetGrain<ISchedulerGrain>(auth.GroupId);
         var selection = await schedulerGrain.Select(new SelectRequest(
             req.RequestedModel, req.SessionHash, req.RequestId,
             req.MetadataUserId, req.ExcludedAccountIds, req.Endpoint));
+
+        if (selection.Outcome == SelectionOutcome.Rejected && groupProj.FallbackGroupId.HasValue)
+        {
+            var fallbackScheduler = _cluster.GetGrain<ISchedulerGrain>(groupProj.FallbackGroupId.Value);
+            selection = await fallbackScheduler.Select(new SelectRequest(
+                req.RequestedModel, req.SessionHash, req.RequestId,
+                req.MetadataUserId, req.ExcludedAccountIds, req.Endpoint));
+        }
 
         if (selection.Outcome == SelectionOutcome.Rejected)
         {
@@ -436,6 +457,9 @@ public class DispatchService
             var cost = ComputeCost(req);
             await userGrain.CommitUsage(
                 new HoldHandle(req.HoldHandle, 1.00m), cost);
+
+            var groupGrain = _cluster.GetGrain<IGroupGrain>(req.GroupId);
+            await groupGrain.RecordSpend((double)cost);
         }
 
         var usageGrain = _cluster.GetGrain<IUsageGrain>($"u:{req.UserId}");

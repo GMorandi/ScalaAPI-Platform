@@ -30,6 +30,8 @@ public interface IGroupGrain : IGrainWithIntegerKey
     Task<long[]> GetMemberAccountIds();
     Task<CompositeRouteDecision?> ResolveCompositeRoute(string model, string endpoint);
     Task<double> GetEffectiveMultiplier(DateTimeOffset now);
+    Task<double> GetDailySpend();
+    Task RecordSpend(double amount);
 
     Task Create(GroupUpsert input);
     Task Update(GroupUpsert input);

@@ -22,6 +22,8 @@ public class GroupState
     [Id(12)] public double? PeakMultiplier { get; set; }
     [Id(13)] public int? PeakStartHour { get; set; }
     [Id(14)] public int? PeakEndHour { get; set; }
+    [Id(15)] public double DailySpendUsd { get; set; }
+    [Id(16)] public string DailySpendDate { get; set; } = "";
 }
 
 public class GroupGrain : Grain, IGroupGrain
@@ -112,6 +114,28 @@ public class GroupGrain : Grain, IGroupGrain
                 return Task.FromResult(s.PeakMultiplier.Value);
         }
         return Task.FromResult(s.RateMultiplier);
+    }
+
+    public Task<double> GetDailySpend()
+    {
+        var s = _state.State;
+        var today = DateTimeOffset.UtcNow.ToString("yyyy-MM-dd");
+        if (s.DailySpendDate != today)
+            return Task.FromResult(0.0);
+        return Task.FromResult(s.DailySpendUsd);
+    }
+
+    public async Task RecordSpend(double amount)
+    {
+        var s = _state.State;
+        var today = DateTimeOffset.UtcNow.ToString("yyyy-MM-dd");
+        if (s.DailySpendDate != today)
+        {
+            s.DailySpendDate = today;
+            s.DailySpendUsd = 0;
+        }
+        s.DailySpendUsd += amount;
+        await _state.WriteStateAsync();
     }
 
     private static bool MatchesPattern(string model, string pattern)
