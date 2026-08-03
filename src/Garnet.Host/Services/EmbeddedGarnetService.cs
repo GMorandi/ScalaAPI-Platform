@@ -9,6 +9,13 @@ public interface IGarnetService
     void Set(string key, string value, TimeSpan? ttl = null);
     string? Get(string key);
     void Delete(string key);
+    long Increment(string key)
+    {
+        var current = long.TryParse(Get(key), out var value) ? value : 0;
+        var next = current + 1;
+        Set(key, next.ToString());
+        return next;
+    }
 }
 
 public class EmbeddedGarnetService : IGarnetService, Microsoft.Extensions.Hosting.IHostedService
@@ -171,6 +178,12 @@ public class EmbeddedGarnetService : IGarnetService, Microsoft.Extensions.Hostin
                 return $":{deleted}\r\n";
             }
 
+            case "INCR" when args.Count >= 2:
+            {
+                var value = Increment(args[1]);
+                return $":{value}\r\n";
+            }
+
             case "MGET" when args.Count >= 2:
             {
                 var sb = new StringBuilder();
@@ -215,5 +228,18 @@ public class EmbeddedGarnetService : IGarnetService, Microsoft.Extensions.Hostin
     public void Delete(string key)
     {
         _store.TryRemove(key, out _);
+    }
+
+    public long Increment(string key)
+    {
+        while (true)
+        {
+            var currentText = Get(key) ?? "0";
+            var current = long.TryParse(currentText, out var parsed) ? parsed : 0;
+            var next = current + 1;
+            if (_store.TryUpdate(key, (next.ToString(), null), (currentText, null)) ||
+                _store.TryAdd(key, (next.ToString(), null)))
+                return next;
+        }
     }
 }

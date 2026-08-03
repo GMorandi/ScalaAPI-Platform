@@ -41,8 +41,9 @@ public interface IApiKeyGrain : IGrainWithStringKey
     Task<AuthResult> Validate(AuthRequest req);
     Task<long> GetVersion();
     Task AddUsage(decimal usd);
+    Task AddLeaseUsage(string leaseToken, decimal usd);
 
-    Task Create(ApiKeyUpsert input);
+    Task Create(ApiKeyUpsert input, long apiKeyId = 0);
     Task Update(ApiKeyUpsert input);
     Task Revoke();
 }

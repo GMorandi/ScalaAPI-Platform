@@ -6,11 +6,13 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <RootNamespace>Sub2Api.Platform.Benchmarks</RootNamespace>
+    <!-- Orleans uses Roslyn 5 analyzers while BenchmarkDotNet pins its compiler to 4.14. -->
+    <NoWarn>$(NoWarn);NU1608</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="BenchmarkDotNet" Version="0.14.*" />
-    <PackageReference Include="NSubstitute" Version="5.*" />
+    <PackageReference Include="BenchmarkDotNet" Version="0.15.8" />
+    <PackageReference Include="NSubstitute" Version="5.3.0" />
     <PackageReference Include="Microsoft.Orleans.TestingHost" Version="10.2.2" />
   </ItemGroup>
 

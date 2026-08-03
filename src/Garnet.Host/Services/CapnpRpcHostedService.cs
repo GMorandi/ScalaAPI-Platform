@@ -3,10 +3,10 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Orleans;
 using Sub2Api.Grains.Interfaces;
-using Sub2Api.Data.Entities;
-using Sub2Api.Data.Infrastructure;
+using Sub2Api.Data.Migration;
 using System.Buffers.Binary;
 using System.Net.Sockets;
+using System.Text.Json;
 using Capnp;
 using CapnpGen;
 
@@ -20,6 +20,8 @@ public class CapnpRpcHostedService : IHostedService
     private Socket? _listener;
     private CancellationTokenSource? _cts;
     private Task? _acceptLoop;
+
+    public bool IsListening => _listener is not null;
 
     public CapnpRpcHostedService(
         ILogger<CapnpRpcHostedService> logger,
@@ -55,6 +57,7 @@ public class CapnpRpcHostedService : IHostedService
     {
         _cts?.Cancel();
         _listener?.Dispose();
+        _listener = null;
         if (_acceptLoop is not null)
             await _acceptLoop.WaitAsync(cancellationToken);
         _logger.LogInformation("Dispatch RPC server stopped");
@@ -141,7 +144,9 @@ public class CapnpRpcHostedService : IHostedService
         catch (Exception ex)
         {
             _logger.LogError(ex, "RPC processing error");
-            return SerializeRejectResponse(ex.Message);
+            return method is 2 or 3 or 4
+                ? SerializeWriteAck((byte)(0x80 + method), WriteAck.Error("platform_error", retryable: true))
+                : SerializeRejectResponse("Platform dispatch failed");
         }
     }
 
@@ -153,10 +158,8 @@ public class CapnpRpcHostedService : IHostedService
         return DeserializerState.CreateRoot(frame);
     }
 
-    private static byte[] SerializeToFrame(byte responseMethod, SerializerState state)
+    private static byte[] SerializeToFrame(byte responseMethod, WireFrame frame)
     {
-        DeserializerState dState = state;
-        var frame = new WireFrame(dState.Segments);
         using var ms = new MemoryStream();
         ms.WriteByte(responseMethod);
         var pump = new FramePump(ms);
@@ -168,7 +171,11 @@ public class CapnpRpcHostedService : IHostedService
     private static async Task<byte[]> HandleDispatchAsync(DispatchService svc, ReadOnlyMemory<byte> capnpData)
     {
         var state = DeserializeRoot(capnpData);
-        var capnpReq = CapnpSerializable.Create<CapnpGen.DispatchRequest>(state);
+        var capnpReq = CapnpSerializable.Create<CapnpGen.DispatchRequest>(state)
+            ?? throw new InvalidDataException("Missing dispatch request root");
+        if (capnpReq.ProtocolVersion != 2)
+            return BuildDispatchResponse(DispatchResult.Rejected(
+                "invalidKey", "Unsupported dispatch protocol version"));
 
         var req = new DispatchRequest(
             ApiKeyHash: capnpReq.ApiKeyHash ?? "",
@@ -178,8 +185,18 @@ public class CapnpRpcHostedService : IHostedService
             RequestId: capnpReq.RequestId ?? "",
             ExcludedAccountIds: capnpReq.ExcludedAccounts?.ToArray() ?? [],
             CachedAuthVersion: capnpReq.CachedAuthVersion,
-            Endpoint: ((int)capnpReq.Endpoint).ToString(),
-            MetadataUserId: capnpReq.MetadataUserId);
+            Endpoint: capnpReq.Endpoint switch
+            {
+                CapnpGen.DispatchRequest.EndpointKind.messages => "messages",
+                CapnpGen.DispatchRequest.EndpointKind.chatCompletions => "chat_completions",
+                CapnpGen.DispatchRequest.EndpointKind.responses => "responses",
+                CapnpGen.DispatchRequest.EndpointKind.gemini => "gemini",
+                CapnpGen.DispatchRequest.EndpointKind.embeddings => "embeddings",
+                CapnpGen.DispatchRequest.EndpointKind.images => "images",
+                _ => "unknown",
+            },
+            MetadataUserId: capnpReq.MetadataUserId,
+            Stream: capnpReq.Stream);
 
         var result = await svc.HandleDispatch(req);
         return BuildDispatchResponse(result);
@@ -187,7 +204,8 @@ public class CapnpRpcHostedService : IHostedService
 
     private static byte[] BuildDispatchResponse(DispatchResult result)
     {
-        var writer = SerializerState.CreateForRpc<CapnpGen.DispatchResponse.WRITER>();
+        var message = MessageBuilder.Create();
+        var writer = message.BuildRoot<CapnpGen.DispatchResponse.WRITER>();
 
         writer.TheOutcome = result.Outcome switch
         {
@@ -213,11 +231,17 @@ public class CapnpRpcHostedService : IHostedService
         }
         else if (result.Outcome == "ok" && result.Upstream is not null)
         {
+            var auth = writer.Auth;
+            auth.ApiKeyId = result.Upstream.ApiKeyId;
+            auth.UserId = result.Upstream.UserId;
+            auth.GroupId = result.Upstream.GroupId;
+            auth.Version = result.Upstream.AuthVersion;
+
             var up = writer.Upstream;
             up.AccountId = result.Upstream.AccountId;
             up.Platform = result.Upstream.Platform;
             up.BaseUrl = result.Upstream.BaseUrl;
-            up.UpstreamPath = "";
+            up.UpstreamPath = result.Upstream.UpstreamPath;
             up.MappedModel = result.Upstream.MappedModel;
             up.UserId = result.Upstream.UserId;
             up.GroupId = result.Upstream.GroupId;
@@ -243,7 +267,8 @@ public class CapnpRpcHostedService : IHostedService
             }
         }
 
-        return SerializeToFrame(0x81, writer);
+        writer.ProtocolVersion = 2;
+        return SerializeToFrame(0x81, message.Frame);
     }
 
     private static CapnpGen.RejectInfo.RejectCode MapRejectCode(string? code) => code switch
@@ -262,52 +287,45 @@ public class CapnpRpcHostedService : IHostedService
     private static async Task<byte[]> HandleReportUsageAsync(DispatchService svc, ReadOnlyMemory<byte> capnpData)
     {
         var state = DeserializeRoot(capnpData);
-        var report = CapnpSerializable.Create<CapnpGen.UsageReport>(state);
+        var report = CapnpSerializable.Create<CapnpGen.UsageReport>(state)
+            ?? throw new InvalidDataException("Missing usage report root");
 
         var req = new UsageReportRequest(
             LeaseToken: report.LeaseToken ?? "",
-            RequestId: report.RequestId ?? "",
-            ApiKeyHash: "",
-            ApiKeyId: report.ApiKeyId,
-            UserId: report.UserId,
-            AccountId: report.AccountId,
-            GroupId: report.GroupId,
-            Model: report.Model ?? "",
-            UpstreamModel: report.UpstreamModel ?? "",
             InputTokens: report.InputTokens,
             OutputTokens: report.OutputTokens,
             CacheCreateTokens: report.CacheCreateTokens,
             CacheReadTokens: report.CacheReadTokens,
             DurationMs: report.DurationMs,
             FirstTokenMs: report.FirstTokenMs,
+            StatusCode: report.StatusCode,
             Stream: report.Stream,
-            ClientDisconnect: report.ClientDisconnect,
-            RateMultiplier: 1.0,
-            HoldHandle: null);
+            ClientDisconnect: report.ClientDisconnect);
 
-        await svc.HandleReportUsage(req);
-        return SerializeEmptyResponse(0x82);
+        var ack = await svc.HandleReportUsage(req);
+        return SerializeWriteAck(0x82, ack);
     }
 
     private static async Task<byte[]> HandleAbortAsync(DispatchService svc, ReadOnlyMemory<byte> capnpData)
     {
         var state = DeserializeRoot(capnpData);
-        var reader = CapnpGen.GatewayDispatch.Params_Abort.READER.create(state);
+        var reader = CapnpGen.AbortRequest.READER.create(state);
         var leaseToken = reader.LeaseToken ?? "";
         var reason = reader.Reason ?? "";
 
-        await svc.HandleAbort(leaseToken, reason, 0, 0);
-        return SerializeEmptyResponse(0x83);
+        var ack = await svc.HandleAbort(leaseToken, reason);
+        return SerializeWriteAck(0x83, ack);
     }
 
     private static async Task<byte[]> HandleUpstreamErrorAsync(DispatchService svc, ReadOnlyMemory<byte> capnpData)
     {
         var state = DeserializeRoot(capnpData);
-        var report = CapnpSerializable.Create<CapnpGen.ErrorReport>(state);
+        var report = CapnpSerializable.Create<CapnpGen.ErrorReport>(state)
+            ?? throw new InvalidDataException("Missing error report root");
 
         await svc.HandleUpstreamError(report.AccountId, report.StatusCode,
             report.RetryAfterMs > 0 ? report.RetryAfterMs : null);
-        return SerializeEmptyResponse(0x84);
+        return SerializeWriteAck(0x84, WriteAck.Ok());
     }
 
     private static byte[] SerializeEmptyResponse(byte method)
@@ -315,50 +333,87 @@ public class CapnpRpcHostedService : IHostedService
         return [method];
     }
 
+    private static byte[] SerializeWriteAck(byte method, WriteAck ack)
+    {
+        var message = MessageBuilder.Create();
+        var writer = message.BuildRoot<CapnpGen.WriteAck.WRITER>();
+        writer.Accepted = ack.Accepted;
+        writer.Duplicate = ack.Duplicate;
+        writer.Retryable = ack.Retryable;
+        writer.ErrorCode = ack.ErrorCode;
+        return SerializeToFrame(method, message.Frame);
+    }
+
     private static byte[] SerializeRejectResponse(string message)
     {
-        var writer = SerializerState.CreateForRpc<CapnpGen.DispatchResponse.WRITER>();
+        var response = MessageBuilder.Create();
+        var writer = response.BuildRoot<CapnpGen.DispatchResponse.WRITER>();
         writer.TheOutcome = CapnpGen.DispatchResponse.Outcome.rejected;
         writer.Reject.Message = message;
         writer.Reject.Code = CapnpGen.RejectInfo.RejectCode.invalidKey;
-        return SerializeToFrame(0x81, writer);
+        writer.ProtocolVersion = 2;
+        return SerializeToFrame(0x81, response.Frame);
     }
 }
 
 public class DispatchService
 {
     private readonly IClusterClient _cluster;
+    private readonly RequestLeaseStore _leases;
+    private readonly AuthProjectionCache _authCache;
     private readonly GarnetWriteThroughService _garnet;
-    private readonly ModelPricingService _pricing;
-    private readonly BatchWriter<UsageLogEntity> _usageWriter;
     private readonly ILogger<DispatchService> _logger;
+    private readonly MigrationWriteGate _writeGate;
+    private readonly TimeSpan _leaseTtl;
+    private readonly decimal _maxReservationUsd;
 
-    public DispatchService(IClusterClient cluster, GarnetWriteThroughService garnet,
-                           ModelPricingService pricing, BatchWriter<UsageLogEntity> usageWriter,
+    public DispatchService(IClusterClient cluster, RequestLeaseStore leases,
+                           AuthProjectionCache authCache, GarnetWriteThroughService garnet,
+                           MigrationWriteGate writeGate, IConfiguration configuration,
                            ILogger<DispatchService> logger)
     {
         _cluster = cluster;
+        _leases = leases;
+        _authCache = authCache;
         _garnet = garnet;
-        _pricing = pricing;
-        _usageWriter = usageWriter;
+        _writeGate = writeGate;
         _logger = logger;
+        _leaseTtl = TimeSpan.FromSeconds(
+            configuration.GetValue("Dispatch:LeaseTtlSeconds", 360));
+        _maxReservationUsd = Math.Max(0.01m,
+            configuration.GetValue("Dispatch:MaxReservationUsd", 10m));
     }
 
     public async Task<DispatchResult> HandleDispatch(DispatchRequest req)
     {
+        try
+        {
+            await _writeGate.AssertPlatformPrimaryAsync();
+        }
+        catch (MigrationWriteRejectedException ex)
+        {
+            _logger.LogDebug(ex, "Dispatch rejected by migration fence for request {RequestId}", req.RequestId);
+            return DispatchResult.Rejected("migrationFence", "Platform is not the current write primary");
+        }
         var apiKeyGrain = _cluster.GetGrain<IApiKeyGrain>(req.ApiKeyHash);
 
         AuthResult auth;
         try
         {
-            var currentVersion = await apiKeyGrain.GetVersion();
-            if (req.CachedAuthVersion == currentVersion && req.CachedAuthVersion > 0)
+            if (!_authCache.TryGet(req.ApiKeyHash, req.ClientIp, req.CachedAuthVersion, out auth))
             {
                 auth = await apiKeyGrain.Validate(new AuthRequest(req.ClientIp, req.RequestId));
-            }
-            else
-            {
-                auth = await apiKeyGrain.Validate(new AuthRequest(req.ClientIp, req.RequestId));
+                _authCache.Set(req.ApiKeyHash, req.ClientIp, auth);
+                _garnet.WriteAuthSnapshot(req.ApiKeyHash, JsonSerializer.Serialize(new
+                {
+                    version = auth.Version,
+                    api_key_id = auth.ApiKeyId,
+                    user_id = auth.UserId,
+                    group_id = auth.GroupId,
+                    status = auth.Status,
+                    rate_multiplier = auth.RateMultiplier,
+                    rpm_limit = auth.RpmLimit,
+                }));
             }
         }
         catch (Exception ex)
@@ -372,39 +427,45 @@ public class DispatchService
             return DispatchResult.Rejected("noBalance", "Insufficient balance");
         }
 
-        var userSlot = await userGrain.TryAcquireSlot(req.RequestId);
-        if (!userSlot.Acquired)
-        {
-            return DispatchResult.Rejected("concurrencyExceeded", "User concurrency limit reached");
-        }
-
-        if (auth.RpmLimit > 0 && !await userGrain.CheckAndRecordRpm(auth.RpmLimit))
-        {
-            await userGrain.ReleaseSlot(req.RequestId);
-            return DispatchResult.Rejected("rpmExceeded", "User RPM limit reached");
-        }
-
         var groupGrain = _cluster.GetGrain<IGroupGrain>(auth.GroupId);
         var groupProj = await groupGrain.GetAuthProjection();
+        if (!await groupGrain.CheckAndRecordRpm())
+            return DispatchResult.Rejected("rpmExceeded", "Group RPM limit reached");
 
         if (groupProj.DailyLimitUsd.HasValue)
         {
             var dailySpend = await groupGrain.GetDailySpend();
             if (dailySpend >= groupProj.DailyLimitUsd.Value)
             {
-                await userGrain.ReleaseSlot(req.RequestId);
                 return DispatchResult.Rejected("quotaExhausted", "Group daily limit reached");
             }
         }
 
         var schedulerGrain = _cluster.GetGrain<ISchedulerGrain>(auth.GroupId);
+        var selectedGroupId = auth.GroupId;
+        var selectedRateMultiplier = auth.RateMultiplier;
         var selection = await schedulerGrain.Select(new SelectRequest(
             req.RequestedModel, req.SessionHash, req.RequestId,
             req.MetadataUserId, req.ExcludedAccountIds, req.Endpoint));
 
         if (selection.Outcome == SelectionOutcome.Rejected && groupProj.FallbackGroupId.HasValue)
         {
-            var fallbackScheduler = _cluster.GetGrain<ISchedulerGrain>(groupProj.FallbackGroupId.Value);
+            selectedGroupId = groupProj.FallbackGroupId.Value;
+            var fallbackGroup = _cluster.GetGrain<IGroupGrain>(selectedGroupId);
+            var fallbackProjection = await fallbackGroup.GetAuthProjection();
+            if (!string.Equals(fallbackProjection.Status, "active", StringComparison.OrdinalIgnoreCase))
+            {
+                return DispatchResult.Rejected("noAccount", "Fallback group is disabled");
+            }
+            if (fallbackProjection.DailyLimitUsd.HasValue &&
+                await fallbackGroup.GetDailySpend() >= fallbackProjection.DailyLimitUsd.Value)
+            {
+                return DispatchResult.Rejected("quotaExhausted", "Fallback group daily limit reached");
+            }
+            if (!await fallbackGroup.CheckAndRecordRpm())
+                return DispatchResult.Rejected("rpmExceeded", "Fallback group RPM limit reached");
+            selectedRateMultiplier = await fallbackGroup.GetEffectiveMultiplier(DateTimeOffset.UtcNow);
+            var fallbackScheduler = _cluster.GetGrain<ISchedulerGrain>(selectedGroupId);
             selection = await fallbackScheduler.Select(new SelectRequest(
                 req.RequestedModel, req.SessionHash, req.RequestId,
                 req.MetadataUserId, req.ExcludedAccountIds, req.Endpoint));
@@ -412,144 +473,155 @@ public class DispatchService
 
         if (selection.Outcome == SelectionOutcome.Rejected)
         {
-            await userGrain.ReleaseSlot(req.RequestId);
             return DispatchResult.Rejected("noAccount", selection.RejectReason ?? "No accounts");
         }
 
         if (selection.Outcome == SelectionOutcome.Wait)
         {
-            await userGrain.ReleaseSlot(req.RequestId);
             return DispatchResult.Wait(selection.WaitTimeoutMs ?? 45_000);
         }
 
-        var accountGrain = _cluster.GetGrain<IAccountGrain>(selection.AccountId!.Value);
-        var creds = await accountGrain.Hydrate();
-        await accountGrain.RecordRpm();
-
-        var hold = await userGrain.ReserveBalance(1.00m);
-
-        _garnet.WriteStickySession(auth.GroupId, req.SessionHash,
-            selection.AccountId.Value, TimeSpan.FromHours(1));
-
-        return DispatchResult.Ok(new UpstreamTargetResult
+        var accountId = selection.AccountId!.Value;
+        var accountGrain = _cluster.GetGrain<IAccountGrain>(accountId);
+        var userSlot = await userGrain.TryAcquireSlot(selection.LeaseToken!, DateTime.UtcNow.Add(_leaseTtl));
+        if (!userSlot.Acquired)
         {
-            AccountId = selection.AccountId.Value,
-            Platform = creds.Platform,
-            BaseUrl = creds.BaseUrl,
-            AuthHeaders = creds.AuthHeaders,
-            MappedModel = creds.ModelMapping.GetValueOrDefault(req.RequestedModel, req.RequestedModel),
-            ProxyUrl = creds.ProxyUrl,
-            TlsFingerprint = creds.TlsFingerprint,
-            UserId = auth.UserId,
-            GroupId = auth.GroupId,
-            RateMultiplier = auth.RateMultiplier,
-            HoldHandle = hold?.Id,
-            LeaseToken = selection.LeaseToken!,
-            AuthVersion = auth.Version,
-        });
+            await accountGrain.ReleaseSlot(selection.LeaseToken!);
+            return DispatchResult.Rejected("concurrencyExceeded", "User concurrency limit reached");
+        }
+        if (auth.RpmLimit > 0 && !await userGrain.CheckAndRecordRpm(auth.RpmLimit))
+        {
+            await accountGrain.ReleaseSlot(selection.LeaseToken!);
+            await userGrain.ReleaseSlot(selection.LeaseToken!);
+            return DispatchResult.Rejected("rpmExceeded", "User RPM limit reached");
+        }
+        HoldHandle? hold = null;
+        try
+        {
+            var creds = await accountGrain.Hydrate();
+            await accountGrain.RecordRpm();
+
+            var holdAmount = _maxReservationUsd *
+                Math.Max(1m, (decimal)selectedRateMultiplier);
+            hold = await userGrain.ReserveBalance(holdAmount);
+            if (hold is null)
+            {
+                await accountGrain.ReleaseSlot(selection.LeaseToken!);
+                await userGrain.ReleaseSlot(selection.LeaseToken!);
+                return DispatchResult.Rejected("noBalance", "Insufficient available balance");
+            }
+
+            var mappedModel = creds.ModelMapping.GetValueOrDefault(
+                req.RequestedModel, req.RequestedModel);
+            var upstreamPath = ResolveUpstreamPath(
+                creds.Platform, req.Endpoint, mappedModel, req.Stream);
+            var created = await _leases.CreateAsync(new LeaseCreateRequest(
+                selection.LeaseToken!, req.RequestId, req.ApiKeyHash, auth.ApiKeyId,
+                auth.UserId, accountId, selectedGroupId, req.RequestedModel, mappedModel,
+                req.Endpoint, (decimal)selectedRateMultiplier, hold.Id, hold.Amount,
+                DateTime.UtcNow.Add(_leaseTtl)));
+            if (!created)
+            {
+                await userGrain.ReleaseHold(hold);
+                await accountGrain.ReleaseSlot(selection.LeaseToken!);
+                await userGrain.ReleaseSlot(selection.LeaseToken!);
+                return DispatchResult.Rejected("duplicateRequest", "Request has already been dispatched");
+            }
+
+            return DispatchResult.Ok(new UpstreamTargetResult
+            {
+                AccountId = accountId,
+                Platform = creds.Platform,
+                BaseUrl = creds.BaseUrl,
+                UpstreamPath = upstreamPath,
+                AuthHeaders = creds.AuthHeaders,
+                MappedModel = mappedModel,
+                ProxyUrl = creds.ProxyUrl,
+                TlsFingerprint = creds.TlsFingerprint,
+                ApiKeyId = auth.ApiKeyId,
+                UserId = auth.UserId,
+                GroupId = selectedGroupId,
+                RateMultiplier = selectedRateMultiplier,
+                HoldHandle = hold.Id,
+                LeaseToken = selection.LeaseToken!,
+                AuthVersion = auth.Version,
+            });
+        }
+        catch (Exception ex)
+        {
+            if (hold is not null)
+                await userGrain.ReleaseHold(hold);
+            await accountGrain.ReleaseSlot(selection.LeaseToken!);
+            await userGrain.ReleaseSlot(selection.LeaseToken!);
+            _logger.LogError(ex,
+                "Dispatch compensation for request {RequestId}, account {AccountId}",
+                req.RequestId, accountId);
+            return DispatchResult.Rejected("noAccount", "Unable to create request lease");
+        }
     }
 
-    public async Task HandleReportUsage(UsageReportRequest req)
+    public async Task<WriteAck> HandleReportUsage(UsageReportRequest req)
     {
-        var accountGrain = _cluster.GetGrain<IAccountGrain>(req.AccountId);
-        await accountGrain.ReleaseSlot(req.RequestId);
-
-        var userGrain = _cluster.GetGrain<IUserGrain>(req.UserId);
-        await userGrain.ReleaseSlot(req.RequestId);
-
-        if (req.HoldHandle is not null)
-        {
-            var cost = ComputeCost(req);
-            await userGrain.CommitUsage(
-                new HoldHandle(req.HoldHandle, 1.00m), cost);
-
-            var groupGrain = _cluster.GetGrain<IGroupGrain>(req.GroupId);
-            await groupGrain.RecordSpend((double)cost);
-        }
-
-        var usageGrain = _cluster.GetGrain<IUsageGrain>($"u:{req.UserId}");
-        await usageGrain.Record(new UsageEventData(
-            req.LeaseToken, req.RequestId, req.ApiKeyId, req.UserId,
-            req.AccountId, req.GroupId, req.Model, req.UpstreamModel,
+        return await _leases.CompleteAsync(new LeaseCompletion(
+            req.LeaseToken,
             req.InputTokens, req.OutputTokens, req.CacheCreateTokens,
             req.CacheReadTokens, req.DurationMs, req.FirstTokenMs,
-            req.Stream, req.ClientDisconnect));
-
-        var apiKeyGrain = _cluster.GetGrain<IApiKeyGrain>(req.ApiKeyHash);
-        await apiKeyGrain.AddUsage(ComputeCost(req));
-
-        _usageWriter.Enqueue(new UsageLogEntity
-        {
-            RequestId = req.RequestId,
-            LeaseToken = req.LeaseToken,
-            ApiKeyId = req.ApiKeyId,
-            UserId = req.UserId,
-            AccountId = req.AccountId,
-            GroupId = req.GroupId,
-            Model = req.Model,
-            UpstreamModel = req.UpstreamModel,
-            InputTokens = req.InputTokens,
-            OutputTokens = req.OutputTokens,
-            CacheCreateTokens = req.CacheCreateTokens,
-            CacheReadTokens = req.CacheReadTokens,
-            CostUsd = ComputeCost(req),
-            DurationMs = req.DurationMs,
-            FirstTokenMs = req.FirstTokenMs,
-            Stream = req.Stream,
-            ClientDisconnect = req.ClientDisconnect,
-            CreatedAt = DateTime.UtcNow,
-        });
+            req.StatusCode, req.Stream, req.ClientDisconnect));
     }
 
-    public async Task HandleAbort(string leaseToken, string requestId,
-                                   long accountId, long userId)
+    public async Task<WriteAck> HandleAbort(string leaseToken, string reason)
     {
-        var accountGrain = _cluster.GetGrain<IAccountGrain>(accountId);
-        await accountGrain.ReleaseSlot(requestId);
-
-        var userGrain = _cluster.GetGrain<IUserGrain>(userId);
-        await userGrain.ReleaseSlot(requestId);
+        return await _leases.AbortAsync(leaseToken, reason);
     }
 
     public async Task HandleUpstreamError(long accountId, int statusCode, int? retryAfterMs)
     {
+        try
+        {
+            await _writeGate.AssertPlatformPrimaryAsync();
+        }
+        catch (MigrationWriteRejectedException ex)
+        {
+            _logger.LogDebug(ex, "Upstream error write rejected by migration fence for account {AccountId}", accountId);
+            return;
+        }
         var accountGrain = _cluster.GetGrain<IAccountGrain>(accountId);
         await accountGrain.ReportUpstreamError(new ErrorInfo(statusCode, retryAfterMs, null));
     }
 
-    private decimal ComputeCost(UsageReportRequest req)
+    private static string ResolveUpstreamPath(string platform, string endpoint,
+        string mappedModel, bool stream)
     {
-        var price = _pricing.GetPrice(req.Model);
-        var inputCost = req.InputTokens * price.InputPerMillion / 1_000_000m;
-        var outputCost = req.OutputTokens * price.OutputPerMillion / 1_000_000m;
-        var cacheCreateCost = req.CacheCreateTokens * price.CacheCreatePerMillion / 1_000_000m;
-        var cacheReadCost = req.CacheReadTokens * price.CacheReadPerMillion / 1_000_000m;
-        return (inputCost + outputCost + cacheCreateCost + cacheReadCost) * (decimal)req.RateMultiplier;
+        if (platform is "anthropic" or "claude") return "/v1/messages";
+        if (platform is "gemini" or "google")
+            return stream
+                ? $"/v1beta/models/{Uri.EscapeDataString(mappedModel)}:streamGenerateContent?alt=sse"
+                : $"/v1beta/models/{Uri.EscapeDataString(mappedModel)}:generateContent";
+        return endpoint == "responses" ? "/v1/responses" : "/v1/chat/completions";
     }
 }
 
 public record DispatchRequest(
     string ApiKeyHash, string RequestedModel, string SessionHash,
     string ClientIp, string RequestId, long[] ExcludedAccountIds,
-    long CachedAuthVersion, string Endpoint, string? MetadataUserId);
+    long CachedAuthVersion, string Endpoint, string? MetadataUserId, bool Stream);
 
 public record UsageReportRequest(
-    string LeaseToken, string RequestId, string ApiKeyHash,
-    long ApiKeyId, long UserId, long AccountId, long GroupId,
-    string Model, string UpstreamModel, int InputTokens, int OutputTokens,
+    string LeaseToken, int InputTokens, int OutputTokens,
     int CacheCreateTokens, int CacheReadTokens, int DurationMs,
-    int FirstTokenMs, bool Stream, bool ClientDisconnect,
-    double RateMultiplier, string? HoldHandle);
+    int FirstTokenMs, int StatusCode, bool Stream, bool ClientDisconnect);
 
 public record UpstreamTargetResult
 {
     public long AccountId { get; init; }
     public string Platform { get; init; } = "";
     public string BaseUrl { get; init; } = "";
+    public string UpstreamPath { get; init; } = "";
     public Dictionary<string, string> AuthHeaders { get; init; } = new();
     public string MappedModel { get; init; } = "";
     public string? ProxyUrl { get; init; }
     public bool TlsFingerprint { get; init; }
+    public long ApiKeyId { get; init; }
     public long UserId { get; init; }
     public long GroupId { get; init; }
     public double RateMultiplier { get; init; }

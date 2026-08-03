@@ -7,16 +7,25 @@ namespace Sub2Api.Admin.Auth;
 
 public class JwtService(IConfiguration config)
 {
-    private readonly string _key = config["Jwt:Key"]!;
-    private readonly string _issuer = config["Jwt:Issuer"]!;
+    private readonly string _key = GetKey(config);
+    private readonly string _issuer = config["Jwt:Issuer"]
+        ?? throw new InvalidOperationException("Jwt:Issuer is required");
     private readonly int _expiryMinutes = int.Parse(config["Jwt:ExpiryMinutes"] ?? "1440");
 
-    public string GenerateToken(string username)
+    public string GenerateToken(string username, string role = "user", long? subjectId = null)
     {
         var handler = new JwtSecurityTokenHandler();
+        var claims = new List<Claim>
+        {
+            new(ClaimTypes.Name, username),
+            new(ClaimTypes.Role, string.IsNullOrWhiteSpace(role) ? "user" : role),
+            new(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString("N")),
+        };
+        if (subjectId.HasValue)
+            claims.Add(new Claim(JwtRegisteredClaimNames.Sub, subjectId.Value.ToString(System.Globalization.CultureInfo.InvariantCulture)));
         var descriptor = new SecurityTokenDescriptor
         {
-            Subject = new ClaimsIdentity([new Claim(ClaimTypes.Name, username)]),
+            Subject = new ClaimsIdentity(claims),
             Expires = DateTime.UtcNow.AddMinutes(_expiryMinutes),
             Issuer = _issuer,
             SigningCredentials = new SigningCredentials(
@@ -34,4 +43,13 @@ public class JwtService(IConfiguration config)
         ValidateLifetime = true,
         IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_key))
     };
+
+    private static string GetKey(IConfiguration config)
+    {
+        var key = config["Jwt:Key"]
+            ?? throw new InvalidOperationException("Jwt:Key is required");
+        if (Encoding.UTF8.GetByteCount(key) < 32)
+            throw new InvalidOperationException("Jwt:Key must be at least 32 bytes");
+        return key;
+    }
 }

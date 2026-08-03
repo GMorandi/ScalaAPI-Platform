@@ -67,29 +67,33 @@ public class SchedulerGrain : Grain, ISchedulerGrain
                 projections.Add((id, proj));
         }
 
-        var selected = projections
+        var ordered = projections
             .OrderBy(p => p.Proj.Priority)
             .ThenBy(p => (double)p.Proj.CurrentLoad / Math.Max(p.Proj.Concurrency, 1))
-            .FirstOrDefault();
+            .ToArray();
 
-        if (selected.Proj is null)
+        if (ordered.Length == 0)
             return new SelectionResult(SelectionOutcome.Rejected, null, null, null, "All accounts exhausted");
 
-        var result = await TryAcquireOnAccount(selected.Id, req.RequestId);
-        if (result is not null)
+        foreach (var selected in ordered)
         {
-            await BindSticky(req.SessionHash, selected.Id, TimeSpan.FromHours(1));
-            return result;
+            var result = await TryAcquireOnAccount(selected.Id, req.RequestId);
+            if (result is not null)
+            {
+                await BindSticky(req.SessionHash, selected.Id, TimeSpan.FromHours(1));
+                return result;
+            }
         }
 
-        return new SelectionResult(SelectionOutcome.Wait, selected.Id, null, 45_000, null);
+        return new SelectionResult(SelectionOutcome.Wait, ordered[0].Id, null, 45_000, null);
     }
 
     private async Task<SelectionResult?> TryAcquireOnAccount(long accountId, string requestId)
     {
         var acctGrain = GrainFactory.GetGrain<IAccountGrain>(accountId);
         var proj = await acctGrain.GetProjection();
-        var slot = await acctGrain.TryAcquireSlot(requestId, proj.Concurrency);
+        var leaseToken = $"{requestId}:{Guid.NewGuid():N}";
+        var slot = await acctGrain.TryAcquireSlot(leaseToken, DateTime.UtcNow.AddMinutes(10), proj.Concurrency);
 
         if (slot.Acquired)
             return new SelectionResult(SelectionOutcome.Ok, accountId, slot.LeaseToken, null, null);
@@ -108,19 +112,19 @@ public class SchedulerGrain : Grain, ISchedulerGrain
         return Task.FromResult<long?>(null);
     }
 
-    public async Task BindSticky(string sessionHash, long accountId, TimeSpan ttl)
+    public Task BindSticky(string sessionHash, long accountId, TimeSpan ttl)
     {
         _state.State.StickySessions[sessionHash] = new StickyBinding
         {
             AccountId = accountId,
             ExpiresAt = DateTimeOffset.UtcNow.Add(ttl).ToUnixTimeMilliseconds()
         };
-        await _state.WriteStateAsync();
+        return _state.WriteStateAsync();
     }
 
-    public async Task ClearSticky(string sessionHash)
+    public Task ClearSticky(string sessionHash)
     {
         _state.State.StickySessions.Remove(sessionHash);
-        await _state.WriteStateAsync();
+        return _state.WriteStateAsync();
     }
 }

@@ -23,12 +23,24 @@ public class BatchWriter<T> : IAsyncDisposable where T : class
         _window = TimeSpan.FromMilliseconds(windowMs);
         _channel = Channel.CreateBounded<T>(new BoundedChannelOptions(capacity)
         {
-            FullMode = BoundedChannelFullMode.DropOldest
+            FullMode = BoundedChannelFullMode.Wait,
+            SingleReader = true,
         });
         _worker = Task.Run(ProcessLoopAsync);
     }
 
-    public bool Enqueue(T item) => _channel.Writer.TryWrite(item);
+    public bool Enqueue(T item)
+    {
+        try
+        {
+            _channel.Writer.WriteAsync(item, _cts.Token).AsTask().GetAwaiter().GetResult();
+            return true;
+        }
+        catch (OperationCanceledException)
+        {
+            return false;
+        }
+    }
 
     private async Task ProcessLoopAsync()
     {
@@ -41,7 +53,8 @@ public class BatchWriter<T> : IAsyncDisposable where T : class
             {
                 batch.Clear();
 
-                if (await reader.WaitToReadAsync(_cts.Token))
+                if (!await reader.WaitToReadAsync(_cts.Token)) break;
+                else
                 {
                     while (batch.Count < _batchSize && reader.TryRead(out var item))
                         batch.Add(item);
@@ -68,7 +81,7 @@ public class BatchWriter<T> : IAsyncDisposable where T : class
             catch (OperationCanceledException) { break; }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "BatchWriter flush error, dropping {Count} items", batch.Count);
+                _logger.LogError(ex, "BatchWriter flush loop failed with {Count} pending items", batch.Count);
             }
         }
 
@@ -83,21 +96,21 @@ public class BatchWriter<T> : IAsyncDisposable where T : class
 
     private async Task FlushBatch(List<T> batch)
     {
-        try
+        var attempt = 0;
+        while (true)
         {
-            await _db.Insertable(batch).ExecuteCommandAsync();
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "BatchWriter insert failed ({Count} rows), retrying once", batch.Count);
             try
             {
-                await Task.Delay(100);
                 await _db.Insertable(batch).ExecuteCommandAsync();
+                return;
             }
-            catch (Exception retryEx)
+            catch (Exception ex) when (!_cts.Token.IsCancellationRequested)
             {
-                _logger.LogError(retryEx, "BatchWriter retry failed, dropping {Count} rows", batch.Count);
+                var delay = TimeSpan.FromMilliseconds(Math.Min(30_000, 100 * (1 << Math.Min(attempt++, 8))));
+                _logger.LogWarning(ex,
+                    "BatchWriter insert failed ({Count} rows), retrying in {Delay}",
+                    batch.Count, delay);
+                await Task.Delay(delay, _cts.Token);
             }
         }
     }
@@ -105,9 +118,8 @@ public class BatchWriter<T> : IAsyncDisposable where T : class
     public async ValueTask DisposeAsync()
     {
         _channel.Writer.TryComplete();
-        _cts.Cancel();
-        try { await _worker.WaitAsync(TimeSpan.FromSeconds(5)); }
-        catch { }
+        try { await _worker.WaitAsync(TimeSpan.FromSeconds(30)); }
+        catch { _cts.Cancel(); }
         _cts.Dispose();
     }
 }

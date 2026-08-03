@@ -1,0 +1,31 @@
+{
+  "name": "sub2api-postgres",
+  "config": {
+    "connector.class": "io.debezium.connector.postgresql.PostgresConnector",
+    "plugin.name": "pgoutput",
+    "database.hostname": "postgres",
+    "database.port": "5432",
+    "database.user": "${CDC_REPLICATION_USER}",
+    "database.password": "${CDC_REPLICATION_PASSWORD}",
+    "database.dbname": "${POSTGRES_DB}",
+    "database.server.name": "sub2api",
+    "slot.name": "sub2api_platform_cdc",
+    "slot.drop.on.stop": "false",
+    "publication.name": "sub2api_platform_cdc",
+    "publication.autocreate.mode": "disabled",
+    "snapshot.mode": "initial",
+    "tombstones.on.delete": "false",
+    "heartbeat.interval.ms": "10000",
+    "topic.prefix": "sub2api",
+    "table.include.list": "public.users,public.groups,public.accounts,public.account_groups,public.user_allowed_groups,public.usage_logs,public.scheduler_outbox,public.auth_cache_invalidation_outbox,public.migration_cdc_outbox",
+    "column.exclude.list": "public.users.password_hash,public.users.totp_secret_encrypted,public.accounts.credentials,public.accounts.extra,public.usage_logs.user_agent,public.usage_logs.ip_address,public.scheduler_outbox.payload,public.auth_cache_invalidation_outbox.last_error,public.auth_cache_invalidation_outbox.claimed_by",
+    "decimal.handling.mode": "string",
+    "key.converter": "org.apache.kafka.connect.json.JsonConverter",
+    "value.converter": "org.apache.kafka.connect.json.JsonConverter",
+    "value.converter.schemas.enable": "false",
+    "transforms": "route",
+    "transforms.route.type": "org.apache.kafka.connect.transforms.RegexRouter",
+    "transforms.route.regex": ".*",
+    "transforms.route.replacement": "sub2api.cdc.v1"
+  }
+}

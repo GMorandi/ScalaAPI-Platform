@@ -7,7 +7,7 @@ public static class UsageEndpoints
     public static void MapUsageEndpoints(this WebApplication app)
     {
         var group = app.MapGroup("/admin/usage")
-            .RequireAuthorization();
+            .RequireAuthorization("AdminOnly");
 
         group.MapGet("/", async (IUsageLogRepository repo,
             long? userId, string? model, DateTime? from, DateTime? to,

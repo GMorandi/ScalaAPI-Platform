@@ -34,6 +34,7 @@ public class AccountGrain : Grain, IAccountGrain
     private readonly IPersistentState<AccountState> _state;
     private readonly ILogger<AccountGrain> _logger;
     private readonly IInvalidationService _invalidation;
+    private readonly ICredentialProtector _credentialProtector;
 
     private readonly Dictionary<string, long> _activeSlots = new();
     private int _rpmCount;
@@ -42,11 +43,13 @@ public class AccountGrain : Grain, IAccountGrain
     public AccountGrain(
         [PersistentState("account", "postgres")] IPersistentState<AccountState> state,
         ILogger<AccountGrain> logger,
-        IInvalidationService invalidation)
+        IInvalidationService invalidation,
+        ICredentialProtector credentialProtector)
     {
         _state = state;
         _logger = logger;
         _invalidation = invalidation;
+        _credentialProtector = credentialProtector;
     }
 
     public Task<AccountProjection> GetProjection()
@@ -70,18 +73,28 @@ public class AccountGrain : Grain, IAccountGrain
         var s = _state.State;
         return Task.FromResult(new AccountCredentials(
             s.Id, s.Platform, s.Type, s.BaseUrl,
-            s.Credentials, s.ProxyUrl, s.TlsFingerprint, s.ModelMapping));
+            s.Credentials.ToDictionary(kv => kv.Key,
+                kv => _credentialProtector.Unprotect(kv.Value)),
+            s.ProxyUrl, s.TlsFingerprint, s.ModelMapping));
     }
 
     public Task<SlotResult> TryAcquireSlot(string requestId, int maxConcurrency)
     {
+        return TryAcquireSlot(requestId, DateTime.UtcNow.AddMinutes(10), maxConcurrency);
+    }
+
+    public Task<SlotResult> TryAcquireSlot(string requestId, DateTime expiresAt, int maxConcurrency)
+    {
+        var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        foreach (var expired in _activeSlots.Where(x => x.Value <= now).Select(x => x.Key).ToArray())
+            _activeSlots.Remove(expired);
         if (_activeSlots.Count >= maxConcurrency)
         {
             return Task.FromResult(new SlotResult(false, null, _activeSlots.Count, maxConcurrency));
         }
 
-        var lease = $"{requestId}:{Guid.NewGuid():N}";
-        _activeSlots[requestId] = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        var lease = requestId;
+        _activeSlots[lease] = new DateTimeOffset(expiresAt).ToUnixTimeMilliseconds();
         return Task.FromResult(new SlotResult(true, lease, _activeSlots.Count, maxConcurrency));
     }
 
@@ -143,7 +156,7 @@ public class AccountGrain : Grain, IAccountGrain
         s.LoadFactor = input.LoadFactor;
         s.RateMultiplier = input.RateMultiplier;
         s.Schedulable = input.Schedulable;
-        s.Credentials = input.Credentials;
+        s.Credentials = ProtectCredentials(input.Credentials);
         s.ModelMapping = input.ModelMapping;
         s.SupportedModels = input.SupportedModels;
         s.ProxyUrl = input.ProxyUrl;
@@ -164,7 +177,28 @@ public class AccountGrain : Grain, IAccountGrain
         s.LoadFactor = input.LoadFactor;
         s.RateMultiplier = input.RateMultiplier;
         s.Schedulable = input.Schedulable;
-        s.Credentials = input.Credentials;
+        s.Credentials = ProtectCredentials(input.Credentials);
+        s.ModelMapping = input.ModelMapping;
+        s.SupportedModels = input.SupportedModels;
+        s.ProxyUrl = input.ProxyUrl;
+        s.TlsFingerprint = input.TlsFingerprint;
+        await _state.WriteStateAsync();
+        _invalidation.NotifyChange("account", s.Id.ToString());
+    }
+
+    public async Task UpsertMetadata(AccountMetadataUpsert input)
+    {
+        var s = _state.State;
+        s.Id = this.GetPrimaryKeyLong();
+        s.Name = input.Name;
+        s.Platform = input.Platform;
+        s.Type = input.Type;
+        s.BaseUrl = input.BaseUrl;
+        s.Priority = input.Priority;
+        s.Concurrency = input.Concurrency;
+        s.LoadFactor = input.LoadFactor;
+        s.RateMultiplier = input.RateMultiplier;
+        s.Schedulable = input.Schedulable;
         s.ModelMapping = input.ModelMapping;
         s.SupportedModels = input.SupportedModels;
         s.ProxyUrl = input.ProxyUrl;
@@ -186,4 +220,9 @@ public class AccountGrain : Grain, IAccountGrain
         await _state.ClearStateAsync();
         _invalidation.NotifyChange("account", id.ToString());
     }
+
+    private Dictionary<string, string> ProtectCredentials(
+        IReadOnlyDictionary<string, string> credentials) =>
+        credentials.ToDictionary(kv => kv.Key,
+            kv => _credentialProtector.Protect(kv.Value));
 }

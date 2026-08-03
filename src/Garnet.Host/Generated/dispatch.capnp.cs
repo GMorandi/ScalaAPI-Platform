@@ -12,9 +12,9 @@ namespace CapnpGen
     public interface IGatewayDispatch : IDisposable
     {
         Task<CapnpGen.DispatchResponse> Dispatch(CapnpGen.DispatchRequest request, CancellationToken cancellationToken_ = default);
-        Task ReportUsage(CapnpGen.UsageReport report, CancellationToken cancellationToken_ = default);
-        Task Abort(string leaseToken, string reason, CancellationToken cancellationToken_ = default);
-        Task ReportUpstreamError(CapnpGen.ErrorReport report, CancellationToken cancellationToken_ = default);
+        Task<CapnpGen.WriteAck> ReportUsage(CapnpGen.UsageReport report, CancellationToken cancellationToken_ = default);
+        Task<CapnpGen.WriteAck> Abort(string leaseToken, string reason, CancellationToken cancellationToken_ = default);
+        Task<CapnpGen.WriteAck> ReportUpstreamError(CapnpGen.ErrorReport report, CancellationToken cancellationToken_ = default);
     }
 
     [System.CodeDom.Compiler.GeneratedCode("capnpc-csharp", "1.3.0.0"), TypeId(0xf48b621dd5cd54e3UL)]
@@ -33,7 +33,7 @@ namespace CapnpGen
             }
         }
 
-        public async Task ReportUsage(CapnpGen.UsageReport report, CancellationToken cancellationToken_ = default)
+        public async Task<CapnpGen.WriteAck> ReportUsage(CapnpGen.UsageReport report, CancellationToken cancellationToken_ = default)
         {
             var in_ = SerializerState.CreateForRpc<CapnpGen.GatewayDispatch.Params_ReportUsage.WRITER>();
             var arg_ = new CapnpGen.GatewayDispatch.Params_ReportUsage()
@@ -42,11 +42,11 @@ namespace CapnpGen
             using (var d_ = await Call(17621285847297774819UL, 1, in_.Rewrap<DynamicSerializerState>(), false, cancellationToken_).WhenReturned)
             {
                 var r_ = CapnpSerializable.Create<CapnpGen.GatewayDispatch.Result_ReportUsage>(d_);
-                return;
+                return (r_.Ack);
             }
         }
 
-        public async Task Abort(string leaseToken, string reason, CancellationToken cancellationToken_ = default)
+        public async Task<CapnpGen.WriteAck> Abort(string leaseToken, string reason, CancellationToken cancellationToken_ = default)
         {
             var in_ = SerializerState.CreateForRpc<CapnpGen.GatewayDispatch.Params_Abort.WRITER>();
             var arg_ = new CapnpGen.GatewayDispatch.Params_Abort()
@@ -55,11 +55,11 @@ namespace CapnpGen
             using (var d_ = await Call(17621285847297774819UL, 2, in_.Rewrap<DynamicSerializerState>(), false, cancellationToken_).WhenReturned)
             {
                 var r_ = CapnpSerializable.Create<CapnpGen.GatewayDispatch.Result_Abort>(d_);
-                return;
+                return (r_.Ack);
             }
         }
 
-        public async Task ReportUpstreamError(CapnpGen.ErrorReport report, CancellationToken cancellationToken_ = default)
+        public async Task<CapnpGen.WriteAck> ReportUpstreamError(CapnpGen.ErrorReport report, CancellationToken cancellationToken_ = default)
         {
             var in_ = SerializerState.CreateForRpc<CapnpGen.GatewayDispatch.Params_ReportUpstreamError.WRITER>();
             var arg_ = new CapnpGen.GatewayDispatch.Params_ReportUpstreamError()
@@ -68,7 +68,7 @@ namespace CapnpGen
             using (var d_ = await Call(17621285847297774819UL, 3, in_.Rewrap<DynamicSerializerState>(), false, cancellationToken_).WhenReturned)
             {
                 var r_ = CapnpSerializable.Create<CapnpGen.GatewayDispatch.Result_ReportUpstreamError>(d_);
-                return;
+                return (r_.Ack);
             }
         }
     }
@@ -99,36 +99,54 @@ namespace CapnpGen
             }
         }
 
-        async Task<AnswerOrCounterquestion> ReportUsage(DeserializerState d_, CancellationToken cancellationToken_)
+        Task<AnswerOrCounterquestion> ReportUsage(DeserializerState d_, CancellationToken cancellationToken_)
         {
             using (d_)
             {
                 var in_ = CapnpSerializable.Create<CapnpGen.GatewayDispatch.Params_ReportUsage>(d_);
-                await Impl.ReportUsage(in_.Report, cancellationToken_);
-                var s_ = SerializerState.CreateForRpc<CapnpGen.GatewayDispatch.Result_ReportUsage.WRITER>();
-                return s_;
+                return Impatient.MaybeTailCall(Impl.ReportUsage(in_.Report, cancellationToken_), ack =>
+                {
+                    var s_ = SerializerState.CreateForRpc<CapnpGen.GatewayDispatch.Result_ReportUsage.WRITER>();
+                    var r_ = new CapnpGen.GatewayDispatch.Result_ReportUsage{Ack = ack};
+                    r_.serialize(s_);
+                    return s_;
+                }
+
+                );
             }
         }
 
-        async Task<AnswerOrCounterquestion> Abort(DeserializerState d_, CancellationToken cancellationToken_)
+        Task<AnswerOrCounterquestion> Abort(DeserializerState d_, CancellationToken cancellationToken_)
         {
             using (d_)
             {
                 var in_ = CapnpSerializable.Create<CapnpGen.GatewayDispatch.Params_Abort>(d_);
-                await Impl.Abort(in_.LeaseToken, in_.Reason, cancellationToken_);
-                var s_ = SerializerState.CreateForRpc<CapnpGen.GatewayDispatch.Result_Abort.WRITER>();
-                return s_;
+                return Impatient.MaybeTailCall(Impl.Abort(in_.LeaseToken, in_.Reason, cancellationToken_), ack =>
+                {
+                    var s_ = SerializerState.CreateForRpc<CapnpGen.GatewayDispatch.Result_Abort.WRITER>();
+                    var r_ = new CapnpGen.GatewayDispatch.Result_Abort{Ack = ack};
+                    r_.serialize(s_);
+                    return s_;
+                }
+
+                );
             }
         }
 
-        async Task<AnswerOrCounterquestion> ReportUpstreamError(DeserializerState d_, CancellationToken cancellationToken_)
+        Task<AnswerOrCounterquestion> ReportUpstreamError(DeserializerState d_, CancellationToken cancellationToken_)
         {
             using (d_)
             {
                 var in_ = CapnpSerializable.Create<CapnpGen.GatewayDispatch.Params_ReportUpstreamError>(d_);
-                await Impl.ReportUpstreamError(in_.Report, cancellationToken_);
-                var s_ = SerializerState.CreateForRpc<CapnpGen.GatewayDispatch.Result_ReportUpstreamError.WRITER>();
-                return s_;
+                return Impatient.MaybeTailCall(Impl.ReportUpstreamError(in_.Report, cancellationToken_), ack =>
+                {
+                    var s_ = SerializerState.CreateForRpc<CapnpGen.GatewayDispatch.Result_ReportUpstreamError.WRITER>();
+                    var r_ = new CapnpGen.GatewayDispatch.Result_ReportUpstreamError{Ack = ack};
+                    r_.serialize(s_);
+                    return s_;
+                }
+
+                );
             }
         }
     }
@@ -322,11 +340,13 @@ namespace CapnpGen
             void ICapnpSerializable.Deserialize(DeserializerState arg_)
             {
                 var reader = READER.create(arg_);
+                Ack = CapnpSerializable.Create<CapnpGen.WriteAck>(reader.Ack);
                 applyDefaults();
             }
 
             public void serialize(WRITER writer)
             {
+                Ack?.serialize(writer.Ack);
             }
 
             void ICapnpSerializable.Serialize(SerializerState arg_)
@@ -336,6 +356,12 @@ namespace CapnpGen
 
             public void applyDefaults()
             {
+            }
+
+            public CapnpGen.WriteAck Ack
+            {
+                get;
+                set;
             }
 
             public struct READER
@@ -349,13 +375,20 @@ namespace CapnpGen
                 public static READER create(DeserializerState ctx) => new READER(ctx);
                 public static implicit operator DeserializerState(READER reader) => reader.ctx;
                 public static implicit operator READER(DeserializerState ctx) => new READER(ctx);
+                public CapnpGen.WriteAck.READER Ack => ctx.ReadStruct(0, CapnpGen.WriteAck.READER.create);
             }
 
             public class WRITER : SerializerState
             {
                 public WRITER()
                 {
-                    this.SetStruct(0, 0);
+                    this.SetStruct(0, 1);
+                }
+
+                public CapnpGen.WriteAck.WRITER Ack
+                {
+                    get => BuildPointer<CapnpGen.WriteAck.WRITER>(0);
+                    set => Link(0, value);
                 }
             }
         }
@@ -442,11 +475,13 @@ namespace CapnpGen
             void ICapnpSerializable.Deserialize(DeserializerState arg_)
             {
                 var reader = READER.create(arg_);
+                Ack = CapnpSerializable.Create<CapnpGen.WriteAck>(reader.Ack);
                 applyDefaults();
             }
 
             public void serialize(WRITER writer)
             {
+                Ack?.serialize(writer.Ack);
             }
 
             void ICapnpSerializable.Serialize(SerializerState arg_)
@@ -456,6 +491,12 @@ namespace CapnpGen
 
             public void applyDefaults()
             {
+            }
+
+            public CapnpGen.WriteAck Ack
+            {
+                get;
+                set;
             }
 
             public struct READER
@@ -469,13 +510,20 @@ namespace CapnpGen
                 public static READER create(DeserializerState ctx) => new READER(ctx);
                 public static implicit operator DeserializerState(READER reader) => reader.ctx;
                 public static implicit operator READER(DeserializerState ctx) => new READER(ctx);
+                public CapnpGen.WriteAck.READER Ack => ctx.ReadStruct(0, CapnpGen.WriteAck.READER.create);
             }
 
             public class WRITER : SerializerState
             {
                 public WRITER()
                 {
-                    this.SetStruct(0, 0);
+                    this.SetStruct(0, 1);
+                }
+
+                public CapnpGen.WriteAck.WRITER Ack
+                {
+                    get => BuildPointer<CapnpGen.WriteAck.WRITER>(0);
+                    set => Link(0, value);
                 }
             }
         }
@@ -547,11 +595,13 @@ namespace CapnpGen
             void ICapnpSerializable.Deserialize(DeserializerState arg_)
             {
                 var reader = READER.create(arg_);
+                Ack = CapnpSerializable.Create<CapnpGen.WriteAck>(reader.Ack);
                 applyDefaults();
             }
 
             public void serialize(WRITER writer)
             {
+                Ack?.serialize(writer.Ack);
             }
 
             void ICapnpSerializable.Serialize(SerializerState arg_)
@@ -561,6 +611,12 @@ namespace CapnpGen
 
             public void applyDefaults()
             {
+            }
+
+            public CapnpGen.WriteAck Ack
+            {
+                get;
+                set;
             }
 
             public struct READER
@@ -574,14 +630,126 @@ namespace CapnpGen
                 public static READER create(DeserializerState ctx) => new READER(ctx);
                 public static implicit operator DeserializerState(READER reader) => reader.ctx;
                 public static implicit operator READER(DeserializerState ctx) => new READER(ctx);
+                public CapnpGen.WriteAck.READER Ack => ctx.ReadStruct(0, CapnpGen.WriteAck.READER.create);
             }
 
             public class WRITER : SerializerState
             {
                 public WRITER()
                 {
-                    this.SetStruct(0, 0);
+                    this.SetStruct(0, 1);
                 }
+
+                public CapnpGen.WriteAck.WRITER Ack
+                {
+                    get => BuildPointer<CapnpGen.WriteAck.WRITER>(0);
+                    set => Link(0, value);
+                }
+            }
+        }
+    }
+
+    [System.CodeDom.Compiler.GeneratedCode("capnpc-csharp", "1.3.0.0"), TypeId(0xb19cff78b6511427UL)]
+    public class WriteAck : ICapnpSerializable
+    {
+        public const UInt64 typeId = 0xb19cff78b6511427UL;
+        void ICapnpSerializable.Deserialize(DeserializerState arg_)
+        {
+            var reader = READER.create(arg_);
+            Accepted = reader.Accepted;
+            Duplicate = reader.Duplicate;
+            Retryable = reader.Retryable;
+            ErrorCode = reader.ErrorCode;
+            applyDefaults();
+        }
+
+        public void serialize(WRITER writer)
+        {
+            writer.Accepted = Accepted;
+            writer.Duplicate = Duplicate;
+            writer.Retryable = Retryable;
+            writer.ErrorCode = ErrorCode;
+        }
+
+        void ICapnpSerializable.Serialize(SerializerState arg_)
+        {
+            serialize(arg_.Rewrap<WRITER>());
+        }
+
+        public void applyDefaults()
+        {
+        }
+
+        public bool Accepted
+        {
+            get;
+            set;
+        }
+
+        public bool Duplicate
+        {
+            get;
+            set;
+        }
+
+        public bool Retryable
+        {
+            get;
+            set;
+        }
+
+        public string ErrorCode
+        {
+            get;
+            set;
+        }
+
+        public struct READER
+        {
+            readonly DeserializerState ctx;
+            public READER(DeserializerState ctx)
+            {
+                this.ctx = ctx;
+            }
+
+            public static READER create(DeserializerState ctx) => new READER(ctx);
+            public static implicit operator DeserializerState(READER reader) => reader.ctx;
+            public static implicit operator READER(DeserializerState ctx) => new READER(ctx);
+            public bool Accepted => ctx.ReadDataBool(0UL, false);
+            public bool Duplicate => ctx.ReadDataBool(1UL, false);
+            public bool Retryable => ctx.ReadDataBool(2UL, false);
+            public string ErrorCode => ctx.ReadText(0, null);
+        }
+
+        public class WRITER : SerializerState
+        {
+            public WRITER()
+            {
+                this.SetStruct(1, 1);
+            }
+
+            public bool Accepted
+            {
+                get => this.ReadDataBool(0UL, false);
+                set => this.WriteData(0UL, value, false);
+            }
+
+            public bool Duplicate
+            {
+                get => this.ReadDataBool(1UL, false);
+                set => this.WriteData(1UL, value, false);
+            }
+
+            public bool Retryable
+            {
+                get => this.ReadDataBool(2UL, false);
+                set => this.WriteData(2UL, value, false);
+            }
+
+            public string ErrorCode
+            {
+                get => this.ReadText(0, null);
+                set => this.WriteText(0, value, null);
             }
         }
     }
@@ -602,6 +770,8 @@ namespace CapnpGen
             CachedAuthVersion = reader.CachedAuthVersion;
             Endpoint = reader.Endpoint;
             MetadataUserId = reader.MetadataUserId;
+            ProtocolVersion = reader.ProtocolVersion;
+            Stream = reader.Stream;
             applyDefaults();
         }
 
@@ -616,6 +786,8 @@ namespace CapnpGen
             writer.CachedAuthVersion = CachedAuthVersion;
             writer.Endpoint = Endpoint;
             writer.MetadataUserId = MetadataUserId;
+            writer.ProtocolVersion = ProtocolVersion;
+            writer.Stream = Stream;
         }
 
         void ICapnpSerializable.Serialize(SerializerState arg_)
@@ -681,6 +853,18 @@ namespace CapnpGen
             set;
         }
 
+        public ushort ProtocolVersion
+        {
+            get;
+            set;
+        }
+
+        public bool Stream
+        {
+            get;
+            set;
+        }
+
         public struct READER
         {
             readonly DeserializerState ctx;
@@ -701,6 +885,8 @@ namespace CapnpGen
             public long CachedAuthVersion => ctx.ReadDataLong(0UL, 0L);
             public CapnpGen.DispatchRequest.EndpointKind Endpoint => (CapnpGen.DispatchRequest.EndpointKind)ctx.ReadDataUShort(64UL, (ushort)0);
             public string MetadataUserId => ctx.ReadText(6, null);
+            public ushort ProtocolVersion => ctx.ReadDataUShort(80UL, (ushort)0);
+            public bool Stream => ctx.ReadDataBool(96UL, false);
         }
 
         public class WRITER : SerializerState
@@ -763,6 +949,18 @@ namespace CapnpGen
                 get => this.ReadText(6, null);
                 set => this.WriteText(6, value, null);
             }
+
+            public ushort ProtocolVersion
+            {
+                get => this.ReadDataUShort(80UL, (ushort)0);
+                set => this.WriteData(80UL, value, (ushort)0);
+            }
+
+            public bool Stream
+            {
+                get => this.ReadDataBool(96UL, false);
+                set => this.WriteData(96UL, value, false);
+            }
         }
 
         [System.CodeDom.Compiler.GeneratedCode("capnpc-csharp", "1.3.0.0"), TypeId(0x976eb119faf03477UL)]
@@ -791,6 +989,7 @@ namespace CapnpGen
             WaitPlan = CapnpSerializable.Create<CapnpGen.WaitPlan>(reader.WaitPlan);
             Reject = CapnpSerializable.Create<CapnpGen.RejectInfo>(reader.Reject);
             LeaseToken = reader.LeaseToken;
+            ProtocolVersion = reader.ProtocolVersion;
             applyDefaults();
         }
 
@@ -803,6 +1002,7 @@ namespace CapnpGen
             WaitPlan?.serialize(writer.WaitPlan);
             Reject?.serialize(writer.Reject);
             writer.LeaseToken = LeaseToken;
+            writer.ProtocolVersion = ProtocolVersion;
         }
 
         void ICapnpSerializable.Serialize(SerializerState arg_)
@@ -856,6 +1056,12 @@ namespace CapnpGen
             set;
         }
 
+        public ushort ProtocolVersion
+        {
+            get;
+            set;
+        }
+
         public struct READER
         {
             readonly DeserializerState ctx;
@@ -874,6 +1080,7 @@ namespace CapnpGen
             public CapnpGen.WaitPlan.READER WaitPlan => ctx.ReadStruct(2, CapnpGen.WaitPlan.READER.create);
             public CapnpGen.RejectInfo.READER Reject => ctx.ReadStruct(3, CapnpGen.RejectInfo.READER.create);
             public string LeaseToken => ctx.ReadText(4, null);
+            public ushort ProtocolVersion => ctx.ReadDataUShort(16UL, (ushort)0);
         }
 
         public class WRITER : SerializerState
@@ -923,6 +1130,12 @@ namespace CapnpGen
             {
                 get => this.ReadText(4, null);
                 set => this.WriteText(4, value, null);
+            }
+
+            public ushort ProtocolVersion
+            {
+                get => this.ReadDataUShort(16UL, (ushort)0);
+                set => this.WriteData(16UL, value, (ushort)0);
             }
         }
 
@@ -1141,6 +1354,81 @@ namespace CapnpGen
             concurrencyExceeded,
             ipBlocked,
             quotaExhausted
+        }
+    }
+
+    [System.CodeDom.Compiler.GeneratedCode("capnpc-csharp", "1.3.0.0"), TypeId(0xbad79592964be2b0UL)]
+    public class AbortRequest : ICapnpSerializable
+    {
+        public const UInt64 typeId = 0xbad79592964be2b0UL;
+        void ICapnpSerializable.Deserialize(DeserializerState arg_)
+        {
+            var reader = READER.create(arg_);
+            LeaseToken = reader.LeaseToken;
+            Reason = reader.Reason;
+            applyDefaults();
+        }
+
+        public void serialize(WRITER writer)
+        {
+            writer.LeaseToken = LeaseToken;
+            writer.Reason = Reason;
+        }
+
+        void ICapnpSerializable.Serialize(SerializerState arg_)
+        {
+            serialize(arg_.Rewrap<WRITER>());
+        }
+
+        public void applyDefaults()
+        {
+        }
+
+        public string LeaseToken
+        {
+            get;
+            set;
+        }
+
+        public string Reason
+        {
+            get;
+            set;
+        }
+
+        public struct READER
+        {
+            readonly DeserializerState ctx;
+            public READER(DeserializerState ctx)
+            {
+                this.ctx = ctx;
+            }
+
+            public static READER create(DeserializerState ctx) => new READER(ctx);
+            public static implicit operator DeserializerState(READER reader) => reader.ctx;
+            public static implicit operator READER(DeserializerState ctx) => new READER(ctx);
+            public string LeaseToken => ctx.ReadText(0, null);
+            public string Reason => ctx.ReadText(1, null);
+        }
+
+        public class WRITER : SerializerState
+        {
+            public WRITER()
+            {
+                this.SetStruct(0, 2);
+            }
+
+            public string LeaseToken
+            {
+                get => this.ReadText(0, null);
+                set => this.WriteText(0, value, null);
+            }
+
+            public string Reason
+            {
+                get => this.ReadText(1, null);
+                set => this.WriteText(1, value, null);
+            }
         }
     }
 }

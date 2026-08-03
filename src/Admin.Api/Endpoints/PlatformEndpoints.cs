@@ -6,6 +6,8 @@ using MailKit.Net.Smtp;
 using MimeKit;
 using SqlSugar;
 using Sub2Api.Data.Entities;
+using Orleans;
+using Sub2Api.Grains.Interfaces;
 
 namespace Sub2Api.Admin.Endpoints;
 
@@ -31,7 +33,7 @@ public static class PlatformEndpoints
 
     private static void MapApiKeySelfService(WebApplication app)
     {
-        var group = app.MapGroup("/user/apikeys").RequireAuthorization();
+        var group = app.MapGroup("/user/apikeys").RequireAuthorization("UserOnly");
 
         group.MapGet("/", async (ClaimsPrincipal principal, ISqlSugarClient db) =>
         {
@@ -43,11 +45,28 @@ public static class PlatformEndpoints
             return Results.Ok(new { keys = keys.Select(k => new { k.Id, k.KeyPrefix, k.Name, k.Status, k.CreatedAt, k.LastUsedAt }) });
         });
 
-        group.MapPost("/", async (ClaimsPrincipal principal, ISqlSugarClient db, ApiKeyCreateRequest req) =>
+        group.MapPost("/", async (ClaimsPrincipal principal, ISqlSugarClient db,
+            IClusterClient client, ApiKeySelfServiceRequest req) =>
         {
             var email = principal.Identity?.Name ?? "";
+            var user = await db.Queryable<UserAccountEntity>().Where(x => x.Email == email).FirstAsync();
+            if (user is null) return Results.Unauthorized();
+            var userGrain = client.GetGrain<IUserGrain>(user.Id);
+            var projection = await userGrain.GetAuthProjection();
+            long? groupId = req.GroupId ?? projection.AllowedGroups.FirstOrDefault();
+            if (groupId is null or <= 0 || (projection.AllowedGroups.Length > 0 && !projection.AllowedGroups.Contains(groupId.Value)))
+                return Results.BadRequest(new { error = "No permitted group selected" });
+
             var rawKey = $"sk-{Convert.ToHexString(RandomNumberGenerator.GetBytes(24)).ToLowerInvariant()}";
-            var keyHash = Convert.ToHexString(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(rawKey)));
+            var keyHash = Convert.ToHexString(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(rawKey)))
+                .ToLowerInvariant();
+            var allocator = client.GetGrain<IIdAllocatorGrain>("apiKey");
+            var apiKeyId = await allocator.Next();
+            var grain = client.GetGrain<IApiKeyGrain>(keyHash);
+            await grain.Create(new ApiKeyUpsert(
+                user.Id, groupId.Value, req.Quota ?? 0, req.ExpiresAt,
+                req.IpWhitelist ?? [], req.IpBlacklist ?? [],
+                req.RateLimit5h ?? 0, req.RateLimit1d ?? 0, req.RateLimit7d ?? 0), apiKeyId);
 
             var entity = new UserApiKeyEntity
             {
@@ -55,6 +74,7 @@ public static class PlatformEndpoints
                 KeyHash = keyHash,
                 KeyPrefix = rawKey[..12],
                 Name = req.Name,
+                ApiKeyId = apiKeyId,
                 Status = "active",
                 CreatedAt = DateTime.UtcNow,
             };
@@ -63,18 +83,23 @@ public static class PlatformEndpoints
             return Results.Ok(new { id = entity.Id, key = rawKey, message = "Store this key securely, it cannot be retrieved again" });
         });
 
-        group.MapDelete("/{id}", async (long id, ClaimsPrincipal principal, ISqlSugarClient db) =>
+        group.MapDelete("/{id}", async (long id, ClaimsPrincipal principal, ISqlSugarClient db,
+            IClusterClient client) =>
         {
             var email = principal.Identity?.Name ?? "";
-            var deleted = await db.Deleteable<UserApiKeyEntity>()
+            var key = await db.Queryable<UserApiKeyEntity>()
+                .Where(x => x.Id == id && x.UserEmail == email).FirstAsync();
+            if (key is null) return Results.NotFound();
+            await client.GetGrain<IApiKeyGrain>(key.KeyHash).Revoke();
+            await db.Updateable<UserApiKeyEntity>().SetColumns(x => x.Status == "revoked")
                 .Where(x => x.Id == id && x.UserEmail == email).ExecuteCommandAsync();
-            return deleted > 0 ? Results.Ok(new { message = "Key deleted" }) : Results.NotFound();
+            return Results.Ok(new { message = "Key revoked" });
         });
     }
 
     private static void MapUsageSummary(WebApplication app)
     {
-        var group = app.MapGroup("/admin/usage/summary").RequireAuthorization();
+        var group = app.MapGroup("/admin/usage/summary").RequireAuthorization("AdminOnly");
 
         group.MapGet("/", async (ISqlSugarClient db, long? userId, string? model,
             DateTime? from, DateTime? to, string granularity = "daily") =>
@@ -108,7 +133,7 @@ public static class PlatformEndpoints
 
     private static void MapAnnouncements(WebApplication app)
     {
-        var admin = app.MapGroup("/admin/announcements").RequireAuthorization();
+        var admin = app.MapGroup("/admin/announcements").RequireAuthorization("AdminOnly");
         var publicGroup = app.MapGroup("/announcements").AllowAnonymous();
 
         publicGroup.MapGet("/", async (ISqlSugarClient db) =>
@@ -147,11 +172,27 @@ public static class PlatformEndpoints
 
     private static void MapPayments(WebApplication app)
     {
-        var group = app.MapGroup("/admin/payments").RequireAuthorization();
-        var userGroup = app.MapGroup("/user/payments").RequireAuthorization();
+        var group = app.MapGroup("/admin/payments").RequireAuthorization("AdminOnly");
+        var userGroup = app.MapGroup("/user/payments").RequireAuthorization("UserOnly");
 
-        userGroup.MapPost("/create", async (ClaimsPrincipal principal, PaymentOrderEntity req, ISqlSugarClient db) =>
+        userGroup.MapPost("/create", async (ClaimsPrincipal principal, PaymentOrderEntity req,
+            ISqlSugarClient db, HttpRequest http) =>
         {
+            var email = principal.Identity?.Name ?? "";
+            var user = await db.Queryable<UserAccountEntity>().Where(x => x.Email == email).FirstAsync();
+            if (user is null) return Results.Unauthorized();
+            if (req.Amount <= 0 || req.Amount > 1_000_000m)
+                return Results.BadRequest(new { error = "Invalid payment amount" });
+            var idempotencyKey = http.Headers["Idempotency-Key"].FirstOrDefault();
+            if (string.IsNullOrWhiteSpace(idempotencyKey) || idempotencyKey.Length > 200)
+                return Results.BadRequest(new { error = "Idempotency-Key is required" });
+            var existing = await db.Queryable<PaymentOrderEntity>()
+                .Where(x => x.UserId == user.Id && x.IdempotencyKey == idempotencyKey).FirstAsync();
+            if (existing is not null)
+                return Results.Ok(new { id = existing.Id, status = existing.Status, duplicate = true });
+
+            req.UserId = user.Id;
+            req.IdempotencyKey = idempotencyKey;
             req.Status = "pending";
             req.CreatedAt = DateTime.UtcNow;
             await db.Insertable(req).ExecuteCommandAsync();
@@ -160,25 +201,49 @@ public static class PlatformEndpoints
 
         userGroup.MapGet("/", async (ClaimsPrincipal principal, ISqlSugarClient db, int page = 1, int size = 20) =>
         {
+            var email = principal.Identity?.Name ?? "";
+            var user = await db.Queryable<UserAccountEntity>().Where(x => x.Email == email).FirstAsync();
+            if (user is null) return Results.Unauthorized();
+            page = Math.Max(page, 1);
+            size = Math.Clamp(size, 1, 100);
             var items = await db.Queryable<PaymentOrderEntity>()
+                .Where(x => x.UserId == user.Id)
                 .OrderByDescending(x => x.CreatedAt)
                 .Skip((page - 1) * size).Take(size).ToListAsync();
             return Results.Ok(new { items });
         });
 
-        group.MapPost("/{id}/confirm", async (long id, ISqlSugarClient db) =>
+        group.MapPost("/{id}/confirm", async (long id, ISqlSugarClient db, IClusterClient client) =>
         {
-            await db.Updateable<PaymentOrderEntity>()
+            var changed = await db.Updateable<PaymentOrderEntity>()
                 .SetColumns(x => x.Status == "paid")
                 .SetColumns(x => x.PaidAt == DateTime.UtcNow)
-                .Where(x => x.Id == id).ExecuteCommandAsync();
+                .Where(x => x.Id == id && x.Status == "pending").ExecuteCommandAsync();
+            if (changed == 1)
+            {
+                var payment = await db.Queryable<PaymentOrderEntity>().Where(x => x.Id == id).FirstAsync();
+                try
+                {
+                    await db.Insertable(new BalanceLedgerEntity
+                    {
+                        UserId = payment.UserId, PaymentId = payment.Id,
+                        Reference = $"payment:{payment.Id}", Amount = payment.Amount,
+                    }).ExecuteCommandAsync();
+                    await client.GetGrain<IUserGrain>(payment.UserId).AdjustBalance((double)payment.Amount);
+                }
+                catch (Exception)
+                {
+                    // A unique ledger key makes retries harmless; reconciliation can retry the grain write.
+                    throw;
+                }
+            }
             return Results.Ok(new { message = "Payment confirmed" });
         });
     }
 
     private static void MapSubscriptions(WebApplication app)
     {
-        var admin = app.MapGroup("/admin/subscriptions").RequireAuthorization();
+        var admin = app.MapGroup("/admin/subscriptions").RequireAuthorization("AdminOnly");
 
         admin.MapGet("/plans", async (ISqlSugarClient db) =>
         {
@@ -204,8 +269,8 @@ public static class PlatformEndpoints
 
     private static void MapRedeemCodes(WebApplication app)
     {
-        var admin = app.MapGroup("/admin/redeem-codes").RequireAuthorization();
-        var userGroup = app.MapGroup("/user/redeem").RequireAuthorization();
+        var admin = app.MapGroup("/admin/redeem-codes").RequireAuthorization("AdminOnly");
+        var userGroup = app.MapGroup("/user/redeem").RequireAuthorization("UserOnly");
 
         admin.MapGet("/", async (ISqlSugarClient db, int page = 1, int size = 20) =>
         {
@@ -239,27 +304,46 @@ public static class PlatformEndpoints
             return Results.Ok();
         });
 
-        userGroup.MapPost("/", async (ClaimsPrincipal principal, RedeemRequest req, ISqlSugarClient db) =>
+        userGroup.MapPost("/", async (ClaimsPrincipal principal, RedeemRequest req,
+            ISqlSugarClient db, IClusterClient client) =>
         {
-            var code = await db.Queryable<RedeemCodeEntity>()
-                .Where(x => x.Code == req.Code && x.Status == "active").FirstAsync();
-            if (code is null)
-                return Results.BadRequest(new { error = "Invalid or expired code" });
-            if (code.MaxUses > 0 && code.UsedCount >= code.MaxUses)
-                return Results.BadRequest(new { error = "Code usage limit reached" });
-            if (code.ExpiresAt.HasValue && code.ExpiresAt < DateTime.UtcNow)
-                return Results.BadRequest(new { error = "Code expired" });
+            var email = principal.Identity?.Name ?? "";
+            var user = await db.Queryable<UserAccountEntity>().Where(x => x.Email == email).FirstAsync();
+            if (user is null || string.IsNullOrWhiteSpace(req.Code)) return Results.BadRequest(new { error = "Invalid code" });
+            var code = await db.Queryable<RedeemCodeEntity>().Where(x => x.Code == req.Code).FirstAsync();
+            if (code is null) return Results.BadRequest(new { error = "Invalid or expired code" });
+            var already = await db.Queryable<RedeemCodeRedemptionEntity>()
+                .Where(x => x.CodeId == code.Id && x.UserId == user.Id).AnyAsync();
+            if (already) return Results.Conflict(new { error = "Code already redeemed" });
 
-            code.UsedCount++;
-            await db.Updateable(code).UpdateColumns(x => x.UsedCount).ExecuteCommandAsync();
+            // The predicate and increment execute as one row-level atomic operation.
+            var changed = await db.Ado.ExecuteCommandAsync(
+                "UPDATE redeem_codes SET used_count = used_count + 1, last_redeemed_by = @user_id " +
+                "WHERE id = @id AND status = 'active' AND (expires_at IS NULL OR expires_at > now()) " +
+                "AND (max_uses = 0 OR used_count < max_uses)",
+                new SugarParameter("@user_id", user.Id), new SugarParameter("@id", code.Id));
+            if (changed != 1) return Results.BadRequest(new { error = "Code usage limit reached or expired" });
+
+            await db.Insertable(new RedeemCodeRedemptionEntity
+            {
+                CodeId = code.Id, UserId = user.Id, BonusAmount = code.BonusAmount,
+            }).ExecuteCommandAsync();
+            if (code.BonusAmount != 0)
+            {
+                await db.Insertable(new BalanceLedgerEntity
+                {
+                    UserId = user.Id, Reference = $"redeem:{code.Id}:{user.Id}", Amount = code.BonusAmount,
+                }).ExecuteCommandAsync();
+                await client.GetGrain<IUserGrain>(user.Id).AdjustBalance((double)code.BonusAmount);
+            }
             return Results.Ok(new { message = "Code redeemed", bonus = code.BonusAmount });
         });
     }
 
     private static void MapReferral(WebApplication app)
     {
-        var userGroup = app.MapGroup("/user/referral").RequireAuthorization();
-        var admin = app.MapGroup("/admin/referral").RequireAuthorization();
+        var userGroup = app.MapGroup("/user/referral").RequireAuthorization("UserOnly");
+        var admin = app.MapGroup("/admin/referral").RequireAuthorization("AdminOnly");
 
         userGroup.MapGet("/", async (ClaimsPrincipal principal, ISqlSugarClient db) =>
         {
@@ -326,7 +410,7 @@ public static class PlatformEndpoints
 
     private static void MapChannelMonitors(WebApplication app)
     {
-        var group = app.MapGroup("/admin/channel-monitors").RequireAuthorization();
+        var group = app.MapGroup("/admin/channel-monitors").RequireAuthorization("AdminOnly");
 
         group.MapGet("/", async (ISqlSugarClient db, long? accountId, int page = 1, int size = 50) =>
         {
@@ -354,7 +438,7 @@ public static class PlatformEndpoints
 
     private static void MapOpsMetrics(WebApplication app)
     {
-        var group = app.MapGroup("/admin/ops-metrics").RequireAuthorization();
+        var group = app.MapGroup("/admin/ops-metrics").RequireAuthorization("AdminOnly");
 
         group.MapGet("/", async (ISqlSugarClient db, string? metricName,
             DateTime? from, DateTime? to, int limit = 100) =>
@@ -377,7 +461,7 @@ public static class PlatformEndpoints
 
     private static void MapContentAudit(WebApplication app)
     {
-        var group = app.MapGroup("/admin/content-audit").RequireAuthorization();
+        var group = app.MapGroup("/admin/content-audit").RequireAuthorization("AdminOnly");
 
         group.MapGet("/rules", async (ISqlSugarClient db) =>
         {
@@ -454,7 +538,7 @@ public static class PlatformEndpoints
 
     private static void MapProxies(WebApplication app)
     {
-        var group = app.MapGroup("/admin/proxies").RequireAuthorization();
+        var group = app.MapGroup("/admin/proxies").RequireAuthorization("AdminOnly");
 
         group.MapGet("/", async (ISqlSugarClient db, int page = 1, int size = 50) =>
         {
@@ -523,7 +607,7 @@ public static class PlatformEndpoints
 
     private static void MapTlsFingerprints(WebApplication app)
     {
-        var group = app.MapGroup("/admin/tls-fingerprints").RequireAuthorization();
+        var group = app.MapGroup("/admin/tls-fingerprints").RequireAuthorization("AdminOnly");
 
         group.MapGet("/", async (ISqlSugarClient db) =>
         {
@@ -557,7 +641,7 @@ public static class PlatformEndpoints
 
     private static void MapAuditLogs(WebApplication app)
     {
-        var group = app.MapGroup("/admin/audit-logs").RequireAuthorization();
+        var group = app.MapGroup("/admin/audit-logs").RequireAuthorization("AdminOnly");
 
         group.MapGet("/", async (ISqlSugarClient db, long? userId, string? action,
             DateTime? from, DateTime? to, int page = 1, int size = 50) =>
@@ -583,59 +667,7 @@ public static class PlatformEndpoints
 
     private static void MapMiscAdmin(WebApplication app)
     {
-        var group = app.MapGroup("/admin/system").RequireAuthorization();
-
-        group.MapPost("/backup", async (IConfiguration config) =>
-        {
-            var connStr = config.GetConnectionString("Postgres") ?? "";
-            var backupDir = config["Backup:LocalPath"] ?? "/var/backups/sub2api";
-            Directory.CreateDirectory(backupDir);
-            var filename = $"sub2api_{DateTime.UtcNow:yyyyMMdd_HHmmss}.sql.gz";
-            var filepath = Path.Combine(backupDir, filename);
-
-            var psi = new ProcessStartInfo
-            {
-                FileName = "/bin/bash",
-                Arguments = $"-c \"pg_dump '{connStr}' | gzip > '{filepath}'\"",
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-            };
-
-            using var proc = Process.Start(psi);
-            await proc!.WaitForExitAsync();
-
-            if (proc.ExitCode == 0)
-                return Results.Ok(new { message = "Backup completed", path = filepath, size = new FileInfo(filepath).Length });
-            var err = await proc.StandardError.ReadToEndAsync();
-            return Results.StatusCode(500);
-        });
-
-        group.MapPost("/restore", async (IConfiguration config, RestoreRequest req) =>
-        {
-            var connStr = config.GetConnectionString("Postgres") ?? "";
-            var backupDir = config["Backup:LocalPath"] ?? "/var/backups/sub2api";
-            var filepath = Path.Combine(backupDir, req.BackupId);
-
-            if (!File.Exists(filepath))
-                return Results.BadRequest(new { error = "Backup file not found" });
-
-            var psi = new ProcessStartInfo
-            {
-                FileName = "/bin/bash",
-                Arguments = $"-c \"gunzip -c '{filepath}' | psql '{connStr}'\"",
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-            };
-
-            using var proc = Process.Start(psi);
-            await proc!.WaitForExitAsync();
-
-            return proc.ExitCode == 0
-                ? Results.Ok(new { message = "Restore completed" })
-                : Results.StatusCode(500);
-        });
+        var group = app.MapGroup("/admin/system").RequireAuthorization("AdminOnly");
 
         group.MapGet("/update-check", async (IHttpClientFactory httpFactory) =>
         {
@@ -706,7 +738,10 @@ public static class PlatformEndpoints
         });
     }
 
-    private record ApiKeyCreateRequest(string? Name);
+    private record ApiKeySelfServiceRequest(
+        string? Name, long? GroupId, double? Quota, long? ExpiresAt,
+        string[]? IpWhitelist, string[]? IpBlacklist,
+        double? RateLimit5h, double? RateLimit1d, double? RateLimit7d);
     private record RedeemRequest(string Code);
     private record ChannelCheckRequest(long AccountId, string Status, int LatencyMs, string? Error);
     private record RestoreRequest(string BackupId);

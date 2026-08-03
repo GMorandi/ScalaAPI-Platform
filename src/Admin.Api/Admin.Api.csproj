@@ -10,11 +10,12 @@
     <PackageReference Include="Microsoft.Orleans.Client" Version="10.2.2" />
     <PackageReference Include="Microsoft.Orleans.Clustering.AdoNet" Version="10.2.2" />
     <PackageReference Include="Npgsql" Version="10.0.3" />
-    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.0" />
-    <PackageReference Include="SqlSugarCore" Version="5.1.4.183" />
-    <PackageReference Include="BCrypt.Net-Next" Version="4.0.3" />
-    <PackageReference Include="Otp.NET" Version="1.4.0" />
-    <PackageReference Include="MailKit" Version="4.12.1" />
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.10" />
+    <PackageReference Include="SqlSugarCore" Version="5.1.4.216" />
+    <PackageReference Include="SQLitePCLRaw.lib.e_sqlite3" Version="3.53.3" />
+    <PackageReference Include="BCrypt.Net-Next" Version="4.2.0" />
+    <PackageReference Include="Otp.NET" Version="1.4.1" />
+    <PackageReference Include="MailKit" Version="4.17.0" />
   </ItemGroup>
 
   <ItemGroup>

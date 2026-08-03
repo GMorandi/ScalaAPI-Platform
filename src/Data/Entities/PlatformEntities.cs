@@ -123,6 +123,9 @@ public class RedeemCodeEntity
     [SugarColumn(IsPrimaryKey = true, IsIdentity = true, ColumnName = "id")]
     public long Id { get; set; }
 
+    [SugarColumn(ColumnName = "last_redeemed_by", IsNullable = true)]
+    public long? LastRedeemedBy { get; set; }
+
     [SugarColumn(ColumnName = "code")]
     public string Code { get; set; } = "";
 
@@ -148,11 +151,33 @@ public class RedeemCodeEntity
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }
 
+[SugarTable("redeem_code_redemptions")]
+public class RedeemCodeRedemptionEntity
+{
+    [SugarColumn(IsPrimaryKey = true, IsIdentity = true, ColumnName = "id")]
+    public long Id { get; set; }
+
+    [SugarColumn(ColumnName = "code_id")]
+    public long CodeId { get; set; }
+
+    [SugarColumn(ColumnName = "user_id")]
+    public long UserId { get; set; }
+
+    [SugarColumn(ColumnName = "bonus_amount", DecimalDigits = 8)]
+    public decimal BonusAmount { get; set; }
+
+    [SugarColumn(ColumnName = "created_at")]
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+}
+
 [SugarTable("payment_orders")]
 public class PaymentOrderEntity
 {
     [SugarColumn(IsPrimaryKey = true, IsIdentity = true, ColumnName = "id")]
     public long Id { get; set; }
+
+    [SugarColumn(ColumnName = "idempotency_key", IsNullable = true)]
+    public string? IdempotencyKey { get; set; }
 
     [SugarColumn(ColumnName = "user_id")]
     public long UserId { get; set; }
@@ -180,6 +205,28 @@ public class PaymentOrderEntity
 
     [SugarColumn(ColumnName = "paid_at", IsNullable = true)]
     public DateTime? PaidAt { get; set; }
+}
+
+[SugarTable("balance_ledger")]
+public class BalanceLedgerEntity
+{
+    [SugarColumn(IsPrimaryKey = true, IsIdentity = true, ColumnName = "id")]
+    public long Id { get; set; }
+
+    [SugarColumn(ColumnName = "user_id")]
+    public long UserId { get; set; }
+
+    [SugarColumn(ColumnName = "payment_id", IsNullable = true)]
+    public long? PaymentId { get; set; }
+
+    [SugarColumn(ColumnName = "reference", IsNullable = true)]
+    public string? Reference { get; set; }
+
+    [SugarColumn(ColumnName = "amount", DecimalDigits = 8)]
+    public decimal Amount { get; set; }
+
+    [SugarColumn(ColumnName = "created_at")]
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }
 
 [SugarTable("subscription_plans")]
@@ -428,6 +475,9 @@ public class UserApiKeyEntity
 {
     [SugarColumn(IsPrimaryKey = true, IsIdentity = true, ColumnName = "id")]
     public long Id { get; set; }
+
+    [SugarColumn(ColumnName = "api_key_id")]
+    public long ApiKeyId { get; set; }
 
     [SugarColumn(ColumnName = "user_email")]
     public string UserEmail { get; set; } = "";

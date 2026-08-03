@@ -1,0 +1,94 @@
+name: Migration Verification
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: migration-verification-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  formal:
+    name: F* fence proof
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      FSTAR_VERSION: 2026.03.24
+      FSTAR_SHA256: 16e69ee04b1302ca10295b071dac47946526d91be00685469ce20e6ff5f507f5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pinned F* release
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/fstar.tar.gz"
+          install_dir="$RUNNER_TEMP/fstar"
+          curl --fail --silent --show-error --location \
+            "https://github.com/FStarLang/FStar/releases/download/v${FSTAR_VERSION}/fstar-v${FSTAR_VERSION}-Linux-x86_64.tar.gz" \
+            --output "$archive"
+          echo "${FSTAR_SHA256}  ${archive}" | sha256sum --check --strict
+          mkdir -p "$install_dir"
+          tar -xzf "$archive" -C "$install_dir"
+          echo "$install_dir/fstar/bin" >> "$GITHUB_PATH"
+          echo "FSTAR=$install_dir/fstar/bin/fstar.exe" >> "$GITHUB_ENV"
+          echo "Z3=$install_dir/fstar/lib/fstar/z3-4.13.3/bin/z3" >> "$GITHUB_ENV"
+
+      - name: Verify migration fence model
+        working-directory: docs/migration/formal
+        run: ./verify.sh
+
+  schema:
+    name: Target schema and migrator
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: sub2api
+          POSTGRES_USER: sub2api
+          POSTGRES_PASSWORD: ci-password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U sub2api -d sub2api"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      ConnectionStrings__Postgres: Host=localhost;Port=5432;Database=sub2api;Username=sub2api;Password=ci-password
+      CDC_SCHEMA_CONNECTION: Host=localhost;Port=5432;Database=sub2api;Username=sub2api;Password=ci-password
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Restore
+        run: dotnet restore
+
+      - name: Build migration and host test projects
+        run: dotnet build --no-restore -c Release
+
+      - name: Apply migrations and verify idempotency
+        run: |
+          set -euo pipefail
+          migration_dir="$RUNNER_TEMP/migrations"
+          mkdir -p "$migration_dir"
+          cp deploy/orleans-postgres-schema.sql "$migration_dir/000-orleans.sql"
+          cp deploy/migrations/*.sql "$migration_dir/"
+          dotnet run --project src/Db.Migrator/Db.Migrator.csproj --no-build -c Release -- "$migration_dir"
+          dotnet run --project src/Db.Migrator/Db.Migrator.csproj --no-build -c Release -- "$migration_dir"
+
+      - name: Verify target schema
+        run: dotnet test test/Host.Tests/Host.Tests.csproj --no-build -c Release --filter FullyQualifiedName~MigrationSchemaTests --verbosity normal

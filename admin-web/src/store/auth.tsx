@@ -30,6 +30,10 @@ export function AuthProvider(props: ParentProps) {
   );
 }
 
-export function useAuth() {
-  return useContext(Ctx)!;
+export function useAuth(): AuthCtx {
+  const context = useContext(Ctx);
+  if (!context) {
+    throw new Error("useAuth must be used within AuthProvider");
+  }
+  return context;
 }

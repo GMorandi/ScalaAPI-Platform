@@ -5,18 +5,20 @@ namespace Sub2Api.Host.Services;
 public class InvalidationService : IInvalidationService
 {
     private readonly IGarnetService _garnet;
-    private long _version;
+    private readonly AuthProjectionCache _authCache;
 
-    public InvalidationService(IGarnetService garnet)
+    public InvalidationService(IGarnetService garnet, AuthProjectionCache authCache)
     {
         _garnet = garnet;
-        var existing = garnet.Get("invalidation:version");
-        _version = long.TryParse(existing, out var v) ? v : 0;
+        _authCache = authCache;
     }
 
     public void NotifyChange(string entityType, string entityKey)
     {
-        var newVersion = Interlocked.Increment(ref _version);
-        _garnet.Set("invalidation:version", newVersion.ToString());
+        _garnet.Increment("invalidation:version");
+        if (string.Equals(entityType, "apiKey", StringComparison.OrdinalIgnoreCase)
+            && !string.IsNullOrWhiteSpace(entityKey))
+            _garnet.Delete($"auth:{entityKey}");
+        _authCache.EvictAll();
     }
 }

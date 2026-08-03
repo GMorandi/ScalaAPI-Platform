@@ -1,8 +1,6 @@
 import { Route, Navigate } from "@solidjs/router";
 import type { JSX } from "solid-js";
-import { AuthProvider, useAuth } from "./store/auth";
-import { ThemeProvider } from "./store/theme";
-import { I18nProvider } from "./store/i18n";
+import { useAuth } from "./store/auth";
 import Layout from "./components/Layout";
 import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
@@ -24,27 +22,23 @@ function Protected(props: { children?: JSX.Element }) {
 
 export default function App() {
   return (
-    <ThemeProvider>
-      <I18nProvider>
-        <AuthProvider>
-          <Route path="/login" component={Login} />
-          <Route path="/" component={Protected}>
-            <Route path="/" component={Dashboard} />
-            <Route path="/accounts" component={AccountsList} />
-            <Route path="/accounts/new" component={AccountForm} />
-            <Route path="/accounts/:id" component={AccountForm} />
-            <Route path="/groups" component={GroupsList} />
-            <Route path="/groups/new" component={GroupForm} />
-            <Route path="/groups/:id" component={GroupForm} />
-            <Route path="/users" component={UsersList} />
-            <Route path="/users/new" component={UserForm} />
-            <Route path="/users/:id" component={UserForm} />
-            <Route path="/apikeys" component={ApiKeysList} />
-            <Route path="/apikeys/new" component={ApiKeyForm} />
-            <Route path="/config" component={Config} />
-          </Route>
-        </AuthProvider>
-      </I18nProvider>
-    </ThemeProvider>
+    <>
+      <Route path="/login" component={Login} />
+      <Route path="/" component={Protected}>
+        <Route path="/" component={Dashboard} />
+        <Route path="/accounts" component={AccountsList} />
+        <Route path="/accounts/new" component={AccountForm} />
+        <Route path="/accounts/:id" component={AccountForm} />
+        <Route path="/groups" component={GroupsList} />
+        <Route path="/groups/new" component={GroupForm} />
+        <Route path="/groups/:id" component={GroupForm} />
+        <Route path="/users" component={UsersList} />
+        <Route path="/users/new" component={UserForm} />
+        <Route path="/users/:id" component={UserForm} />
+        <Route path="/apikeys" component={ApiKeysList} />
+        <Route path="/apikeys/new" component={ApiKeyForm} />
+        <Route path="/config" component={Config} />
+      </Route>
+    </>
   );
 }

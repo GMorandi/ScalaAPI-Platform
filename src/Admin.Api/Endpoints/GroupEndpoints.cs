@@ -9,7 +9,7 @@ public static class GroupEndpoints
 {
     public static void MapGroupEndpoints(this WebApplication app)
     {
-        var group = app.MapGroup("/admin/groups").RequireAuthorization();
+        var group = app.MapGroup("/admin/groups").RequireAuthorization("AdminOnly");
 
         group.MapGet("/", async (IClusterClient client, ListingRepository repo, int page = 0, int size = 20) =>
         {

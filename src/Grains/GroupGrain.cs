@@ -22,13 +22,16 @@ public class GroupState
     [Id(12)] public double? PeakMultiplier { get; set; }
     [Id(13)] public int? PeakStartHour { get; set; }
     [Id(14)] public int? PeakEndHour { get; set; }
-    [Id(15)] public double DailySpendUsd { get; set; }
+    [Id(15)] public decimal DailySpendUsd { get; set; }
     [Id(16)] public string DailySpendDate { get; set; } = "";
+    [Id(17)] public HashSet<string> AppliedLeases { get; set; } = [];
 }
 
 public class GroupGrain : Grain, IGroupGrain
 {
     private readonly IPersistentState<GroupState> _state;
+    private int _rpmCount;
+    private long _rpmWindowStart;
 
     public GroupGrain([PersistentState("group", "postgres")] IPersistentState<GroupState> state)
     {
@@ -122,11 +125,27 @@ public class GroupGrain : Grain, IGroupGrain
         var today = DateTimeOffset.UtcNow.ToString("yyyy-MM-dd");
         if (s.DailySpendDate != today)
             return Task.FromResult(0.0);
-        return Task.FromResult(s.DailySpendUsd);
+        return Task.FromResult((double)s.DailySpendUsd);
+    }
+
+    public Task<bool> CheckAndRecordRpm()
+    {
+        var limit = _state.State.RpmLimit;
+        if (limit <= 0) return Task.FromResult(true);
+        var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        if (now - _rpmWindowStart >= 60_000)
+        {
+            _rpmCount = 0;
+            _rpmWindowStart = now;
+        }
+        if (_rpmCount >= limit) return Task.FromResult(false);
+        _rpmCount++;
+        return Task.FromResult(true);
     }
 
     public async Task RecordSpend(double amount)
     {
+        amount = Math.Max(0, amount);
         var s = _state.State;
         var today = DateTimeOffset.UtcNow.ToString("yyyy-MM-dd");
         if (s.DailySpendDate != today)
@@ -134,8 +153,35 @@ public class GroupGrain : Grain, IGroupGrain
             s.DailySpendDate = today;
             s.DailySpendUsd = 0;
         }
-        s.DailySpendUsd += amount;
+        s.DailySpendUsd += (decimal)amount;
         await _state.WriteStateAsync();
+    }
+
+    public async Task RecordLeaseSpend(string leaseToken, decimal amount)
+    {
+        amount = Math.Max(0m, amount);
+        if (!_state.State.AppliedLeases.Add(leaseToken)) return;
+        var beforeAmount = _state.State.DailySpendUsd;
+        var beforeDate = _state.State.DailySpendDate;
+        try
+        {
+            var s = _state.State;
+            var today = DateTimeOffset.UtcNow.ToString("yyyy-MM-dd");
+            if (s.DailySpendDate != today)
+            {
+                s.DailySpendDate = today;
+                s.DailySpendUsd = 0;
+            }
+            s.DailySpendUsd += amount;
+            await _state.WriteStateAsync();
+        }
+        catch
+        {
+            _state.State.AppliedLeases.Remove(leaseToken);
+            _state.State.DailySpendUsd = beforeAmount;
+            _state.State.DailySpendDate = beforeDate;
+            throw;
+        }
     }
 
     private static bool MatchesPattern(string model, string pattern)
@@ -182,6 +228,39 @@ public class GroupGrain : Grain, IGroupGrain
         s.PeakMultiplier = input.PeakMultiplier;
         s.PeakStartHour = input.PeakStartHour;
         s.PeakEndHour = input.PeakEndHour;
+        await _state.WriteStateAsync();
+    }
+
+    public async Task UpsertMetadata(GroupMetadataUpsert input)
+    {
+        var s = _state.State;
+        s.Id = this.GetPrimaryKeyLong();
+        s.Platform = input.Platform;
+        s.RateMultiplier = input.RateMultiplier;
+        s.IsExclusive = input.IsExclusive;
+        s.DailyLimitUsd = input.DailyLimitUsd;
+        s.ClaudeCodeOnly = input.ClaudeCodeOnly;
+        s.FallbackGroupId = input.FallbackGroupId;
+        s.ModelRoutingEnabled = input.ModelRoutingEnabled;
+        s.ModelRouting = input.ModelRouting;
+        s.RpmLimit = input.RpmLimit;
+        s.PeakMultiplier = input.PeakMultiplier;
+        s.PeakStartHour = input.PeakStartHour;
+        s.PeakEndHour = input.PeakEndHour;
+        await _state.WriteStateAsync();
+    }
+
+    public async Task AddMemberAccount(long accountId)
+    {
+        if (_state.State.MemberAccountIds.Contains(accountId)) return;
+        _state.State.MemberAccountIds = [.. _state.State.MemberAccountIds, accountId];
+        await _state.WriteStateAsync();
+    }
+
+    public async Task RemoveMemberAccount(long accountId)
+    {
+        if (!_state.State.MemberAccountIds.Contains(accountId)) return;
+        _state.State.MemberAccountIds = _state.State.MemberAccountIds.Where(x => x != accountId).ToArray();
         await _state.WriteStateAsync();
     }
 

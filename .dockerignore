@@ -1,0 +1,9 @@
+.git
+.gitignore
+.idea
+.vscode
+**/bin
+**/obj
+test
+admin-web
+README.md

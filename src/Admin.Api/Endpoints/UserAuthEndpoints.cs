@@ -2,8 +2,10 @@ using System.Security.Claims;
 using System.Security.Cryptography;
 using OtpNet;
 using SqlSugar;
+using Orleans;
 using Sub2Api.Admin.Auth;
 using Sub2Api.Data.Entities;
+using Sub2Api.Grains.Interfaces;
 
 namespace Sub2Api.Admin.Endpoints;
 
@@ -18,9 +20,9 @@ public static class UserAuthEndpoints
     public static void MapUserAuthEndpoints(this WebApplication app)
     {
         var auth = app.MapGroup("/auth").AllowAnonymous();
-        var user = app.MapGroup("/user").RequireAuthorization();
+        var user = app.MapGroup("/user").RequireAuthorization("UserOnly");
 
-        auth.MapPost("/register", async (RegisterRequest req, ISqlSugarClient db) =>
+        auth.MapPost("/register", async (RegisterRequest req, ISqlSugarClient db, IClusterClient client) =>
         {
             if (string.IsNullOrWhiteSpace(req.Email) || string.IsNullOrWhiteSpace(req.Password))
                 return Results.BadRequest(new { error = "Email and password required" });
@@ -38,11 +40,14 @@ public static class UserAuthEndpoints
                 CreatedAt = DateTime.UtcNow,
             };
             await db.Insertable(account).ExecuteCommandAsync();
+            await client.GetGrain<IUserGrain>(account.Id).Create(new UserUpsert(
+                "user", 0, 1, 0, []));
 
             return Results.Ok(new { id = account.Id, email = account.Email });
         });
 
-        auth.MapPost("/login", async (UserLoginRequest req, ISqlSugarClient db, JwtService jwt) =>
+        auth.MapPost("/login", async (UserLoginRequest req, ISqlSugarClient db,
+            JwtService jwt, SecretProtector protector) =>
         {
             var account = await db.Queryable<UserAccountEntity>()
                 .Where(x => x.Email == req.Email.ToLowerInvariant()).FirstAsync();
@@ -57,14 +62,36 @@ public static class UserAuthEndpoints
                 if (string.IsNullOrEmpty(req.TotpCode))
                     return Results.Json(new { error = "totp_required" }, statusCode: 403);
 
-                if (!VerifyTotp(account, req.TotpCode))
+                var backupCodesBefore = account.TotpBackupCodes;
+                if (!VerifyTotp(account, req.TotpCode, protector, out var consumedBackupCode))
                     return Results.Unauthorized();
+                if (consumedBackupCode)
+                {
+                    var consumed = await db.Updateable<UserAccountEntity>()
+                        .SetColumns(x => new UserAccountEntity
+                        {
+                            TotpBackupCodes = account.TotpBackupCodes,
+                            LastLoginAt = DateTime.UtcNow,
+                        })
+                        .Where(x => x.Id == account.Id && x.TotpBackupCodes == backupCodesBefore)
+                        .ExecuteCommandAsync();
+                    if (consumed != 1) return Results.Unauthorized();
+                }
+                else
+                {
+                    account.LastLoginAt = DateTime.UtcNow;
+                    await db.Updateable(account).UpdateColumns(x => x.LastLoginAt)
+                        .ExecuteCommandAsync();
+                }
+            }
+            else
+            {
+                account.LastLoginAt = DateTime.UtcNow;
+                await db.Updateable(account).UpdateColumns(x => x.LastLoginAt)
+                    .ExecuteCommandAsync();
             }
 
-            account.LastLoginAt = DateTime.UtcNow;
-            await db.Updateable(account).UpdateColumns(x => x.LastLoginAt).ExecuteCommandAsync();
-
-            var token = jwt.GenerateToken(account.Email);
+            var token = jwt.GenerateToken(account.Email, account.Role, account.Id);
             return Results.Ok(new { token, email = account.Email, role = account.Role });
         });
 
@@ -106,11 +133,12 @@ public static class UserAuthEndpoints
             account.LastLoginAt = DateTime.UtcNow;
             await db.Updateable(account).UpdateColumns(x => x.LastLoginAt).ExecuteCommandAsync();
 
-            var token = jwt.GenerateToken(account.Email);
+            var token = jwt.GenerateToken(account.Email, account.Role, account.Id);
             return Results.Ok(new { token, email = account.Email, role = account.Role });
         });
 
-        user.MapPost("/totp/setup", async (ClaimsPrincipal principal, ISqlSugarClient db) =>
+        user.MapPost("/totp/setup", async (ClaimsPrincipal principal, ISqlSugarClient db,
+            SecretProtector protector) =>
         {
             var email = principal.Identity?.Name;
             var account = await db.Queryable<UserAccountEntity>()
@@ -118,7 +146,7 @@ public static class UserAuthEndpoints
             if (account is null) return Results.NotFound();
 
             var secret = Base32Encoding.ToString(KeyGeneration.GenerateRandomKey(20));
-            account.TotpSecret = secret;
+            account.TotpSecret = protector.Protect(secret);
             await db.Updateable(account).UpdateColumns(x => x.TotpSecret).ExecuteCommandAsync();
 
             var qrUri = $"otpauth://totp/Sub2Api:{email}?secret={secret}&issuer=Sub2Api";
@@ -126,19 +154,20 @@ public static class UserAuthEndpoints
         });
 
         user.MapPost("/totp/verify", async (ClaimsPrincipal principal, TotpVerifyRequest req,
-            ISqlSugarClient db) =>
+            ISqlSugarClient db, SecretProtector protector) =>
         {
             var email = principal.Identity?.Name;
             var account = await db.Queryable<UserAccountEntity>()
                 .Where(x => x.Email == email).FirstAsync();
             if (account is null || account.TotpSecret is null) return Results.NotFound();
 
-            if (!VerifyTotp(account, req.Code))
+            if (!VerifyTotp(account, req.Code, protector, out _))
                 return Results.BadRequest(new { error = "Invalid TOTP code" });
 
             var backupCodes = GenerateBackupCodes();
             account.TotpEnabled = true;
-            account.TotpBackupCodes = string.Join(",", backupCodes);
+            account.TotpBackupCodes = string.Join(",",
+                backupCodes.Select(BCrypt.Net.BCrypt.HashPassword));
             await db.Updateable(account)
                 .UpdateColumns(x => new { x.TotpEnabled, x.TotpBackupCodes }).ExecuteCommandAsync();
 
@@ -146,14 +175,14 @@ public static class UserAuthEndpoints
         });
 
         user.MapPost("/totp/disable", async (ClaimsPrincipal principal, TotpVerifyRequest req,
-            ISqlSugarClient db) =>
+            ISqlSugarClient db, SecretProtector protector) =>
         {
             var email = principal.Identity?.Name;
             var account = await db.Queryable<UserAccountEntity>()
                 .Where(x => x.Email == email).FirstAsync();
             if (account is null) return Results.NotFound();
 
-            if (!VerifyTotp(account, req.Code))
+            if (!VerifyTotp(account, req.Code, protector, out _))
                 return Results.BadRequest(new { error = "Invalid TOTP code" });
 
             account.TotpEnabled = false;
@@ -167,11 +196,13 @@ public static class UserAuthEndpoints
         });
     }
 
-    private static bool VerifyTotp(UserAccountEntity account, string code)
+    private static bool VerifyTotp(UserAccountEntity account, string code,
+        SecretProtector protector, out bool backupCodeConsumed)
     {
+        backupCodeConsumed = false;
         if (account.TotpSecret is null) return false;
 
-        var secretBytes = Base32Encoding.ToBytes(account.TotpSecret);
+        var secretBytes = Base32Encoding.ToBytes(protector.Unprotect(account.TotpSecret));
         var totp = new Totp(secretBytes);
 
         if (totp.VerifyTotp(code, out _, new VerificationWindow(0, 0)))
@@ -180,10 +211,12 @@ public static class UserAuthEndpoints
         if (account.TotpBackupCodes is not null)
         {
             var codes = account.TotpBackupCodes.Split(',', StringSplitOptions.RemoveEmptyEntries);
-            if (codes.Contains(code))
+            var usedIndex = Array.FindIndex(codes, hash => BCrypt.Net.BCrypt.Verify(code, hash));
+            if (usedIndex >= 0)
             {
-                var remaining = codes.Where(c => c != code).ToArray();
+                var remaining = codes.Where((_, index) => index != usedIndex).ToArray();
                 account.TotpBackupCodes = string.Join(",", remaining);
+                backupCodeConsumed = true;
                 return true;
             }
         }

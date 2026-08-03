@@ -22,6 +22,13 @@ public record GroupUpsert(
     long[] MemberAccountIds, int RpmLimit,
     double? PeakMultiplier, int? PeakStartHour, int? PeakEndHour);
 
+[GenerateSerializer]
+public record GroupMetadataUpsert(
+    string Platform, double RateMultiplier, bool IsExclusive,
+    double? DailyLimitUsd, bool ClaudeCodeOnly, long? FallbackGroupId,
+    bool ModelRoutingEnabled, Dictionary<string, long[]> ModelRouting,
+    int RpmLimit, double? PeakMultiplier, int? PeakStartHour, int? PeakEndHour);
+
 public interface IGroupGrain : IGrainWithIntegerKey
 {
     Task<GroupConfig> GetConfig();
@@ -31,10 +38,15 @@ public interface IGroupGrain : IGrainWithIntegerKey
     Task<CompositeRouteDecision?> ResolveCompositeRoute(string model, string endpoint);
     Task<double> GetEffectiveMultiplier(DateTimeOffset now);
     Task<double> GetDailySpend();
+    Task<bool> CheckAndRecordRpm();
     Task RecordSpend(double amount);
+    Task RecordLeaseSpend(string leaseToken, decimal amount);
 
     Task Create(GroupUpsert input);
     Task Update(GroupUpsert input);
+    Task UpsertMetadata(GroupMetadataUpsert input);
+    Task AddMemberAccount(long accountId);
+    Task RemoveMemberAccount(long accountId);
     Task SetStatus(string status);
     Task Delete();
 }

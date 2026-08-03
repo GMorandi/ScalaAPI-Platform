@@ -8,7 +8,7 @@ public static class ConfigEndpoints
 {
     public static void MapConfigEndpoints(this WebApplication app)
     {
-        var group = app.MapGroup("/admin/config").RequireAuthorization();
+        var group = app.MapGroup("/admin/config").RequireAuthorization("AdminOnly");
 
         group.MapGet("/", async (IClusterClient client) =>
         {

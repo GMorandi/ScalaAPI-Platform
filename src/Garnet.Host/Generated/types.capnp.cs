@@ -1445,6 +1445,7 @@ namespace CapnpGen
             ForceCacheBilling = reader.ForceCacheBilling;
             IpAddress = reader.IpAddress;
             UserAgent = reader.UserAgent;
+            StatusCode = reader.StatusCode;
             applyDefaults();
         }
 
@@ -1470,6 +1471,7 @@ namespace CapnpGen
             writer.ForceCacheBilling = ForceCacheBilling;
             writer.IpAddress = IpAddress;
             writer.UserAgent = UserAgent;
+            writer.StatusCode = StatusCode;
         }
 
         void ICapnpSerializable.Serialize(SerializerState arg_)
@@ -1601,6 +1603,12 @@ namespace CapnpGen
             set;
         }
 
+        public int StatusCode
+        {
+            get;
+            set;
+        }
+
         public struct READER
         {
             readonly DeserializerState ctx;
@@ -1632,6 +1640,7 @@ namespace CapnpGen
             public bool ForceCacheBilling => ctx.ReadDataBool(450UL, false);
             public string IpAddress => ctx.ReadText(5, null);
             public string UserAgent => ctx.ReadText(6, null);
+            public int StatusCode => ctx.ReadDataInt(480UL, 0);
         }
 
         public class WRITER : SerializerState
@@ -1759,6 +1768,12 @@ namespace CapnpGen
             {
                 get => this.ReadText(6, null);
                 set => this.WriteText(6, value, null);
+            }
+
+            public int StatusCode
+            {
+                get => this.ReadDataInt(480UL, 0);
+                set => this.WriteData(480UL, value, 0);
             }
         }
     }

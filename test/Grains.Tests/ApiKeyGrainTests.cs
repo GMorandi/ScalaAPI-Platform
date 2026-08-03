@@ -46,7 +46,7 @@ public class ApiKeyGrainTests
     public async Task Validate_ActiveKey_ReturnsAuthResult()
     {
         var userGrain = _cluster.GrainFactory.GetGrain<IUserGrain>(2001);
-        await userGrain.Create(new UserUpsert("user", 50.0, 2, 60, [1]));
+        await userGrain.Create(new UserUpsert("user", 50.0, 2, 60, [3001]));
 
         var groupGrain = _cluster.GrainFactory.GetGrain<IGroupGrain>(3001);
         await groupGrain.Create(new GroupUpsert("anthropic", 1.0, false, null, false, null, false, new(), [1], 0, null, null, null));
@@ -55,6 +55,7 @@ public class ApiKeyGrainTests
         await grain.Create(DefaultUpsert(2001, 3001));
 
         var result = await grain.Validate(new AuthRequest("10.0.0.1", "req-1"));
+        Assert.Equal(1004, result.ApiKeyId);
         Assert.Equal(2001, result.UserId);
         Assert.Equal(3001, result.GroupId);
         Assert.Equal("anthropic", result.Platform);
@@ -117,6 +118,47 @@ public class ApiKeyGrainTests
 
         var result = await grain.Validate(new AuthRequest("10.0.0.1", "req-6"));
         Assert.Equal("active", result.Status);
+    }
+
+    [Fact]
+    public async Task Validate_ExhaustedQuota_Throws()
+    {
+        var user = _cluster.GrainFactory.GetGrain<IUserGrain>(2010);
+        await user.Create(new UserUpsert("user", 50.0, 1, 0, []));
+        var group = _cluster.GrainFactory.GetGrain<IGroupGrain>(3010);
+        await group.Create(new GroupUpsert("openai", 1.0, false, null, false,
+            null, false, new(), [], 0, null, null, null));
+        var grain = GetGrain(1012);
+        await grain.Create(new ApiKeyUpsert(2010, 3010, 1.0, null, [], [], 0, 0, 0));
+        await grain.AddUsage(1.0m);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => grain.Validate(new AuthRequest("10.0.0.1", "req-quota")));
+    }
+
+    [Fact]
+    public async Task Validate_DisabledUser_Throws()
+    {
+        var user = _cluster.GrainFactory.GetGrain<IUserGrain>(2011);
+        await user.Create(new UserUpsert("user", 50.0, 1, 0, []));
+        await user.SetStatus("disabled");
+        var group = _cluster.GrainFactory.GetGrain<IGroupGrain>(3011);
+        await group.Create(new GroupUpsert("openai", 1.0, false, null, false,
+            null, false, new(), [], 0, null, null, null));
+        var grain = GetGrain(1013);
+        await grain.Create(new ApiKeyUpsert(2011, 3011, 10.0, null, [], [], 0, 0, 0));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => grain.Validate(new AuthRequest("10.0.0.1", "req-disabled")));
+    }
+
+    [Fact]
+    public async Task Validate_UnknownKey_Throws()
+    {
+        var grain = GetGrain(1099);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => grain.Validate(new AuthRequest("10.0.0.1", "req-unknown")));
     }
 
     [Fact]

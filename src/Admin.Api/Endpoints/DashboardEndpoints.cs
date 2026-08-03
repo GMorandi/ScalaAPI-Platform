@@ -14,6 +14,6 @@ public static class DashboardEndpoints
             var users = await repo.CountGrains("user");
             var apiKeys = await repo.CountGrains("apiKey");
             return Results.Ok(new DashboardStats(accounts, groups, users, apiKeys));
-        }).RequireAuthorization();
+        }).RequireAuthorization("AdminOnly");
     }
 }

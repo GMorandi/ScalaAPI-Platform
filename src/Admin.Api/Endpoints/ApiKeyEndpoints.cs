@@ -11,7 +11,7 @@ public static class ApiKeyEndpoints
 {
     public static void MapApiKeyEndpoints(this WebApplication app)
     {
-        var group = app.MapGroup("/admin/apikeys").RequireAuthorization();
+        var group = app.MapGroup("/admin/apikeys").RequireAuthorization("AdminOnly");
 
         group.MapGet("/", async (IClusterClient client, ListingRepository repo, int page = 0, int size = 20) =>
         {
@@ -31,14 +31,16 @@ public static class ApiKeyEndpoints
         {
             var plainKey = $"sk-{Convert.ToHexString(RandomNumberGenerator.GetBytes(24)).ToLowerInvariant()}";
             var hash = HashKey(plainKey);
+            var allocator = client.GetGrain<IIdAllocatorGrain>("apiKey");
+            var id = await allocator.Next();
 
             var grain = client.GetGrain<IApiKeyGrain>(hash);
             await grain.Create(new ApiKeyUpsert(
                 req.UserId, req.GroupId, req.Quota, req.ExpiresAt,
                 req.IpWhitelist, req.IpBlacklist,
-                req.RateLimit5h, req.RateLimit1d, req.RateLimit7d));
+                req.RateLimit5h, req.RateLimit1d, req.RateLimit7d), id);
 
-            return Results.Created($"/admin/apikeys/{hash}", new ApiKeyCreateResponse(plainKey, req.UserId));
+            return Results.Created($"/admin/apikeys/{hash}", new ApiKeyCreateResponse(plainKey, id));
         });
 
         group.MapPut("/{hash}", async (string hash, ApiKeyCreateRequest req, IClusterClient client) =>

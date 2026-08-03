@@ -12,21 +12,22 @@ public class ApiKeyState
     [Id(1)] public long UserId { get; set; }
     [Id(2)] public long GroupId { get; set; }
     [Id(3)] public string Status { get; set; } = "active";
-    [Id(4)] public double Quota { get; set; }
-    [Id(5)] public double QuotaUsed { get; set; }
+    [Id(4)] public decimal Quota { get; set; }
+    [Id(5)] public decimal QuotaUsed { get; set; }
     [Id(6)] public long? ExpiresAt { get; set; }
     [Id(7)] public string[] IpWhitelist { get; set; } = [];
     [Id(8)] public string[] IpBlacklist { get; set; } = [];
-    [Id(9)] public double RateLimit5h { get; set; }
-    [Id(10)] public double RateLimit1d { get; set; }
-    [Id(11)] public double RateLimit7d { get; set; }
+    [Id(9)] public decimal RateLimit5h { get; set; }
+    [Id(10)] public decimal RateLimit1d { get; set; }
+    [Id(11)] public decimal RateLimit7d { get; set; }
     [Id(12)] public long Version { get; set; }
-    [Id(13)] public double Usage5h { get; set; }
-    [Id(14)] public double Usage1d { get; set; }
-    [Id(15)] public double Usage7d { get; set; }
+    [Id(13)] public decimal Usage5h { get; set; }
+    [Id(14)] public decimal Usage1d { get; set; }
+    [Id(15)] public decimal Usage7d { get; set; }
     [Id(16)] public long Window5hStart { get; set; }
     [Id(17)] public long Window1dStart { get; set; }
     [Id(18)] public long Window7dStart { get; set; }
+    [Id(19)] public HashSet<string> AppliedLeases { get; set; } = [];
 }
 
 public class ApiKeyGrain : Grain, IApiKeyGrain
@@ -49,6 +50,8 @@ public class ApiKeyGrain : Grain, IApiKeyGrain
     {
         var s = _state.State;
 
+        if (s.ApiKeyId <= 0)
+            throw new InvalidOperationException("API key does not exist");
         if (s.Status != "active")
             throw new InvalidOperationException("API key is not active");
 
@@ -73,13 +76,21 @@ public class ApiKeyGrain : Grain, IApiKeyGrain
 
         var userGrain = GrainFactory.GetGrain<IUserGrain>(s.UserId);
         var user = await userGrain.GetAuthProjection();
+        if (user.Status != "active")
+            throw new InvalidOperationException("User is not active");
 
         var groupGrain = GrainFactory.GetGrain<IGroupGrain>(s.GroupId);
         var group = await groupGrain.GetAuthProjection();
+        if (group.Status != "active")
+            throw new InvalidOperationException("Group is not active");
+        if (user.AllowedGroups.Length > 0 && !user.AllowedGroups.Contains(s.GroupId))
+            throw new InvalidOperationException("User is not allowed to use this group");
+        if (s.Quota > 0 && s.QuotaUsed >= s.Quota)
+            throw new InvalidOperationException("API key quota exhausted");
 
         return new AuthResult(
             s.ApiKeyId, s.UserId, s.GroupId, group.Platform, s.Status,
-            s.Quota, s.QuotaUsed, group.RateMultiplier,
+            (double)s.Quota, (double)s.QuotaUsed, group.RateMultiplier,
             user.Concurrency, user.RpmLimit, s.Version, user, group);
     }
 
@@ -88,7 +99,7 @@ public class ApiKeyGrain : Grain, IApiKeyGrain
     public async Task AddUsage(decimal usd)
     {
         var s = _state.State;
-        var amount = (double)usd;
+        var amount = Math.Max(0m, usd);
         s.QuotaUsed += amount;
 
         var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
@@ -99,6 +110,25 @@ public class ApiKeyGrain : Grain, IApiKeyGrain
 
         s.Version++;
         await _state.WriteStateAsync();
+    }
+
+    public async Task AddLeaseUsage(string leaseToken, decimal usd)
+    {
+        if (!_state.State.AppliedLeases.Add(leaseToken)) return;
+        var s = _state.State;
+        var before = (s.QuotaUsed, s.Usage5h, s.Usage1d, s.Usage7d,
+            s.Window5hStart, s.Window1dStart, s.Window7dStart, s.Version);
+        try
+        {
+            await AddUsage(usd);
+        }
+        catch
+        {
+            s.AppliedLeases.Remove(leaseToken);
+            (s.QuotaUsed, s.Usage5h, s.Usage1d, s.Usage7d,
+                s.Window5hStart, s.Window1dStart, s.Window7dStart, s.Version) = before;
+            throw;
+        }
     }
 
     private static void ResetWindowIfExpired(ApiKeyState s, long nowMs)
@@ -124,21 +154,26 @@ public class ApiKeyGrain : Grain, IApiKeyGrain
         }
     }
 
-    public async Task Create(ApiKeyUpsert input)
+    public async Task Create(ApiKeyUpsert input, long apiKeyId = 0)
     {
         var s = _state.State;
+        if (apiKeyId <= 0 && long.TryParse(this.GetPrimaryKeyString(), out var parsedId))
+            apiKeyId = parsedId;
+        if (apiKeyId <= 0)
+            throw new ArgumentOutOfRangeException(nameof(apiKeyId), "A positive API key ID is required");
+        s.ApiKeyId = apiKeyId;
         s.UserId = input.UserId;
         s.GroupId = input.GroupId;
-        s.Quota = input.Quota;
+        s.Quota = (decimal)input.Quota;
         s.ExpiresAt = input.ExpiresAt;
         s.IpWhitelist = input.IpWhitelist;
         s.IpBlacklist = input.IpBlacklist;
-        s.RateLimit5h = input.RateLimit5h;
-        s.RateLimit1d = input.RateLimit1d;
-        s.RateLimit7d = input.RateLimit7d;
+        s.RateLimit5h = (decimal)input.RateLimit5h;
+        s.RateLimit1d = (decimal)input.RateLimit1d;
+        s.RateLimit7d = (decimal)input.RateLimit7d;
         s.Version = 1;
         await _state.WriteStateAsync();
-        _invalidation.NotifyChange("apiKey", this.GetPrimaryKeyLong().ToString());
+        _invalidation.NotifyChange("apiKey", this.GetPrimaryKeyString());
     }
 
     public async Task Update(ApiKeyUpsert input)
@@ -146,16 +181,16 @@ public class ApiKeyGrain : Grain, IApiKeyGrain
         var s = _state.State;
         s.UserId = input.UserId;
         s.GroupId = input.GroupId;
-        s.Quota = input.Quota;
+        s.Quota = (decimal)input.Quota;
         s.ExpiresAt = input.ExpiresAt;
         s.IpWhitelist = input.IpWhitelist;
         s.IpBlacklist = input.IpBlacklist;
-        s.RateLimit5h = input.RateLimit5h;
-        s.RateLimit1d = input.RateLimit1d;
-        s.RateLimit7d = input.RateLimit7d;
+        s.RateLimit5h = (decimal)input.RateLimit5h;
+        s.RateLimit1d = (decimal)input.RateLimit1d;
+        s.RateLimit7d = (decimal)input.RateLimit7d;
         s.Version++;
         await _state.WriteStateAsync();
-        _invalidation.NotifyChange("apiKey", this.GetPrimaryKeyLong().ToString());
+        _invalidation.NotifyChange("apiKey", this.GetPrimaryKeyString());
     }
 
     public async Task Revoke()
@@ -163,6 +198,6 @@ public class ApiKeyGrain : Grain, IApiKeyGrain
         _state.State.Status = "revoked";
         _state.State.Version++;
         await _state.WriteStateAsync();
-        _invalidation.NotifyChange("apiKey", this.GetPrimaryKeyLong().ToString());
+        _invalidation.NotifyChange("apiKey", this.GetPrimaryKeyString());
     }
 }
