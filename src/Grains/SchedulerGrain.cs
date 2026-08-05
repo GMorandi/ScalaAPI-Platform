@@ -63,7 +63,10 @@ public class SchedulerGrain : Grain, ISchedulerGrain
         {
             var acctGrain = GrainFactory.GetGrain<IAccountGrain>(id);
             var proj = await acctGrain.GetProjection();
-            if (proj.Schedulable)
+            var platformMatches = string.IsNullOrWhiteSpace(req.ForcePlatform)
+                || string.Equals(proj.Platform, req.ForcePlatform, StringComparison.OrdinalIgnoreCase);
+            if (proj.Schedulable && platformMatches
+                && GatewayCapabilityPolicy.Supports(proj.Platform, req.Capability))
                 projections.Add((id, proj));
         }
 

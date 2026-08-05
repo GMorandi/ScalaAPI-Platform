@@ -80,8 +80,10 @@ builder.Services.AddSingleton<MigrationFenceStore>();
 builder.Services.AddSingleton<MigrationWriteGate>();
 builder.Services.AddSingleton<CdcGrainApplier>();
 builder.Services.AddSingleton<RequestLeaseStore>();
+builder.Services.AddSingleton<MediaOperationStore>();
 builder.Services.AddSingleton<DispatchService>();
 builder.Services.AddHostedService<LeaseOutboxHostedService>();
+builder.Services.AddHostedService<MediaOperationHostedService>();
 builder.Services.AddHostedService<CdcConsumerHostedService>();
 
 var app = builder.Build();
@@ -113,7 +115,9 @@ app.MapGet("/metrics", async (NpgsqlDataSource db, MigrationWriteGate writeGate,
           (SELECT count(*) FROM usage_outbox WHERE processed_at IS NULL AND attempts > 0),
           (SELECT count(*) FROM cdc_inbox WHERE status IN ('pending', 'failed')),
           (SELECT count(*) FROM cdc_inbox WHERE status = 'dead_letter'),
-          (SELECT count(*) FROM cdc_rejected_messages)
+          (SELECT count(*) FROM cdc_rejected_messages),
+          (SELECT count(*) FROM media_operations WHERE status IN ('pending', 'running')),
+          (SELECT count(*) FROM media_operations WHERE status IN ('pending', 'running') AND expires_at <= now())
         """);
     await using var reader = await command.ExecuteReaderAsync(ct);
     await reader.ReadAsync(ct);
@@ -130,6 +134,10 @@ app.MapGet("/metrics", async (NpgsqlDataSource db, MigrationWriteGate writeGate,
         platform_cdc_dead_letters {reader.GetInt64(4)}
         # TYPE platform_cdc_rejected_messages counter
         platform_cdc_rejected_messages {reader.GetInt64(5)}
+        # TYPE platform_media_operation_backlog gauge
+        platform_media_operation_backlog {reader.GetInt64(6)}
+        # TYPE platform_media_operation_overdue gauge
+        platform_media_operation_overdue {reader.GetInt64(7)}
         # TYPE platform_migration_fence_rejections counter
         platform_migration_fence_rejections {writeGate.RejectionCount}
         """;

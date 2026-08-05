@@ -13,7 +13,7 @@ publication with `postgres-bootstrap.sql`. Supply the two `psql -v` values from
 an untracked environment file. The publication is deliberately explicit so a
 new table cannot silently enter the migration stream.
 
-Apply Sub2API migration `192_migration_cdc_outbox.sql` before creating the
+Apply Sub2API migration `194_migration_cdc_outbox.sql` before creating the
 publication. Immediately before the initial Debezium snapshot, run
 `SELECT emit_api_key_migration_cdc_snapshot();` exactly once and record its row
 count. The semantic outbox contains the Gateway-compatible SHA-256 identity;

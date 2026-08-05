@@ -48,7 +48,23 @@ public sealed record LeaseCompletion(
     int FirstTokenMs,
     int StatusCode,
     bool Stream,
-    bool ClientDisconnect);
+    bool ClientDisconnect,
+    int InputImageCount = 0,
+    int OutputImageCount = 0,
+    string ImageSize = "",
+    int VideoCount = 0,
+    string VideoResolution = "",
+    int VideoDurationSeconds = 0,
+    int RealtimeDurationMs = 0,
+    int RealtimeFrames = 0,
+    string DisconnectReason = "",
+    string ProviderUsageJson = "",
+    int ReasoningTokens = 0,
+    string ServiceTier = "",
+    string UpstreamEndpoint = "",
+    string CancellationReason = "",
+    string MediaOperationId = "",
+    string PricingVersion = "");
 
 public sealed record WriteAck(bool Accepted, bool Duplicate, bool Retryable, string ErrorCode)
 {
@@ -127,8 +143,20 @@ public sealed class RequestLeaseStore(
             CacheReadTokens = Math.Max(0, completion.CacheReadTokens),
             DurationMs = Math.Max(0, completion.DurationMs),
             FirstTokenMs = Math.Max(0, completion.FirstTokenMs),
+            InputImageCount = Math.Max(0, completion.InputImageCount),
+            OutputImageCount = Math.Max(0, completion.OutputImageCount),
+            VideoCount = Math.Max(0, completion.VideoCount),
+            VideoDurationSeconds = Math.Max(0, completion.VideoDurationSeconds),
+            RealtimeDurationMs = Math.Max(0, completion.RealtimeDurationMs),
+            RealtimeFrames = Math.Max(0, completion.RealtimeFrames),
+            ReasoningTokens = Math.Max(0, completion.ReasoningTokens),
         };
-        var cost = ComputeCost(lease, normalized);
+        if (!pricing.TryGetPrice(lease.Model, out var price))
+        {
+            logger.LogWarning("Usage settlement deferred because pricing is missing for model {Model}", lease.Model);
+            return WriteAck.Error("pricing_unavailable", retryable: true);
+        }
+        var cost = ComputeCost(lease, normalized, price);
 
         await using (var usage = connection.CreateCommand())
         {
@@ -138,10 +166,17 @@ public sealed class RequestLeaseStore(
                     lease_token, request_id, api_key_id, user_id, account_id, group_id,
                     model, upstream_model, inbound_endpoint, input_tokens, output_tokens,
                     cache_create_tokens, cache_read_tokens, cost_usd, duration_ms,
-                    first_token_ms, status_code, stream, client_disconnect)
-                VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
+                    first_token_ms, status_code, stream, client_disconnect,
+                    input_image_count, output_image_count, image_size, video_count,
+                    video_resolution, video_duration_seconds, realtime_duration_ms,
+                    realtime_frames, disconnect_reason, provider_usage_json,
+                    reasoning_tokens, service_tier, upstream_endpoint, cancellation_reason,
+                    media_operation_id, pricing_version)
+                VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,
+                        $20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35)
                 """;
             AddUsageParameters(usage, lease, normalized, cost, includeEndpointAndStatus: true);
+            AddUsageExtensions(usage, normalized);
             await usage.ExecuteNonQueryAsync(ct);
         }
 
@@ -153,10 +188,17 @@ public sealed class RequestLeaseStore(
                     lease_token, request_id, api_key_id, user_id, account_id, group_id,
                     model, upstream_model, input_tokens, output_tokens, cache_create_tokens,
                     cache_read_tokens, cost_usd, duration_ms, first_token_ms, stream,
-                    client_disconnect)
-                VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+                    client_disconnect, input_image_count, output_image_count, image_size,
+                    video_count, video_resolution, video_duration_seconds,
+                    realtime_duration_ms, realtime_frames, disconnect_reason,
+                    provider_usage_json, reasoning_tokens, service_tier,
+                    upstream_endpoint, cancellation_reason, media_operation_id,
+                    pricing_version)
+                VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,
+                        $18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33)
                 """;
             AddUsageParameters(log, lease, normalized, cost, includeEndpointAndStatus: false);
+            AddUsageExtensions(log, normalized);
             await log.ExecuteNonQueryAsync(ct);
         }
 
@@ -359,13 +401,16 @@ public sealed class RequestLeaseStore(
         }
     }
 
-    private decimal ComputeCost(RequestLease lease, LeaseCompletion usage)
+    private static decimal ComputeCost(RequestLease lease, LeaseCompletion usage, ModelPrice price)
     {
-        var price = pricing.GetPrice(lease.Model);
         var cost = usage.InputTokens * price.InputPerMillion / 1_000_000m
             + usage.OutputTokens * price.OutputPerMillion / 1_000_000m
             + usage.CacheCreateTokens * price.CacheCreatePerMillion / 1_000_000m
-            + usage.CacheReadTokens * price.CacheReadPerMillion / 1_000_000m;
+            + usage.CacheReadTokens * price.CacheReadPerMillion / 1_000_000m
+            + usage.InputImageCount * price.ImageInputPerUnit
+            + usage.OutputImageCount * price.ImageOutputPerUnit
+            + usage.VideoDurationSeconds * price.VideoPerSecond
+            + usage.RealtimeDurationMs * price.RealtimePerMinute / 60_000m;
         return decimal.Round(cost * lease.RateMultiplier, 8, MidpointRounding.AwayFromZero);
     }
 
@@ -393,6 +438,27 @@ public sealed class RequestLeaseStore(
             command.Parameters.AddWithValue(usage.StatusCode);
         command.Parameters.AddWithValue(usage.Stream);
         command.Parameters.AddWithValue(usage.ClientDisconnect);
+    }
+
+    private static void AddUsageExtensions(NpgsqlCommand command, LeaseCompletion usage)
+    {
+        command.Parameters.AddWithValue(usage.InputImageCount);
+        command.Parameters.AddWithValue(usage.OutputImageCount);
+        command.Parameters.AddWithValue(usage.ImageSize);
+        command.Parameters.AddWithValue(usage.VideoCount);
+        command.Parameters.AddWithValue(usage.VideoResolution);
+        command.Parameters.AddWithValue(usage.VideoDurationSeconds);
+        command.Parameters.AddWithValue(usage.RealtimeDurationMs);
+        command.Parameters.AddWithValue(usage.RealtimeFrames);
+        command.Parameters.AddWithValue(usage.DisconnectReason);
+        command.Parameters.AddWithValue(usage.ProviderUsageJson.Length > 1_048_576
+            ? usage.ProviderUsageJson[..1_048_576] : usage.ProviderUsageJson);
+        command.Parameters.AddWithValue(usage.ReasoningTokens);
+        command.Parameters.AddWithValue(usage.ServiceTier);
+        command.Parameters.AddWithValue(usage.UpstreamEndpoint);
+        command.Parameters.AddWithValue(usage.CancellationReason);
+        command.Parameters.AddWithValue(usage.MediaOperationId);
+        command.Parameters.AddWithValue(usage.PricingVersion);
     }
 
     private static async Task<RequestLease?> GetForUpdateAsync(NpgsqlConnection connection,

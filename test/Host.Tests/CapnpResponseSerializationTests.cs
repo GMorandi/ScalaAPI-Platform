@@ -46,6 +46,76 @@ public class CapnpResponseSerializationTests
         Assert.Equal("/v1/chat/completions", decoded.Upstream.UpstreamPath);
     }
 
+    [Fact]
+    public void V1ResponseKeepsTheCallersProtocolVersion()
+    {
+        var response = Serialize(DispatchResult.Rejected("invalidKey", "invalid") with
+        {
+            ProtocolVersion = 1
+        });
+
+        Assert.Equal((ushort)1, Deserialize(response).ProtocolVersion);
+    }
+
+    [Fact]
+    public void PricingUnavailableHasDedicatedRejectCode()
+    {
+        var decoded = Deserialize(Serialize(DispatchResult.Rejected(
+            "pricingUnavailable", "missing price")));
+
+        Assert.Equal(RejectInfo.RejectCode.pricingUnavailable, decoded.Reject.Code);
+    }
+
+    [Fact]
+    public void MediaOperationResponsePreservesDurableTaskFields()
+    {
+        var result = new MediaOperationRpcResult(true, 202, "med_1",
+            "images_generations_async", "running", 35, "provider_task_1",
+            "{\"status\":\"running\"}", "", "application/json", "", "");
+        var method = typeof(CapnpRpcHostedService).GetMethod(
+            "SerializeMediaOperationResponse", BindingFlags.NonPublic | BindingFlags.Static);
+        Assert.NotNull(method);
+
+        var response = Assert.IsType<byte[]>(method.Invoke(null, [result]));
+        Assert.Equal((byte)0x85, response[0]);
+        var decoded = DeserializeRoot<MediaOperationResponse>(response);
+        Assert.True(decoded.Accepted);
+        Assert.Equal(202, decoded.StatusCode);
+        Assert.Equal("med_1", decoded.OperationId);
+        Assert.Equal("provider_task_1", decoded.UpstreamTaskId);
+        Assert.Equal(35, decoded.Progress);
+    }
+
+    [Fact]
+    public void UpstreamPathPreservesOnlyValidatedQueryStrings()
+    {
+        var request = new Sub2Api.Host.Services.DispatchRequest(
+            "hash", "model", "session", "127.0.0.1", "req", [], 0,
+            "models", null, false, Operation: "models", HttpMethod: "GET",
+            RequestPath: "/v1/models", Capability: "models",
+            RequestQuery: "?limit=20&after=item%2F1");
+        Assert.Equal("/v1/models?limit=20&after=item%2F1",
+            ResolveUpstreamPath("openai", request, "model"));
+
+        Assert.Equal("/v1/models", ResolveUpstreamPath("openai",
+            request with { RequestQuery = "?next=x\r\nInjected: yes" }, "model"));
+        Assert.Equal("/v1/models", ResolveUpstreamPath("openai",
+            request with { RequestQuery = "?next=%2" }, "model"));
+    }
+
+    [Fact]
+    public void GeminiStreamingQueryMergesWithRequiredSseFlag()
+    {
+        var request = new Sub2Api.Host.Services.DispatchRequest(
+            "hash", "gemini-2.5-pro", "session", "127.0.0.1", "req", [], 0,
+            "gemini", null, true, Operation: "streamGenerateContent",
+            RequestPath: "/v1beta/models/gemini-2.5-pro:streamGenerateContent",
+            Capability: "gemini_generate", RequestQuery: "?page_token=a%2Fb");
+        Assert.Equal(
+            "/v1beta/models/gemini-2.5-pro:streamGenerateContent?alt=sse&page_token=a%2Fb",
+            ResolveUpstreamPath("gemini", request, "gemini-2.5-pro"));
+    }
+
     private static byte[] Serialize(DispatchResult result)
     {
         var method = typeof(CapnpRpcHostedService).GetMethod(
@@ -61,5 +131,23 @@ public class CapnpResponseSerializationTests
         var frame = Framing.ReadWireFrame(reader);
         using var state = DeserializerState.CreateRoot(frame);
         return CapnpSerializable.Create<DispatchResponse>(state)!;
+    }
+
+    private static T DeserializeRoot<T>(byte[] response) where T : class, ICapnpSerializable
+    {
+        using var stream = new MemoryStream(response, 1, response.Length - 1);
+        using var reader = new BinaryReader(stream);
+        var frame = Framing.ReadWireFrame(reader);
+        using var state = DeserializerState.CreateRoot(frame);
+        return CapnpSerializable.Create<T>(state)!;
+    }
+
+    private static string ResolveUpstreamPath(string platform,
+        Sub2Api.Host.Services.DispatchRequest request, string mappedModel)
+    {
+        var method = typeof(DispatchService).GetMethod(
+            "ResolveUpstreamPath", BindingFlags.NonPublic | BindingFlags.Static);
+        Assert.NotNull(method);
+        return Assert.IsType<string>(method.Invoke(null, [platform, request, mappedModel]));
     }
 }

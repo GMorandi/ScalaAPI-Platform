@@ -3,7 +3,8 @@ namespace Sub2Api.Grains.Interfaces;
 [GenerateSerializer]
 public record SelectRequest(
     string Model, string SessionHash, string RequestId,
-    string? MetadataUserId, long[] ExcludedAccountIds, string Endpoint);
+    string? MetadataUserId, long[] ExcludedAccountIds, string Endpoint,
+    string Capability = "messages", string? ForcePlatform = null);
 
 [GenerateSerializer]
 public record SelectionResult(

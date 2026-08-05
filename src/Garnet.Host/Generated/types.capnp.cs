@@ -641,6 +641,18 @@ namespace CapnpGen
             GroupId = reader.GroupId;
             Billing = CapnpSerializable.Create<CapnpGen.BillingContext>(reader.Billing);
             TlsFingerprint = reader.TlsFingerprint;
+            HttpMethod = reader.HttpMethod;
+            UpstreamFormat = reader.UpstreamFormat;
+            RequestHeaders = reader.RequestHeaders?.ToReadOnlyList(_ => CapnpSerializable.Create<CapnpGen.UpstreamTarget.Header>(_));
+            AllowedResponseHeaders = reader.AllowedResponseHeaders;
+            WebsocketUrl = reader.WebsocketUrl;
+            WebsocketProtocol = reader.WebsocketProtocol;
+            TlsFingerprintProfileId = reader.TlsFingerprintProfileId;
+            CapabilityFlags = reader.CapabilityFlags;
+            MediaOperationId = reader.MediaOperationId;
+            UpstreamTaskId = reader.UpstreamTaskId;
+            PollingSupported = reader.PollingSupported;
+            ContentDownloadSupported = reader.ContentDownloadSupported;
             applyDefaults();
         }
 
@@ -657,6 +669,18 @@ namespace CapnpGen
             writer.GroupId = GroupId;
             Billing?.serialize(writer.Billing);
             writer.TlsFingerprint = TlsFingerprint;
+            writer.HttpMethod = HttpMethod;
+            writer.UpstreamFormat = UpstreamFormat;
+            writer.RequestHeaders.Init(RequestHeaders, (_s1, _v1) => _v1?.serialize(_s1));
+            writer.AllowedResponseHeaders.Init(AllowedResponseHeaders);
+            writer.WebsocketUrl = WebsocketUrl;
+            writer.WebsocketProtocol = WebsocketProtocol;
+            writer.TlsFingerprintProfileId = TlsFingerprintProfileId;
+            writer.CapabilityFlags.Init(CapabilityFlags);
+            writer.MediaOperationId = MediaOperationId;
+            writer.UpstreamTaskId = UpstreamTaskId;
+            writer.PollingSupported = PollingSupported;
+            writer.ContentDownloadSupported = ContentDownloadSupported;
         }
 
         void ICapnpSerializable.Serialize(SerializerState arg_)
@@ -734,6 +758,78 @@ namespace CapnpGen
             set;
         }
 
+        public string HttpMethod
+        {
+            get;
+            set;
+        }
+
+        public string UpstreamFormat
+        {
+            get;
+            set;
+        }
+
+        public IReadOnlyList<CapnpGen.UpstreamTarget.Header> RequestHeaders
+        {
+            get;
+            set;
+        }
+
+        public IReadOnlyList<string> AllowedResponseHeaders
+        {
+            get;
+            set;
+        }
+
+        public string WebsocketUrl
+        {
+            get;
+            set;
+        }
+
+        public string WebsocketProtocol
+        {
+            get;
+            set;
+        }
+
+        public string TlsFingerprintProfileId
+        {
+            get;
+            set;
+        }
+
+        public IReadOnlyList<string> CapabilityFlags
+        {
+            get;
+            set;
+        }
+
+        public string MediaOperationId
+        {
+            get;
+            set;
+        }
+
+        public string UpstreamTaskId
+        {
+            get;
+            set;
+        }
+
+        public bool PollingSupported
+        {
+            get;
+            set;
+        }
+
+        public bool ContentDownloadSupported
+        {
+            get;
+            set;
+        }
+
         public struct READER
         {
             readonly DeserializerState ctx;
@@ -756,13 +852,25 @@ namespace CapnpGen
             public long GroupId => ctx.ReadDataLong(128UL, 0L);
             public CapnpGen.BillingContext.READER Billing => ctx.ReadStruct(6, CapnpGen.BillingContext.READER.create);
             public bool TlsFingerprint => ctx.ReadDataBool(192UL, false);
+            public string HttpMethod => ctx.ReadText(7, null);
+            public string UpstreamFormat => ctx.ReadText(8, null);
+            public IReadOnlyList<CapnpGen.UpstreamTarget.Header.READER> RequestHeaders => ctx.ReadList(9).Cast(CapnpGen.UpstreamTarget.Header.READER.create);
+            public IReadOnlyList<string> AllowedResponseHeaders => ctx.ReadList(10).CastText2();
+            public string WebsocketUrl => ctx.ReadText(11, null);
+            public string WebsocketProtocol => ctx.ReadText(12, null);
+            public string TlsFingerprintProfileId => ctx.ReadText(13, null);
+            public IReadOnlyList<string> CapabilityFlags => ctx.ReadList(14).CastText2();
+            public string MediaOperationId => ctx.ReadText(15, null);
+            public string UpstreamTaskId => ctx.ReadText(16, null);
+            public bool PollingSupported => ctx.ReadDataBool(193UL, false);
+            public bool ContentDownloadSupported => ctx.ReadDataBool(194UL, false);
         }
 
         public class WRITER : SerializerState
         {
             public WRITER()
             {
-                this.SetStruct(4, 7);
+                this.SetStruct(4, 17);
             }
 
             public long AccountId
@@ -829,6 +937,78 @@ namespace CapnpGen
             {
                 get => this.ReadDataBool(192UL, false);
                 set => this.WriteData(192UL, value, false);
+            }
+
+            public string HttpMethod
+            {
+                get => this.ReadText(7, null);
+                set => this.WriteText(7, value, null);
+            }
+
+            public string UpstreamFormat
+            {
+                get => this.ReadText(8, null);
+                set => this.WriteText(8, value, null);
+            }
+
+            public ListOfStructsSerializer<CapnpGen.UpstreamTarget.Header.WRITER> RequestHeaders
+            {
+                get => BuildPointer<ListOfStructsSerializer<CapnpGen.UpstreamTarget.Header.WRITER>>(9);
+                set => Link(9, value);
+            }
+
+            public ListOfTextSerializer AllowedResponseHeaders
+            {
+                get => BuildPointer<ListOfTextSerializer>(10);
+                set => Link(10, value);
+            }
+
+            public string WebsocketUrl
+            {
+                get => this.ReadText(11, null);
+                set => this.WriteText(11, value, null);
+            }
+
+            public string WebsocketProtocol
+            {
+                get => this.ReadText(12, null);
+                set => this.WriteText(12, value, null);
+            }
+
+            public string TlsFingerprintProfileId
+            {
+                get => this.ReadText(13, null);
+                set => this.WriteText(13, value, null);
+            }
+
+            public ListOfTextSerializer CapabilityFlags
+            {
+                get => BuildPointer<ListOfTextSerializer>(14);
+                set => Link(14, value);
+            }
+
+            public string MediaOperationId
+            {
+                get => this.ReadText(15, null);
+                set => this.WriteText(15, value, null);
+            }
+
+            public string UpstreamTaskId
+            {
+                get => this.ReadText(16, null);
+                set => this.WriteText(16, value, null);
+            }
+
+            public bool PollingSupported
+            {
+                get => this.ReadDataBool(193UL, false);
+                set => this.WriteData(193UL, value, false);
+            }
+
+            public bool ContentDownloadSupported
+            {
+                get => this.ReadDataBool(194UL, false);
+                set => this.WriteData(194UL, value, false);
             }
         }
 
@@ -1446,6 +1626,22 @@ namespace CapnpGen
             IpAddress = reader.IpAddress;
             UserAgent = reader.UserAgent;
             StatusCode = reader.StatusCode;
+            InputImageCount = reader.InputImageCount;
+            OutputImageCount = reader.OutputImageCount;
+            ImageSize = reader.ImageSize;
+            VideoCount = reader.VideoCount;
+            VideoResolution = reader.VideoResolution;
+            VideoDurationSeconds = reader.VideoDurationSeconds;
+            RealtimeDurationMs = reader.RealtimeDurationMs;
+            RealtimeFrames = reader.RealtimeFrames;
+            DisconnectReason = reader.DisconnectReason;
+            ProviderUsageJson = reader.ProviderUsageJson;
+            ReasoningTokens = reader.ReasoningTokens;
+            ServiceTier = reader.ServiceTier;
+            UpstreamEndpoint = reader.UpstreamEndpoint;
+            CancellationReason = reader.CancellationReason;
+            MediaOperationId = reader.MediaOperationId;
+            PricingVersion = reader.PricingVersion;
             applyDefaults();
         }
 
@@ -1472,6 +1668,22 @@ namespace CapnpGen
             writer.IpAddress = IpAddress;
             writer.UserAgent = UserAgent;
             writer.StatusCode = StatusCode;
+            writer.InputImageCount = InputImageCount;
+            writer.OutputImageCount = OutputImageCount;
+            writer.ImageSize = ImageSize;
+            writer.VideoCount = VideoCount;
+            writer.VideoResolution = VideoResolution;
+            writer.VideoDurationSeconds = VideoDurationSeconds;
+            writer.RealtimeDurationMs = RealtimeDurationMs;
+            writer.RealtimeFrames = RealtimeFrames;
+            writer.DisconnectReason = DisconnectReason;
+            writer.ProviderUsageJson = ProviderUsageJson;
+            writer.ReasoningTokens = ReasoningTokens;
+            writer.ServiceTier = ServiceTier;
+            writer.UpstreamEndpoint = UpstreamEndpoint;
+            writer.CancellationReason = CancellationReason;
+            writer.MediaOperationId = MediaOperationId;
+            writer.PricingVersion = PricingVersion;
         }
 
         void ICapnpSerializable.Serialize(SerializerState arg_)
@@ -1609,6 +1821,102 @@ namespace CapnpGen
             set;
         }
 
+        public int InputImageCount
+        {
+            get;
+            set;
+        }
+
+        public int OutputImageCount
+        {
+            get;
+            set;
+        }
+
+        public string ImageSize
+        {
+            get;
+            set;
+        }
+
+        public int VideoCount
+        {
+            get;
+            set;
+        }
+
+        public string VideoResolution
+        {
+            get;
+            set;
+        }
+
+        public int VideoDurationSeconds
+        {
+            get;
+            set;
+        }
+
+        public int RealtimeDurationMs
+        {
+            get;
+            set;
+        }
+
+        public int RealtimeFrames
+        {
+            get;
+            set;
+        }
+
+        public string DisconnectReason
+        {
+            get;
+            set;
+        }
+
+        public string ProviderUsageJson
+        {
+            get;
+            set;
+        }
+
+        public int ReasoningTokens
+        {
+            get;
+            set;
+        }
+
+        public string ServiceTier
+        {
+            get;
+            set;
+        }
+
+        public string UpstreamEndpoint
+        {
+            get;
+            set;
+        }
+
+        public string CancellationReason
+        {
+            get;
+            set;
+        }
+
+        public string MediaOperationId
+        {
+            get;
+            set;
+        }
+
+        public string PricingVersion
+        {
+            get;
+            set;
+        }
+
         public struct READER
         {
             readonly DeserializerState ctx;
@@ -1641,13 +1949,29 @@ namespace CapnpGen
             public string IpAddress => ctx.ReadText(5, null);
             public string UserAgent => ctx.ReadText(6, null);
             public int StatusCode => ctx.ReadDataInt(480UL, 0);
+            public int InputImageCount => ctx.ReadDataInt(512UL, 0);
+            public int OutputImageCount => ctx.ReadDataInt(544UL, 0);
+            public string ImageSize => ctx.ReadText(7, null);
+            public int VideoCount => ctx.ReadDataInt(576UL, 0);
+            public string VideoResolution => ctx.ReadText(8, null);
+            public int VideoDurationSeconds => ctx.ReadDataInt(608UL, 0);
+            public int RealtimeDurationMs => ctx.ReadDataInt(640UL, 0);
+            public int RealtimeFrames => ctx.ReadDataInt(672UL, 0);
+            public string DisconnectReason => ctx.ReadText(9, null);
+            public string ProviderUsageJson => ctx.ReadText(10, null);
+            public int ReasoningTokens => ctx.ReadDataInt(704UL, 0);
+            public string ServiceTier => ctx.ReadText(11, null);
+            public string UpstreamEndpoint => ctx.ReadText(12, null);
+            public string CancellationReason => ctx.ReadText(13, null);
+            public string MediaOperationId => ctx.ReadText(14, null);
+            public string PricingVersion => ctx.ReadText(15, null);
         }
 
         public class WRITER : SerializerState
         {
             public WRITER()
             {
-                this.SetStruct(8, 7);
+                this.SetStruct(12, 16);
             }
 
             public string LeaseToken
@@ -1774,6 +2098,102 @@ namespace CapnpGen
             {
                 get => this.ReadDataInt(480UL, 0);
                 set => this.WriteData(480UL, value, 0);
+            }
+
+            public int InputImageCount
+            {
+                get => this.ReadDataInt(512UL, 0);
+                set => this.WriteData(512UL, value, 0);
+            }
+
+            public int OutputImageCount
+            {
+                get => this.ReadDataInt(544UL, 0);
+                set => this.WriteData(544UL, value, 0);
+            }
+
+            public string ImageSize
+            {
+                get => this.ReadText(7, null);
+                set => this.WriteText(7, value, null);
+            }
+
+            public int VideoCount
+            {
+                get => this.ReadDataInt(576UL, 0);
+                set => this.WriteData(576UL, value, 0);
+            }
+
+            public string VideoResolution
+            {
+                get => this.ReadText(8, null);
+                set => this.WriteText(8, value, null);
+            }
+
+            public int VideoDurationSeconds
+            {
+                get => this.ReadDataInt(608UL, 0);
+                set => this.WriteData(608UL, value, 0);
+            }
+
+            public int RealtimeDurationMs
+            {
+                get => this.ReadDataInt(640UL, 0);
+                set => this.WriteData(640UL, value, 0);
+            }
+
+            public int RealtimeFrames
+            {
+                get => this.ReadDataInt(672UL, 0);
+                set => this.WriteData(672UL, value, 0);
+            }
+
+            public string DisconnectReason
+            {
+                get => this.ReadText(9, null);
+                set => this.WriteText(9, value, null);
+            }
+
+            public string ProviderUsageJson
+            {
+                get => this.ReadText(10, null);
+                set => this.WriteText(10, value, null);
+            }
+
+            public int ReasoningTokens
+            {
+                get => this.ReadDataInt(704UL, 0);
+                set => this.WriteData(704UL, value, 0);
+            }
+
+            public string ServiceTier
+            {
+                get => this.ReadText(11, null);
+                set => this.WriteText(11, value, null);
+            }
+
+            public string UpstreamEndpoint
+            {
+                get => this.ReadText(12, null);
+                set => this.WriteText(12, value, null);
+            }
+
+            public string CancellationReason
+            {
+                get => this.ReadText(13, null);
+                set => this.WriteText(13, value, null);
+            }
+
+            public string MediaOperationId
+            {
+                get => this.ReadText(14, null);
+                set => this.WriteText(14, value, null);
+            }
+
+            public string PricingVersion
+            {
+                get => this.ReadText(15, null);
+                set => this.WriteText(15, value, null);
             }
         }
     }

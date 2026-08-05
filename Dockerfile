@@ -37,4 +37,7 @@ COPY deploy/migrations/004-cdc-hardening.sql ./migrations/004-cdc-hardening.sql
 COPY deploy/migrations/005-cdc-credential-traceability.sql ./migrations/005-cdc-credential-traceability.sql
 COPY deploy/migrations/006-migration-fence-audit.sql ./migrations/006-migration-fence-audit.sql
 COPY deploy/migrations/007-schema-parity-and-cdc-ordering.sql ./migrations/007-schema-parity-and-cdc-ordering.sql
+COPY deploy/migrations/008-media-operations.sql ./migrations/008-media-operations.sql
+COPY deploy/migrations/009-usage-media-realtime.sql ./migrations/009-usage-media-realtime.sql
+COPY deploy/migrations/010-media-operation-lifecycle.sql ./migrations/010-media-operation-lifecycle.sql
 ENTRYPOINT ["dotnet", "migrate/Db.Migrator.dll", "/app/migrations"]
