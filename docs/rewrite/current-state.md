@@ -9,8 +9,8 @@ release artifacts.
 
 | Repository | Commit | Worktree | Responsibility |
 | --- | --- | --- | --- |
-| `gateway` | `d19ef59` | clean | C++ HTTP/WebSocket edge, protocol conversion, streaming, Provider transport, Cap'n Proto client |
-| `platform` | `227623f` | clean | C# Orleans control plane, PostgreSQL persistence, leases, usage, media lifecycle, Admin API |
+| `gateway` | `06adeb9` | clean | C++ HTTP/WebSocket edge, protocol conversion, chunked streaming, Provider transport, Cap'n Proto client |
+| `platform` | `8a3850b` | clean | C# Orleans control plane, PostgreSQL persistence, leases, NUMERIC ledger, usage, media lifecycle, Admin API |
 | `sub2api` | `43ec48d` | read-only clean reference | Functional requirements catalogue only |
 
 The current source inventory is 49 Gateway implementation files, 8 Gateway test
@@ -40,6 +40,15 @@ not implementation parity or a migration target.
 - Password and OAuth logins issue database-backed sessions with hashed rotating
   refresh tokens. JWT validation checks the active session row; user and admin
   logout plus per-session revoke are available.
+- New user registration and OAuth identity creation read back the PostgreSQL
+  identity before creating the Orleans aggregate and registry entry; new users
+  no longer alias to id 0.
+- Lease completion writes the usage event, `balance_ledger` `usage_debit`, terminal
+  lease state, and durable outbox entry in one PostgreSQL transaction. The ledger
+  key `(lease_token, entry_type)` is unique and all amounts remain `NUMERIC`.
+- OpenAI Chat JSON and SSE pass the current Gateway -> Cap'n Proto -> Platform ->
+  Provider mock path. Photon streaming responses use explicit chunked framing and
+  provider usage is captured for settlement.
 - CDC consumers, Debezium configuration, migration fences, migration write gates,
   migration-control endpoints, CDC-only tables, and their tests are removed from
   active code. Their documents remain under `docs/archive/migration`.
@@ -66,9 +75,10 @@ not implementation parity or a migration target.
 - The Cap'n Proto schema and checked-in generated artifacts still encode money/rate
   fields as Float64; replace them with fixed-scale integer or canonical decimal text
   before declaring the public RPC contract complete.
-- The entity-registry and auth-session migrations have not yet been rebuilt in a
-  fresh current-image Compose environment; session replay/concurrency HTTP tests are
-  also pending.
+- Full empty-environment migration replay for 001-005 is still a release gate; the
+  isolated Stage-2 runtime applied 005 in place, but the documented smoke script
+  does not yet capture every current image ID.
+- Session replay/concurrency HTTP tests and API-key rotation tests remain pending.
 - Generated C# Cap'n Proto files are checked in but are not regenerated and digest
   verified by CI yet.
 - Garnet key TTL policy, projection rebuild, cache-flush recovery, and multi-client
@@ -80,14 +90,16 @@ not implementation parity or a migration target.
 
 ## Current runtime evidence
 
-On 2026-08-08 the isolated `scalaapi-build` project was built from the pre-Stage-2
-worktrees and started with new volumes. Platform image
-`b999930ed8f11760d509ffbe856ec0cec221d4cf152e0f77026b8473bcf66756`, Gateway image
-`7b8f0d63e81337565967b287bf50b17df0bc399f1b20b9ab1d18f3041a778746`, and Provider
-mock image `425e1430cc32f8756a688d176f1d542c9026603c37e0cb609e55b5ee49d6bcb8`
-were used. Every long-running service became healthy and the migrator exited zero;
-the first execution applied the then-current files and repeated executions skipped
-the same checksums.
+On 2026-08-08 the isolated `scalaapi-stage2` project used current-source images:
+Platform `cd4de3094a18113a12277574225ae05303f61de4546cb52f4117c8c8fb683d49`,
+Gateway `64b62db3278040332554748e7a1ab6602d792032bbd69e4635159e4f19b04e99`, and
+Provider mock `425e1430cc32f8756a688d176f1d542c9026603c37e0cb609e55b5ee49d6bcb8`.
+Registration returned user id 7 and registry id 7. Admin-created provider
+account/group/API key data drove a JSON 200 and SSE 200 request through Gateway.
+Completed leases settled at `0.00006750` USD; one matching `balance_ledger` row
+contained `-0.00006750`, and the completion outbox was marked processed. Replaying
+the ledger insert affected zero rows, proving the database effect is unique.
+Refresh-token replay and logout revocation also returned 401 after the first use.
 
 Authenticated Garnet `PING`, `SET/GET`, PX expiry, `INCR`, and `DEL` passed. Stopping
 Garnet changed Platform readiness to 503; restarting it restored readiness to 200.
@@ -108,4 +120,6 @@ images, and the external Garnet service.
 
 A feature is `implemented` only when its API or state-machine contract, automated
 tests, and current-source runtime evidence all exist. Route registration, a table,
-or a placeholder response alone is not implementation evidence.
+or a placeholder response alone is not implementation evidence. The current Chat
+slice remains `partial` until golden fixtures, failure scenarios, and clean-
+environment automation are checked in.

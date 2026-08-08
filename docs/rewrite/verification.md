@@ -10,12 +10,14 @@
 | Admin Web | Typecheck and production build passed | Blocking CI gate exists; browser tests are not configured |
 | Scheduler benchmark dry run | 4/4, exit 0; no-match negative probe exits 1 | Dependency injection and child-result propagation pass; not performance evidence |
 | Contract digest | Canonical and Gateway vendor schemas match | Generated C# digest gate remains pending |
-| Empty PostgreSQL migrator | Apply then repeated checksum skips, exit 0 for migrations 001-002 | No source database, CDC, or compatibility tables used; migrations 003-004 need fresh-image rerun |
+| Empty PostgreSQL migrator | Apply then repeated checksum skips, exit 0 for migrations 001-004; 005 applied in Stage-2 runtime | No source database, CDC, or compatibility tables used; clean-image replay of 001-005 remains a release gate |
 | Current-image Compose smoke | All long-running services healthy; migrator exit 0 | Isolated project and new volumes |
 | Garnet smoke | Auth, PING, SET/GET, PX, INCR, DEL passed | Official digest; no Redis or embedded server |
 | Garnet outage/recovery | Platform readiness 503 then 200 | Automatic TCP reconnect verified |
-| Provider mock | Health, JSON success, and 429 passed | Full settlement E2E remains pending |
-| Gateway dispatch smoke | Readiness 200; unknown key returns stable 401 | No seeded successful billable request yet |
+| Provider mock | Health, JSON success, SSE, and 429 passed | Timeout, disconnect, malformed-usage, and adapter golden scenarios remain |
+| Gateway dispatch smoke | Readiness 200; seeded OpenAI Chat JSON and SSE returned 200 through Provider mock | Failure/retry matrix and clean-environment automation remain |
+| Billable settlement smoke | JSON and SSE completed; usage outbox processed; one NUMERIC ledger debit per lease | Crash/restart and Admin query assertions remain |
+| Auth lifecycle smoke | Refresh replay and logout revocation returned 401 on the current image | Concurrent rotation and multi-device HTTP tests remain |
 
 ## Remaining release gates
 

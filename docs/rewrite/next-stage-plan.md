@@ -20,8 +20,13 @@ billable OpenAI Chat Completions vertical slice. Work outside that slice stays
   migration and no active listing path reads Orleans internal storage.
 - Completed in `227623f`: password/OAuth login issues rotating database-backed
   sessions; refresh replay, logout, and per-session revocation are now API contracts.
+- Completed in `06adeb9`: Photon now frames Gateway SSE responses as chunked bodies;
+  current JSON and SSE provider paths are observable in the isolated runtime.
+- Completed in `8a3850b`: lease completion writes a unique NUMERIC usage debit to
+  `balance_ledger` in the same transaction as usage and outbox state.
 - Still open: PostgreSQL aggregate repositories/foreign keys, fixed-precision RPC
-  schema generation, provider seed command, API-key rotation tests, and billable E2E.
+  schema generation, provider seed command, API-key rotation tests, failure/restart
+  settlement scenarios, and Admin ledger query endpoints.
 
 ## Stage 2 objective
 
@@ -70,7 +75,9 @@ through product APIs and revoked sessions/keys are rejected across Gateway insta
 - Bind request ID, idempotency key, request fingerprint, account, price version, and
   hold to one durable lease before upstream forwarding.
 - Commit hold release/debit, usage event, ledger entry, and outbox acknowledgement
-  transactionally or through replay-safe unique effects.
+  transactionally or through replay-safe unique effects. The current completion
+  transaction covers usage, ledger debit, lease finalization, and outbox enqueue;
+  hold-state reconciliation and crash injection are still required.
 - Make duplicate completion, abort, expiry, and outbox replay return the stored
   terminal result without applying money twice.
 
@@ -79,7 +86,8 @@ double charge, lost charge, negative available balance, or orphan hold.
 
 ### 4. OpenAI Chat Provider vertical
 
-- Finish JSON and SSE request/response golden fixtures at Gateway.
+- Finish JSON and SSE request/response golden fixtures at Gateway; the live current
+  image now proves both response paths and usage extraction.
 - Route only through the revision-1 RPC contract and a provider-adapter interface;
   the mock is the first adapter target.
 - Preserve request IDs, bounded streaming/backpressure, usage parsing, provider
@@ -87,7 +95,8 @@ double charge, lost charge, negative available balance, or orphan hold.
 - Expose Admin request, lease, usage, hold, and ledger queries from PostgreSQL.
 
 Depends on: control-plane seed and settlement state machine. Exit: the full path is
-observable from client request through ledger query for JSON and SSE.
+observable from client request through an Admin/PostgreSQL ledger query for JSON and
+SSE, including duplicate and failure semantics.
 
 ### 5. Garnet projection resilience
 

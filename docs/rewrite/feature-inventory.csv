@@ -1,6 +1,6 @@
 id,domain,capability,priority,status,owner,acceptance
 GW-01,Gateway / protocol,Anthropic Messages HTTP and SSE,P0,partial,Gateway,API and streaming golden fixtures plus provider mock E2E
-GW-02,Gateway / protocol,OpenAI Chat Completions HTTP and SSE,P0,partial,Gateway,API and streaming golden fixtures plus provider mock E2E
+GW-02,Gateway / protocol,OpenAI Chat Completions HTTP and SSE,P0,partial,Gateway,JSON/SSE current-image path passes; add golden fixtures and failure matrix
 GW-03,Gateway / protocol,OpenAI Responses API and subresources,P0,partial,Gateway,Response event and subresource contract tests
 GW-04,Gateway / protocol,Gemini generateContent and streamGenerateContent,P0,partial,Gateway,Request response and error contract tests
 GW-05,Gateway / protocol,Cross-protocol request response and stream conversion,P0,partial,Gateway,Pairwise conversion fixtures and malformed input tests
@@ -27,7 +27,7 @@ CORE-06,Core control plane,Runtime configuration public settings and feature fla
 BILL-01,Usage / billing,Durable request lease usage capture outbox and settlement,P0,partial,Platform,Crash retry and exactly-once accounting tests
 BILL-02,Usage / billing,Model pricing cache-token and provider pricing rules,P0,partial,Platform,Immutable versions and historical settlement tests
 BILL-03,Usage / billing,Quota subscription and rolling-window limits,P0,skeleton,Platform,Precedence reset expiry and enforcement tests
-BILL-04,Usage / billing,Money precision transactional integrity and idempotency,P0,partial,Platform,NUMERIC round-trip and reconciliation tests
+BILL-04,Usage / billing,Money precision transactional integrity and idempotency,P0,partial,Platform,NUMERIC lease debit and unique replay effect pass; add crash/reconciliation tests
 BILL-05,Usage / billing,Usage query dashboards exports and cleanup,P1,partial,Platform,Aggregates exports retention and UI tests
 COM-01,Commercial,Payment providers orders webhooks refunds and reconciliation,P0,skeleton,Platform,Signed webhook state machine and reconciliation tests
 COM-02,Commercial,Subscription purchase renewal expiry and quota reset,P1,skeleton,Platform,Entitlement lifecycle and renewal tests
