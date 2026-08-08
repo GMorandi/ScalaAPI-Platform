@@ -1,0 +1,171 @@
+services:
+  postgres:
+    image: docker.io/library/postgres:17-alpine@sha256:af194ccf3e2d7fe367012c7b88ce8b816c5c889b18a5b316799a1f0d7eac746a
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-platform}
+      POSTGRES_USER: ${POSTGRES_USER:-platform}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  migrate:
+    build:
+      context: ../..
+      target: migrate
+    environment:
+      ConnectionStrings__Postgres: "Host=postgres;Database=${POSTGRES_DB:-platform};Username=${POSTGRES_USER:-platform};Password=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  garnet:
+    image: ghcr.io/microsoft/garnet:sha-e7025a6@sha256:e105e6163812110f049bb3f92ea89b6921963cb6f23813ad3c5109df3f8683b1
+    command: ["--auth", "Password", "--password", "${GARNET_PASSWORD:?GARNET_PASSWORD is required}"]
+    volumes:
+      - garnet_data:/data
+
+  garnet-health:
+    image: docker.io/library/busybox:1.36.1@sha256:b7f3d86d6e84fc17718c48bcde1450807faa2d56704205c697b4bd5df7b9e29f
+    command: ["sh", "-c", "while true; do sleep 3600; done"]
+    environment:
+      GARNET_PASSWORD: ${GARNET_PASSWORD:?GARNET_PASSWORD is required}
+    depends_on:
+      garnet:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "pass=\"$${GARNET_PASSWORD}\"; len=$$(printf %s \"$${pass}\" | wc -c); { printf '*2\\r\\n$$4\\r\\nAUTH\\r\\n$$%s\\r\\n%s\\r\\n' \"$${len}\" \"$${pass}\"; printf '*1\\r\\n$$4\\r\\nPING\\r\\n'; } | nc -w 2 garnet 6379 | grep PONG >/dev/null"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  object-storage:
+    image: docker.io/minio/minio:latest@sha256:a1a8bd4ac40ad7881a245bab97323e18f971e4d4cba2c2007ec1bedd21cbaba2
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${OBJECT_STORAGE_ACCESS_KEY:-platform}
+      MINIO_ROOT_PASSWORD: ${OBJECT_STORAGE_SECRET_KEY:?OBJECT_STORAGE_SECRET_KEY is required}
+    volumes:
+      - object_data:/data
+    ports:
+      - "${OBJECT_STORAGE_PORT:-9000}:9000"
+      - "${OBJECT_STORAGE_CONSOLE_PORT:-9001}:9001"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:9000/minio/health/live"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  provider-mock:
+    build:
+      context: ../..
+      target: provider-mock
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:8081/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  platform-silo:
+    build:
+      context: ../..
+      target: platform-silo
+    environment:
+      ConnectionStrings__Postgres: "Host=postgres;Database=${POSTGRES_DB:-platform};Username=${POSTGRES_USER:-platform};Password=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}"
+      CapnpRpc__SocketPath: /var/run/scalaapi/dispatch.sock
+      Garnet__Host: garnet
+      Garnet__Port: 6379
+      Garnet__Password: ${GARNET_PASSWORD:?GARNET_PASSWORD is required}
+      Garnet__UseTls: ${GARNET_TLS:-false}
+      Garnet__ServerName: ${GARNET_SERVER_NAME:-garnet}
+      Security__MasterKey: ${SECURITY_MASTER_KEY:?SECURITY_MASTER_KEY is required}
+      ProviderMock__BaseUrl: http://provider-mock:8081
+      ObjectStorage__Endpoint: http://object-storage:9000
+      ObjectStorage__AccessKey: ${OBJECT_STORAGE_ACCESS_KEY:-platform}
+      ObjectStorage__SecretKey: ${OBJECT_STORAGE_SECRET_KEY:?OBJECT_STORAGE_SECRET_KEY is required}
+      ASPNETCORE_URLS: http://0.0.0.0:5000
+    volumes:
+      - runtime_sockets:/var/run/scalaapi
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      provider-mock:
+        condition: service_healthy
+      object-storage:
+        condition: service_healthy
+      garnet-health:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:5000/ready"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  admin-api:
+    build:
+      context: ../..
+      target: admin-api
+    environment:
+      ConnectionStrings__Postgres: "Host=postgres;Database=${POSTGRES_DB:-platform};Username=${POSTGRES_USER:-platform};Password=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}"
+      ASPNETCORE_URLS: http://0.0.0.0:5001
+      Jwt__Key: ${JWT_KEY:?JWT_KEY is required}
+      Jwt__Issuer: ${JWT_ISSUER:-platform-admin}
+      Admin__Username: ${ADMIN_USERNAME:?ADMIN_USERNAME is required}
+      Admin__Password: ${ADMIN_PASSWORD:?ADMIN_PASSWORD is required}
+      Security__MasterKey: ${SECURITY_MASTER_KEY:?SECURITY_MASTER_KEY is required}
+    depends_on:
+      platform-silo:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:5001/ready"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  gateway:
+    build: ../../../gateway
+    environment:
+      GATEWAY_CORES: ${GATEWAY_CORES:-2}
+      GATEWAY_LISTEN_PORT: 8080
+      GARNET_HOST: garnet
+      GARNET_PORT: 6379
+      GARNET_PASSWORD: ${GARNET_PASSWORD:?GARNET_PASSWORD is required}
+      GARNET_TLS: ${GARNET_TLS:-false}
+      GARNET_SERVER_NAME: ${GARNET_SERVER_NAME:-garnet}
+      GARNET_CA_CERT_PATH: ${GARNET_CA_CERT_PATH:-}
+      CAPNP_UDS_PATH: /var/run/scalaapi/dispatch.sock
+      GATEWAY_USAGE_DB: /var/lib/scalaapi/usage-outbox.db
+      GATEWAY_TRUSTED_PROXY_CIDRS: ${GATEWAY_TRUSTED_PROXY_CIDRS:-}
+    volumes:
+      - runtime_sockets:/var/run/scalaapi
+      - gateway_data:/var/lib/scalaapi
+    ports:
+      - "${GATEWAY_PORT:-8080}:8080"
+    depends_on:
+      platform-silo:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:8080/ready"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  admin-web:
+    build: ../../admin-web
+    ports:
+      - "${ADMIN_WEB_PORT:-3000}:80"
+    depends_on:
+      admin-api:
+        condition: service_healthy
+
+volumes:
+  pgdata:
+  garnet_data:
+  object_data:
+  runtime_sockets:
+  gateway_data:

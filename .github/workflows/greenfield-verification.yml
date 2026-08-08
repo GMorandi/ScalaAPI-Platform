@@ -1,0 +1,72 @@
+name: Greenfield Verification
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  schema:
+    name: Empty schema and idempotent migrator
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: platform
+          POSTGRES_USER: platform
+          POSTGRES_PASSWORD: ci-password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U platform -d platform"
+          --health-interval 5s --health-timeout 3s --health-retries 20
+    env:
+      ConnectionStrings__Postgres: Host=localhost;Port=5432;Database=platform;Username=platform;Password=ci-password
+      GREENFIELD_SCHEMA_CONNECTION: Host=localhost;Port=5432;Database=platform;Username=platform;Password=ci-password
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+      - name: Verify contract digest and retired dependency scan
+        run: |
+          scripts/verify-contracts.sh
+          if rg -n -i 'debezium|migration_fence|migrationwritegate|microsoft\.garnet|redis|legacy|sub2api|subdata' \
+              src deploy --glob '!deploy/stack/README.md'; then
+            exit 1
+          fi
+      - run: dotnet restore ScalaAPI.Platform.slnx
+      - run: dotnet build --no-restore -c Release
+      - name: Apply the greenfield schema twice
+        run: |
+          set -euo pipefail
+          migration_dir="$RUNNER_TEMP/migrations"
+          mkdir -p "$migration_dir"
+          cp deploy/orleans-postgres-schema.sql "$migration_dir/000-orleans.sql"
+          cp deploy/migrations/*.sql "$migration_dir/"
+          dotnet run --project src/Db.Migrator/Db.Migrator.csproj --no-build -c Release -- "$migration_dir"
+          dotnet run --project src/Db.Migrator/Db.Migrator.csproj --no-build -c Release -- "$migration_dir"
+      - name: Verify schema and absence of retired control tables
+        run: dotnet test test/Host.Tests/Host.Tests.csproj --no-build -c Release --filter FullyQualifiedName~MigrationSchemaTests --verbosity normal
+
+      - name: Run all Platform tests
+        run: dotnet test ScalaAPI.Platform.slnx --no-build -c Release --verbosity normal
+
+      - name: Benchmark integrity smoke
+        run: dotnet run --project test/Platform.Benchmarks/Platform.Benchmarks.csproj --no-build -c Release -- --job Dry --filter '*Scheduler*'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: admin-web/package-lock.json
+      - name: Admin Web typecheck and build
+        working-directory: admin-web
+        run: npm ci && npm run typecheck && npm run build
