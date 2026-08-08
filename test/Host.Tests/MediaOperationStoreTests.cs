@@ -35,7 +35,7 @@ public sealed class MediaOperationStoreTests
             var request = new LeaseCreateRequest(
                 leaseToken, requestId, "hash-hold", 94001, 95001, 96001, 97001,
                 "gpt-4o", "gpt-4o", "chat_completions", 1m, holdId, 10m,
-                DateTime.UtcNow.AddMinutes(10));
+                DateTime.UtcNow.AddMinutes(10), "idem-hold-" + suffix, "fingerprint-a");
             Assert.True(await store.CreateAsync(request));
 
             await using (var active = dataSource.CreateCommand(
@@ -52,12 +52,31 @@ public sealed class MediaOperationStoreTests
             var duplicate = request with { LeaseToken = duplicateLeaseToken };
             Assert.False(await store.CreateAsync(duplicate));
 
+            var replay = await store.CreateDetailedAsync(request with
+            {
+                LeaseToken = duplicateLeaseToken,
+                RequestId = requestId + "-replay",
+                HoldHandle = holdId + "-replay"
+            });
+            Assert.True(replay.Replay);
+
+            var conflict = await store.CreateDetailedAsync(request with
+            {
+                LeaseToken = duplicateLeaseToken,
+                RequestId = requestId + "-conflict",
+                HoldHandle = holdId + "-conflict",
+                RequestFingerprint = "fingerprint-b"
+            });
+            Assert.True(conflict.Conflict);
+
             var completed = await store.CompleteAsync(new LeaseCompletion(
                 leaseToken, 100, 0, 0, 0, 20, 0, 200, false, false));
             Assert.True(completed.Accepted);
             Assert.False(completed.Duplicate);
             Assert.Equal(10m, await ReadHoldAmount(dataSource, holdId));
             Assert.Equal("committed", await ReadHoldStatus(dataSource, holdId));
+            Assert.Equal("completed", await ReadIdempotencyStatus(dataSource,
+                94001, "idem-hold-" + suffix));
             Assert.True((await store.CompleteAsync(new LeaseCompletion(
                 leaseToken, 100, 0, 0, 0, 20, 0, 200, false, false))).Duplicate);
 
@@ -81,10 +100,12 @@ public sealed class MediaOperationStoreTests
                 await cleanupUsage.ExecuteNonQueryAsync();
             }
             await using (var cleanupHolds = dataSource.CreateCommand(
-                "DELETE FROM balance_holds WHERE hold_id IN ($1, $2)"))
+                "DELETE FROM balance_holds WHERE hold_id IN ($1, $2, $3, $4)"))
             {
                 cleanupHolds.Parameters.AddWithValue(holdId);
                 cleanupHolds.Parameters.AddWithValue(abortHoldId);
+                cleanupHolds.Parameters.AddWithValue(holdId + "-replay");
+                cleanupHolds.Parameters.AddWithValue(holdId + "-conflict");
                 await cleanupHolds.ExecuteNonQueryAsync();
             }
             await using var cleanupLeases = dataSource.CreateCommand(
@@ -243,5 +264,15 @@ public sealed class MediaOperationStoreTests
             "SELECT amount FROM balance_holds WHERE hold_id = $1");
         command.Parameters.AddWithValue(holdId);
         return (decimal)(await command.ExecuteScalarAsync())!;
+    }
+
+    private static async Task<string> ReadIdempotencyStatus(NpgsqlDataSource dataSource,
+        long apiKeyId, string idempotencyKey)
+    {
+        await using var command = dataSource.CreateCommand(
+            "SELECT status FROM request_idempotency WHERE api_key_id = $1 AND idempotency_key = $2");
+        command.Parameters.AddWithValue(apiKeyId);
+        command.Parameters.AddWithValue(idempotencyKey);
+        return (string)(await command.ExecuteScalarAsync())!;
     }
 }

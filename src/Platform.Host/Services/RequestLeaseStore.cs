@@ -35,7 +35,16 @@ public sealed record LeaseCreateRequest(
     decimal RateMultiplier,
     string? HoldHandle,
     decimal HoldAmount,
-    DateTime ExpiresAt);
+    DateTime ExpiresAt,
+    string IdempotencyKey = "",
+    string RequestFingerprint = "");
+
+public sealed record LeaseCreateResult(bool Created, bool Replay, bool Conflict)
+{
+    public static LeaseCreateResult New() => new(true, false, false);
+    public static LeaseCreateResult Duplicate() => new(false, true, false);
+    public static LeaseCreateResult IdempotencyConflict() => new(false, false, true);
+}
 
 public sealed record LeaseCompletion(
     string LeaseToken,
@@ -83,6 +92,10 @@ public sealed class RequestLeaseStore(
     ILogger<RequestLeaseStore> logger)
 {
     public async Task<bool> CreateAsync(LeaseCreateRequest request, CancellationToken ct = default)
+        => (await CreateDetailedAsync(request, ct)).Created;
+
+    public async Task<LeaseCreateResult> CreateDetailedAsync(LeaseCreateRequest request,
+        CancellationToken ct = default)
     {
         await using var connection = await dataSource.OpenConnectionAsync(ct);
         await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.ReadCommitted, ct);
@@ -115,7 +128,46 @@ public sealed class RequestLeaseStore(
         if (inserted is null || inserted is DBNull)
         {
             await transaction.CommitAsync(ct);
-            return false;
+            return LeaseCreateResult.Duplicate();
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.IdempotencyKey))
+        {
+            await using var idempotency = connection.CreateCommand();
+            idempotency.Transaction = transaction;
+            idempotency.CommandText = """
+                INSERT INTO request_idempotency (
+                    api_key_id, idempotency_key, request_fingerprint,
+                    request_id, lease_token, status)
+                VALUES ($1, $2, $3, $4, $5, 'active')
+                ON CONFLICT (api_key_id, idempotency_key) DO NOTHING
+                RETURNING idempotency_key
+                """;
+            idempotency.Parameters.AddWithValue(request.ApiKeyId);
+            idempotency.Parameters.AddWithValue(request.IdempotencyKey.Trim());
+            idempotency.Parameters.AddWithValue(request.RequestFingerprint ?? "");
+            idempotency.Parameters.AddWithValue(request.RequestId);
+            idempotency.Parameters.AddWithValue(request.LeaseToken);
+            var keyInserted = await idempotency.ExecuteScalarAsync(ct);
+            if (keyInserted is null || keyInserted is DBNull)
+            {
+                await using var existing = connection.CreateCommand();
+                existing.Transaction = transaction;
+                existing.CommandText = """
+                    SELECT request_fingerprint
+                    FROM request_idempotency
+                    WHERE api_key_id = $1 AND idempotency_key = $2
+                    FOR UPDATE
+                    """;
+                existing.Parameters.AddWithValue(request.ApiKeyId);
+                existing.Parameters.AddWithValue(request.IdempotencyKey.Trim());
+                var existingFingerprint = (string?)await existing.ExecuteScalarAsync(ct) ?? "";
+                await transaction.RollbackAsync(ct);
+                return string.Equals(existingFingerprint, request.RequestFingerprint ?? "",
+                    StringComparison.Ordinal)
+                    ? LeaseCreateResult.Duplicate()
+                    : LeaseCreateResult.IdempotencyConflict();
+            }
         }
 
         if (!string.IsNullOrWhiteSpace(request.HoldHandle))
@@ -135,7 +187,7 @@ public sealed class RequestLeaseStore(
         }
 
         await transaction.CommitAsync(ct);
-        return true;
+        return LeaseCreateResult.New();
     }
 
     public async Task<WriteAck> CompleteAsync(LeaseCompletion completion, CancellationToken ct = default)
@@ -248,6 +300,7 @@ public sealed class RequestLeaseStore(
         }
 
         await FinalizeHoldAsync(connection, transaction, lease.HoldHandle, "committed", ct);
+        await FinalizeIdempotencyAsync(connection, transaction, lease.LeaseToken, "completed", ct);
         await EnqueueAsync(connection, transaction, lease.LeaseToken, "complete", ct);
         await transaction.CommitAsync(ct);
         return WriteAck.Ok();
@@ -277,6 +330,7 @@ public sealed class RequestLeaseStore(
         command.Parameters.AddWithValue(reason.Length > 500 ? reason[..500] : reason);
         await command.ExecuteNonQueryAsync(ct);
         await FinalizeHoldAsync(connection, transaction, lease.HoldHandle, "released", ct);
+        await FinalizeIdempotencyAsync(connection, transaction, lease.LeaseToken, "aborted", ct);
         await EnqueueAsync(connection, transaction, leaseToken, "abort", ct);
         await transaction.CommitAsync(ct);
         return WriteAck.Ok();
@@ -303,6 +357,7 @@ public sealed class RequestLeaseStore(
         foreach (var token in expired)
         {
             await FinalizeHoldByLeaseAsync(connection, transaction, token, "released", ct);
+            await FinalizeIdempotencyAsync(connection, transaction, token, "expired", ct);
             await EnqueueAsync(connection, transaction, token, "expire", ct);
         }
         await transaction.CommitAsync(ct);
@@ -524,6 +579,21 @@ public sealed class RequestLeaseStore(
         command.CommandText = """
             UPDATE balance_holds
             SET status = $2, finalized_at = now()
+            WHERE lease_token = $1 AND status = 'active'
+            """;
+        command.Parameters.AddWithValue(leaseToken);
+        command.Parameters.AddWithValue(status);
+        await command.ExecuteNonQueryAsync(ct);
+    }
+
+    private static async Task FinalizeIdempotencyAsync(NpgsqlConnection connection,
+        NpgsqlTransaction transaction, string leaseToken, string status, CancellationToken ct)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            UPDATE request_idempotency
+            SET status = $2, updated_at = now()
             WHERE lease_token = $1 AND status = 'active'
             """;
         command.Parameters.AddWithValue(leaseToken);

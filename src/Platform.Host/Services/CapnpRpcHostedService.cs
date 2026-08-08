@@ -623,23 +623,35 @@ public class DispatchService
                 req.RequestedModel, req.RequestedModel);
             var upstreamPath = ResolveUpstreamPath(
                 creds.Platform, req, mappedModel);
-            var created = await _leases.CreateAsync(new LeaseCreateRequest(
+            var isMediaOperation = req.Operation is "images_generations_async" or "images_edits_async"
+                or "images_batch_create" or "videos_generations" or "videos_edits"
+                or "videos_extensions";
+            var created = await _leases.CreateDetailedAsync(new LeaseCreateRequest(
                 selection.LeaseToken!, req.RequestId, req.ApiKeyHash, auth.ApiKeyId,
                 auth.UserId, accountId, selectedGroupId, req.RequestedModel, mappedModel,
                 req.Endpoint, selectedRateMultiplier, hold.Id, hold.Amount,
-                DateTime.UtcNow.Add(_leaseTtl)));
-            if (!created)
+                DateTime.UtcNow.Add(_leaseTtl),
+                isMediaOperation ? "" : req.IdempotencyKey,
+                isMediaOperation ? "" : req.RequestFingerprint));
+            if (created.Conflict)
             {
                 await userGrain.ReleaseHold(hold);
                 await accountGrain.ReleaseSlot(selection.LeaseToken!);
                 await userGrain.ReleaseSlot(selection.LeaseToken!);
-                return DispatchResult.Rejected("duplicateRequest", "Request has already been dispatched");
+                return DispatchResult.Rejected("idempotencyConflict",
+                    "Idempotency key was already used for a different request");
+            }
+            if (!created.Created)
+            {
+                await userGrain.ReleaseHold(hold);
+                await accountGrain.ReleaseSlot(selection.LeaseToken!);
+                await userGrain.ReleaseSlot(selection.LeaseToken!);
+                return DispatchResult.Rejected("idempotencyReplay",
+                    "Request has already been dispatched");
             }
 
             var mediaOperationId = "";
-            if (req.Operation is "images_generations_async" or "images_edits_async"
-                or "images_batch_create" or "videos_generations" or "videos_edits"
-                or "videos_extensions")
+            if (isMediaOperation)
             {
                 var ttl = capability == "images_async" ? TimeSpan.FromHours(1) : TimeSpan.FromHours(24);
                 var media = await _mediaOperations.CreateOrGetAsync(

@@ -18,6 +18,7 @@ public sealed class MigrationSchemaTests
             ["accounts"] = ["id", "name", "platform", "credentials", "status"],
             ["groups"] = ["id", "name", "platform", "status"],
             ["request_leases"] = ["lease_token", "request_id", "hold_amount", "status"],
+            ["request_idempotency"] = ["api_key_id", "idempotency_key", "request_fingerprint", "lease_token", "status"],
             ["usage_events"] = ["lease_token", "cost_usd", "input_tokens", "output_tokens"],
             ["usage_outbox"] = ["lease_token", "event_type", "processed_at"],
             ["balance_holds"] = ["hold_id", "amount", "status"],
