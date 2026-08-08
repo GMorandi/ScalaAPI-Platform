@@ -119,6 +119,7 @@ services:
       Admin__Username: ${ADMIN_USERNAME:?ADMIN_USERNAME is required}
       Admin__Password: ${ADMIN_PASSWORD:?ADMIN_PASSWORD is required}
       Security__MasterKey: ${SECURITY_MASTER_KEY:?SECURITY_MASTER_KEY is required}
+      PasswordReset__ExposeToken: ${PASSWORD_RESET_EXPOSE_TOKEN:-false}
     depends_on:
       platform-silo:
         condition: service_healthy
