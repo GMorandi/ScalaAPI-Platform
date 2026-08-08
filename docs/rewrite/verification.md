@@ -11,7 +11,7 @@
 | Scheduler benchmark dry run | 4/4, exit 0; no-match negative probe exits 1 | Dependency injection and child-result propagation pass; not performance evidence |
 | Contract generation and digest | Canonical and Gateway vendor schemas match; fixed-scale pricing round-trip passed; official Cap'n Proto 1.0.2 commit `1a0e12c0` plus local `capnpc-csharp` 1.3.118 regenerated all three C# files byte-identically; an intentional drift probe exited 1 with a unified diff | Platform's single-repository generated-output gate is blocking; atomic cross-private-repository schema release coordination remains |
 | PostgreSQL migrator | Repository gate started a brand-new PostgreSQL volume, applied current image `36bed78a` migrations 000-016, then observed all seventeen as `skip` on an explicit second run, exit 0 | No source database, CDC, compatibility table, snapshot, or old key used |
-| Empty-volume Compose gate | `deploy/stack/smoke.sh` passed with Platform `3a21cb70`, Admin `e54d9e20`, Gateway `cd7013f2`, Provider mock `dafda23b`, and unique project/volumes; product APIs configured user/key/group/prices, Chat settlement and exact replay passed, all billing/outbox terminal assertions passed, authenticated Garnet returned PONG, and MinIO bootstrap plus 67-byte signed download passed | Source-owned Docker/Podman gate is reproducible; hosted cross-private-repository CI and full crash injection remain |
+| Empty-volume Compose gate | `deploy/stack/smoke.sh` passed with Platform `3a21cb70`, Admin `e54d9e20`, Gateway `cd7013f2`, Provider mock `dafda23b`, and unique project/volumes; product APIs configured user/key/group/prices, Chat settlement and exact replay passed, Platform and Gateway were independently replaced with new container IDs, each accepted and settled one new billable request, all billing/outbox terminal assertions passed, authenticated Garnet returned PONG, and MinIO bootstrap plus 67-byte signed download passed | Source-owned Docker/Podman gate is reproducible and catches false restarts; hosted cross-private-repository CI and exact-boundary crash injection remain |
 | Garnet smoke | Auth, PING, SET/GET, PX, INCR, DEL passed | Official digest; no Redis or embedded server |
 | Garnet outage/recovery | Platform readiness 503 then 200 | Automatic TCP reconnect verified |
 | Garnet projection rebuild | `discovered=15`, `written=15`, `deleted=0`, `errors=0`; immediate `scalaapi:v1:auth:*` read succeeded; Gateway CTest covers version change and deleted-version flush/recovery | TLS and multi-client assertions remain |
@@ -48,7 +48,8 @@
    including delayed response replay, timeout, upstream 429/500, client disconnect,
    process restart, durable hold reconciliation, and settlement. The host-level
    outbox test now proves stale claims and old dead-letter rows are recoverable;
-   deployment evidence must still exercise the same path through a restarted Silo.
+   deployment evidence proves clean post-replacement requests, but must still inject
+   replacement at dispatch, report, and outbox boundaries.
 5. Automate the passing Anthropic and Gemini provider-group scenarios in the empty
    stack, add protocol-specific error/disconnect/golden fixtures, then extend the
    S3-compatible media path with cancellation, restart, restore, and metadata/object

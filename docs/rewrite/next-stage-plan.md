@@ -12,7 +12,7 @@ This does not close the product rewrite. The next stage is one authoritative,
 billable OpenAI Chat Completions vertical slice. Work outside that slice stays
 `partial`, `skeleton`, or `missing` in the inventory.
 
-## Progress checkpoint (2026-08-08, platform `25b3834`, gateway `60f99a0`)
+## Progress checkpoint (2026-08-08, platform `966be26`, gateway `60f99a0`)
 
 - Completed in `b266e17`: business balances, quotas, costs, limits, and routing
   multipliers use `decimal`; precision projections cover User, Group, and API key.
@@ -186,15 +186,21 @@ billable OpenAI Chat Completions vertical slice. Work outside that slice stays
   Cap'n Proto 1.0.2 compiler commit, regenerates all three C# artifacts in a temporary
   directory, and rejects byte drift. The positive comparison passed and an intentional
   drift probe returned exit 1 with a unified diff.
+- Completed in `966be26`: the empty-volume gate independently replaces Platform and
+  Gateway with new container identities while retaining named volumes. A fresh
+  billable request after each replacement settled with one completed lease, committed
+  hold, usage event/log, matching NUMERIC debit, and zero Platform/Gateway outbox
+  backlog. Exact dispatch/report/outbox crash injection remains open.
 - Still open: PostgreSQL aggregate repositories/foreign keys, cross-repository schema
-  release coordination, crash/restart settlement scenarios, full provider failure matrix,
+  release coordination, boundary crash settlement scenarios, full provider failure matrix,
   object-store reconciliation/restore, hosted execution of the cross-repository
   empty-volume gate, and Garnet TLS/multi-client evidence.
 
 ## Next execution order
 
-1. Extend the Compose gate with explicit 429, 500, timeout, malformed usage,
-   client-disconnect, Gateway restart, and Platform restart scenarios. Each must
+1. Extend the Compose gate with explicit 429, 500, timeout, malformed usage, and
+   client-disconnect scenarios, followed by replacements at dispatch, report, and
+   outbox boundaries. Each must
    assert terminal leases, released/committed holds, outbox drain, and exact debit
    cardinality.
 2. Add protocol golden fixtures for OpenAI Chat/Responses, Anthropic Messages, and
@@ -314,7 +320,8 @@ the remaining TLS/multi-client checks must run in the release stack.
   one ledger debit where settlement is valid.
 - Inject Gateway and Platform restarts at dispatch, streaming, report, and outbox
   boundaries. Reconcile active holds and idempotency rows after lease expiry without
-  reopening a billable request.
+  reopening a billable request. Clean requests after independent Platform and Gateway
+  replacement now pass; boundary-timed injection is still required.
 
 Depends on: lease/hold/idempotency state machines and provider seed. Exit: every
   failure scenario is replay-safe and returns a non-zero test result on assertion

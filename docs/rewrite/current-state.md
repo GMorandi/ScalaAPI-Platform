@@ -10,7 +10,7 @@ release artifacts.
 | Repository | Commit | Worktree | Responsibility |
 | --- | --- | --- | --- |
 | `gateway` | `60f99a0` | clean | C++ HTTP/WebSocket edge, protocol conversion, chunked streaming, Provider transport, versioned Garnet client, malformed-usage and non-SSE guards, Anthropic/Gemini stream usage extraction, fixed-scale Cap'n Proto client, unique failover lease IDs, bounded non-stream upstream timeout, bounded response replay, terminal usage-outbox retirement, invalidation flush recovery |
-| `platform` | `25b3834` | clean | C# Orleans control plane, PostgreSQL persistence, leases, NUMERIC ledger, durable holds/idempotency, usage, media lifecycle, Admin API, signed payment webhooks with pending-event recovery, versioned Admin pricing lifecycle with live Host refresh, idempotent subscription purchase/renewal/cancellation/expiry, versioned Garnet rebuild, replayable balance effects, fixed-scale RPC contract with deterministic generated-output CI, retryable terminal idempotency leases, bounded response persistence/replay, password recovery, email verification, self-service profile/password/account deletion, administrative user balance replacement, idempotent multi-provider seed and deterministic Provider mock with native Anthropic/Gemini contracts, protocol-native fault injection, pollable media tasks, S3-compatible media ownership with SigV4 presigned access and deletion, restart-safe settlement outbox recovery, immutable lease price snapshots, durable ledger reconciliation endpoint, deterministic rolling quota policy, usage-triggered auth invalidation, and an isolated empty-volume Compose gate |
+| `platform` | `966be26` | clean | C# Orleans control plane, PostgreSQL persistence, leases, NUMERIC ledger, durable holds/idempotency, usage, media lifecycle, Admin API, signed payment webhooks with pending-event recovery, versioned Admin pricing lifecycle with live Host refresh, idempotent subscription purchase/renewal/cancellation/expiry, versioned Garnet rebuild, replayable balance effects, fixed-scale RPC contract with deterministic generated-output CI, retryable terminal idempotency leases, bounded response persistence/replay, password recovery, email verification, self-service profile/password/account deletion, administrative user balance replacement, idempotent multi-provider seed and deterministic Provider mock with native Anthropic/Gemini contracts, protocol-native fault injection, pollable media tasks, S3-compatible media ownership with SigV4 presigned access and deletion, restart-safe settlement outbox recovery, immutable lease price snapshots, durable ledger reconciliation endpoint, deterministic rolling quota policy, usage-triggered auth invalidation, and an isolated empty-volume Compose gate with Platform/Gateway replacement recovery |
 | `sub2api` | `43ec48d` | read-only clean reference | Functional requirements catalogue only |
 
 The current source inventory is 50 tracked Gateway source files, 88 CTest cases,
@@ -166,8 +166,9 @@ not implementation parity or a migration target.
   unique Compose project and empty volumes, configures only new-product APIs, checks
   all seventeen migrations plus a second idempotent run, authenticates Garnet,
   proves Chat settlement/replay and every terminal billing invariant, bootstraps the
-  object bucket through an asynchronous image, verifies the signed download, and
-  removes only its project on exit.
+  object bucket through an asynchronous image, verifies the signed download,
+  replaces Platform and Gateway independently, proves a new billable request after
+  each replacement, and removes only its project on exit.
 
 ## Known gaps
 
@@ -217,10 +218,14 @@ API key, seeded three provider groups, and published active Chat and media price
 The Chat request completed with the smoke price version, one committed hold, one
 usage event/log, one exactly matching NUMERIC debit, zero active leases/holds, and
 both Platform and Gateway outboxes at zero. An exact idempotency replay returned the
-same normalized response without a second idempotency row or charge. An asynchronous
-image then initialized the empty MinIO bucket, reached `object_status=stored`, and
-its presigned URL downloaded 67 bytes. Authenticated raw RESP returned `PONG`. The
-script exited zero and removed only the isolated project and its volumes.
+same normalized response without a second idempotency row or charge. The current
+gate then replaced the Platform and Gateway containers independently while retaining
+their named volumes. A new request after each replacement produced exactly one
+completed lease, committed hold, usage event/log, and matching NUMERIC debit; both
+outboxes drained to zero. An asynchronous image then initialized the empty MinIO
+bucket, reached `object_status=stored`, and its presigned URL downloaded 67 bytes.
+Authenticated raw RESP returned `PONG`. The script exited zero and removed only the
+isolated project and its volumes.
 
 The contract supply-chain gate also ran locally against the exact Cap'n Proto 1.0.2
 compiler. All three generated C# files byte-matched their checked-in artifacts; an
