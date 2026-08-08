@@ -14,7 +14,7 @@
 | Current-image Compose smoke | All long-running services healthy; migrator exit 0 | Isolated project and new volumes |
 | Garnet smoke | Auth, PING, SET/GET, PX, INCR, DEL passed | Official digest; no Redis or embedded server |
 | Garnet outage/recovery | Platform readiness 503 then 200 | Automatic TCP reconnect verified |
-| Provider mock | Health, JSON success, SSE, and 429 passed | Timeout, disconnect, malformed-usage, and adapter golden scenarios remain |
+| Provider mock | Health, JSON success, SSE, and upstream-failure probes passed; 429/500 attempts left aborted leases, released holds, and zero ledger rows | Complete retry/failover, timeout, disconnect, malformed-usage, and adapter golden scenarios remain |
 | Gateway dispatch smoke | Readiness 200; seeded OpenAI Chat JSON and SSE returned 200 through Provider mock | Failure/retry matrix and clean-environment automation remain |
 | Billable settlement smoke | JSON and SSE completed; durable hold committed; usage outbox processed; one NUMERIC ledger debit per lease | Crash/restart, provider failures, and clean-seed automation remain |
 | Request idempotency smoke | Concurrent same-key calls produced one 200 and one 409 replay; different fingerprint produced 409 conflict; one lease/debit/hold per key | Stored-response replay and crash recovery before lease expiry remain |

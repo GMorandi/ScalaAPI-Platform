@@ -117,6 +117,11 @@ one lease, one usage debit, and one committed hold. Admin ledger, lease, and hol
 query endpoints returned the corresponding PostgreSQL rows. Refresh-token replay
 and logout revocation also returned 401 after the first use.
 
+Provider mock upstream-failure probes created terminal `aborted` leases with
+`released` holds and zero ledger rows. Account cooldown then failed closed with
+`provider_unavailable` when no account was available; a complete 429/500 retry and
+failover matrix is still a release gate.
+
 Authenticated Garnet `PING`, `SET/GET`, PX expiry, `INCR`, and `DEL` passed. Stopping
 Garnet changed Platform readiness to 503; restarting it restored readiness to 200.
 Gateway readiness returned 200 and an unknown API key traversed the current dispatch
