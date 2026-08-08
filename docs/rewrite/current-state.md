@@ -15,8 +15,8 @@ release artifacts.
 
 The current source inventory is 50 tracked Gateway source files, 87 CTest cases,
 62 hand-written Platform production C# files plus 3 generated Cap'n Proto files,
-32 tracked Platform test/benchmark C# source files, 72 Platform test cases, 123 mapped
-Admin API routes, 33 product tables, 20 SQLSugar entity types, and 31 Admin Web
+32 tracked Platform test/benchmark C# source files, 72 Platform test cases, 137 mapped
+Admin API route declarations, 33 product tables, 20 SQLSugar entity types, and 31 Admin Web
 source files with 11 page views. Admin Web has no browser test runner yet.
 
 The reference inventory is 612 route registration calls, 39 concrete Ent schemas,
@@ -153,10 +153,10 @@ On 2026-08-08 the isolated `scalaapi-stage2` project used current-source images:
 Platform `15ca7ca2ccbf47da884d078cddfcdc8f6883d746ed1c355ed137814859241aeb`,
 Admin API `d522f4107be506f085d4168a647cf4af9dfe62e7030526a5ff307fed56dc4cc5`,
 migrator `53824dbce4883ba1b46aa1af6385c5c1720f6a66664f472266afdee0447af289`,
-Gateway `4af127e144518ceba532f900278cc1895d8b23ddc48cbac4d4ad49298ca79359`, and
+Gateway `b072b7600c8acaa0d94a9a319629ddf928a218748ce8523b76912a1f457ef350`, and
 Provider mock `95b8632dea20b787127dad9f8302afad1bffb70633283dcc61720a67a388b4a6`.
-The migrator applied 012 after the existing 000-011 baseline and a second run
-skipped all thirteen migrations. Registration
+The migrator applied the complete 000-012 sequence and a second run skipped all
+thirteen migrations. Registration
 returned user id 7 and registry id 7. Provider seed was idempotent (same account
 and group on two calls); API-key rotation revoked the old key; Admin-created keys
 were projected into `user_api_keys`. Seeded JSON and SSE requests both returned
@@ -213,12 +213,11 @@ Authenticated Garnet `PING`, `SET/GET`, PX expiry, `INCR`, and `DEL` passed. Sto
 Garnet changed Platform readiness to 503; restarting it restored readiness to 200.
 The protected cache rebuild endpoint returned `discovered=12`, `written=12`,
 `deleted=0`, `errors=0`; an immediate authenticated RESP read returned a
-`scalaapi:v1:auth:*` projection. The current Gateway image then completed a seeded
-Chat JSON request through the rebuilt projection.
-Gateway readiness returned 200 and an unknown API key traversed the current dispatch
-path to a stable 401. This is bootstrap evidence, not evidence for a successful
-billable request or settlement; the seeded request evidence above is the current
-source billable path.
+`scalaapi:v1:auth:*` projection. The rebuilt current Gateway image returned 200 for
+a seeded OpenAI Chat request (`X-Request-ID: 4b54b3d53004943c`) and Platform recorded
+one completed lease, one usage event, one `0.00006750` NUMERIC debit, and one
+committed hold. Gateway readiness returned 200 and an unknown API key traversed the
+current dispatch path to a stable 401.
 
 ## Historical runtime boundary
 
