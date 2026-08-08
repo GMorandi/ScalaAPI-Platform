@@ -70,6 +70,7 @@ builder.Services.AddSingleton<ScalaAPI.Grains.Interfaces.IInvalidationService>(s
 
 // Dispatch service (bridges Cap'n Proto RPC to Orleans grains)
 builder.Services.AddSingleton<ModelPricingService>();
+builder.Services.AddHostedService<PricingRefreshHostedService>();
 builder.Services.AddSingleton(NpgsqlDataSource.Create(pgConnection));
 builder.Services.AddSingleton<RequestLeaseStore>();
 builder.Services.AddSingleton<MediaOperationStore>();

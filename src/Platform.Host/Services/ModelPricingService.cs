@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using Npgsql;
 
 namespace ScalaAPI.Host.Services;
 
@@ -12,9 +13,11 @@ public class ModelPricingService
 {
     private readonly ConcurrentDictionary<string, ModelPrice> _prices = new();
     private readonly string _defaultVersion;
+    private readonly NpgsqlDataSource? _dataSource;
 
-    public ModelPricingService(IConfiguration configuration)
+    public ModelPricingService(IConfiguration configuration, NpgsqlDataSource? dataSource = null)
     {
+        _dataSource = dataSource;
         _defaultVersion = configuration["Pricing:Version"] ?? "runtime-v1";
         _prices["claude-sonnet-4"] = new(3m, 15m, 3.75m, 0.30m, Version: _defaultVersion);
         _prices["claude-opus-4"] = new(15m, 75m, 18.75m, 1.50m, Version: _defaultVersion);
@@ -70,5 +73,29 @@ public class ModelPricingService
     public void SetPrice(string modelPrefix, ModelPrice price)
     {
         _prices[modelPrefix] = price;
+    }
+
+    public async Task RefreshFromDatabaseAsync(CancellationToken ct = default)
+    {
+        if (_dataSource is null) return;
+        await using var command = _dataSource.CreateCommand("""
+            SELECT DISTINCT ON (model) model, version,
+                   input_usd_per_million, output_usd_per_million,
+                   cache_read_usd_per_million, cache_write_usd_per_million
+            FROM pricing_versions
+            WHERE effective_from <= now()
+              AND (effective_until IS NULL OR effective_until > now())
+            ORDER BY model, effective_from DESC
+            """);
+        await using var reader = await command.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct))
+        {
+            var model = reader.GetString(0);
+            _prices[model] = new ModelPrice(
+                reader.GetDecimal(2), reader.GetDecimal(3),
+                CacheCreatePerMillion: reader.GetDecimal(5),
+                CacheReadPerMillion: reader.GetDecimal(4),
+                Version: reader.GetString(1));
+        }
     }
 }
