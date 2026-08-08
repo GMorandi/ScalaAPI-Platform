@@ -10,13 +10,13 @@ read-only requirements reference and is excluded from builds and runtime.
 
 | Repository | Commit | Worktree | Role |
 | --- | --- | --- | --- |
-| `gateway` | `30b8c2b` | clean | C++ HTTP/WebSocket edge, protocol parsing/conversion, streaming, Provider transport/evidence, charge-aware failover, durable usage delivery, authenticated Garnet projections, deterministic fault boundaries, and fail-closed cancellation/partial-SSE handling |
-| `platform` | `8c3d2e0` | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, identity, scheduling, evidence-backed leases/holds/ledger, audited operator resolution, media lifecycle, Admin API/Web, Provider mock, migrations, deterministic fault boundaries, and deployment gates |
+| `gateway` | `24a1c84` | clean | C++ HTTP/WebSocket edge, protocol parsing/conversion, streaming, Provider transport/evidence, charge-aware failover, durable usage delivery, authenticated Garnet projections, deterministic fault boundaries, and fail-closed cancellation/partial-SSE handling |
+| `platform` | `5d39750` | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, identity, scheduling, evidence-backed leases/holds/ledger, audited operator resolution, media lifecycle, Admin API/Web, Provider mock, migrations, deterministic fault boundaries, and deployment gates |
 | `sub2api` | `43ec48d` | read-only clean | Requirements catalogue only; never a runtime or compatibility dependency |
 
 The current tracked inventory is:
 
-- Gateway: 52 production C++ source/header files, 10 test source files, and 97
+- Gateway: 52 production C++ source/header files, 10 test source files, and 98
   CTest cases.
 - Platform: 81 hand-written production C# files, 3 generated Cap'n Proto C#
   files, 26 test/benchmark C# files, and 95 tests: 57 Grain, 28 Host, 4 Admin,
@@ -172,11 +172,12 @@ current-source runtime evidence.
 
 ## Current verification evidence
 
-At Platform `8c3d2e0` and Gateway `30b8c2b`:
+At Platform `5d39750` and Gateway `24a1c84`:
 
-- Gateway built locally and passed 97/97 CTest cases, including deterministic
+- Gateway built locally and passed 98/98 CTest cases, including deterministic
   fault-hook claim/repeat behavior, terminal SSE detection, provider EOF
-  classification, and zero-length client-write cancellation.
+  classification, incomplete chunked-body disconnect classification, and
+  zero-length client-write cancellation.
 - Platform Release test/build passed with 0 warnings and 0 errors: 95/95 tests,
   including 28 Host tests against a fresh real PostgreSQL schema. Host coverage
   includes deterministic fault-hook configuration plus atomic operator
@@ -185,16 +186,16 @@ At Platform `8c3d2e0` and Gateway `30b8c2b`:
 - Scheduler benchmark integrity dry run executed all 4 selected child benchmarks
   and returned zero. It is a failure-propagation check, not performance evidence.
 - `deploy/stack/smoke.sh` built current sibling sources in the isolated Podman
-  project `scalaapi-smoke-platform-hook4`, created new volumes, applied all 22
+  project `scalaapi-smoke-stream-0808b`, created new volumes, applied all 22
   migrations, and observed all 22 skip on the second migrator run. Source-built
-  image IDs were Platform `dd9006400e01`, Admin API `a927fa9b34ea`, Gateway
-  `a51970b3dbdd`, Provider mock `a895d522db41`, migrator `674d7ab9598d`, and
-  Admin Web `eabce3b86e2f`. The smoke intentionally crashed Platform once at
+  image IDs were Platform `62e5ca2cf83c`, Admin API `744a1bd12123`, Gateway
+  `6f46c6f1a1a5`, Provider mock `6ff7bdf333d8`, migrator `c9ed67bb2b3a`, and
+  Admin Web `bd72c28116a3`. The smoke intentionally crashed Platform once at
   `platform.after_settlement_commit`; single-silo membership recovery restarted
   the same service, replayed the durable usage outbox, and preserved one debit.
-  It also resolved one unknown-charge incident through the Admin API with
+  It resolved one of six unknown-charge incidents through the Admin API with
   `settle`, replayed the same command as `duplicate`, and reduced open incidents
-  from three to two before the second reconciliation run.
+  from six to five before the second reconciliation run.
 - The clean-stack Admin API funded a new zero-balance user once. Exact replay
   returned the same ledger identity, changed replay returned 409, overdraft returned
   409, and PostgreSQL contained exactly one NUMERIC adjustment and one actor audit.
@@ -215,11 +216,14 @@ At Platform `8c3d2e0` and Gateway `30b8c2b`:
   attempts and one 429 attempt ended `aborted` with released holds and no debit.
   Malformed-success, upstream-disconnect, and timeout each made one attempt, did not
   fail over, ended `reconciliation_needed`, retained the hold/idempotency key, and
-  created one operator-visible incident without a usage debit.
+  created one operator-visible incident without a usage debit. Streaming Provider
+  disconnect, disconnect-before-output, and malformed-usage scenarios did the same;
+  each returned a bounded 502/200-on-established-SSE outcome without settlement.
 - Garnet authentication returned `PONG`; asynchronous media bootstrapped the empty
   MinIO bucket and a signed URL downloaded the expected 67-byte object.
 - The smoke command exited zero and its cleanup trap removed only its containers and
-  temporary volumes. No project container remained afterward.
+  temporary volumes. No project container remained afterward; the host retained only
+  the three named `apitf_*` baseline volumes and no `scalaapi-smoke-*` image tags.
 
 Detailed gate results and residual coverage are maintained in `verification.md`.
 
@@ -232,9 +236,11 @@ Detailed gate results and residual coverage are maintained in `verification.md`.
   quota grants and future affiliate effects still need explicit authority contracts.
 - Gateway now classifies client cancellation and incomplete SSE as unknown-charge
   outcomes, records disconnect/cancellation reasons, and prevents failover after
-  output or partial Provider output. The source-level behavior is covered by 97
-  CTest cases; empty-stack assertions for each SSE fault account, actual socket
-  cancellation, and final usage/reconciliation are still open. A direct
+  output or partial Provider output. The source-level behavior is covered by 98
+  CTest cases; the empty-stack gate now proves Provider partial-SSE disconnect,
+  disconnect-before-output, and malformed-usage retention with no usage/debit.
+  Actual client socket cancellation and final usage/reconciliation fixtures remain.
+  A direct
   transport reset currently returns 502 while scheduler exhaustion after the same
   reset can return 503; the next error-contract slice must normalize the public
   status and body.
