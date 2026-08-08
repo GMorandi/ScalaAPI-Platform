@@ -48,6 +48,16 @@ is a separate protocol concern. Each lease also stores an immutable price versio
 and NUMERIC unit-rate snapshot; settlement never reprices from mutable process
 configuration.
 
+User creation and configuration never carry a balance. Administrative funding is
+an accounting command with a required idempotency key and reason: PostgreSQL takes
+a per-user transaction lock, verifies the product registry and active holds,
+appends one `admin_adjustment` ledger row and actor audit, and computes the
+authoritative ledger balance. Orleans receives the committed balance as an
+idempotent projection snapshot. If projection fails, the API returns retryable 503;
+replaying the same key reuses the SQL effect. The remaining commercial and usage
+effects must adopt an ordered ledger watermark before this split projection can be
+considered fully reconciled.
+
 ## Garnet
 
 Garnet is a separate Microsoft Garnet Server, pinned by image digest and reached by

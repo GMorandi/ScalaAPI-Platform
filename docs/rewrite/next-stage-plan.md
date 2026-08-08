@@ -2,7 +2,7 @@
 
 ## Checkpoint
 
-The next stage starts from Platform `cea9519`, Gateway `dc69269`, and read-only
+The next stage starts from Platform `63befca`, Gateway `dc69269`, and read-only
 reference `sub2api@43ec48d`.
 
 The greenfield baseline now starts from empty volumes, uses PostgreSQL as authority,
@@ -10,7 +10,9 @@ Garnet as the only distributed projection/cache, S3-compatible object storage fo
 media, and a source-owned Provider mock. The checked-in gate proves idempotent
 migrations, Chat settlement/replay, clean requests after Platform/Gateway
 replacement, and no-charge outcomes for non-stream OpenAI Chat 429, 500, malformed
-usage, upstream disconnect, and timeout.
+usage, upstream disconnect, and timeout. New users start at zero; administrative
+funding is now a required-key PostgreSQL ledger command with exact replay, conflict,
+actor audit, active-hold overdraft protection, and retryable Orleans projection.
 
 This stage contains no compatibility, cutover, dual-write, CDC, snapshot import,
 old-key import, ID preservation, status mapping, or business-data migration work.
@@ -35,14 +37,40 @@ failed assertion makes the top-level command non-zero.
 
 ## Work package 1: accounting authority and recovery
 
-Deliverables:
+Completed foundation at `63befca`:
+
+- Removed balance from user create/configuration API and Admin Web contracts.
+- Added unique `admin_adjustment` effects with reason/actor audit, exact replay,
+  conflict detection, per-user SQL serialization, active-hold protection, and an
+  authoritative projection snapshot.
+- Proved the contract in a real-database test and in the empty-volume Compose gate.
+
+Next implementation slice:
+
+- Add one per-user accounting account row with a monotonically increasing ledger
+  version and authoritative NUMERIC posted balance. Every ledger write returns the
+  resulting version and balance.
+- Route payment credit/refund, redeem bonus, subscription grant, administrative
+  adjustment, and usage debit through one accounting repository and one per-user
+  serialization rule. Remove unordered Orleans delta application.
+- Persist the last applied ledger version in the user Grain. Ignore stale snapshots,
+  apply newer snapshots atomically, and allow reconciliation to repair a missing
+  projection without replaying money.
+- Make durable hold reservation and debit availability checks use the same account
+  authority so concurrent usage and administrative changes cannot publish a stale
+  balance.
+- Add a reconciliation worker that compares account balance/version, active holds,
+  ledger effects, and Grain projection, repairs safe projection drift, and persists
+  operator-visible failures.
+
+Remaining package deliverables:
 
 - Define one documented lease state machine and legal transitions for held,
   forwarded, output-started, completed, aborted, expired, and reconciliation-needed
   outcomes. Terminal transitions must be idempotent.
-- Move administrative funding and remaining balance mutations behind unique,
-  append-only PostgreSQL ledger effects. Orleans may project a committed effect but
-  must not be the only authority for money.
+- Move every remaining balance mutation behind unique, append-only PostgreSQL ledger
+  effects. Orleans may project a committed version but must not be the only authority
+  for money.
 - Add a reconciliation worker for expired leases, active holds, committed usage,
   and idempotency rows. It must distinguish safe release from an unknown Provider
   charge that needs operator reconciliation.
@@ -52,8 +80,8 @@ Deliverables:
 - Prove duplicate completion, abort, expiry, worker reclaim, and outbox replay never
   create a second debit or lose a committed debit.
 
-Dependencies: existing lease snapshots, durable holds, response replay, settlement
-outbox, and reconciliation query.
+Dependencies: migration 017 administrative effects, existing lease snapshots,
+durable holds, response replay, settlement outbox, and reconciliation query.
 
 Exit: every injected crash converges after restart to zero orphan active holds, one
 terminal lease, at most one usage debit, and a durable operator-visible reason when
@@ -166,8 +194,9 @@ idempotency state, outbox backlog, and reconciliation status:
 
 ## Sequence and commit discipline
 
-1. Package 1 first because cancellation and cluster behavior need an authoritative
-   unknown-charge/reconciliation state.
+1. Finish package 1 account versioning and projection repair first because
+   cancellation and cluster behavior need an authoritative unknown-charge and
+   reconciliation state.
 2. Package 2 defines transport semantics; package 3 freezes them as fixtures.
 3. Package 4 runs the state machines under concurrency and infrastructure failure.
 4. Package 5 makes the same evidence mandatory in hosted release CI.
