@@ -48,6 +48,10 @@ builder.Services.AddSingleton<IAccountingProjectionRepairer, OrleansAccountingPr
 builder.Services.AddSingleton<AccountingReconciliationService>();
 builder.Services.AddScoped<IUsageLogRepository, UsageLogRepository>();
 builder.Services.AddHttpClient();
+builder.Services.AddHttpClient("platform-internal", client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(15);
+});
 builder.Services.AddSingleton(NpgsqlDataSource.Create(pgConnection));
 builder.Services.AddSingleton<AuthSessionService>();
 builder.Services.AddSingleton<PasswordResetService>();

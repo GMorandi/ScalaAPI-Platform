@@ -1,5 +1,8 @@
 using System.Text.Json;
+using System.Text;
+using System.Security.Claims;
 using Npgsql;
+using ScalaAPI.Admin.Auth;
 using ScalaAPI.Data.Accounting;
 
 namespace ScalaAPI.Admin.Endpoints;
@@ -17,6 +20,61 @@ public static class AccountingReconciliationEndpoints
         {
             var result = await reconciliation.RunAsync("admin", ct);
             return result.Started ? Results.Ok(result) : Results.Conflict(result);
+        });
+
+        group.MapPost("/incidents/{incidentId:long}/resolve", async (
+            long incidentId,
+            ClaimsPrincipal principal,
+            HttpRequest request,
+            IHttpClientFactory httpClientFactory,
+            IConfiguration configuration,
+            ReconciliationResolutionRequest resolution,
+            CancellationToken ct) =>
+        {
+            if (!AuthClaims.TryGetUserId(principal, out var actorId))
+                return Results.Unauthorized();
+
+            var idempotencyKey = request.Headers["Idempotency-Key"].FirstOrDefault()?.Trim();
+            if (string.IsNullOrWhiteSpace(idempotencyKey) || idempotencyKey.Length > 128)
+                return Results.BadRequest(new { error = "A 1-128 character Idempotency-Key is required" });
+
+            var internalUrl = configuration["Platform:InternalUrl"]?.TrimEnd('/');
+            var internalToken = configuration["Internal:ReconciliationToken"];
+            if (string.IsNullOrWhiteSpace(internalUrl) || string.IsNullOrWhiteSpace(internalToken))
+                return Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
+            if (!Uri.TryCreate($"{internalUrl}/internal/reconciliation/incidents/{incidentId}/resolve",
+                    UriKind.Absolute, out var endpoint)
+                || endpoint.Scheme is not ("http" or "https"))
+                return Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
+
+            using var message = new HttpRequestMessage(HttpMethod.Post, endpoint)
+            {
+                Content = JsonContent.Create(resolution),
+            };
+            message.Headers.TryAddWithoutValidation("X-Internal-Token", internalToken);
+            message.Headers.TryAddWithoutValidation("X-Operator-Id", actorId.ToString());
+            message.Headers.TryAddWithoutValidation("X-Operator-Idempotency-Key", idempotencyKey);
+            message.Headers.TryAddWithoutValidation("X-Operator-Ip",
+                request.HttpContext.Connection.RemoteIpAddress?.ToString() ?? "");
+
+            HttpResponseMessage response;
+            try
+            {
+                response = await httpClientFactory.CreateClient("platform-internal")
+                    .SendAsync(message, ct);
+            }
+            catch (HttpRequestException)
+            {
+                return Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
+            }
+
+            using (response)
+            {
+                var body = await response.Content.ReadAsStringAsync(ct);
+                return Results.Content(body,
+                    response.Content.Headers.ContentType?.ToString() ?? "application/json",
+                    Encoding.UTF8, (int)response.StatusCode);
+            }
         });
 
         group.MapGet("/runs", async (

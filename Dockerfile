@@ -51,6 +51,7 @@ COPY deploy/migrations/017-administrative-balance-effects.sql ./migrations/017-a
 COPY deploy/migrations/018-accounting-authority.sql ./migrations/018-accounting-authority.sql
 COPY deploy/migrations/019-accounting-reconciliation.sql ./migrations/019-accounting-reconciliation.sql
 COPY deploy/migrations/020-lease-dispatch-evidence.sql ./migrations/020-lease-dispatch-evidence.sql
+COPY deploy/migrations/021-reconciliation-resolutions.sql ./migrations/021-reconciliation-resolutions.sql
 ENTRYPOINT ["dotnet", "migrate/Db.Migrator.dll", "/app/migrations"]
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS provider-mock

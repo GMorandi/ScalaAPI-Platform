@@ -543,12 +543,18 @@ public sealed class AccountingReconciliationService(
                 severity = EXCLUDED.severity,
                 user_id = EXCLUDED.user_id,
                 lease_token = EXCLUDED.lease_token,
-                status = 'open',
+                status = CASE WHEN EXISTS (
+                    SELECT 1 FROM accounting_reconciliation_resolutions resolution
+                    WHERE resolution.incident_id = accounting_reconciliation_incidents.id)
+                    THEN 'resolved' ELSE 'open' END,
                 expected = EXCLUDED.expected,
                 actual = EXCLUDED.actual,
                 occurrences = accounting_reconciliation_incidents.occurrences + 1,
                 last_seen_at = now(),
-                resolved_at = NULL,
+                resolved_at = CASE WHEN EXISTS (
+                    SELECT 1 FROM accounting_reconciliation_resolutions resolution
+                    WHERE resolution.incident_id = accounting_reconciliation_incidents.id)
+                    THEN accounting_reconciliation_incidents.resolved_at ELSE NULL END,
                 last_run_id = EXCLUDED.last_run_id
             """;
         command.Parameters.AddWithValue(anomaly.Key);

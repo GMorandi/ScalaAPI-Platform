@@ -1,5 +1,6 @@
 using System.Data;
 using System.Text;
+using System.Text.Json;
 using Npgsql;
 using ScalaAPI.Data.Accounting;
 
@@ -323,6 +324,20 @@ public sealed class RequestLeaseStore(
     {
         await using var connection = await dataSource.OpenConnectionAsync(ct);
         await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.ReadCommitted, ct);
+        var ack = await CompleteOnTransactionAsync(connection, transaction, completion,
+            "platform", ct);
+        if (ack.Accepted)
+            await transaction.CommitAsync(ct);
+        return ack;
+    }
+
+    private async Task<WriteAck> CompleteOnTransactionAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        LeaseCompletion completion,
+        string source,
+        CancellationToken ct)
+    {
         var lease = await GetForUpdateAsync(connection, transaction, completion.LeaseToken, ct);
         if (lease is null)
             return WriteAck.Error("lease_not_found");
@@ -439,10 +454,319 @@ public sealed class RequestLeaseStore(
             normalized.ResponseBody, ct);
         await EnqueueAsync(connection, transaction, lease.LeaseToken, "complete", ct);
         await AppendLeaseEventAsync(connection, transaction, lease.LeaseToken,
-            "completed", "platform", "usage settled",
+            "completed", source, source == "platform" ? "usage settled" : "usage settled by operator",
             normalized.StatusCode is >= 100 and <= 999 ? normalized.StatusCode : null, ct);
-        await transaction.CommitAsync(ct);
         return WriteAck.Ok();
+    }
+
+    public async Task<ReconciliationResolutionResult> ResolveReconciliationAsync(
+        long incidentId,
+        long actorId,
+        string idempotencyKey,
+        ReconciliationResolutionRequest request,
+        string ipAddress = "",
+        CancellationToken ct = default)
+    {
+        if (!TryNormalizeResolution(incidentId, actorId, idempotencyKey, request,
+                out var normalized, out var validationError))
+            return new(ReconciliationResolutionStatus.Invalid, validationError);
+
+        var fingerprint = ReconciliationResolutionFingerprint.Compute(incidentId, normalized);
+        await using var connection = await dataSource.OpenConnectionAsync(ct);
+        await using var transaction = await connection.BeginTransactionAsync(
+            IsolationLevel.ReadCommitted, ct);
+
+        var incident = await ReadIncidentForUpdateAsync(connection, transaction, incidentId, ct);
+        if (incident is null)
+            return new(ReconciliationResolutionStatus.NotFound, "incident_not_found");
+
+        var existing = await FindResolutionAsync(connection, transaction, idempotencyKey, ct);
+        if (existing is not null)
+        {
+            var existingValue = existing.Value;
+            if (!string.Equals(existingValue.RequestFingerprint, fingerprint, StringComparison.Ordinal))
+                return new(ReconciliationResolutionStatus.Conflict,
+                    "resolution_idempotency_conflict", existingValue.Id, existingValue.LeaseToken,
+                    existingValue.Action);
+
+            await transaction.CommitAsync(ct);
+            return new(ReconciliationResolutionStatus.Duplicate, "", existingValue.Id,
+                existingValue.LeaseToken, existingValue.Action);
+        }
+
+        var incidentValue = incident.Value;
+        if (!string.Equals(incidentValue.Status, "open", StringComparison.Ordinal))
+            return new(ReconciliationResolutionStatus.Invalid, "incident_already_resolved");
+        if (!string.Equals(incidentValue.Kind, "unknown_provider_charge", StringComparison.Ordinal)
+            || string.IsNullOrWhiteSpace(incidentValue.LeaseToken))
+            return new(ReconciliationResolutionStatus.Invalid, "incident_not_operator_resolvable");
+
+        var lease = await GetForUpdateAsync(connection, transaction, incidentValue.LeaseToken, ct);
+        if (lease is null)
+            return new(ReconciliationResolutionStatus.Invalid, "lease_not_found");
+        if (!string.Equals(lease.Status, "reconciliation_needed", StringComparison.Ordinal))
+            return new(ReconciliationResolutionStatus.Invalid, "lease_not_reconciliation_needed");
+        if (normalized.Action == "release"
+            && normalized.EvidenceType == "never_forwarded"
+            && await HasDispatchEvidenceAsync(connection, transaction, lease.LeaseToken, ct))
+            return new(ReconciliationResolutionStatus.Invalid, "release_evidence_conflict");
+
+        decimal? cost = null;
+        if (normalized.Action == "settle")
+        {
+            var completion = ToLeaseCompletion(lease.LeaseToken, normalized);
+            var completionAck = await CompleteOnTransactionAsync(
+                connection, transaction, completion, "operator", ct);
+            if (!completionAck.Accepted)
+                return new(ReconciliationResolutionStatus.Invalid, completionAck.ErrorCode);
+            cost = await ReadLeaseCostAsync(connection, transaction, lease.LeaseToken, ct);
+        }
+        else
+        {
+            var providerStatusCode = normalized.EvidenceType == "provider_rejection"
+                && normalized.StatusCode is >= 100 and <= 999
+                ? normalized.StatusCode : (int?)null;
+            await using var abort = connection.CreateCommand();
+            abort.Transaction = transaction;
+            abort.CommandText = """
+                UPDATE request_leases
+                SET status = 'aborted', abort_reason = $2,
+                    provider_status_code = $3, finalized_at = now()
+                WHERE lease_token = $1 AND status = 'reconciliation_needed'
+                """;
+            abort.Parameters.AddWithValue(lease.LeaseToken);
+            abort.Parameters.AddWithValue($"operator_release:{normalized.Reason}");
+            abort.Parameters.AddWithValue((object?)providerStatusCode ?? DBNull.Value);
+            if (await abort.ExecuteNonQueryAsync(ct) != 1)
+                return new(ReconciliationResolutionStatus.Invalid, "lease_state_changed");
+
+            await accounting.FinalizeHoldAsync(connection, transaction,
+                lease.UserId, lease.HoldHandle, "released", ct);
+            await FinalizeIdempotencyAsync(connection, transaction,
+                lease.LeaseToken, "aborted", ct);
+            await EnqueueAsync(connection, transaction, lease.LeaseToken, "abort", ct);
+            await AppendLeaseEventAsync(connection, transaction, lease.LeaseToken,
+                "aborted_no_charge", "operator",
+                $"{normalized.EvidenceType}: {normalized.Evidence}", providerStatusCode, ct);
+        }
+
+        var resolutionId = await InsertResolutionAsync(connection, transaction,
+            incidentId, lease.LeaseToken, actorId, idempotencyKey, fingerprint,
+            normalized, ct);
+        await MarkIncidentResolvedAsync(connection, transaction, incidentId, ct);
+        await InsertResolutionAuditAsync(connection, transaction, incidentId,
+            lease.LeaseToken, actorId, normalized, resolutionId, cost, ipAddress, ct);
+        await transaction.CommitAsync(ct);
+        return new(ReconciliationResolutionStatus.Applied, "", resolutionId,
+            lease.LeaseToken, normalized.Action, cost);
+    }
+
+    private static bool TryNormalizeResolution(
+        long incidentId,
+        long actorId,
+        string idempotencyKey,
+        ReconciliationResolutionRequest request,
+        out ReconciliationResolutionRequest normalized,
+        out string error)
+    {
+        normalized = request with
+        {
+            Action = request.Action?.Trim().ToLowerInvariant() ?? "",
+            EvidenceType = request.EvidenceType?.Trim().ToLowerInvariant() ?? "",
+            Evidence = request.Evidence?.Trim() ?? "",
+            Reason = request.Reason?.Trim() ?? "",
+        };
+        error = "";
+        if (incidentId <= 0 || actorId <= 0)
+            error = "invalid_identity";
+        else if (string.IsNullOrWhiteSpace(idempotencyKey) || idempotencyKey.Trim().Length > 128)
+            error = "invalid_idempotency_key";
+        else if (normalized.Action is not ("settle" or "release"))
+            error = "invalid_resolution_action";
+        else if (normalized.Evidence.Length is < 3 or > 2000)
+            error = "invalid_evidence";
+        else if (normalized.Reason.Length is < 3 or > 500)
+            error = "invalid_reason";
+        else if (normalized.Action == "settle"
+            && normalized.EvidenceType is not ("provider_usage" or "provider_invoice"
+                or "operator_usage_review"))
+            error = "invalid_settlement_evidence";
+        else if (normalized.Action == "release"
+            && normalized.EvidenceType is not ("never_forwarded" or "provider_rejection"
+                or "provider_confirmed_no_charge"))
+            error = "invalid_release_evidence";
+        else if (normalized.Action == "release"
+            && normalized.EvidenceType == "provider_rejection"
+            && normalized.StatusCode is < 400 or > 599)
+            error = "invalid_provider_rejection_status";
+        else if (HasNegativeUsage(normalized))
+            error = "negative_usage";
+        else if (normalized.Action == "settle"
+            && normalized.StatusCode is < 100 or > 999)
+            error = "invalid_status_code";
+        return error.Length == 0;
+    }
+
+    private static bool HasNegativeUsage(ReconciliationResolutionRequest request) =>
+        request.InputTokens < 0 || request.OutputTokens < 0
+        || request.CacheCreateTokens < 0 || request.CacheReadTokens < 0
+        || request.DurationMs < 0 || request.FirstTokenMs < 0
+        || request.InputImageCount < 0 || request.OutputImageCount < 0
+        || request.VideoCount < 0 || request.VideoDurationSeconds < 0
+        || request.RealtimeDurationMs < 0 || request.RealtimeFrames < 0
+        || request.ReasoningTokens < 0;
+
+    private static LeaseCompletion ToLeaseCompletion(
+        string leaseToken, ReconciliationResolutionRequest request) => new(
+        leaseToken, request.InputTokens, request.OutputTokens,
+        request.CacheCreateTokens, request.CacheReadTokens, request.DurationMs,
+        request.FirstTokenMs, request.StatusCode, request.Stream,
+        request.ClientDisconnect, request.InputImageCount, request.OutputImageCount,
+        request.ImageSize, request.VideoCount, request.VideoResolution,
+        request.VideoDurationSeconds, request.RealtimeDurationMs, request.RealtimeFrames,
+        request.DisconnectReason, request.ProviderUsageJson, request.ReasoningTokens,
+        request.ServiceTier, request.UpstreamEndpoint, request.CancellationReason,
+        request.MediaOperationId, ResponseStatusCode: request.ResponseStatusCode,
+        ResponseContentType: request.ResponseContentType, ResponseBody: request.ResponseBody);
+
+    private static async Task<(string Kind, string Status, string? LeaseToken)?>
+        ReadIncidentForUpdateAsync(NpgsqlConnection connection, NpgsqlTransaction transaction,
+            long incidentId, CancellationToken ct)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            SELECT kind, status, lease_token
+            FROM accounting_reconciliation_incidents
+            WHERE id = $1
+            FOR UPDATE
+            """;
+        command.Parameters.AddWithValue(incidentId);
+        await using var reader = await command.ExecuteReaderAsync(ct);
+        if (!await reader.ReadAsync(ct)) return null;
+        return (reader.GetString(0), reader.GetString(1),
+            reader.IsDBNull(2) ? null : reader.GetString(2));
+    }
+
+    private static async Task<(long Id, string RequestFingerprint, string Action,
+        string LeaseToken)?> FindResolutionAsync(
+        NpgsqlConnection connection, NpgsqlTransaction transaction,
+        string idempotencyKey, CancellationToken ct)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            SELECT id, request_fingerprint, action, lease_token
+            FROM accounting_reconciliation_resolutions
+            WHERE idempotency_key = $1
+            FOR UPDATE
+            """;
+        command.Parameters.AddWithValue(idempotencyKey.Trim());
+        await using var reader = await command.ExecuteReaderAsync(ct);
+        if (!await reader.ReadAsync(ct)) return null;
+        return (reader.GetInt64(0), reader.GetString(1), reader.GetString(2), reader.GetString(3));
+    }
+
+    private static async Task<decimal?> ReadLeaseCostAsync(
+        NpgsqlConnection connection, NpgsqlTransaction transaction,
+        string leaseToken, CancellationToken ct)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = "SELECT final_cost_usd FROM request_leases WHERE lease_token = $1";
+        command.Parameters.AddWithValue(leaseToken);
+        var value = await command.ExecuteScalarAsync(ct);
+        return value is DBNull or null ? null : Convert.ToDecimal(value);
+    }
+
+    private static async Task<bool> HasDispatchEvidenceAsync(
+        NpgsqlConnection connection, NpgsqlTransaction transaction,
+        string leaseToken, CancellationToken ct)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            SELECT EXISTS(
+                SELECT 1 FROM request_lease_events
+                WHERE lease_token = $1 AND event_type IN ('forwarded', 'output_started'))
+            """;
+        command.Parameters.AddWithValue(leaseToken);
+        return (bool)(await command.ExecuteScalarAsync(ct) ?? false);
+    }
+
+    private static async Task<long> InsertResolutionAsync(
+        NpgsqlConnection connection, NpgsqlTransaction transaction,
+        long incidentId, string leaseToken, long actorId, string idempotencyKey,
+        string fingerprint, ReconciliationResolutionRequest request,
+        CancellationToken ct)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            INSERT INTO accounting_reconciliation_resolutions(
+                incident_id, lease_token, action, evidence_type, evidence, reason,
+                actor_user_id, idempotency_key, request_fingerprint, usage_payload)
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+            RETURNING id
+            """;
+        command.Parameters.AddWithValue(incidentId);
+        command.Parameters.AddWithValue(leaseToken);
+        command.Parameters.AddWithValue(request.Action);
+        command.Parameters.AddWithValue(request.EvidenceType);
+        command.Parameters.AddWithValue(request.Evidence);
+        command.Parameters.AddWithValue(request.Reason);
+        command.Parameters.AddWithValue(actorId);
+        command.Parameters.AddWithValue(idempotencyKey.Trim());
+        command.Parameters.AddWithValue(fingerprint);
+        command.Parameters.Add(new NpgsqlParameter
+        {
+            Value = JsonSerializer.Serialize(request),
+            NpgsqlDbType = NpgsqlTypes.NpgsqlDbType.Jsonb,
+        });
+        return Convert.ToInt64(await command.ExecuteScalarAsync(ct));
+    }
+
+    private static async Task MarkIncidentResolvedAsync(
+        NpgsqlConnection connection, NpgsqlTransaction transaction,
+        long incidentId, CancellationToken ct)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            UPDATE accounting_reconciliation_incidents
+            SET status = 'resolved', resolved_at = now()
+            WHERE id = $1 AND status = 'open'
+            """;
+        command.Parameters.AddWithValue(incidentId);
+        if (await command.ExecuteNonQueryAsync(ct) != 1)
+            throw new InvalidOperationException("Reconciliation incident changed while resolving");
+    }
+
+    private static async Task InsertResolutionAuditAsync(
+        NpgsqlConnection connection, NpgsqlTransaction transaction,
+        long incidentId, string leaseToken, long actorId,
+        ReconciliationResolutionRequest request, long resolutionId,
+        decimal? cost, string ipAddress, CancellationToken ct)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            INSERT INTO audit_logs(user_id, action, resource_type, resource_id, details, ip_address)
+            VALUES ($1, 'reconciliation.resolve', 'lease', $2, $3, $4)
+            """;
+        command.Parameters.AddWithValue(actorId);
+        command.Parameters.AddWithValue(leaseToken);
+        command.Parameters.AddWithValue(JsonSerializer.Serialize(new
+        {
+            incident_id = incidentId,
+            resolution_id = resolutionId,
+            action = request.Action,
+            evidence_type = request.EvidenceType,
+            reason = request.Reason,
+            cost_usd = cost,
+        }));
+        command.Parameters.AddWithValue(ipAddress.Length > 100 ? ipAddress[..100] : ipAddress);
+        await command.ExecuteNonQueryAsync(ct);
     }
 
     public async Task<WriteAck> RecordEvidenceAsync(string leaseToken, LeaseEvidenceStage stage,

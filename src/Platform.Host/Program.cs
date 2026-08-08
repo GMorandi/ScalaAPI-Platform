@@ -120,6 +120,52 @@ app.MapPost("/internal/cache/rebuild", async (HttpRequest request,
 
     return Results.Ok(await rebuild.RebuildAsync(ct));
 });
+app.MapPost("/internal/reconciliation/incidents/{incidentId:long}/resolve", async (
+    long incidentId,
+    HttpRequest request,
+    IConfiguration configuration,
+    RequestLeaseStore leases,
+    CancellationToken ct) =>
+{
+    var expected = configuration["Internal:ReconciliationToken"];
+    var supplied = request.Headers["X-Internal-Token"].ToString();
+    if (string.IsNullOrWhiteSpace(expected)
+        || !CryptographicOperations.FixedTimeEquals(
+            System.Text.Encoding.UTF8.GetBytes(expected),
+            System.Text.Encoding.UTF8.GetBytes(supplied)))
+        return Results.Unauthorized();
+
+    if (!long.TryParse(request.Headers["X-Operator-Id"].ToString(), out var actorId)
+        || actorId <= 0)
+        return Results.BadRequest(new { error = "operator_identity_required" });
+    var idempotencyKey = request.Headers["X-Operator-Idempotency-Key"].ToString();
+    if (string.IsNullOrWhiteSpace(idempotencyKey))
+        return Results.BadRequest(new { error = "operator_idempotency_key_required" });
+    var resolution = await request.ReadFromJsonAsync<ReconciliationResolutionRequest>(ct);
+    if (resolution is null)
+        return Results.BadRequest(new { error = "resolution_payload_required" });
+
+    var result = await leases.ResolveReconciliationAsync(
+        incidentId, actorId, idempotencyKey, resolution,
+        request.Headers["X-Operator-Ip"].ToString(), ct);
+    var response = new
+    {
+        status = result.Status.ToString().ToLowerInvariant(),
+        error_code = result.ErrorCode,
+        resolution_id = result.ResolutionId,
+        lease_token = result.LeaseToken,
+        action = result.Action,
+        cost_usd = result.CostUsd,
+    };
+    return result.Status switch
+    {
+        ReconciliationResolutionStatus.Applied
+            or ReconciliationResolutionStatus.Duplicate => Results.Ok(response),
+        ReconciliationResolutionStatus.NotFound => Results.NotFound(response),
+        ReconciliationResolutionStatus.Conflict => Results.Conflict(response),
+        _ => Results.BadRequest(response),
+    };
+});
 app.MapGet("/metrics", async (NpgsqlDataSource db, CancellationToken ct) =>
 {
     await using var command = db.CreateCommand("""
