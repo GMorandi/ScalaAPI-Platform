@@ -9,8 +9,8 @@ release artifacts.
 
 | Repository | Commit | Worktree | Responsibility |
 | --- | --- | --- | --- |
-| `gateway` | `93f0f14` | clean | C++ HTTP/WebSocket edge, protocol conversion, chunked streaming, Provider transport, versioned Garnet client, malformed-usage guard, fixed-scale Cap'n Proto client |
-| `platform` | `b42eeba` | clean | C# Orleans control plane, PostgreSQL persistence, leases, NUMERIC ledger, durable holds/idempotency, usage, media lifecycle, Admin API, versioned Garnet rebuild, replayable balance effects, fixed-scale RPC contract |
+| `gateway` | `f8b6761` | clean | C++ HTTP/WebSocket edge, protocol conversion, chunked streaming, Provider transport, versioned Garnet client, malformed-usage guard, fixed-scale Cap'n Proto client, unique failover lease IDs |
+| `platform` | `df93623` | clean | C# Orleans control plane, PostgreSQL persistence, leases, NUMERIC ledger, durable holds/idempotency, usage, media lifecycle, Admin API, versioned Garnet rebuild, replayable balance effects, fixed-scale RPC contract, retryable terminal idempotency leases |
 | `sub2api` | `43ec48d` | read-only clean reference | Functional requirements catalogue only |
 
 The current source inventory is 50 tracked Gateway source files, 83 CTest cases,
@@ -59,7 +59,10 @@ not implementation parity or a migration target.
   provider usage is captured for settlement.
 - Provider usage counters are validated as bounded non-negative integers. A malformed
   provider usage response returns `502 provider_error`, aborts the lease, releases
-  its durable hold, and suppresses usage/ledger settlement.
+  its durable hold, and suppresses usage/ledger settlement. Provider failover keeps
+  the public idempotency key stable while assigning each internal retry a unique
+  lease request ID; 500/429 exhaustion now ends as `503 provider_unavailable`
+  instead of incorrectly replaying a terminal 409.
 - Redeem-code redemption locks the PostgreSQL code row, records one user redemption,
   increments usage, and appends one `redeem_bonus` ledger effect transactionally. A
   unique `(code_id, user_id)` redemption and partial `(reference, entry_type)` ledger
@@ -115,10 +118,10 @@ not implementation parity or a migration target.
 ## Current runtime evidence
 
 On 2026-08-08 the isolated `scalaapi-stage2` project used current-source images:
-Platform `08f08471ac3d7f25f34dca2c1ecf8dffe2875cab1d085899c0e0c69a98ed4b9d`,
-Admin API `16f0ba426375edfe96398f22357333c8bcc657c8e60a5a74b387d2c349fd139c`,
+Platform `ad0c3e1d229395a38b87810ef0bb58b60367721b766c91f22078b742b1cd830e`,
+Admin API `ceaa5024a4af053cdad4058c53bf2fd39aee02dd9108fbffd45e409c43b0f511`,
 migrator `e23af7d134b39bd328082875a9b99a1ebd0e1358d527825bd650c34984f3ca95`,
-Gateway `4ae2b43b753cf97f3baf07441f91d1dda68d53970d730372b7e5278781bb9989`, and
+Gateway `7f7ef216aeb1b11edd57bd69598f997e1556b6a823f183e7fc95adfbf01feee`, and
 Provider mock `425e1430cc32f8756a688d176f1d542c9026603c37e0cb609e55b5ee49d6bcb8`.
 The migrator applied 005-008 and a second run skipped them all. Registration
 returned user id 7 and registry id 7. Provider seed was idempotent (same account
@@ -135,9 +138,13 @@ and logout revocation also returned 401 after the first use.
 
 Provider mock upstream-failure probes created terminal `aborted` leases with
 `released` holds and zero ledger rows. A malformed-usage probe returned `502` with
-the same no-charge state; a 429 probe returned `503 provider_unavailable` after
-account exhaustion with released holds and no ledger rows. A complete 429/500 retry,
-timeout, disconnect, and failover matrix is still a release gate.
+the same no-charge state. Fresh 500 and 429 probes returned `503
+provider_unavailable` after account exhaustion; PostgreSQL showed one aborted
+initial lease plus distinct `:retry:1`, `:retry:2`, and `:retry:3` leases for each
+request, all with released holds and no ledger rows. Reusing a matching external
+idempotency key after an aborted lease is now retryable, while active/completed
+requests still replay or conflict. Timeout, disconnect, and restart coverage
+remain release gates.
 
 Redeem-code runtime evidence created a one-use `1.25` code, returned `200` on the
 first request and `409` on repeat, then recovered a committed redemption after a

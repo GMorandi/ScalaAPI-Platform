@@ -12,7 +12,7 @@ This does not close the product rewrite. The next stage is one authoritative,
 billable OpenAI Chat Completions vertical slice. Work outside that slice stays
 `partial`, `skeleton`, or `missing` in the inventory.
 
-## Progress checkpoint (2026-08-08, platform `b42eeba`, gateway `93f0f14`)
+## Progress checkpoint (2026-08-08, platform `df93623`, gateway `f8b6761`)
 
 - Completed in `b266e17`: business balances, quotas, costs, limits, and routing
   multipliers use `decimal`; precision projections cover User, Group, and API key.
@@ -51,6 +51,12 @@ billable OpenAI Chat Completions vertical slice. Work outside that slice stays
   encodes decimal rates and holds at the boundary, Gateway decodes them without
   Float64 wire fields, and a Host precision round-trip test passes; CI generation
   comparison remains open.
+- Completed in `df93623` and `f8b6761`: provider failover assigns unique internal
+  lease IDs for each retry while retaining the public idempotency key; matching
+  keys can reopen only after an aborted or expired lease, and active/completed keys
+  still replay or reject fingerprint changes. Live 500/429 exhaustion probes now
+  return `503 provider_unavailable` with one terminal lease per retry and no ledger
+  debit.
 - Still open: PostgreSQL aggregate repositories/foreign keys, fixed-precision RPC
   schema generation, crash/restart settlement scenarios, provider failure matrix,
   empty-volume CI automation, and Garnet flush/stale-version/TLS/multi-client evidence.
