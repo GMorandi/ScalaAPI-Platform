@@ -142,6 +142,23 @@ public sealed class AuthSessionService(
         return await command.ExecuteNonQueryAsync(ct) == 1;
     }
 
+    public async Task<bool> RevokeSessionAsync(string sessionId, CancellationToken ct = default)
+    {
+        await using var command = dataSource.CreateCommand(
+            "UPDATE auth_sessions SET revoked_at = now() WHERE session_id = $1 AND revoked_at IS NULL");
+        command.Parameters.AddWithValue(sessionId);
+        return await command.ExecuteNonQueryAsync(ct) == 1;
+    }
+
+    public async Task<long?> GetUserIdAsync(string sessionId, CancellationToken ct = default)
+    {
+        await using var command = dataSource.CreateCommand(
+            "SELECT user_id FROM auth_sessions WHERE session_id = $1 AND revoked_at IS NULL");
+        command.Parameters.AddWithValue(sessionId);
+        var value = await command.ExecuteScalarAsync(ct);
+        return value is long userId ? userId : null;
+    }
+
     public async Task<IReadOnlyList<SessionInfo>> ListAsync(long userId, CancellationToken ct = default)
     {
         await using var command = dataSource.CreateCommand("""

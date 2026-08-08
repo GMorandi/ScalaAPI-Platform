@@ -35,10 +35,9 @@ public static class AuthEndpoints
             AuthSessionService sessions) =>
         {
             var sessionId = AuthClaims.SessionId(principal);
-            if (!AuthClaims.TryGetUserId(principal, out var userId)
-                || string.IsNullOrWhiteSpace(sessionId))
+            if (string.IsNullOrWhiteSpace(sessionId))
                 return Results.Unauthorized();
-            await sessions.RevokeAsync(userId, sessionId);
+            await sessions.RevokeSessionAsync(sessionId);
             return Results.NoContent();
         }).RequireAuthorization("AdminOnly");
     }

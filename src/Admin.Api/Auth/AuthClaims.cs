@@ -9,7 +9,10 @@ public static class AuthClaims
     {
         var value = principal.FindFirst(ClaimTypes.NameIdentifier)?.Value
             ?? principal.FindFirst(JwtRegisteredClaimNames.Sub)?.Value
-            ?? principal.FindFirst("sub")?.Value;
+            ?? principal.FindFirst("sub")?.Value
+            ?? principal.Claims.FirstOrDefault(claim =>
+                claim.Type.EndsWith("/nameidentifier", StringComparison.OrdinalIgnoreCase)
+                || claim.Type.Equals("nameidentifier", StringComparison.OrdinalIgnoreCase))?.Value;
         return long.TryParse(value, out userId);
     }
 

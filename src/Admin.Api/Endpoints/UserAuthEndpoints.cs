@@ -242,23 +242,28 @@ public static class UserAuthEndpoints
         user.MapPost("/logout", async (ClaimsPrincipal principal, AuthSessionService sessions) =>
         {
             var sessionId = AuthClaims.SessionId(principal);
-            if (!AuthClaims.TryGetUserId(principal, out var userId)
-                || string.IsNullOrWhiteSpace(sessionId))
+            if (string.IsNullOrWhiteSpace(sessionId))
                 return Results.Unauthorized();
-            await sessions.RevokeAsync(userId, sessionId);
+            await sessions.RevokeSessionAsync(sessionId);
             return Results.NoContent();
         });
 
         user.MapGet("/sessions", async (ClaimsPrincipal principal, AuthSessionService sessions) =>
         {
-            if (!AuthClaims.TryGetUserId(principal, out var userId)) return Results.Unauthorized();
+            var sessionId = AuthClaims.SessionId(principal);
+            if (!AuthClaims.TryGetUserId(principal, out var userId))
+                userId = sessionId is null ? 0 : await sessions.GetUserIdAsync(sessionId) ?? 0;
+            if (userId <= 0) return Results.Unauthorized();
             return Results.Ok(await sessions.ListAsync(userId));
         });
 
         user.MapDelete("/sessions/{sessionId}", async (string sessionId,
             ClaimsPrincipal principal, AuthSessionService sessions) =>
         {
-            if (!AuthClaims.TryGetUserId(principal, out var userId)) return Results.Unauthorized();
+            var currentSessionId = AuthClaims.SessionId(principal);
+            if (!AuthClaims.TryGetUserId(principal, out var userId))
+                userId = currentSessionId is null ? 0 : await sessions.GetUserIdAsync(currentSessionId) ?? 0;
+            if (userId <= 0) return Results.Unauthorized();
             return await sessions.RevokeAsync(userId, sessionId)
                 ? Results.NoContent() : Results.NotFound();
         });
