@@ -313,7 +313,7 @@ public sealed class RequestLeaseStore(
             return WriteAck.Error("lease_not_found");
         if (lease.Status == "completed")
             return WriteAck.DuplicateWrite();
-        if (lease.Status != "active")
+        if (lease.Status is not ("active" or "reconciliation_needed"))
             return WriteAck.Error($"lease_{lease.Status}");
 
         var normalized = completion with
@@ -436,6 +436,8 @@ public sealed class RequestLeaseStore(
             return WriteAck.Error("lease_not_found");
         if (lease.Status is "aborted" or "expired")
             return WriteAck.DuplicateWrite();
+        if (lease.Status == "reconciliation_needed")
+            return WriteAck.Error("lease_reconciliation_needed");
         if (lease.Status == "completed")
             return WriteAck.Error("lease_completed");
 
@@ -461,27 +463,27 @@ public sealed class RequestLeaseStore(
     {
         await using var connection = await dataSource.OpenConnectionAsync(ct);
         await using var transaction = await connection.BeginTransactionAsync(ct);
-        var expired = new List<(string Token, long UserId, string? HoldId)>();
+        var expired = new List<string>();
         await using (var command = connection.CreateCommand())
         {
             command.Transaction = transaction;
             command.CommandText = """
                 UPDATE request_leases
-                SET status = 'expired', abort_reason = 'lease_ttl', finalized_at = now()
+                SET status = 'reconciliation_needed',
+                    abort_reason = 'lease_ttl_unknown_provider_charge',
+                    reconciliation_needed_at = now()
                 WHERE status = 'active' AND expires_at <= now()
-                RETURNING lease_token, user_id, hold_handle
+                RETURNING lease_token
                 """;
             await using var reader = await command.ExecuteReaderAsync(ct);
             while (await reader.ReadAsync(ct))
-                expired.Add((reader.GetString(0), reader.GetInt64(1),
-                    reader.IsDBNull(2) ? null : reader.GetString(2)));
+                expired.Add(reader.GetString(0));
         }
-        foreach (var item in expired)
+        foreach (var token in expired)
         {
-            await accounting.FinalizeHoldAsync(connection, transaction,
-                item.UserId, item.HoldId, "released", ct);
-            await FinalizeIdempotencyAsync(connection, transaction, item.Token, "expired", ct);
-            await EnqueueAsync(connection, transaction, item.Token, "expire", ct);
+            await FinalizeIdempotencyAsync(connection, transaction,
+                token, "reconciliation_needed", ct);
+            await EnqueueAsync(connection, transaction, token, "reconcile", ct);
         }
         await transaction.CommitAsync(ct);
         return expired.Count;
@@ -718,7 +720,8 @@ public sealed class RequestLeaseStore(
         command.CommandText = """
             UPDATE request_idempotency
             SET status = $2, updated_at = now()
-            WHERE lease_token = $1 AND status = 'active'
+            WHERE lease_token = $1
+              AND status IN ('active', 'reconciliation_needed')
             """;
         command.Parameters.AddWithValue(leaseToken);
         command.Parameters.AddWithValue(status);

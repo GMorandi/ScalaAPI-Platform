@@ -258,10 +258,10 @@ wait_for "Admin API readiness" 60 compose exec -T admin-api \
     curl -fsS http://127.0.0.1:5001/ready >/dev/null
 
 migration_count="$(db_query "SELECT count(*) FROM schema_migrations;")"
-assert_equals "19" "$migration_count" "Applied migration count"
+assert_equals "20" "$migration_count" "Applied migration count"
 second_migration_output="$(compose run --rm migrate 2>&1)"
 second_skip_count="$(grep -cE 'skip .+\.sql' <<<"$second_migration_output" || true)"
-assert_equals "19" "$second_skip_count" "Idempotent migrator skip count"
+assert_equals "20" "$second_skip_count" "Idempotent migrator skip count"
 
 login_response="$(admin_request POST /admin/auth/login \
     "$(jq -cn --arg username "$ADMIN_USERNAME" --arg password "$ADMIN_PASSWORD" \
@@ -455,6 +455,7 @@ assert_equals "stored" \
 terminal_state="$(db_query "
 SELECT
   (SELECT count(*) FROM request_leases WHERE status = 'active') || '|' ||
+  (SELECT count(*) FROM request_leases WHERE status = 'reconciliation_needed') || '|' ||
   (SELECT count(*) FROM balance_holds WHERE status = 'active') || '|' ||
   (SELECT count(*) FROM usage_outbox WHERE processed_at IS NULL) || '|' ||
   (SELECT count(*) FROM usage_outbox WHERE dead_lettered_at IS NOT NULL) || '|' ||
@@ -462,7 +463,7 @@ SELECT
   (SELECT count(*) FROM usage_events WHERE request_id = '$chat_request_id') || '|' ||
   (SELECT count(*) FROM usage_logs WHERE request_id = '$chat_request_id') || '|' ||
   (SELECT count(*) FROM balance_ledger l JOIN request_leases r ON r.lease_token = l.lease_token WHERE r.request_id = '$chat_request_id' AND l.entry_type = 'usage_debit' AND l.amount = -r.final_cost_usd);")"
-assert_equals "0|0|0|0|1|1|1|1" "$terminal_state" "Terminal billing invariants"
+assert_equals "0|0|0|0|0|1|1|1|1" "$terminal_state" "Terminal billing invariants"
 
 accounting_projection_drained() {
     [[ "$(db_query "SELECT count(*) FROM accounting_projection_outbox WHERE user_id = $user_id;")" == "0" ]]
@@ -482,6 +483,16 @@ SELECT
   (SELECT count(*) FROM accounting_projection_outbox WHERE user_id = $user_id);")"
 assert_equals "true|true|0" "$accounting_state" \
     "Authoritative account, contiguous ledger versions, and projection drain"
+
+reconciliation_response="$(admin_request POST /admin/reconciliation/run '{}' "$admin_token")"
+assert_equals "true" "$(jq -er '.started' <<<"$reconciliation_response")" \
+    "Accounting reconciliation started"
+assert_equals "passed|0" \
+    "$(jq -r '.status + "|" + (.openIncidents | tostring)' <<<"$reconciliation_response")" \
+    "Accounting reconciliation result"
+open_incidents="$(admin_request GET '/admin/reconciliation/incidents?status=open' '' "$admin_token")"
+assert_equals "0" "$(jq -er '.total' <<<"$open_incidents")" \
+    "Accounting reconciliation open incident count"
 
 restart_state="$(db_query "
 SELECT
@@ -507,10 +518,11 @@ if [[ "$garnet_probe" != *PONG* ]]; then
     exit 1
 fi
 
-echo "PASS: 19 empty-volume migrations and second-run idempotency"
+echo "PASS: 20 empty-volume migrations and second-run idempotency"
 echo "PASS: idempotent administrative funding, audit, conflict, and overdraft guards"
 echo "PASS: Garnet-authenticated Gateway -> Platform -> Provider mock request"
 echo "PASS: terminal lease, hold, usage, ledger, and outbox invariants"
+echo "PASS: account/ledger/hold/Grain reconciliation with zero open incidents"
 echo "PASS: idempotent response replay without duplicate billing"
 echo "PASS: new billable requests after Platform and Gateway restarts"
 echo "PASS: isolated 429, 500, malformed-usage, disconnect, and timeout billing failures"

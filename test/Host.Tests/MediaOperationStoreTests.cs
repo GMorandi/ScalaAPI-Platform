@@ -304,7 +304,7 @@ public sealed class MediaOperationStoreTests
     }
 
     [Fact]
-    public async Task ExpiryReleasesHoldAndAllowsMatchingRetry()
+    public async Task ExpiryPreservesHoldBlocksRetryAndAllowsLateSettlement()
     {
         var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
         if (string.IsNullOrWhiteSpace(connectionString)) return;
@@ -324,8 +324,13 @@ public sealed class MediaOperationStoreTests
             var accounting = new AccountingStore(dataSource);
             await accounting.AppendEffectAsync(new AccountingEffect(
                 98002, $"test-funding:{suffix}", "test_credit", 100m));
+            var pricing = new ModelPricingService(new ConfigurationBuilder()
+                .AddInMemoryCollection(new Dictionary<string, string?>
+                {
+                    ["Pricing:Models:gpt-4o:InputPerMillion"] = "1",
+                }).Build());
             var store = new RequestLeaseStore(dataSource, accounting,
-                new ModelPricingService(new ConfigurationBuilder().Build()),
+                pricing,
                 NullLogger<RequestLeaseStore>.Instance);
             var request = new LeaseCreateRequest(
                 leaseToken, requestId, "hash-expiry", apiKeyId, 98002, 98003, 98004,
@@ -333,9 +338,10 @@ public sealed class MediaOperationStoreTests
                 DateTime.UtcNow.AddMinutes(-1), idempotencyKey, "expiry-fingerprint");
             Assert.True(await store.CreateAsync(request));
             Assert.Equal(1, await store.ExpireActiveAsync());
-            Assert.Equal("expired", await ReadLeaseStatus(dataSource, leaseToken));
-            Assert.Equal("released", await ReadHoldStatus(dataSource, holdId));
-            Assert.Equal("expired", await ReadIdempotencyStatus(dataSource, apiKeyId, idempotencyKey));
+            Assert.Equal("reconciliation_needed", await ReadLeaseStatus(dataSource, leaseToken));
+            Assert.Equal("active", await ReadHoldStatus(dataSource, holdId));
+            Assert.Equal("reconciliation_needed",
+                await ReadIdempotencyStatus(dataSource, apiKeyId, idempotencyKey));
 
             var retry = await store.CreateDetailedAsync(request with
             {
@@ -344,8 +350,16 @@ public sealed class MediaOperationStoreTests
                 HoldHandle = retryHoldId,
                 ExpiresAt = DateTime.UtcNow.AddMinutes(10),
             });
-            Assert.True(retry.Created);
-            Assert.Equal("active", await ReadHoldStatus(dataSource, retryHoldId));
+            Assert.True(retry.Replay);
+
+            var completed = await store.CompleteAsync(new LeaseCompletion(
+                leaseToken, 100, 0, 0, 0, 20, 0, 200, false, false));
+            Assert.True(completed.Accepted);
+            Assert.Equal("completed", await ReadLeaseStatus(dataSource, leaseToken));
+            Assert.Equal("committed", await ReadHoldStatus(dataSource, holdId));
+            Assert.Equal("completed",
+                await ReadIdempotencyStatus(dataSource, apiKeyId, idempotencyKey));
+            Assert.Equal(0.0001m, await ReadUsageCost(dataSource, leaseToken));
         }
         finally
         {
@@ -407,7 +421,7 @@ public sealed class MediaOperationStoreTests
 
             // Simulate a process dying after claiming the durable event.
             var firstClaim = Assert.Single(await store.ClaimOutboxBatchAsync("test-recovery-1"));
-            Assert.Equal("expire", firstClaim.Item.EventType);
+            Assert.Equal("reconcile", firstClaim.Item.EventType);
             await using (var expireClaim = dataSource.CreateCommand("""
                 UPDATE usage_outbox
                 SET claimed_until = now() - interval '1 second'

@@ -29,7 +29,10 @@ public sealed class LeaseOutboxHostedService(
                 if (DateTime.UtcNow - lastExpiryScan >= TimeSpan.FromSeconds(10))
                 {
                     var expired = await store.ExpireActiveAsync(stoppingToken);
-                    if (expired > 0) logger.LogWarning("Expired {LeaseCount} abandoned request leases", expired);
+                    if (expired > 0)
+                        logger.LogWarning(
+                            "Moved {LeaseCount} timed-out request leases to reconciliation-needed",
+                            expired);
                     lastExpiryScan = DateTime.UtcNow;
                 }
 

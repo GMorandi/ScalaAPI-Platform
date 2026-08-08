@@ -74,12 +74,15 @@ builder.Services.AddSingleton<ModelPricingService>();
 builder.Services.AddHostedService<PricingRefreshHostedService>();
 builder.Services.AddSingleton(NpgsqlDataSource.Create(pgConnection));
 builder.Services.AddSingleton<AccountingStore>();
+builder.Services.AddSingleton<IAccountingProjectionRepairer, OrleansAccountingProjectionRepairer>();
+builder.Services.AddSingleton<AccountingReconciliationService>();
 builder.Services.AddHttpClient<ObjectStorageClient>();
 builder.Services.AddSingleton<RequestLeaseStore>();
 builder.Services.AddSingleton<MediaOperationStore>();
 builder.Services.AddSingleton<DispatchService>();
 builder.Services.AddHostedService<LeaseOutboxHostedService>();
 builder.Services.AddHostedService<AccountingProjectionHostedService>();
+builder.Services.AddHostedService<AccountingReconciliationHostedService>();
 builder.Services.AddHostedService<MediaOperationHostedService>();
 
 var app = builder.Build();
@@ -127,7 +130,14 @@ app.MapGet("/metrics", async (NpgsqlDataSource db, CancellationToken ct) =>
           (SELECT count(*) FROM media_operations WHERE status IN ('pending', 'running')),
           (SELECT count(*) FROM media_operations WHERE status IN ('pending', 'running') AND expires_at <= now()),
           (SELECT count(*) FROM accounting_projection_outbox),
-          (SELECT count(*) FROM accounting_projection_outbox WHERE attempts > 0)
+          (SELECT count(*) FROM accounting_projection_outbox WHERE attempts > 0),
+          (SELECT count(*) FROM accounting_reconciliation_incidents WHERE status = 'open'),
+          (SELECT count(*) FROM accounting_reconciliation_incidents
+             WHERE status = 'open' AND kind = 'unknown_provider_charge'),
+          COALESCE((SELECT extract(epoch FROM now() - min(first_seen_at))::bigint
+                    FROM accounting_reconciliation_incidents WHERE status = 'open'), 0),
+          COALESCE((SELECT extract(epoch FROM max(completed_at))::bigint
+                    FROM ledger_reconciliation_runs WHERE status = 'passed'), 0)
         """);
     await using var reader = await command.ExecuteReaderAsync(ct);
     await reader.ReadAsync(ct);
@@ -146,6 +156,14 @@ app.MapGet("/metrics", async (NpgsqlDataSource db, CancellationToken ct) =>
         platform_accounting_projection_backlog {reader.GetInt64(5)}
         # TYPE platform_accounting_projection_retries gauge
         platform_accounting_projection_retries {reader.GetInt64(6)}
+        # TYPE platform_reconciliation_open_incidents gauge
+        platform_reconciliation_open_incidents {reader.GetInt64(7)}
+        # TYPE platform_reconciliation_unknown_charges gauge
+        platform_reconciliation_unknown_charges {reader.GetInt64(8)}
+        # TYPE platform_reconciliation_oldest_incident_seconds gauge
+        platform_reconciliation_oldest_incident_seconds {reader.GetInt64(9)}
+        # TYPE platform_reconciliation_last_success_timestamp_seconds gauge
+        platform_reconciliation_last_success_timestamp_seconds {reader.GetInt64(10)}
         """;
     return Results.Text(body, "text/plain; version=0.0.4");
 });
