@@ -9,7 +9,7 @@
 | Platform Release build | Passed, 0 warnings and 0 errors | Includes Platform Host, Admin API, migrator, Provider mock, and benchmark assembly |
 | Admin Web | Typecheck and production build passed | Blocking CI gate exists; browser tests are not configured |
 | Scheduler benchmark dry run | 4/4, exit 0; no-match negative probe exits 1 | Dependency injection and child-result propagation pass; not performance evidence |
-| Contract digest | Canonical and Gateway vendor schemas match; fixed-scale pricing round-trip test passed | CI regeneration and generated-artifact comparison remain pending |
+| Contract generation and digest | Canonical and Gateway vendor schemas match; fixed-scale pricing round-trip passed; official Cap'n Proto 1.0.2 commit `1a0e12c0` plus local `capnpc-csharp` 1.3.118 regenerated all three C# files byte-identically; an intentional drift probe exited 1 with a unified diff | Platform's single-repository generated-output gate is blocking; atomic cross-private-repository schema release coordination remains |
 | PostgreSQL migrator | Repository gate started a brand-new PostgreSQL volume, applied current image `36bed78a` migrations 000-016, then observed all seventeen as `skip` on an explicit second run, exit 0 | No source database, CDC, compatibility table, snapshot, or old key used |
 | Empty-volume Compose gate | `deploy/stack/smoke.sh` passed with Platform `3a21cb70`, Admin `e54d9e20`, Gateway `cd7013f2`, Provider mock `dafda23b`, and unique project/volumes; product APIs configured user/key/group/prices, Chat settlement and exact replay passed, all billing/outbox terminal assertions passed, authenticated Garnet returned PONG, and MinIO bootstrap plus 67-byte signed download passed | Source-owned Docker/Podman gate is reproducible; hosted cross-private-repository CI and full crash injection remain |
 | Garnet smoke | Auth, PING, SET/GET, PX, INCR, DEL passed | Official digest; no Redis or embedded server |
@@ -35,8 +35,8 @@
 
 ## Remaining release gates
 
-1. Generate the C# contract from the canonical schemas in CI and compare generated
-   artifacts, not only schema digests.
+1. Coordinate canonical Platform schema changes, generated C# artifacts, Gateway
+   vendor schemas, and both digest gates as one cross-repository release change.
 2. Run the checked-in empty-volume Compose gate in hosted CI and record current image
    IDs and checksums. The two private repositories require a dedicated read token or
    an independent release repository; the default per-repository `GITHUB_TOKEN`

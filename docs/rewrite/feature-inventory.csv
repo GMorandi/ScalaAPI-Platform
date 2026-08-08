@@ -55,5 +55,5 @@ DEP-02,Deployment / reliability,Independent bootstrap without source data or CDC
 DEP-03,Deployment / reliability,Container stack health readiness and metrics,P0,partial,Platform + Gateway,"Current-source empty-volume Compose health, billing/outbox metrics, Garnet authentication and outage/recovery, and projection rebuild pass; add restart and multi-instance assertions"
 DEP-04,Deployment / reliability,Orleans HA rolling deployment and failure recovery,P0,skeleton,Platform,Multi-silo outage and rolling test
 DEP-05,Deployment / reliability,Ingress TLS backup restore and disaster recovery,P0,missing,Platform,Measured RPO/RTO restore drill
-DEP-06,Deployment / reliability,CI build unit contract migration and formal gates,P1,partial,All,Single-repository gates are blocking; add deterministic contract generation and provision a private sibling checkout boundary for the source-owned Compose gate
+DEP-06,Deployment / reliability,CI build unit contract migration and formal gates,P1,partial,All,Pinned compiler and C# generated-output drift gates are blocking; provision a private sibling checkout boundary for the source-owned Compose gate
 DEP-07,Deployment / reliability,Full-stack E2E load fault and shutdown drills,P0,partial,All,Empty-volume seeded Chat replay billing and object-storage E2E pass; add load fault restart disconnect and shutdown evidence

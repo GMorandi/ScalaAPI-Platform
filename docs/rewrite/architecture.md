@@ -75,6 +75,8 @@ PostgreSQL owns object keys, metadata, retention, and authorization.
 
 Platform owns the single Cap'n Proto source under `platform/contracts/capnp`.
 Gateway vendors byte-identical schemas so its repository builds independently, and
-both repositories check the same schema digest. Checked-in Platform C# generation is
-the remaining contract-supply-chain gap. The contract starts at revision 1 and
-contains no compatibility branches or deprecated fields.
+both repositories check the same schema digest. Platform CI restores the pinned
+`capnpc-csharp` 1.3.118 local tool, builds the official Cap'n Proto 1.0.2 compiler at
+commit `1a0e12c0a3ba1f0dbbad45ddfef555166e0a14fc`, regenerates all C# artifacts in a
+temporary directory, and byte-compares them with the checked-in output. The contract
+starts at revision 1 and contains no compatibility branches or deprecated fields.

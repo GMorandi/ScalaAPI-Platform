@@ -17,7 +17,7 @@
 | Long connection leaks or backpressure | P1 | Partial | Chunked SSE framing and non-SSE upstream rejection pass; add streaming/WebSocket soak, bounded-buffer metrics, cancellation, and disconnect assertions |
 | Session and auth abuse | P1 | Partial | Hashed rotating sessions, self-service password/profile/delete flows, and revocation checks are implemented; add replay/concurrency tests, API-key revocation/retention assertions, TOTP hardening, Passkey controls, and distributed limits |
 | Benchmark or test false positive | P1 | Controlled | Child-report validation and non-zero propagation are implemented; retain CI failure tests |
-| Contract source or generated artifact drift | P1 | Partial | Schema digests match; add deterministic C# generation and generated-output comparison |
+| Contract source or generated artifact drift | P1 | Controlled | Schema digests match; CI pins the official Cap'n Proto 1.0.2 commit and local `capnpc-csharp` 1.3.118, byte-compares all generated C# output, and an intentional drift probe exits non-zero |
 | Cross-repository release gate silently skipped | P1 | Open | The source-owned empty-volume Docker/Podman gate passes locally; provision a read-only private Gateway checkout token or a dedicated release repository, then make the exact script blocking in hosted CI |
 | Observability gaps | P1 | Open | Structured audit, metrics, traces, alerts, and dashboard smoke tests |
 | Backup, restore, or rolling release regression | P1 | Open | Signed artifacts, measured RPO/RTO, rollback and recovery drills |

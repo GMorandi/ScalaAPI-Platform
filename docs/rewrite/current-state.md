@@ -10,7 +10,7 @@ release artifacts.
 | Repository | Commit | Worktree | Responsibility |
 | --- | --- | --- | --- |
 | `gateway` | `60f99a0` | clean | C++ HTTP/WebSocket edge, protocol conversion, chunked streaming, Provider transport, versioned Garnet client, malformed-usage and non-SSE guards, Anthropic/Gemini stream usage extraction, fixed-scale Cap'n Proto client, unique failover lease IDs, bounded non-stream upstream timeout, bounded response replay, terminal usage-outbox retirement, invalidation flush recovery |
-| `platform` | `80cdad4` | clean | C# Orleans control plane, PostgreSQL persistence, leases, NUMERIC ledger, durable holds/idempotency, usage, media lifecycle, Admin API, signed payment webhooks with pending-event recovery, versioned Admin pricing lifecycle with live Host refresh, idempotent subscription purchase/renewal/cancellation/expiry, versioned Garnet rebuild, replayable balance effects, fixed-scale RPC contract, retryable terminal idempotency leases, bounded response persistence/replay, password recovery, email verification, self-service profile/password/account deletion, administrative user balance replacement, idempotent multi-provider seed and deterministic Provider mock with native Anthropic/Gemini contracts, protocol-native fault injection, pollable media tasks, S3-compatible media ownership with SigV4 presigned access and deletion, restart-safe settlement outbox recovery, immutable lease price snapshots, durable ledger reconciliation endpoint, deterministic rolling quota policy, usage-triggered auth invalidation, and an isolated empty-volume Compose gate |
+| `platform` | `25b3834` | clean | C# Orleans control plane, PostgreSQL persistence, leases, NUMERIC ledger, durable holds/idempotency, usage, media lifecycle, Admin API, signed payment webhooks with pending-event recovery, versioned Admin pricing lifecycle with live Host refresh, idempotent subscription purchase/renewal/cancellation/expiry, versioned Garnet rebuild, replayable balance effects, fixed-scale RPC contract with deterministic generated-output CI, retryable terminal idempotency leases, bounded response persistence/replay, password recovery, email verification, self-service profile/password/account deletion, administrative user balance replacement, idempotent multi-provider seed and deterministic Provider mock with native Anthropic/Gemini contracts, protocol-native fault injection, pollable media tasks, S3-compatible media ownership with SigV4 presigned access and deletion, restart-safe settlement outbox recovery, immutable lease price snapshots, durable ledger reconciliation endpoint, deterministic rolling quota policy, usage-triggered auth invalidation, and an isolated empty-volume Compose gate |
 | `sub2api` | `43ec48d` | read-only clean reference | Functional requirements catalogue only |
 
 The current source inventory is 50 tracked Gateway source files, 88 CTest cases,
@@ -156,7 +156,10 @@ not implementation parity or a migration target.
   response's JSON content type.
 - Platform owns the revision-1 Cap'n Proto schemas under `contracts/capnp`; Gateway
   vendors byte-identical copies and both repositories enforce the recorded SHA-256
-  schema digests.
+  schema digests. Platform also pins `capnpc-csharp` 1.3.118 in a local tool manifest
+  and the official Cap'n Proto 1.0.2 compiler commit in CI. Regeneration occurs in a
+  temporary directory and any byte drift in the three checked-in C# files fails the
+  gate with a unified diff.
 - `deploy/stack` is the versioned empty-environment launcher. PostgreSQL, Garnet,
   MinIO, and the health helper are pinned by image digest.
 - `deploy/stack/smoke.sh` owns the greenfield acceptance entry point. It creates a
@@ -174,9 +177,6 @@ not implementation parity or a migration target.
 - PostgreSQL business state and opaque Orleans storage are still split; the new
   registry removes internal-storage discovery, but full aggregate repositories and
   accounting authority remain to be implemented.
-- The fixed-scale Cap'n Proto schema and checked-in C# artifacts are current, but
-  CI must still regenerate the C# output from the canonical schema and compare it
-  before declaring contract generation complete.
 - The source-owned empty-volume replay now passes locally with migrations 000-016,
   a second migrator invocation skipping all seventeen records, product-API setup,
   and object-bucket bootstrap. Running the same cross-repository gate in hosted CI
@@ -185,8 +185,9 @@ not implementation parity or a migration target.
 - Session concurrent-rotation HTTP tests, crash injection, and API-key policy tests
   remain pending even though replay/logout, rotation, and revoke paths have runtime
   evidence.
-- Generated C# Cap'n Proto files are checked in but are not regenerated and digest
-  verified by CI yet.
+- Platform's generated contract output is deterministic within its repository. An
+  atomic schema release across the private Platform and Gateway repositories still
+  requires an explicit release workflow or shared checkout credential.
 - Garnet key TTL policy, authenticated projection rebuild, and Gateway invalidation
   flush/stale-version recovery now have runtime or unit evidence; TLS and
   multi-client integration tests remain incomplete even though connection
@@ -220,6 +221,11 @@ same normalized response without a second idempotency row or charge. An asynchro
 image then initialized the empty MinIO bucket, reached `object_status=stored`, and
 its presigned URL downloaded 67 bytes. Authenticated raw RESP returned `PONG`. The
 script exited zero and removed only the isolated project and its volumes.
+
+The contract supply-chain gate also ran locally against the exact Cap'n Proto 1.0.2
+compiler. All three generated C# files byte-matched their checked-in artifacts; an
+isolated intentional generated-file change produced a unified diff and exit 1.
+Schema digest verification against Gateway passed.
 
 On 2026-08-08 the isolated `scalaapi-stage2` project used current-source images:
 Platform `ce6b59c4c5049410f00d9551baa62d7a3d5b7066cd1a097f084b8f05ce568c5c`,

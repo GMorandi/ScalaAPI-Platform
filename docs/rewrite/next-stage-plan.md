@@ -12,7 +12,7 @@ This does not close the product rewrite. The next stage is one authoritative,
 billable OpenAI Chat Completions vertical slice. Work outside that slice stays
 `partial`, `skeleton`, or `missing` in the inventory.
 
-## Progress checkpoint (2026-08-08, platform `80cdad4`, gateway `60f99a0`)
+## Progress checkpoint (2026-08-08, platform `25b3834`, gateway `60f99a0`)
 
 - Completed in `b266e17`: business balances, quotas, costs, limits, and routing
   multipliers use `decimal`; precision projections cover User, Group, and API key.
@@ -182,27 +182,29 @@ billable OpenAI Chat Completions vertical slice. Work outside that slice stays
   product APIs, settled and replayed Chat exactly once, authenticated against
   Garnet, initialized an empty MinIO bucket, stored an asynchronous image, and
   downloaded 67 signed bytes before scoped cleanup.
-- Still open: PostgreSQL aggregate repositories/foreign keys, fixed-precision RPC
-  schema generation, crash/restart settlement scenarios, full provider failure matrix,
+- Completed in `25b3834`: Platform pins `capnpc-csharp` 1.3.118 and the official
+  Cap'n Proto 1.0.2 compiler commit, regenerates all three C# artifacts in a temporary
+  directory, and rejects byte drift. The positive comparison passed and an intentional
+  drift probe returned exit 1 with a unified diff.
+- Still open: PostgreSQL aggregate repositories/foreign keys, cross-repository schema
+  release coordination, crash/restart settlement scenarios, full provider failure matrix,
   object-store reconciliation/restore, hosted execution of the cross-repository
   empty-volume gate, and Garnet TLS/multi-client evidence.
 
 ## Next execution order
 
-1. Add deterministic Cap'n Proto C# generation/output comparison within Platform
-   CI; this is single-repository and closes contract drift without cross-repo access.
-2. Extend the Compose gate with explicit 429, 500, timeout, malformed usage,
+1. Extend the Compose gate with explicit 429, 500, timeout, malformed usage,
    client-disconnect, Gateway restart, and Platform restart scenarios. Each must
    assert terminal leases, released/committed holds, outbox drain, and exact debit
    cardinality.
-3. Add protocol golden fixtures for OpenAI Chat/Responses, Anthropic Messages, and
+2. Add protocol golden fixtures for OpenAI Chat/Responses, Anthropic Messages, and
    Gemini JSON/SSE paths, including retry and provider-error mappings.
-4. Add a two-Gateway Garnet test with flush/stale-version recovery and authenticated
+3. Add a two-Gateway Garnet test with flush/stale-version recovery and authenticated
    TLS. Garnet remains projection-only and must fail closed.
-5. Move administrative funding and all remaining balance mutations behind
+4. Move administrative funding and all remaining balance mutations behind
    idempotent PostgreSQL ledger effects, then add aggregate repositories and foreign
    keys so accounting authority is no longer split across Orleans state and SQL.
-6. Execute the source-owned gate in hosted CI after provisioning a read-only sibling
+5. Execute the source-owned gate in hosted CI after provisioning a read-only sibling
    repository credential or creating a dedicated release repository. A skipped or
    optional cross-repository job is not an acceptable release gate.
 
@@ -218,15 +220,15 @@ register/login -> create API key/group/provider account -> Gateway request
 
 ### 1. Authority and numeric contracts
 
-- Keep the completed decimal conversion and fixed-scale RPC fields. Add canonical
-  C# generation in CI and reject schema/output drift. PostgreSQL remains `NUMERIC`.
+- Keep the completed decimal conversion and fixed-scale RPC fields. Pinned CI
+  regeneration now rejects schema/output drift. PostgreSQL remains `NUMERIC`.
 - Extend the completed `entity_registry` discovery boundary into repositories for
   user, API key, group, account, lease, hold, usage, and ledger records. No Orleans
   storage internals may be queried for business data.
 - Add a forward migration for missing constraints, foreign keys, immutable price
   versions, idempotency fingerprints, and append-only ledger entries.
-- Generate Platform C# RPC artifacts from `contracts/capnp` in CI and compare them
-  with the committed output and Gateway schema digest.
+- Coordinate generated Platform output and Gateway vendor schema/digest updates as
+  one release change; both repository gates must pass before publication.
 
 Exit: decimal round-trip tests have no float conversion, repository/API reads agree
 with PostgreSQL, and contract drift fails CI.
@@ -336,8 +338,9 @@ and exactly one ledger debit.
 
 ## Sequencing
 
-Work packages 1 and the contract-generation part of 7 can run first. Package 2 then
-provides the seed data required by 4 and 6. Package 3 is now implemented for the
+The contract-generation gate is complete. Package 1 repository constraints and
+package 6 failure/restart automation now run next. Package 2 then provides the seed
+data required by 4 and 6. Package 3 is now implemented for the
 happy path but must pass the crash/reconciliation controls in 6 before the slice is
 treated as billable. Package 5 follows repository work and runs before final
 acceptance.
