@@ -10,12 +10,12 @@ release artifacts.
 | Repository | Commit | Worktree | Responsibility |
 | --- | --- | --- | --- |
 | `gateway` | `3643ec7` | clean | C++ HTTP/WebSocket edge, protocol conversion, chunked streaming, Provider transport, versioned Garnet client, malformed-usage guard, fixed-scale Cap'n Proto client, unique failover lease IDs, bounded non-stream upstream timeout, bounded response replay |
-| `platform` | `2c511eb` | clean | C# Orleans control plane, PostgreSQL persistence, leases, NUMERIC ledger, durable holds/idempotency, usage, media lifecycle, Admin API, versioned Garnet rebuild, replayable balance effects, fixed-scale RPC contract, retryable terminal idempotency leases, bounded response persistence/replay, password recovery, email verification, cancellable Provider mock timeout |
+| `platform` | `653c908` | clean | C# Orleans control plane, PostgreSQL persistence, leases, NUMERIC ledger, durable holds/idempotency, usage, media lifecycle, Admin API, versioned Garnet rebuild, replayable balance effects, fixed-scale RPC contract, retryable terminal idempotency leases, bounded response persistence/replay, password recovery, email verification, cancellable Provider mock timeout, restart-safe settlement outbox recovery |
 | `sub2api` | `43ec48d` | read-only clean reference | Functional requirements catalogue only |
 
 The current source inventory is 50 tracked Gateway source files, 84 CTest cases,
 62 hand-written Platform production C# files plus 3 generated Cap'n Proto files,
-32 tracked Platform test/benchmark C# source files, 71 Platform test cases, 123 mapped
+32 tracked Platform test/benchmark C# source files, 72 Platform test cases, 123 mapped
 Admin API routes, 33 product tables, 20 SQLSugar entity types, and 31 Admin Web
 source files with 11 page views. Admin Web has no browser test runner yet.
 
@@ -59,6 +59,10 @@ not implementation parity or a migration target.
 - Lease creation writes an `active` row to `balance_holds` in that same transaction.
   Completion marks it `committed`; abort and expiry mark it `released`, using
   idempotent active-only updates.
+- Settlement outbox claims expire after 30 seconds, so a process restart can
+  reclaim work. Failed financial effects use bounded exponential backoff without
+  automatic dead-lettering; startup requeues any unprocessed rows left by an older
+  process version that did dead-letter them.
 - Non-media requests persist `(api_key_id, idempotency_key, request_fingerprint)`
   in `request_idempotency` with the lease. Completed non-stream successes store a
   bounded status, content type, and response body in the same settlement path;

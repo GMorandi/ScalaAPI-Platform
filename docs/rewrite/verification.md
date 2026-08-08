@@ -5,7 +5,7 @@
 | Gate | Result | Interpretation |
 | --- | --- | --- |
 | Gateway build and CTest | Clean local build; 84/84, exit 0 | Current TCP/TLS client, bounded response replay, and malformed-usage guard included |
-| Platform tests | 71/71, exit 0 | 50 grain and 21 host tests; includes response replay, expiry recovery, and idempotent balance-effect replay |
+| Platform tests | 72/72, exit 0 | 50 grain and 22 host tests; includes response replay, expiry recovery, restart-safe outbox claims, and idempotent balance-effect replay |
 | Platform Release build | Passed, 0 warnings and 0 errors | Includes Platform Host, Admin API, migrator, Provider mock, and benchmark assembly |
 | Admin Web | Typecheck and production build passed | Blocking CI gate exists; browser tests are not configured |
 | Scheduler benchmark dry run | 4/4, exit 0; no-match negative probe exits 1 | Dependency injection and child-result propagation pass; not performance evidence |
@@ -17,8 +17,8 @@
 | Garnet projection rebuild | `discovered=12`, `written=12`, `deleted=0`, `errors=0`; immediate `scalaapi:v1:auth:*` read succeeded | Flush, stale-version, TLS, and multi-client assertions remain |
 | Provider mock | Health, JSON success, SSE, malformed-usage `502`, fresh 500/429 exhaustion returned `503 provider_unavailable` with distinct `:retry:N` leases, and cancellable timeout returned `502` after 30.3s with an aborted lease and zero usage events | Disconnect, bounded retry assertions for both protocols, and adapter golden scenarios remain |
 | Gateway dispatch smoke | Readiness 200; seeded OpenAI Chat JSON and SSE returned 200 through Provider mock | Failure/retry matrix and clean-environment automation remain |
-| Billable settlement smoke | JSON and SSE completed; durable hold committed; usage outbox processed; one NUMERIC ledger debit per lease | Crash/restart, disconnect, and clean-seed automation remain |
-| Request idempotency smoke | Concurrent same-key calls produced one 200 and one active-lease 409; after settlement a matching retry returned the original 200 body with `Cache-Control: no-store`; different fingerprint produced 409 conflict; one lease/usage/debit/hold per key | Crash recovery before lease expiry, streaming replay semantics, and expiry reconciliation remain |
+| Billable settlement smoke | JSON and SSE completed; durable hold committed; usage outbox processed; one NUMERIC ledger debit per lease | Full crash/restart, disconnect, and clean-seed automation remain |
+| Request idempotency smoke | Concurrent same-key calls produced one 200 and one active-lease 409; after settlement a matching retry returned the original 200 body with `Cache-Control: no-store`; different fingerprint produced 409 conflict; one lease/usage/debit/hold per key | Crash recovery before lease expiry, streaming replay semantics, and full runtime expiry reconciliation remain |
 | Admin settlement queries | Ledger, lease, and hold endpoints returned current PostgreSQL rows with user filters | Pagination/export and browser assertions remain |
 | Auth lifecycle smoke | Refresh replay and logout revocation returned 401 on the current image | Concurrent rotation and multi-device HTTP tests remain |
 | Redeem-code settlement smoke | First redemption returned 200; repeat returned 409; after a Silo contract restart a committed redemption remained 409 and replayed its balance effect; one redemption and one NUMERIC ledger row were observed | Concurrent HTTP contention and audit-event assertions remain |
@@ -37,7 +37,9 @@
    fallback may appear in the stack.
 4. Run the seeded billable protocol E2E scenarios for JSON, SSE, duplicate idempotency
    including delayed response replay, timeout, upstream 429/500, client disconnect,
-   process restart, durable hold reconciliation, and settlement.
+   process restart, durable hold reconciliation, and settlement. The host-level
+   outbox test now proves stale claims and old dead-letter rows are recoverable;
+   deployment evidence must still exercise the same path through a restarted Silo.
 5. Run auth-session integration scenarios: refresh-token replay, concurrent rotation,
    logout revocation, expired-session rejection, and multi-device session listing.
 6. Run unit, integration, UI, load/soak, failure-recovery, backup/restore, and

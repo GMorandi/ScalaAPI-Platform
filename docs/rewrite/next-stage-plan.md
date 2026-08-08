@@ -12,7 +12,7 @@ This does not close the product rewrite. The next stage is one authoritative,
 billable OpenAI Chat Completions vertical slice. Work outside that slice stays
 `partial`, `skeleton`, or `missing` in the inventory.
 
-## Progress checkpoint (2026-08-08, platform `2c511eb`, gateway `3643ec7`)
+## Progress checkpoint (2026-08-08, platform `653c908`, gateway `3643ec7`)
 
 - Completed in `b266e17`: business balances, quotas, costs, limits, and routing
   multipliers use `decimal`; precision projections cover User, Group, and API key.
@@ -75,6 +75,11 @@ billable OpenAI Chat Completions vertical slice. Work outside that slice stays
   response without a new lease or debit; an active lease remains a deterministic
   409 until its usage report is durable. Runtime evidence shows one completed
   lease, one usage event, one NUMERIC debit, and a delayed 200 replay.
+- Completed in `653c908`: settlement outbox claims recover after a 30-second
+  worker lease expires; process startup requeues unprocessed legacy dead-letter
+  rows, and financial events no longer auto-dead-letter after retry exhaustion.
+  Host coverage simulates a crashed claim and 26 failed retries without losing
+  the expiry event. Deployment-level Silo crash and hold reconciliation remain.
 - Still open: PostgreSQL aggregate repositories/foreign keys, fixed-precision RPC
   schema generation, crash/restart settlement scenarios, provider failure matrix,
   empty-volume CI automation, and Garnet flush/stale-version/TLS/multi-client evidence.
@@ -131,12 +136,16 @@ through product APIs and revoked sessions/keys are rejected across Gateway insta
 - Commit hold release/debit, usage event, ledger entry, and outbox acknowledgement
   transactionally or through replay-safe unique effects. The current completion
   transaction covers usage, ledger debit, lease finalization, and outbox enqueue;
-  hold-state reconciliation and crash injection are still required.
+  outbox claims recover after process restart, and financial events no longer
+  auto-dead-letter after a retry threshold. Full deployment-level hold
+  reconciliation and crash injection are still required.
 - Make duplicate completion, abort, expiry, and outbox replay return the stored
   terminal result without applying money twice.
 
-Depends on: decimal contracts and repositories. Exit: crash/retry tests prove no
-double charge, lost charge, negative available balance, or orphan hold.
+Depends on: decimal contracts and repositories. Host coverage now proves stale
+claim recovery and no retry-threshold loss. Exit: deployment crash/retry tests
+also prove no double charge, lost charge, negative available balance, or orphan
+hold.
 
 ### 4. OpenAI Chat Provider vertical
 

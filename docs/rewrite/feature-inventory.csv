@@ -24,10 +24,10 @@ CORE-03,Core control plane,Groups routing rates and fallback,P0,partial,Platform
 CORE-04,Core control plane,Upstream accounts credentials and provider refresh,P0,partial,Platform,Encrypted lifecycle refresh and health tests
 CORE-05,Core control plane,Scheduler concurrency rate limits sticky routing and fallback,P0,partial,Platform,Multi-silo lease and fault tests
 CORE-06,Core control plane,Runtime configuration public settings and feature flags,P1,skeleton,Platform,Validated dynamic reload and audit tests
-BILL-01,Usage / billing,Durable request lease usage capture outbox and settlement,P0,partial,Platform,Lease/hold/usage/outbox happy path, bounded response replay, expiry recovery, and provider timeout abort pass; add crash and reconciliation tests
+BILL-01,Usage / billing,Durable request lease usage capture outbox and settlement,P0,partial,Platform,Lease/hold/usage/outbox happy path, bounded response replay, expiry recovery, provider timeout abort, and restart-safe stale-claim recovery pass; add deployment crash and reconciliation tests
 BILL-02,Usage / billing,Model pricing cache-token and provider pricing rules,P0,partial,Platform,Immutable versions and historical settlement tests
 BILL-03,Usage / billing,Quota subscription and rolling-window limits,P0,skeleton,Platform,Precedence reset expiry and enforcement tests
-BILL-04,Usage / billing,Money precision transactional integrity and idempotency,P0,partial,Platform,Fixed-scale RPC and NUMERIC lease debit plus unique response replay effect pass; add crash/reconciliation tests
+BILL-04,Usage / billing,Money precision transactional integrity and idempotency,P0,partial,Platform,Fixed-scale RPC and NUMERIC lease debit plus unique response replay effect and retry-safe settlement outbox pass; add deployment crash/reconciliation tests
 BILL-05,Usage / billing,Usage query dashboards exports and cleanup,P1,partial,Platform,Aggregates exports retention and UI tests
 COM-01,Commercial,Payment providers orders webhooks refunds and reconciliation,P0,skeleton,Platform,Signed webhook state machine and reconciliation tests
 COM-02,Commercial,Subscription purchase renewal expiry and quota reset,P1,skeleton,Platform,Entitlement lifecycle and renewal tests
