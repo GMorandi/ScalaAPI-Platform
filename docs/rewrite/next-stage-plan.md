@@ -12,7 +12,7 @@ This does not close the product rewrite. The next stage is one authoritative,
 billable OpenAI Chat Completions vertical slice. Work outside that slice stays
 `partial`, `skeleton`, or `missing` in the inventory.
 
-## Progress checkpoint (2026-08-08, platform `809c19b`, gateway `f8b6761`)
+## Progress checkpoint (2026-08-08, platform `f068359`, gateway `f8b6761`)
 
 - Completed in `b266e17`: business balances, quotas, costs, limits, and routing
   multipliers use `decimal`; precision projections cover User, Group, and API key.
@@ -61,6 +61,10 @@ billable OpenAI Chat Completions vertical slice. Work outside that slice stays
   token flow with hash-only storage, fifteen-minute expiry, session revocation, and
   enumeration-safe request responses. Current-image evidence covers one successful
   confirmation and token replay rejection; mail delivery and verification remain.
+- Completed in `f068359`: email verification is a separate single-use token flow
+  with hash-only storage, twenty-four-hour expiry, durable verification timestamp,
+  and replay rejection. Mail delivery and browser verification remain external
+  release gates.
 - Still open: PostgreSQL aggregate repositories/foreign keys, fixed-precision RPC
   schema generation, crash/restart settlement scenarios, provider failure matrix,
   empty-volume CI automation, and Garnet flush/stale-version/TLS/multi-client evidence.
