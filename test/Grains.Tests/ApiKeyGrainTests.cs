@@ -113,7 +113,7 @@ public class ApiKeyGrainTests
     public async Task Validate_ActiveKey_ReturnsAuthResult()
     {
         var userGrain = _cluster.GrainFactory.GetGrain<IUserGrain>(2001);
-        await userGrain.Create(new UserUpsert("user", 50.0m, 2, 60, [3001]));
+        await userGrain.Create(new UserCreate("user", 50.0m, 2, 60, [3001]));
 
         var groupGrain = _cluster.GrainFactory.GetGrain<IGroupGrain>(3001);
         await groupGrain.Create(new GroupUpsert("anthropic", 1.0m, false, null, false, null, false, new(), [1], 0, null, null, null));
@@ -133,7 +133,7 @@ public class ApiKeyGrainTests
     public async Task Validate_NormalizesOmittedIpLists()
     {
         var userGrain = _cluster.GrainFactory.GetGrain<IUserGrain>(2050);
-        await userGrain.Create(new UserUpsert("user", 50.0m, 1, 0, []));
+        await userGrain.Create(new UserCreate("user", 50.0m, 1, 0, []));
         var groupGrain = _cluster.GrainFactory.GetGrain<IGroupGrain>(3050);
         await groupGrain.Create(new GroupUpsert("openai", 1.0m, false, null, false,
             null, false, new(), [], 0, null, null, null));
@@ -150,7 +150,7 @@ public class ApiKeyGrainTests
     public async Task Validate_PreservesDecimalPrecisionAcrossProjections()
     {
         var user = _cluster.GrainFactory.GetGrain<IUserGrain>(2020);
-        await user.Create(new UserUpsert("user", 123.45678901m, 1, 0, [3020]));
+        await user.Create(new UserCreate("user", 123.45678901m, 1, 0, [3020]));
 
         var group = _cluster.GrainFactory.GetGrain<IGroupGrain>(3020);
         await group.Create(new GroupUpsert(
@@ -217,7 +217,7 @@ public class ApiKeyGrainTests
     public async Task Validate_WhitelistedIp_Succeeds()
     {
         var userGrain = _cluster.GrainFactory.GetGrain<IUserGrain>(2002);
-        await userGrain.Create(new UserUpsert("user", 50.0m, 1, 0, []));
+        await userGrain.Create(new UserCreate("user", 50.0m, 1, 0, []));
 
         var groupGrain = _cluster.GrainFactory.GetGrain<IGroupGrain>(3002);
         await groupGrain.Create(new GroupUpsert("openai", 1.0m, false, null, false, null, false, new(), [], 0, null, null, null));
@@ -233,7 +233,7 @@ public class ApiKeyGrainTests
     public async Task Validate_ExhaustedQuota_Throws()
     {
         var user = _cluster.GrainFactory.GetGrain<IUserGrain>(2010);
-        await user.Create(new UserUpsert("user", 50.0m, 1, 0, []));
+        await user.Create(new UserCreate("user", 50.0m, 1, 0, []));
         var group = _cluster.GrainFactory.GetGrain<IGroupGrain>(3010);
         await group.Create(new GroupUpsert("openai", 1.0m, false, null, false,
             null, false, new(), [], 0, null, null, null));
@@ -249,7 +249,7 @@ public class ApiKeyGrainTests
     public async Task Validate_DisabledUser_Throws()
     {
         var user = _cluster.GrainFactory.GetGrain<IUserGrain>(2011);
-        await user.Create(new UserUpsert("user", 50.0m, 1, 0, []));
+        await user.Create(new UserCreate("user", 50.0m, 1, 0, []));
         await user.SetStatus("disabled");
         var group = _cluster.GrainFactory.GetGrain<IGroupGrain>(3011);
         await group.Create(new GroupUpsert("openai", 1.0m, false, null, false,

@@ -172,7 +172,7 @@ public static class UserAuthEndpoints
             account.Id = Convert.ToInt64(await db.Ado.GetScalarAsync(
                 "SELECT id FROM user_accounts WHERE email = @email",
                 new SugarParameter("@email", email)));
-            await client.GetGrain<IUserGrain>(account.Id).Create(new UserUpsert(
+            await client.GetGrain<IUserGrain>(account.Id).Create(new UserCreate(
                 "user", 0, 1, 0, []));
             await registry.RegisterInteger("user", account.Id);
 
@@ -356,7 +356,7 @@ public static class UserAuthEndpoints
             // sure the product-owned registry can discover the user aggregate.
             await registry.RegisterInteger("user", account.Id);
             if (createdIdentity)
-                await client.GetGrain<IUserGrain>(account.Id).Create(new UserUpsert(
+                await client.GetGrain<IUserGrain>(account.Id).Create(new UserCreate(
                     "user", 0m, 1, 0, []));
             var tokens = await sessions.IssueAsync(account.Id, account.Email, account.Role,
                 http.Connection.RemoteIpAddress?.ToString(), http.Request.Headers.UserAgent);

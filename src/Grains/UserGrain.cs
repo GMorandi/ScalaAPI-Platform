@@ -197,12 +197,12 @@ public class UserGrain : Grain, IUserGrain
         return Task.FromResult(true);
     }
 
-    public async Task Create(UserUpsert input)
+    public async Task Create(UserCreate input)
     {
         var s = _state.State;
         s.Id = this.GetPrimaryKeyLong();
         s.Role = input.Role;
-        s.Balance = input.Balance;
+        s.Balance = input.InitialBalance;
         s.Concurrency = input.Concurrency;
         s.RpmLimit = input.RpmLimit;
         s.AllowedGroups = input.AllowedGroups;
@@ -210,11 +210,10 @@ public class UserGrain : Grain, IUserGrain
         _invalidation.NotifyChange("user", s.Id.ToString());
     }
 
-    public async Task Update(UserUpsert input)
+    public async Task Update(UserConfiguration input)
     {
         var s = _state.State;
         s.Role = input.Role;
-        s.Balance = Math.Max(0m, input.Balance);
         s.Concurrency = input.Concurrency;
         s.RpmLimit = input.RpmLimit;
         s.AllowedGroups = input.AllowedGroups;
@@ -229,19 +228,46 @@ public class UserGrain : Grain, IUserGrain
         _invalidation.NotifyChange("user", _state.State.Id.ToString());
     }
 
-    public async Task AdjustBalance(decimal delta)
-    {
-        _state.State.Balance = Math.Max(0m, _state.State.Balance + delta);
-        await _state.WriteStateAsync();
-    }
-
     public async Task ApplyBalanceEffect(string effectId, decimal delta)
     {
-        if (!_state.State.AppliedBalanceEffects.Add(effectId))
+        var s = _state.State;
+        if (!s.AppliedBalanceEffects.Add(effectId))
             return;
 
-        _state.State.Balance = Math.Max(0m, _state.State.Balance + delta);
-        await _state.WriteStateAsync();
+        var previousBalance = s.Balance;
+        s.Balance = Math.Max(0m, s.Balance + delta);
+        try
+        {
+            await _state.WriteStateAsync();
+        }
+        catch
+        {
+            s.AppliedBalanceEffects.Remove(effectId);
+            s.Balance = previousBalance;
+            throw;
+        }
+        _invalidation.NotifyChange("user", s.Id.ToString());
+    }
+
+    public async Task ApplyBalanceSnapshot(string effectId, decimal balance)
+    {
+        var s = _state.State;
+        if (!s.AppliedBalanceEffects.Add(effectId))
+            return;
+
+        var previousBalance = s.Balance;
+        s.Balance = Math.Max(0m, balance);
+        try
+        {
+            await _state.WriteStateAsync();
+        }
+        catch
+        {
+            s.AppliedBalanceEffects.Remove(effectId);
+            s.Balance = previousBalance;
+            throw;
+        }
+        _invalidation.NotifyChange("user", s.Id.ToString());
     }
 
     public async Task Delete()

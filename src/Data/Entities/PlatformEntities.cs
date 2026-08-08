@@ -231,6 +231,18 @@ public class BalanceLedgerEntity
     [SugarColumn(ColumnName = "amount", DecimalDigits = 8)]
     public decimal Amount { get; set; }
 
+    [SugarColumn(ColumnName = "entry_type")]
+    public string EntryType { get; set; } = "manual";
+
+    [SugarColumn(ColumnName = "idempotency_key", IsNullable = true)]
+    public string? IdempotencyKey { get; set; }
+
+    [SugarColumn(ColumnName = "description")]
+    public string Description { get; set; } = "";
+
+    [SugarColumn(ColumnName = "created_by", IsNullable = true)]
+    public long? CreatedBy { get; set; }
+
     [SugarColumn(ColumnName = "created_at")]
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }

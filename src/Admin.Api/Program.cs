@@ -40,6 +40,7 @@ builder.Services.AddScoped<ISqlSugarClient>(_ => new SqlSugarClient(new Connecti
     InitKeyType = InitKeyType.Attribute,
 }));
 builder.Services.AddScoped<ListingRepository>();
+builder.Services.AddScoped<BalanceAdjustmentStore>();
 builder.Services.AddScoped<IUsageLogRepository, UsageLogRepository>();
 builder.Services.AddHttpClient();
 builder.Services.AddSingleton(NpgsqlDataSource.Create(pgConnection));

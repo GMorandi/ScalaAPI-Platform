@@ -4,8 +4,13 @@ namespace ScalaAPI.Grains.Interfaces;
 public record HoldHandle(string Id, decimal Amount);
 
 [GenerateSerializer]
-public record UserUpsert(
-    string Role, decimal Balance, int Concurrency,
+public record UserCreate(
+    string Role, decimal InitialBalance, int Concurrency,
+    int RpmLimit, long[] AllowedGroups);
+
+[GenerateSerializer]
+public record UserConfiguration(
+    string Role, int Concurrency,
     int RpmLimit, long[] AllowedGroups);
 
 public interface IUserGrain : IGrainWithIntegerKey
@@ -22,10 +27,10 @@ public interface IUserGrain : IGrainWithIntegerKey
     Task<bool> CheckBalance(decimal required);
     Task<bool> CheckAndRecordRpm(int limit);
 
-    Task Create(UserUpsert input);
-    Task Update(UserUpsert input);
+    Task Create(UserCreate input);
+    Task Update(UserConfiguration input);
     Task SetStatus(string status);
-    Task AdjustBalance(decimal delta);
     Task ApplyBalanceEffect(string effectId, decimal delta);
+    Task ApplyBalanceSnapshot(string effectId, decimal balance);
     Task Delete();
 }

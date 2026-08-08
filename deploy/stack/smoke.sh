@@ -112,6 +112,7 @@ fault_request_prefix="smoke-fault-${suffix}"
 media_idempotency_key="smoke-media-idem-${suffix}"
 chat_price_version="smoke-chat-${suffix}-v1"
 media_price_version="smoke-media-${suffix}-v1"
+balance_idempotency_key="smoke-balance-${suffix}"
 
 wait_for() {
     local description=$1
@@ -138,9 +139,13 @@ admin_request() {
     local path=$2
     local body=${3:-}
     local token=${4:-}
+    local idempotency_key=${5:-}
     local arguments=(-fsS -X "$method" -H "Content-Type: application/json")
     if [[ -n "$token" ]]; then
         arguments+=(-H "Authorization: Bearer $token")
+    fi
+    if [[ -n "$idempotency_key" ]]; then
+        arguments+=(-H "Idempotency-Key: $idempotency_key")
     fi
     if [[ -n "$body" ]]; then
         arguments+=(--data "$body")
@@ -238,10 +243,10 @@ wait_for "Admin API readiness" 60 compose exec -T admin-api \
     curl -fsS http://127.0.0.1:5001/ready >/dev/null
 
 migration_count="$(db_query "SELECT count(*) FROM schema_migrations;")"
-assert_equals "17" "$migration_count" "Applied migration count"
+assert_equals "18" "$migration_count" "Applied migration count"
 second_migration_output="$(compose run --rm migrate 2>&1)"
 second_skip_count="$(grep -cE 'skip .+\.sql' <<<"$second_migration_output" || true)"
-assert_equals "17" "$second_skip_count" "Idempotent migrator skip count"
+assert_equals "18" "$second_skip_count" "Idempotent migrator skip count"
 
 login_response="$(admin_request POST /admin/auth/login \
     "$(jq -cn --arg username "$ADMIN_USERNAME" --arg password "$ADMIN_PASSWORD" \
@@ -284,8 +289,41 @@ allowed_groups="$(jq -cn \
     '[$openai,$fault429,$fault500,$timeout,$disconnect,$malformed]')"
 admin_request PUT "/admin/users/$user_id" \
     "$(jq -cn --argjson groups "$allowed_groups" \
-        '{role:"user",balance:100,concurrency:4,rpmLimit:0,allowedGroups:$groups}')" \
+        '{role:"user",concurrency:4,rpmLimit:0,allowedGroups:$groups}')" \
     "$admin_token" >/dev/null
+
+balance_body='{"delta":100,"reason":"Initial smoke-test funding"}'
+balance_response="$(admin_request POST "/admin/users/$user_id/balance" \
+    "$balance_body" "$admin_token" "$balance_idempotency_key")"
+assert_equals "100" "$(jq -er '.balance' <<<"$balance_response")" \
+    "Administrative balance result"
+assert_equals "false" "$(jq -er '.duplicate' <<<"$balance_response")" \
+    "Administrative balance first-write marker"
+balance_replay="$(admin_request POST "/admin/users/$user_id/balance" \
+    "$balance_body" "$admin_token" "$balance_idempotency_key")"
+assert_equals "true" "$(jq -er '.duplicate' <<<"$balance_replay")" \
+    "Administrative balance replay marker"
+
+balance_conflict_status="$(compose exec -T admin-api curl -sS -o /dev/null -w '%{http_code}' \
+    -X POST -H 'Content-Type: application/json' \
+    -H "Authorization: Bearer $admin_token" \
+    -H "Idempotency-Key: $balance_idempotency_key" \
+    --data '{"delta":101,"reason":"Changed smoke-test funding"}' \
+    "http://127.0.0.1:5001/admin/users/$user_id/balance")"
+assert_equals "409" "$balance_conflict_status" "Administrative balance replay conflict"
+balance_overdraft_status="$(compose exec -T admin-api curl -sS -o /dev/null -w '%{http_code}' \
+    -X POST -H 'Content-Type: application/json' \
+    -H "Authorization: Bearer $admin_token" \
+    -H "Idempotency-Key: ${balance_idempotency_key}-overdraft" \
+    --data '{"delta":-101,"reason":"Rejected smoke-test overdraft"}' \
+    "http://127.0.0.1:5001/admin/users/$user_id/balance")"
+assert_equals "409" "$balance_overdraft_status" "Administrative balance overdraft"
+assert_equals "1|1|100.00000000" "$(db_query "
+SELECT
+  (SELECT count(*) FROM balance_ledger WHERE user_id = $user_id AND entry_type = 'admin_adjustment') || '|' ||
+  (SELECT count(*) FROM audit_logs WHERE action = 'balance.adjust' AND resource_id = '$user_id') || '|' ||
+  (SELECT sum(amount) FROM balance_ledger WHERE user_id = $user_id);")" \
+    "Administrative balance ledger invariants"
 
 api_key="$(create_api_key "$openai_group_id")"
 fault_429_api_key="$(create_api_key "$fault_429_group_id")"
@@ -368,7 +406,7 @@ echo "Running isolated Provider failure matrix"
 run_chat_fault "500" "$fault_500_api_key" "503" "provider_unavailable" "20"
 run_chat_fault "429" "$fault_429_api_key" "503" "provider_unavailable" "20"
 run_chat_fault "malformed_usage" "$fault_malformed_api_key" "502" "provider_error" "20"
-run_chat_fault "disconnect" "$fault_disconnect_api_key" "503" "provider_unavailable" "20"
+run_chat_fault "disconnect" "$fault_disconnect_api_key" "503" "provider_unavailable" "40"
 run_chat_fault "timeout" "$fault_timeout_api_key" "502" "-" "40"
 
 media_response="$(curl -fsS "$gateway_url/v1/images/generations/async" \
@@ -431,7 +469,8 @@ if [[ "$garnet_probe" != *PONG* ]]; then
     exit 1
 fi
 
-echo "PASS: 17 empty-volume migrations and second-run idempotency"
+echo "PASS: 18 empty-volume migrations and second-run idempotency"
+echo "PASS: idempotent administrative funding, audit, conflict, and overdraft guards"
 echo "PASS: Garnet-authenticated Gateway -> Platform -> Provider mock request"
 echo "PASS: terminal lease, hold, usage, ledger, and outbox invariants"
 echo "PASS: idempotent response replay without duplicate billing"

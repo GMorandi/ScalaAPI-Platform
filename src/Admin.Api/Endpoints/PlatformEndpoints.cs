@@ -288,25 +288,23 @@ public static class PlatformEndpoints
                 .SetColumns(x => x.Status == "paid")
                 .SetColumns(x => x.PaidAt == DateTime.UtcNow)
                 .Where(x => x.Id == id && x.Status == "pending").ExecuteCommandAsync();
-            if (changed == 1)
-            {
-                var payment = await db.Queryable<PaymentOrderEntity>().Where(x => x.Id == id).FirstAsync();
-                try
-                {
-                    await db.Insertable(new BalanceLedgerEntity
-                    {
-                        UserId = payment.UserId, PaymentId = payment.Id,
-                        Reference = $"payment:{payment.Id}", Amount = payment.Amount,
-                    }).ExecuteCommandAsync();
-                    await client.GetGrain<IUserGrain>(payment.UserId).AdjustBalance(payment.Amount);
-                }
-                catch (Exception)
-                {
-                    // A unique ledger key makes retries harmless; reconciliation can retry the grain write.
-                    throw;
-                }
-            }
-            return Results.Ok(new { message = "Payment confirmed" });
+            var payment = await db.Queryable<PaymentOrderEntity>().Where(x => x.Id == id).FirstAsync();
+            if (payment is null) return Results.NotFound();
+            if (changed == 0 && !string.Equals(payment.Status, "paid", StringComparison.OrdinalIgnoreCase))
+                return Results.Conflict(new { error = "Only a pending or paid payment can be confirmed" });
+
+            await db.Ado.ExecuteCommandAsync("""
+                INSERT INTO balance_ledger(user_id, payment_id, reference, amount, entry_type)
+                VALUES (@user_id, @payment_id, @reference, @amount, 'payment_credit')
+                ON CONFLICT DO NOTHING
+                """,
+                new SugarParameter("@user_id", payment.UserId),
+                new SugarParameter("@payment_id", payment.Id),
+                new SugarParameter("@reference", $"payment:{payment.Id}"),
+                new SugarParameter("@amount", payment.Amount));
+            await client.GetGrain<IUserGrain>(payment.UserId)
+                .ApplyBalanceEffect($"payment:{payment.Id}", payment.Amount);
+            return Results.Ok(new { message = "Payment confirmed", duplicate = changed == 0 });
         });
     }
 

@@ -15,7 +15,7 @@ public record GroupCreateRequest(
     decimal? PeakMultiplier, int? PeakStartHour, int? PeakEndHour);
 
 public record UserCreateRequest(
-    string Role, decimal Balance, int Concurrency,
+    string Role, int Concurrency,
     int RpmLimit, long[] AllowedGroups);
 
 public record ApiKeyCreateRequest(
@@ -24,5 +24,5 @@ public record ApiKeyCreateRequest(
     decimal RateLimit5h, decimal RateLimit1d, decimal RateLimit7d);
 
 public record StatusRequest(string Status);
-public record BalanceRequest(decimal Delta);
+public record BalanceRequest(decimal Delta, string Reason);
 public record ConfigUpdateRequest(string Key, string Value);

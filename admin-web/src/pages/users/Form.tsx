@@ -10,7 +10,7 @@ export default function UserForm() {
   const isNew = () => params.id === undefined;
 
   const [form, setForm] = createSignal({
-    role: "user", balance: 0, concurrency: 1, rpmLimit: 0, allowedGroups: [] as number[],
+    role: "user", concurrency: 1, rpmLimit: 0, allowedGroups: [] as number[],
   });
 
   const set = (key: string, value: any) => setForm((f) => ({ ...f, [key]: value }));
@@ -32,10 +32,7 @@ export default function UserForm() {
           <option value="user">user</option>
           <option value="admin">admin</option>
         </select>
-        <div class="flex gap-3">
-          <input type="number" step="0.01" class="w-1/2 rounded border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800" placeholder="Balance" value={form().balance} onInput={(e) => set("balance", +e.currentTarget.value)} />
-          <input type="number" class="w-1/2 rounded border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800" placeholder="Concurrency" value={form().concurrency} onInput={(e) => set("concurrency", +e.currentTarget.value)} />
-        </div>
+        <input type="number" class="w-full rounded border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800" placeholder="Concurrency" value={form().concurrency} onInput={(e) => set("concurrency", +e.currentTarget.value)} />
         <input type="number" class="w-full rounded border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800" placeholder="RPM Limit (0=∞)" value={form().rpmLimit} onInput={(e) => set("rpmLimit", +e.currentTarget.value)} />
         <div class="flex gap-4">
           <button type="submit" class="rounded bg-indigo-600 px-4 py-2 text-sm text-white hover:bg-indigo-700">{t("common.save")}</button>
