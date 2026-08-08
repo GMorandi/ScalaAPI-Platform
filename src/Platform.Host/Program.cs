@@ -72,6 +72,7 @@ builder.Services.AddSingleton<ScalaAPI.Grains.Interfaces.IInvalidationService>(s
 builder.Services.AddSingleton<ModelPricingService>();
 builder.Services.AddHostedService<PricingRefreshHostedService>();
 builder.Services.AddSingleton(NpgsqlDataSource.Create(pgConnection));
+builder.Services.AddHttpClient<ObjectStorageClient>();
 builder.Services.AddSingleton<RequestLeaseStore>();
 builder.Services.AddSingleton<MediaOperationStore>();
 builder.Services.AddSingleton<DispatchService>();

@@ -9,6 +9,7 @@ public sealed class MediaOperationHostedService(
     MediaOperationStore store,
     RequestLeaseStore leases,
     IClusterClient cluster,
+    ObjectStorageClient objectStorage,
     ILogger<MediaOperationHostedService> logger) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -82,6 +83,32 @@ public sealed class MediaOperationHostedService(
             var parsed = Parse(body, response.Content.Headers.ContentType?.MediaType ?? "");
             if (parsed.Status == "succeeded")
             {
+                ObjectStoragePutResult stored;
+                try
+                {
+                    stored = await objectStorage.CopyFromUrlAsync(parsed.OutputUrl,
+                        operation.OperationId, parsed.ContentType, ct);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    await store.UpdateAsync(operation.ApiKeyId, operation.OperationId,
+                        "running", parsed.Progress, operation.UpstreamTaskId, Limited(body),
+                        parsed.OutputUrl, parsed.ContentType,
+                        JsonSerializer.Serialize(new
+                        {
+                            type = "object_storage_error",
+                            message = ex.Message,
+                        }),
+                        objectStatus: "failed", objectError: JsonSerializer.Serialize(new
+                        {
+                            type = "object_storage_error",
+                            message = ex.Message,
+                        }), ct: ct);
+                    logger.LogWarning(ex, "Object storage copy failed for {OperationId}",
+                        operation.OperationId);
+                    return;
+                }
+
                 var imageOperation = operation.OperationType.StartsWith("images_", StringComparison.Ordinal);
                 var videoOperation = operation.OperationType.StartsWith("videos_", StringComparison.Ordinal);
                 var settlement = await leases.CompleteAsync(new LeaseCompletion(
@@ -107,15 +134,17 @@ public sealed class MediaOperationHostedService(
                 }
                 await store.UpdateAsync(operation.ApiKeyId,
                     operation.OperationId, parsed.Status, parsed.Progress,
-                    operation.UpstreamTaskId, Limited(body), parsed.OutputUrl,
-                    parsed.ContentType, parsed.Error, ct);
+                    operation.UpstreamTaskId, Limited(body), stored.DownloadUrl,
+                    stored.ContentType, parsed.Error, objectKey: stored.ObjectKey,
+                    objectEtag: stored.ETag, objectSize: stored.Size,
+                    objectStatus: "stored", objectError: "", ct: ct);
             }
             else if (parsed.Status is "failed" or "canceled")
             {
                 await store.UpdateAsync(operation.ApiKeyId,
                     operation.OperationId, parsed.Status, parsed.Progress,
                     operation.UpstreamTaskId, Limited(body), parsed.OutputUrl,
-                    parsed.ContentType, parsed.Error, ct);
+                    parsed.ContentType, parsed.Error, ct: ct);
                 await leases.AbortAsync(operation.LeaseToken,
                     $"media_operation_{parsed.Status}", ct);
             }
@@ -124,7 +153,7 @@ public sealed class MediaOperationHostedService(
                 await store.UpdateAsync(operation.ApiKeyId,
                     operation.OperationId, parsed.Status, parsed.Progress,
                     operation.UpstreamTaskId, Limited(body), parsed.OutputUrl,
-                    parsed.ContentType, parsed.Error, ct);
+                    parsed.ContentType, parsed.Error, ct: ct);
             }
         }
         catch (Exception ex) when (ex is not OperationCanceledException)

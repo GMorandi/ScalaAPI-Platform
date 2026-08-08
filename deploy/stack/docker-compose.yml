@@ -87,6 +87,8 @@ services:
       ProviderMock__BaseUrl: http://provider-mock:8081
       Internal__CacheRebuildToken: ${INTERNAL_CACHE_REBUILD_TOKEN:-}
       ObjectStorage__Endpoint: http://object-storage:9000
+      ObjectStorage__PublicEndpoint: ${OBJECT_STORAGE_PUBLIC_ENDPOINT:-http://127.0.0.1:9000}
+      ObjectStorage__Bucket: ${OBJECT_STORAGE_BUCKET:-scalaapi-media}
       ObjectStorage__AccessKey: ${OBJECT_STORAGE_ACCESS_KEY:-platform}
       ObjectStorage__SecretKey: ${OBJECT_STORAGE_SECRET_KEY:?OBJECT_STORAGE_SECRET_KEY is required}
       ASPNETCORE_URLS: http://0.0.0.0:5000

@@ -9,7 +9,8 @@ public sealed record MediaOperation(
     string RequestId, string LeaseToken, string Provider, string UpstreamTaskId,
     int Progress, string OutputMetadata, string OutputUrl, string ContentType,
     string Error, bool CancelRequested, int Attempts, DateTime ExpiresAt,
-    DateTime? NextPollAt, DateTime? LastPolledAt);
+    DateTime? NextPollAt, DateTime? LastPolledAt, string ObjectKey,
+    string ObjectETag, long ObjectSize, string ObjectStatus, string ObjectError);
 
 public sealed record MediaCreateResult(MediaOperation Operation, bool Created, bool Conflict);
 
@@ -24,6 +25,8 @@ public sealed class MediaOperationStore(
         upstream_task_id, progress, COALESCE(output_metadata::text, ''),
         output_url, content_type, COALESCE(error::text, ''), cancel_requested,
         attempts, expires_at, next_poll_at, last_polled_at
+        , object_key, object_etag, object_size, object_status,
+        COALESCE(object_error::text, '')
         """;
     private const string OperationProjection = """
         operation.operation_id, operation.idempotency_key, operation.request_fingerprint,
@@ -33,7 +36,9 @@ public sealed class MediaOperationStore(
         COALESCE(operation.output_metadata::text, ''), operation.output_url,
         operation.content_type, COALESCE(operation.error::text, ''),
         operation.cancel_requested, operation.attempts, operation.expires_at,
-        operation.next_poll_at, operation.last_polled_at
+        operation.next_poll_at, operation.last_polled_at, operation.object_key,
+        operation.object_etag, operation.object_size, operation.object_status,
+        COALESCE(operation.object_error::text, '')
         """;
 
     public async Task<MediaCreateResult> CreateOrGetAsync(long apiKeyId, long accountId,
@@ -133,6 +138,8 @@ public sealed class MediaOperationStore(
         string status, int progress, string? upstreamTaskId = null,
         string? outputMetadata = null, string? outputUrl = null,
         string? contentType = null, string? error = null,
+        string? objectKey = null, string? objectEtag = null, long? objectSize = null,
+        string? objectStatus = null, string? objectError = null,
         CancellationToken ct = default)
     {
         var terminal = status is "succeeded" or "failed" or "canceled" or "expired";
@@ -144,7 +151,14 @@ public sealed class MediaOperationStore(
                 output_metadata = COALESCE(NULLIF($7, '')::jsonb, output_metadata),
                 output_url = COALESCE(NULLIF($8, ''), output_url),
                 content_type = COALESCE(NULLIF($9, ''), content_type),
-                error = COALESCE(NULLIF($10, '')::jsonb, error),
+                error = CASE WHEN $3 = 'succeeded' THEN NULL
+                    WHEN NULLIF($10, '') IS NULL THEN error ELSE $10::jsonb END,
+                object_key = COALESCE(NULLIF($11, ''), object_key),
+                object_etag = COALESCE(NULLIF($12, ''), object_etag),
+                object_size = CASE WHEN $13::bigint IS NULL THEN object_size ELSE $13::bigint END,
+                object_status = CASE WHEN NULLIF($14, '') IS NULL THEN object_status ELSE $14 END,
+                object_error = CASE WHEN $14 = 'stored' THEN NULL
+                    WHEN NULLIF($15, '') IS NULL THEN object_error ELSE $15::jsonb END,
                 next_poll_at = CASE WHEN $4 THEN NULL ELSE now() + interval '3 seconds' END,
                 updated_at = now()
             WHERE api_key_id = $1 AND operation_id = $2
@@ -162,6 +176,12 @@ public sealed class MediaOperationStore(
         command.Parameters.AddWithValue(outputUrl ?? "");
         command.Parameters.AddWithValue(contentType ?? "");
         command.Parameters.AddWithValue(error ?? "");
+        command.Parameters.AddWithValue(objectKey ?? "");
+        command.Parameters.AddWithValue(objectEtag ?? "");
+        command.Parameters.AddWithValue(objectSize.HasValue
+            ? (object)objectSize.Value : DBNull.Value);
+        command.Parameters.AddWithValue(objectStatus ?? "");
+        command.Parameters.AddWithValue(objectError ?? "");
         await using var reader = await command.ExecuteReaderAsync(ct);
         return await reader.ReadAsync(ct) ? Read(reader) : await GetAsync(apiKeyId, operationId, ct);
     }
@@ -202,7 +222,9 @@ public sealed class MediaOperationStore(
     {
         await using var command = dataSource.CreateCommand($"""
             UPDATE media_operations
-            SET output_metadata = NULL, output_url = '', content_type = '', updated_at = now()
+            SET output_metadata = NULL, output_url = '', content_type = '',
+                object_key = '', object_etag = '', object_size = 0,
+                object_status = 'deleted', object_error = NULL, updated_at = now()
             WHERE api_key_id = $1 AND operation_id = $2
               AND status IN ('succeeded', 'failed', 'canceled', 'expired')
             RETURNING {Projection}
@@ -301,5 +323,6 @@ public sealed class MediaOperationStore(
         reader.GetInt32(11), reader.GetString(12), reader.GetString(13), reader.GetString(14),
         reader.GetString(15), reader.GetBoolean(16), reader.GetInt32(17), reader.GetDateTime(18),
         reader.IsDBNull(19) ? null : reader.GetDateTime(19),
-        reader.IsDBNull(20) ? null : reader.GetDateTime(20));
+        reader.IsDBNull(20) ? null : reader.GetDateTime(20), reader.GetString(21),
+        reader.GetString(22), reader.GetInt64(23), reader.GetString(24), reader.GetString(25));
 }
