@@ -99,6 +99,9 @@ export OBJECT_STORAGE_PUBLIC_ENDPOINT="http://127.0.0.1:${OBJECT_STORAGE_PORT}"
 export GATEWAY_PORT="${SMOKE_GATEWAY_PORT:-28080}"
 export ADMIN_WEB_PORT="${SMOKE_ADMIN_WEB_PORT:-23000}"
 export GATEWAY_CORES="${SMOKE_GATEWAY_CORES:-2}"
+if [[ -n "${PLATFORM_FAULT_HOOK:-}" ]]; then
+    export ORLEANS_SINGLE_SILO_RECOVERY=true
+fi
 
 gateway_url="http://127.0.0.1:${GATEWAY_PORT}"
 user_email="smoke-${suffix}@scalaapi.test"
@@ -384,6 +387,15 @@ chat_settled() {
     [[ "$(db_query "SELECT count(*) FROM request_leases WHERE request_id = '$chat_request_id' AND status = 'completed' AND final_cost_usd > 0 AND pricing_version = '$chat_price_version';")" == "1" ]]
 }
 wait_for "chat settlement" 30 chat_settled
+
+# Podman Compose 1.6 does not restart an exited container for the Compose
+# restart policy. When a deterministic fault hook is enabled, start the same
+# container explicitly so the durable outbox can replay after the crash.
+if [[ -n "${PLATFORM_FAULT_HOOK:-}" ]]; then
+    compose up --detach --no-deps --no-build platform-silo >/dev/null
+    wait_for "Platform recovery after fault hook" 90 compose exec -T platform-silo \
+        curl -fsS http://127.0.0.1:5000/ready >/dev/null
+fi
 
 chat_replay="$(curl -fsS "$gateway_url/v1/chat/completions" \
     -H "Authorization: Bearer $api_key" -H "Content-Type: application/json" \

@@ -7,6 +7,27 @@ var builder = WebApplication.CreateBuilder(args);
 
 var pgConnection = builder.Configuration.GetConnectionString("Postgres")
     ?? throw new InvalidOperationException("ConnectionStrings:Postgres is required");
+var singleSiloRecovery = builder.Configuration.GetValue("Orleans:SingleSiloRecovery", false);
+
+if (singleSiloRecovery)
+{
+    // A process crash cannot publish Orleans' graceful shutdown status. In
+    // the explicit single-silo mode, retire stale membership rows before the
+    // replacement silo joins; multi-silo deployments keep normal liveness
+    // voting and never run this cleanup.
+    await using var recoveryDataSource = NpgsqlDataSource.Create(pgConnection);
+    await using var recoveryConnection = await recoveryDataSource.OpenConnectionAsync();
+    await using var recoveryCommand = recoveryConnection.CreateCommand();
+    recoveryCommand.CommandText = """
+        UPDATE OrleansMembershipTable
+        SET Status = 6, SuspectTimes = NULL
+        WHERE DeploymentId = 'platform' AND Status > 0 AND Status < 6;
+        UPDATE OrleansMembershipVersionTable
+        SET Timestamp = now(), Version = Version + 1
+        WHERE DeploymentId = 'platform';
+        """;
+    await recoveryCommand.ExecuteNonQueryAsync();
+}
 
 // Orleans Silo
 builder.UseOrleans(silo =>
@@ -36,6 +57,24 @@ builder.UseOrleans(silo =>
     {
         opts.ClusterId = "platform";
         opts.ServiceId = "platform-control-plane";
+    });
+
+    // A single development silo has no peer available to cast a second death
+    // vote after a process crash. Keep the production defaults for multi-silo
+    // deployments, while making the explicit single-silo mode recoverable.
+    silo.Configure<Orleans.Configuration.ClusterMembershipOptions>(opts =>
+    {
+        if (!singleSiloRecovery)
+        {
+            return;
+        }
+
+        opts.NumProbedSilos = 1;
+        opts.NumMissedProbesLimit = 1;
+        opts.NumVotesForDeathDeclaration = 1;
+        opts.ProbeTimeout = TimeSpan.FromSeconds(1);
+        opts.DeathVoteExpirationTimeout = TimeSpan.FromSeconds(5);
+        opts.MaxJoinAttemptTime = TimeSpan.FromMinutes(2);
     });
 
     silo.Configure<Orleans.Configuration.EndpointOptions>(opts =>

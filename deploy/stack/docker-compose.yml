@@ -89,6 +89,7 @@ services:
       FaultInjection__Hook: ${PLATFORM_FAULT_HOOK:-}
       FaultInjection__MarkerDirectory: ${PLATFORM_FAULT_MARKER_DIR:-/var/run/scalaapi/fault-hooks}
       FaultInjection__Repeat: ${PLATFORM_FAULT_REPEAT:-false}
+      Orleans__SingleSiloRecovery: ${ORLEANS_SINGLE_SILO_RECOVERY:-false}
       Internal__CacheRebuildToken: ${INTERNAL_CACHE_REBUILD_TOKEN:-}
       Internal__ReconciliationToken: ${INTERNAL_RECONCILIATION_TOKEN:?INTERNAL_RECONCILIATION_TOKEN is required}
       ObjectStorage__Endpoint: http://object-storage:9000
