@@ -12,7 +12,7 @@ This does not close the product rewrite. The next stage is one authoritative,
 billable OpenAI Chat Completions vertical slice. Work outside that slice stays
 `partial`, `skeleton`, or `missing` in the inventory.
 
-## Progress checkpoint (2026-08-08, platform `4987b64`, gateway `c807dc8`)
+## Progress checkpoint (2026-08-08, platform `cb09e34`, gateway `c807dc8`)
 
 - Completed in `b266e17`: business balances, quotas, costs, limits, and routing
   multipliers use `decimal`; precision projections cover User, Group, and API key.
@@ -116,6 +116,17 @@ billable OpenAI Chat Completions vertical slice. Work outside that slice stays
   revoked-refresh rejection plus soft deletion with three revoked sessions.
   Concurrent session tests, API-key revocation fixtures, retention policy, and
   browser coverage remain open.
+- Completed in `03833e7`: subscription plans have a native idempotent purchase,
+  listing, cancellation, renewal, and automatic-expiry state machine. PostgreSQL
+  enforces one active subscription per user and stores a unique event for each
+  transition; current-image probes cover replay and active-conflict behavior.
+  Payment-provider coupling, applying quota grants to API-key policy, renewal
+  workers, and browser coverage remain open.
+- Completed in `cb09e34`: pending payment webhooks now have a native recovery
+  worker with `SKIP LOCKED` claims, attempt/error metadata, bounded backoff, and
+  stable balance-effect replay. A current-image pending event recovered after an
+  Admin restart; provider adapters, reconciliation UI, and exact SQL/cluster
+  crash injection remain open.
 - Still open: PostgreSQL aggregate repositories/foreign keys, fixed-precision RPC
   schema generation, crash/restart settlement scenarios, provider failure matrix,
   empty-volume CI automation, and Garnet flush/stale-version/TLS/multi-client evidence.

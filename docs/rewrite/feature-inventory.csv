@@ -29,8 +29,8 @@ BILL-02,Usage / billing,Model pricing cache-token and provider pricing rules,P0,
 BILL-03,Usage / billing,Quota subscription and rolling-window limits,P0,partial,Platform,API-key absolute quota and 5h/1d/7d rolling-window precedence, independent reset tests, and usage-triggered auth invalidation pass; add subscription entitlements, quota grants, and distributed concurrent reservation
 BILL-04,Usage / billing,Money precision transactional integrity and idempotency,P0,partial,Platform,Fixed-scale RPC and NUMERIC lease debit plus unique response replay effect, retry-safe settlement outbox, mismatch persistence, and clean seeded reconciliation pass; automate historical repair before release
 BILL-05,Usage / billing,Usage query dashboards exports and cleanup,P1,partial,Platform,Aggregates exports retention and UI tests
-COM-01,Commercial,Payment providers orders webhooks refunds and reconciliation,P0,partial,Platform,Signed HMAC webhook state machine, event deduplication, amount/currency validation, paid/refunded transitions, unique ledger effects, and current-image replay tests pass; add provider adapters, reconciliation UI, and crash recovery evidence
-COM-02,Commercial,Subscription purchase renewal expiry and quota reset,P1,skeleton,Platform,Entitlement lifecycle and renewal tests
+COM-01,Commercial,Payment providers orders webhooks refunds and reconciliation,P0,partial,Platform,Signed HMAC webhook state machine, event deduplication, amount/currency validation, paid/refunded transitions, unique ledger effects, and pending-event recovery pass current-image runtime; add provider adapters, reconciliation UI, and exact-boundary crash injection
+COM-02,Commercial,Subscription purchase renewal expiry and quota reset,P1,partial,Platform,Native plan purchase/list/cancel/renew/expiry state machine with one-active enforcement and idempotent event records passes current-image runtime; add payment-provider coupling, quota consumption/grant application, renewal worker, and browser tests
 COM-03,Commercial,Redeem and promotion codes,P1,partial,Platform,Transactional redemption, replayable balance effect, concurrent HTTP contention, and audit tests
 COM-04,Commercial,Affiliate referral rebate and transfer lifecycle,P2,skeleton,Platform,Attribution anti-abuse and ledger tests
 COM-05,Commercial,Announcements and read tracking,P2,partial,Platform,Targeting scheduling and read-state tests
@@ -50,7 +50,7 @@ UI-03,Frontend,User authentication and recovery UI,P1,missing,User Web,Auth reco
 UI-04,Frontend,Payments redeem subscriptions and affiliate UI,P1,missing,User Web + Admin Web,Commercial workflow browser tests
 UI-05,Frontend,Operations risk audit monitor and backup UI,P1,missing,Admin Web,Operator recovery workflow browser tests
 UI-06,Frontend,Public model setup status and legal pages,P2,missing,Admin Web + Gateway,Public route and accessibility tests
-DEP-01,Deployment / reliability,Fresh target schema and idempotent migrator,P0,partial,Platform,Current 000-013 checksum replay passes; add truly empty-volume smoke with no compatibility or Redis dependency
+DEP-01,Deployment / reliability,Fresh target schema and idempotent migrator,P0,partial,Platform,Current 000-015 checksum replay passes; add truly empty-volume smoke with no compatibility or Redis dependency
 DEP-02,Deployment / reliability,Independent bootstrap without source data or CDC,P0,implemented,Platform,No source dependency and clean-schema assertion
 DEP-03,Deployment / reliability,Container stack health readiness and metrics,P0,partial,Platform + Gateway,Current-source Compose health, Garnet outage/recovery, and projection rebuild pass; add failure and metrics assertions
 DEP-04,Deployment / reliability,Orleans HA rolling deployment and failure recovery,P0,skeleton,Platform,Multi-silo outage and rolling test

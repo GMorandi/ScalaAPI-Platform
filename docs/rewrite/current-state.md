@@ -10,13 +10,13 @@ release artifacts.
 | Repository | Commit | Worktree | Responsibility |
 | --- | --- | --- | --- |
 | `gateway` | `c807dc8` | clean | C++ HTTP/WebSocket edge, protocol conversion, chunked streaming, Provider transport, versioned Garnet client, malformed-usage guard, fixed-scale Cap'n Proto client, unique failover lease IDs, bounded non-stream upstream timeout, bounded response replay, invalidation flush recovery |
-| `platform` | `4987b64` | clean | C# Orleans control plane, PostgreSQL persistence, leases, NUMERIC ledger, durable holds/idempotency, usage, media lifecycle, Admin API, signed payment webhooks, versioned Garnet rebuild, replayable balance effects, fixed-scale RPC contract, retryable terminal idempotency leases, bounded response persistence/replay, password recovery, email verification, self-service profile/password/account deletion, cancellable Provider mock timeout, restart-safe settlement outbox recovery, immutable lease price snapshots, durable ledger reconciliation endpoint, deterministic rolling quota policy, usage-triggered auth invalidation |
+| `platform` | `cb09e34` | clean | C# Orleans control plane, PostgreSQL persistence, leases, NUMERIC ledger, durable holds/idempotency, usage, media lifecycle, Admin API, signed payment webhooks with pending-event recovery, idempotent subscription purchase/renewal/cancellation/expiry, versioned Garnet rebuild, replayable balance effects, fixed-scale RPC contract, retryable terminal idempotency leases, bounded response persistence/replay, password recovery, email verification, self-service profile/password/account deletion, cancellable Provider mock timeout, restart-safe settlement outbox recovery, immutable lease price snapshots, durable ledger reconciliation endpoint, deterministic rolling quota policy, usage-triggered auth invalidation |
 | `sub2api` | `43ec48d` | read-only clean reference | Functional requirements catalogue only |
 
 The current source inventory is 50 tracked Gateway source files, 87 CTest cases,
 65 hand-written Platform production C# files plus 3 generated Cap'n Proto files,
-18 tracked Platform test/benchmark C# source files, 80 Platform test cases, 131 mapped
-Admin API route declarations, 33 product tables, 20 SQLSugar entity types, and 31 Admin Web
+18 tracked Platform test/benchmark C# source files, 80 Platform test cases, 135 mapped
+Admin API route declarations, 34 product tables, 20 SQLSugar entity types, and 31 Admin Web
 source files with 11 page views. Admin Web has no browser test runner yet.
 
 The reference inventory is 612 route registration calls, 39 concrete Ent schemas,
@@ -76,6 +76,14 @@ not implementation parity or a migration target.
   `(provider, event_id)`, validate exact order amount/currency, and apply paid or
   refunded transitions with unique NUMERIC ledger effects. Balance projection
   retries use stable effect IDs after the SQL transaction commits.
+- A dedicated Admin background worker claims pending webhook events with
+  `SKIP LOCKED`, applies stable balance effects after a process restart, records
+  attempt/error metadata, and uses bounded exponential backoff.
+- Subscription plans now have a native user lifecycle: purchase, list, renewal,
+  cancellation, automatic expiry, one-active-subscription enforcement, and
+  user/idempotency event records. Entitlement periods and quota grants are stored
+  as NUMERIC values; API-key quota consumption and external payment coupling remain
+  separate release work.
 - Settlement outbox claims expire after 30 seconds, so a process restart can
   reclaim work. Failed financial effects use bounded exponential backoff without
   automatic dead-lettering; startup requeues any unprocessed rows left by an older
@@ -138,8 +146,8 @@ not implementation parity or a migration target.
   CI must still regenerate the C# output from the canonical schema and compare it
   before declaring contract generation complete.
 - Full empty-environment migration replay from an actually empty volume is still a
-  release gate; the current isolated database has migrations 000-013 and a second
-  migrator invocation skipped all fourteen recorded migrations.
+  release gate; the current isolated database has migrations 000-015 and a second
+  migrator invocation skipped all sixteen recorded migrations.
 - Session concurrent-rotation HTTP tests, crash injection, and API-key policy tests
   remain pending even though replay/logout, rotation, and revoke paths have runtime
   evidence.
@@ -165,12 +173,12 @@ not implementation parity or a migration target.
 
 On 2026-08-08 the isolated `scalaapi-stage2` project used current-source images:
 Platform `15bfff385320769f7669ce14c34ec8c4d29b7fcf24927bd7bafe11cd805f684b`,
-Admin API `e0da9bf60cf0356288c1fae679af8c573b15489bf422d2131bafaf3dae40f9b0`,
-migrator `8b692a87c2a2b2dddb9ca8754659f4241f81cd4b50dd431421e05e0a30f9417c`,
+Admin API `9a89001ec2f72bdd3a6c06981af737e514607967489e2ece317ae23a5dea24e6`,
+migrator `13f5d76642c91c66c7443dcc3b0556f31c9f72d62a7fd86740e76462622cd9b4`,
 Gateway `b072b7600c8acaa0d94a9a319629ddf928a218748ce8523b76912a1f457ef350`, and
 Provider mock `95b8632dea20b787127dad9f8302afad1bffb70633283dcc61720a67a388b4a6`.
-The migrator applied the complete 000-013 sequence and a second run skipped all
-fourteen migrations. Registration
+The migrator applied the complete 000-015 sequence and a second run skipped all
+sixteen migrations. Registration
 returned user id 7 and registry id 7. Provider seed was idempotent (same account
 and group on two calls); API-key rotation revoked the old key; Admin-created keys
 were projected into `user_api_keys`. Seeded JSON and SSE requests both returned
@@ -243,11 +251,24 @@ webhook. PostgreSQL shows order `refunded`, three `applied` webhook events, one
 readiness returned 200 and an unknown API key traversed the current dispatch path
 to a stable 401.
 
+Payment recovery evidence seeded a `pending` `payment.succeeded` event after its
+SQL transaction and restarted the current Admin image. The worker claimed it on
+attempt `1`, applied the stable `payment:3` balance effect, marked the event
+`applied`, and left zero pending webhook events; the recovery log contained the
+provider/event identity.
+
 Self-service auth runtime evidence on the rebuilt Admin image registered a fresh
 user, read and updated the profile (`204`), changed the password (`204`), rejected
 the old password and a revoked refresh token with `401`, and accepted the new
 password. Account deletion returned `204`; PostgreSQL retained the account as
 `deleted` with a null password hash, and three sessions were marked revoked.
+
+Subscription runtime evidence on the same image created plan `id=2` with a
+`25.00` USD quota, purchased subscription `id=1`, replayed the purchase as a
+duplicate, rejected a second active purchase, and completed cancellation plus
+renewal with stable duplicate responses. Moving its expiry to the current time
+and listing subscriptions transitioned it to `expired`; PostgreSQL recorded one
+`purchased`, one `cancelled`, and one `renewed` event with no duplicate rows.
 
 ## Historical runtime boundary
 
