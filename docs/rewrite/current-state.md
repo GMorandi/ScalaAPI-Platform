@@ -10,7 +10,7 @@ release artifacts.
 | Repository | Commit | Worktree | Responsibility |
 | --- | --- | --- | --- |
 | `gateway` | `c807dc8` | clean | C++ HTTP/WebSocket edge, protocol conversion, chunked streaming, Provider transport, versioned Garnet client, malformed-usage guard, fixed-scale Cap'n Proto client, unique failover lease IDs, bounded non-stream upstream timeout, bounded response replay, invalidation flush recovery |
-| `platform` | `66ef4a2` | clean | C# Orleans control plane, PostgreSQL persistence, leases, NUMERIC ledger, durable holds/idempotency, usage, media lifecycle, Admin API, signed payment webhooks with pending-event recovery, versioned Admin pricing lifecycle with live Host refresh, idempotent subscription purchase/renewal/cancellation/expiry, versioned Garnet rebuild, replayable balance effects, fixed-scale RPC contract, retryable terminal idempotency leases, bounded response persistence/replay, password recovery, email verification, self-service profile/password/account deletion, deterministic multi-protocol Provider mock with pollable media tasks, S3-compatible media ownership with SigV4 presigned access, restart-safe settlement outbox recovery, immutable lease price snapshots, durable ledger reconciliation endpoint, deterministic rolling quota policy, usage-triggered auth invalidation |
+| `platform` | `0d5284f` | clean | C# Orleans control plane, PostgreSQL persistence, leases, NUMERIC ledger, durable holds/idempotency, usage, media lifecycle, Admin API, signed payment webhooks with pending-event recovery, versioned Admin pricing lifecycle with live Host refresh, idempotent subscription purchase/renewal/cancellation/expiry, versioned Garnet rebuild, replayable balance effects, fixed-scale RPC contract, retryable terminal idempotency leases, bounded response persistence/replay, password recovery, email verification, self-service profile/password/account deletion, deterministic multi-protocol Provider mock with pollable media tasks, S3-compatible media ownership with SigV4 presigned access and deletion, restart-safe settlement outbox recovery, immutable lease price snapshots, durable ledger reconciliation endpoint, deterministic rolling quota policy, usage-triggered auth invalidation |
 | `sub2api` | `43ec48d` | read-only clean reference | Functional requirements catalogue only |
 
 The current source inventory is 50 tracked Gateway source files, 87 CTest cases,
@@ -178,7 +178,7 @@ not implementation parity or a migration target.
 ## Current runtime evidence
 
 On 2026-08-08 the isolated `scalaapi-stage2` project used current-source images:
-Platform `69ca5794e6596fc051e72206701a98f47b7d9a9a33b5d77c71368a937ab59d1a`,
+Platform `a2bb71d59804fdb94721e197cb54b78b4a3f00ca4f5d61bfb3a9008877a24cef`,
 Admin API `ea0cbe88a5b1bab8dd171b930ff5e6ec31be234b0bf4becf6ac6f4b74d38ca73`,
 migrator `8c1b3d4299fa8a2dc20abedcdaa15e2faa42f85d4c9156ca1e4d6919e146d880`,
 Gateway `4099c8aa22de23b7db13a114d40e301c0502b033545bcbbf0ed1dd0cbe7d29ca`, and
@@ -273,6 +273,13 @@ the exact provider-mock bytes. A video operation copied 62 bytes to its `.mp4` k
 with `video/mp4` metadata and the same signed-download proof. A deliberately failed
 signature attempt left the operation retryable with `object_status=failed` and no
 settlement; the later retry cleared the stale error before marking it stored.
+
+Media deletion evidence used an image batch through Gateway: after downloading the
+stored `.json` object, `DELETE /v1/images/batches/{id}/outputs` returned `200`, the
+old presigned URL returned `404`, and PostgreSQL cleared the object key/ETag/size with
+`object_status=deleted`. Deleting the terminal operation then returned `204` and
+removed its metadata row. Object-vs-database reconciliation and backup/restore are
+still release gates.
 
 Payment runtime evidence on the current Admin image created order `id=2` with
 `7.25 USD`, accepted a signed `payment.succeeded` webhook once, returned

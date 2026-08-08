@@ -12,7 +12,7 @@ This does not close the product rewrite. The next stage is one authoritative,
 billable OpenAI Chat Completions vertical slice. Work outside that slice stays
 `partial`, `skeleton`, or `missing` in the inventory.
 
-## Progress checkpoint (2026-08-08, platform `66ef4a2`, gateway `c807dc8`)
+## Progress checkpoint (2026-08-08, platform `0d5284f`, gateway `c807dc8`)
 
 - Completed in `b266e17`: business balances, quotas, costs, limits, and routing
   multipliers use `decimal`; precision projections cover User, Group, and API key.
@@ -145,6 +145,11 @@ billable OpenAI Chat Completions vertical slice. Work outside that slice stays
   upload leaves the operation retryable and does not settle usage. Image and video
   Compose probes downloaded the stored bytes. Deletion, reconciliation, restore,
   and lifecycle cleanup remain release work.
+- Completed in `0d5284f`: media `delete_outputs`, terminal delete, and expiry cleanup
+  now call idempotent S3 DELETE before clearing PostgreSQL metadata. Gateway batch
+  deletion returned 200, the old presigned URL returned 404, metadata was cleared,
+  and terminal deletion returned 204. Object-vs-database reconciliation and
+  backup/restore remain release work.
 - Still open: PostgreSQL aggregate repositories/foreign keys, fixed-precision RPC
   schema generation, crash/restart settlement scenarios, provider failure matrix,
   object-store deletion/reconciliation/restore, empty-volume CI automation, and Garnet
