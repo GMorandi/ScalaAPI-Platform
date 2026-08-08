@@ -29,6 +29,7 @@
 | Provider failover idempotency | Matching external idempotency keys reopened after aborted leases; active/completed keys retain replay/conflict semantics; Host coverage passed | Expiry reconciliation and failover response replay remain |
 | Password recovery | Explicit local debug mode issued a one-time token; first confirmation returned 204, token replay returned 400, and new-password login succeeded | Real mail provider delivery and browser recovery flow remain |
 | Email verification | Explicit local debug mode issued a one-time token; first confirmation succeeded, replay returned 400, and PostgreSQL persisted `email_verified=true` with a timestamp | Real mail provider delivery and browser verification flow remain |
+| Self-service account lifecycle | Fresh user registered; profile read/update returned 200/204, password change returned 204, old password and revoked refresh token returned 401, new password login succeeded, and DELETE `/user/account` returned 204; database retained `deleted` account and three revoked sessions | Concurrent session tests, API-key revocation fixture, retention policy, and browser coverage remain |
 
 ## Remaining release gates
 

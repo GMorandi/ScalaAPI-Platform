@@ -14,7 +14,7 @@
 | Scheduler split-brain or stale sticky route | P0 | Open | Orleans lease ownership, Garnet rebuild, multi-silo failure drills |
 | Media bytes lost or unauthorized | P0 | Open | S3 lifecycle, signed access, metadata/object reconciliation, restore test |
 | Long connection leaks or backpressure | P1 | Open | Streaming/WebSocket soak, bounded buffers, cancellation and disconnect assertions |
-| Session and auth abuse | P1 | Partial | Hashed rotating sessions and revocation checks are implemented; add replay/concurrency tests, TOTP hardening, Passkey controls, and distributed limits |
+| Session and auth abuse | P1 | Partial | Hashed rotating sessions, self-service password/profile/delete flows, and revocation checks are implemented; add replay/concurrency tests, API-key revocation/retention assertions, TOTP hardening, Passkey controls, and distributed limits |
 | Benchmark or test false positive | P1 | Controlled | Child-report validation and non-zero propagation are implemented; retain CI failure tests |
 | Contract source or generated artifact drift | P1 | Partial | Schema digests match; add deterministic C# generation and generated-output comparison |
 | Observability gaps | P1 | Open | Structured audit, metrics, traces, alerts, and dashboard smoke tests |

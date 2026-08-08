@@ -12,7 +12,7 @@ This does not close the product rewrite. The next stage is one authoritative,
 billable OpenAI Chat Completions vertical slice. Work outside that slice stays
 `partial`, `skeleton`, or `missing` in the inventory.
 
-## Progress checkpoint (2026-08-08, platform `08cf00c`, gateway `c807dc8`)
+## Progress checkpoint (2026-08-08, platform `4987b64`, gateway `c807dc8`)
 
 - Completed in `b266e17`: business balances, quotas, costs, limits, and routing
   multipliers use `decimal`; precision projections cover User, Group, and API key.
@@ -110,6 +110,12 @@ billable OpenAI Chat Completions vertical slice. Work outside that slice stays
   unique NUMERIC credit/refund ledger effects, retryable balance projection, and
   stable order identity are covered by tests and current-image runtime probes.
   Provider-specific adapters, reconciliation UI, and crash recovery remain open.
+- Completed in `6a1b77c` and `4987b64`: authenticated users can read/update profile
+  data, change passwords while revoking other sessions, and delete accounts after
+  password/confirmation checks. Current-image evidence covers old-password and
+  revoked-refresh rejection plus soft deletion with three revoked sessions.
+  Concurrent session tests, API-key revocation fixtures, retention policy, and
+  browser coverage remain open.
 - Still open: PostgreSQL aggregate repositories/foreign keys, fixed-precision RPC
   schema generation, crash/restart settlement scenarios, provider failure matrix,
   empty-volume CI automation, and Garnet flush/stale-version/TLS/multi-client evidence.

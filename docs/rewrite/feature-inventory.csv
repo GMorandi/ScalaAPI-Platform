@@ -17,7 +17,7 @@ AUTH-03,Authentication / identity,TOTP lifecycle,P1,partial,Platform,Enrollment 
 AUTH-04,Authentication / identity,Passkeys / WebAuthn,P1,missing,Platform,Registration authentication and browser tests
 AUTH-05,Authentication / identity,Email verification password reset and notification email,P1,partial,Platform,Password reset and email-verification token state machines pass; add mail-provider, notification, and browser tests
 AUTH-06,Authentication / identity,OAuth login providers and account binding,P1,skeleton,Platform,PKCE state binding and callback tests
-AUTH-07,Authentication / identity,Profile password identity binding and deletion,P1,missing,Platform,Self-service lifecycle and retention tests
+AUTH-07,Authentication / identity,Profile password identity binding and deletion,P1,partial,Platform,Profile read/update, password change with other-session revocation, and password-confirmed soft deletion pass current-image runtime; add concurrent session, API-key revocation, retention, and browser tests
 CORE-01,Core control plane,User administration and self-service,P0,partial,Platform,Role lifecycle authorization and API tests
 CORE-02,Core control plane,API-key lifecycle and policy,P0,partial,Platform,Create/list/rotate/revoke runtime paths pass; add policy, expiry, and audit tests
 CORE-03,Core control plane,Groups routing rates and fallback,P0,partial,Platform,Routing policy and fallback state-machine tests

@@ -10,12 +10,12 @@ release artifacts.
 | Repository | Commit | Worktree | Responsibility |
 | --- | --- | --- | --- |
 | `gateway` | `c807dc8` | clean | C++ HTTP/WebSocket edge, protocol conversion, chunked streaming, Provider transport, versioned Garnet client, malformed-usage guard, fixed-scale Cap'n Proto client, unique failover lease IDs, bounded non-stream upstream timeout, bounded response replay, invalidation flush recovery |
-| `platform` | `08cf00c` | clean | C# Orleans control plane, PostgreSQL persistence, leases, NUMERIC ledger, durable holds/idempotency, usage, media lifecycle, Admin API, signed payment webhooks, versioned Garnet rebuild, replayable balance effects, fixed-scale RPC contract, retryable terminal idempotency leases, bounded response persistence/replay, password recovery, email verification, cancellable Provider mock timeout, restart-safe settlement outbox recovery, immutable lease price snapshots, durable ledger reconciliation endpoint, deterministic rolling quota policy, usage-triggered auth invalidation |
+| `platform` | `4987b64` | clean | C# Orleans control plane, PostgreSQL persistence, leases, NUMERIC ledger, durable holds/idempotency, usage, media lifecycle, Admin API, signed payment webhooks, versioned Garnet rebuild, replayable balance effects, fixed-scale RPC contract, retryable terminal idempotency leases, bounded response persistence/replay, password recovery, email verification, self-service profile/password/account deletion, cancellable Provider mock timeout, restart-safe settlement outbox recovery, immutable lease price snapshots, durable ledger reconciliation endpoint, deterministic rolling quota policy, usage-triggered auth invalidation |
 | `sub2api` | `43ec48d` | read-only clean reference | Functional requirements catalogue only |
 
 The current source inventory is 50 tracked Gateway source files, 87 CTest cases,
 65 hand-written Platform production C# files plus 3 generated Cap'n Proto files,
-18 tracked Platform test/benchmark C# source files, 80 Platform test cases, 127 mapped
+18 tracked Platform test/benchmark C# source files, 80 Platform test cases, 131 mapped
 Admin API route declarations, 33 product tables, 20 SQLSugar entity types, and 31 Admin Web
 source files with 11 page views. Admin Web has no browser test runner yet.
 
@@ -53,6 +53,10 @@ not implementation parity or a migration target.
   consumption. The verified timestamp is durable on `user_accounts`; local smoke
   environments can explicitly expose a token while production remains
   enumeration-safe.
+- Authenticated users can read and update their profile, change their password while
+  revoking other sessions, and delete their account after password and confirmation
+  checks. Deletion soft-deletes the account, revokes API keys and sessions, removes
+  registry/Orleans projections, and preserves billing history.
 - Lease completion writes the usage event, `balance_ledger` `usage_debit`, terminal
   lease state, and durable outbox entry in one PostgreSQL transaction. The ledger
   key `(lease_token, entry_type)` is unique and all amounts remain `NUMERIC`.
@@ -161,7 +165,7 @@ not implementation parity or a migration target.
 
 On 2026-08-08 the isolated `scalaapi-stage2` project used current-source images:
 Platform `15bfff385320769f7669ce14c34ec8c4d29b7fcf24927bd7bafe11cd805f684b`,
-Admin API `b3d539b7e5ed006978214606c5443332452ae474cef228e96f3cb1f3550ae575`,
+Admin API `e0da9bf60cf0356288c1fae679af8c573b15489bf422d2131bafaf3dae40f9b0`,
 migrator `8b692a87c2a2b2dddb9ca8754659f4241f81cd4b50dd431421e05e0a30f9417c`,
 Gateway `b072b7600c8acaa0d94a9a319629ddf928a218748ce8523b76912a1f457ef350`, and
 Provider mock `95b8632dea20b787127dad9f8302afad1bffb70633283dcc61720a67a388b4a6`.
@@ -238,6 +242,12 @@ webhook. PostgreSQL shows order `refunded`, three `applied` webhook events, one
 `payment_credit` ledger row, and one `payment_refund` row for `-7.25`. Gateway
 readiness returned 200 and an unknown API key traversed the current dispatch path
 to a stable 401.
+
+Self-service auth runtime evidence on the rebuilt Admin image registered a fresh
+user, read and updated the profile (`204`), changed the password (`204`), rejected
+the old password and a revoked refresh token with `401`, and accepted the new
+password. Account deletion returned `204`; PostgreSQL retained the account as
+`deleted` with a null password hash, and three sessions were marked revoked.
 
 ## Historical runtime boundary
 
