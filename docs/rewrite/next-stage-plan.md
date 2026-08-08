@@ -2,7 +2,7 @@
 
 ## Checkpoint
 
-The next stage starts from Platform `5d39750`, Gateway `24a1c84`, and read-only
+The next stage starts from Platform `1a95949`, Gateway `24a1c84`, and read-only
 reference `sub2api@43ec48d`.
 
 The greenfield baseline now starts from empty volumes, uses PostgreSQL as authority,
@@ -31,10 +31,10 @@ acknowledgement. The source smoke intentionally crashed Platform after settlemen
 commit and recovered a single Orleans silo without a duplicate debit. Gateway now
 has source-level terminal-event-gated SSE completion, incomplete chunked-body
 classification, and client-cancellation classification. The empty stack proves
-Provider disconnect, disconnect-before-output, and malformed-usage SSE retention
-with six total unknown-charge incidents; actual client socket cancellation, public
-error normalization, the remaining hook matrix, and multi-instance scenarios are
-still open.
+Provider disconnect, disconnect-before-output, malformed-usage, and actual
+downstream client-cancellation SSE retention with seven total unknown-charge
+incidents; public error normalization, final-usage/replay reconciliation, the
+remaining hook matrix, and multi-instance scenarios are still open.
 
 This stage contains no compatibility, cutover, dual-write, CDC, snapshot import,
 old-key import, ID preservation, status mapping, or business-data migration work.
@@ -62,8 +62,8 @@ failed assertion makes the top-level command non-zero.
 Accounting authority completed at `c15b53b`, reconciliation foundation at
 `fddba62`, dispatch evidence at `6bfb974`/`84634d1`, audited resolution at
 `0559659`, and deterministic fault boundaries at `1cad5b7`/`30b8c2b`/`8c3d2e0`,
-with current streaming/empty-stack evidence in Gateway `24a1c84` and Platform
-`5d39750`:
+  with current streaming/empty-stack evidence in Gateway `24a1c84` and Platform
+  `1a95949`:
 
 - Added one per-user `accounting_accounts` authority with NUMERIC posted balance
   and monotonically increasing ledger version.
@@ -148,16 +148,19 @@ an open incident can be resolved only through the audited settle/release contrac
 
 ## Work package 2: cancellation and streaming failure semantics
 
-Progress in Gateway `24a1c84`: the streaming pipe now requires a source protocol
+Progress in Gateway `24a1c84` and Platform `1a95949`: the streaming pipe now requires a source protocol
 terminal event before treating Provider EOF as complete, classifies timeout/EOF as
 incomplete (including Photon incomplete chunked-body `-1/errno=0`), treats
 zero/error client writes as cancellation, records bounded
 disconnect/cancellation reasons, and prevents Gateway failover or normal usage
 settlement for ambiguous partial streams. These behaviors are covered by 98 Gateway
-CTest cases. Platform `5d39750` smoke proves Provider disconnect,
+CTest cases. Platform smoke proves Provider disconnect,
 disconnect-before-output, and malformed-usage SSE outcomes with no usage/debit.
-The package is not closed until the public 502/503 contract, actual client socket
-cancellation, and final-usage/replay behavior are proven through Platform.
+The package is not closed until the public 502/503 contract and final-usage/replay
+behavior are proven through Platform. Actual downstream client socket cancellation
+is now proven from an empty stack: the Provider emits one SSE event, a short-lived
+client closes before the delayed second write, and the lease remains
+`reconciliation_needed` with its hold and idempotency key retained.
 
 Deliverables:
 
@@ -165,8 +168,9 @@ Deliverables:
   status, error type, and safe non-empty body. Freeze retryable/non-retryable mapping
   before adding protocol fixtures.
 - Propagate client cancellation through the HTTP/SSE transport and stop retrying as
-  soon as any response bytes have reached the client. Gateway source behavior is
-  implemented; stack-level socket and reconciliation evidence remains.
+  soon as any response bytes have reached the client. Gateway source behavior and
+  stack-level socket/reconciliation evidence now pass; add replay and final-usage
+  assertions for a truncated stream.
 - Cancellation before `forwarded` evidence may expire/abort and release without a
   usage debit. Once Provider transport has been authorized, absence of client output
   does not prove no charge: continue collecting final usage when possible or enter
@@ -174,8 +178,8 @@ Deliverables:
 - Extend the isolated fault accounts to SSE: Provider disconnect before first event,
   disconnect after partial output, malformed usage, and established-SSE status
   retention now pass in the empty-stack gate. Add streaming 429/500,
-  timeout-before-first-event, invalid content type, and actual client disconnect
-  scenarios.
+  timeout-before-first-event, invalid content type, and protocol-wide assertions;
+  actual client disconnect is covered by the current fault matrix.
 - Add bounded-buffer/backpressure assertions and verify that partial output cannot
   be replayed as a complete response or retried against another account.
 
@@ -272,9 +276,9 @@ idempotency state, outbox backlog, and reconciliation status:
 1. Finish package 1 hook-matrix and recovery tests first; dispatch evidence, the
    authoritative unknown-charge state, audited incident decisions, and one
    post-commit crash replay now exist. Provider-side streaming cancellation semantics
-   are source- and empty-stack-tested, but cancellation cannot be release-complete
-   without the public error contract, actual client cancellation, every deterministic
-   boundary, and multi-instance recovery.
+   and actual client cancellation are source- and empty-stack-tested, but cancellation
+   cannot be release-complete without the public error contract, final-usage replay,
+   every deterministic boundary, and multi-instance recovery.
 2. Package 2 defines transport semantics; package 3 freezes them as fixtures.
 3. Package 4 runs the state machines under concurrency and infrastructure failure.
 4. Package 5 makes the same evidence mandatory in hosted release CI.

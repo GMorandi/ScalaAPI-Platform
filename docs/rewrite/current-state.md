@@ -11,7 +11,7 @@ read-only requirements reference and is excluded from builds and runtime.
 | Repository | Commit | Worktree | Role |
 | --- | --- | --- | --- |
 | `gateway` | `24a1c84` | clean | C++ HTTP/WebSocket edge, protocol parsing/conversion, streaming, Provider transport/evidence, charge-aware failover, durable usage delivery, authenticated Garnet projections, deterministic fault boundaries, and fail-closed cancellation/partial-SSE handling |
-| `platform` | `5d39750` | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, identity, scheduling, evidence-backed leases/holds/ledger, audited operator resolution, media lifecycle, Admin API/Web, Provider mock, migrations, deterministic fault boundaries, and deployment gates |
+| `platform` | `1a95949` | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, identity, scheduling, evidence-backed leases/holds/ledger, audited operator resolution, media lifecycle, Admin API/Web, Provider mock, migrations, deterministic fault boundaries, and deployment gates |
 | `sub2api` | `43ec48d` | read-only clean | Requirements catalogue only; never a runtime or compatibility dependency |
 
 The current tracked inventory is:
@@ -140,9 +140,10 @@ current-source runtime evidence.
 - The source-owned Provider mock implements deterministic OpenAI, Anthropic, and
   Gemini JSON/SSE paths, models, embeddings, token count, sync media, pollable
   image/video tasks, and faults for 429, 500, timeout, disconnect, malformed usage,
-  and invalid stream content.
+  invalid stream content, and a delayed stream used to prove downstream client
+  cancellation.
 - Normalized OpenAI Chat input can select a fault without private headers. A
-  protected seed endpoint creates five independent fault accounts/groups so one
+  protected seed endpoint creates six independent fault accounts/groups so one
   scheduler cooldown cannot mask another scenario.
 - Media polling copies Provider bytes to S3-compatible storage and persists object
   ownership metadata. Signed downloads, output deletion, and terminal operation
@@ -172,7 +173,7 @@ current-source runtime evidence.
 
 ## Current verification evidence
 
-At Platform `5d39750` and Gateway `24a1c84`:
+At Platform `1a95949` and Gateway `24a1c84`:
 
 - Gateway built locally and passed 98/98 CTest cases, including deterministic
   fault-hook claim/repeat behavior, terminal SSE detection, provider EOF
@@ -186,16 +187,19 @@ At Platform `5d39750` and Gateway `24a1c84`:
 - Scheduler benchmark integrity dry run executed all 4 selected child benchmarks
   and returned zero. It is a failure-propagation check, not performance evidence.
 - `deploy/stack/smoke.sh` built current sibling sources in the isolated Podman
-  project `scalaapi-smoke-stream-0808b`, created new volumes, applied all 22
+  project `scalaapi-smoke-clientcancel-0809`, created new volumes, applied all 22
   migrations, and observed all 22 skip on the second migrator run. Source-built
-  image IDs were Platform `62e5ca2cf83c`, Admin API `744a1bd12123`, Gateway
-  `6f46c6f1a1a5`, Provider mock `6ff7bdf333d8`, migrator `c9ed67bb2b3a`, and
-  Admin Web `bd72c28116a3`. The smoke intentionally crashed Platform once at
+  image IDs were Platform `75eb81912e61`, Admin API `b29ea17919b2`, Gateway
+  `86f0384745df`, Provider mock `7bca6910d369`, migrator `68dff97859e4`, and
+  Admin Web `55f03c4df996`. The smoke intentionally crashed Platform once at
   `platform.after_settlement_commit`; single-silo membership recovery restarted
   the same service, replayed the durable usage outbox, and preserved one debit.
-  It resolved one of six unknown-charge incidents through the Admin API with
+  It separated explicit 429/500 rejections from seven unknown-charge scenarios,
+  including Provider disconnect, disconnect-before-output, malformed usage,
+  timeout, partial SSE disconnect, and a real downstream client timeout after
+  the first SSE event. It resolved one incident through the Admin API with
   `settle`, replayed the same command as `duplicate`, and reduced open incidents
-  from six to five before the second reconciliation run.
+  from seven to six before the second reconciliation run.
 - The clean-stack Admin API funded a new zero-balance user once. Exact replay
   returned the same ledger identity, changed replay returned 409, overdraft returned
   409, and PostgreSQL contained exactly one NUMERIC adjustment and one actor audit.
@@ -217,8 +221,11 @@ At Platform `5d39750` and Gateway `24a1c84`:
   Malformed-success, upstream-disconnect, and timeout each made one attempt, did not
   fail over, ended `reconciliation_needed`, retained the hold/idempotency key, and
   created one operator-visible incident without a usage debit. Streaming Provider
-  disconnect, disconnect-before-output, and malformed-usage scenarios did the same;
-  each returned a bounded 502/200-on-established-SSE outcome without settlement.
+  disconnect, disconnect-before-output, malformed-usage, and downstream client
+  cancellation scenarios did the same; each retained the hold with no usage or
+  debit. The client-cancellation request used a short-lived curl, received the
+  first SSE event, closed before the delayed second write, and returned transport
+  status 000 while the Gateway recorded unknown charge evidence.
 - Garnet authentication returned `PONG`; asynchronous media bootstrapped the empty
   MinIO bucket and a signed URL downloaded the expected 67-byte object.
 - The smoke command exited zero and its cleanup trap removed only its containers and
@@ -239,7 +246,8 @@ Detailed gate results and residual coverage are maintained in `verification.md`.
   output or partial Provider output. The source-level behavior is covered by 98
   CTest cases; the empty-stack gate now proves Provider partial-SSE disconnect,
   disconnect-before-output, and malformed-usage retention with no usage/debit.
-  Actual client socket cancellation and final usage/reconciliation fixtures remain.
+  The empty-stack gate now proves actual downstream socket cancellation as well;
+  final usage/reconciliation fixtures for a truncated stream remain.
   A direct
   transport reset currently returns 502 while scheduler exhaustion after the same
   reset can return 503; the next error-contract slice must normalize the public
