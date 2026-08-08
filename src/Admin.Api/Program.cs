@@ -90,6 +90,7 @@ app.MapUserEndpoints();
 app.MapApiKeyEndpoints();
 app.MapConfigEndpoints();
 app.MapUsageEndpoints();
+app.MapSeedEndpoints();
 app.MapUserAuthEndpoints();
 app.MapPlatformEndpoints();
 
