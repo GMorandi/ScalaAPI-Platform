@@ -1,6 +1,6 @@
 id,domain,capability,priority,status,owner,acceptance
 GW-01,Gateway / protocol,Anthropic Messages HTTP and SSE,P0,partial,Gateway,API and streaming golden fixtures plus provider mock E2E
-GW-02,Gateway / protocol,OpenAI Chat Completions HTTP and SSE,P0,partial,Gateway,JSON/SSE current-image path passes; add golden fixtures and failure matrix
+GW-02,Gateway / protocol,OpenAI Chat Completions HTTP and SSE,P0,partial,Gateway,JSON/SSE current-image path and malformed-usage fail-closed probe pass; add golden fixtures and full failure matrix
 GW-03,Gateway / protocol,OpenAI Responses API and subresources,P0,partial,Gateway,Response event and subresource contract tests
 GW-04,Gateway / protocol,Gemini generateContent and streamGenerateContent,P0,partial,Gateway,Request response and error contract tests
 GW-05,Gateway / protocol,Cross-protocol request response and stream conversion,P0,partial,Gateway,Pairwise conversion fixtures and malformed input tests
