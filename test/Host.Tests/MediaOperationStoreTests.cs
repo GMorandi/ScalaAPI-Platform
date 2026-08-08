@@ -23,6 +23,12 @@ public sealed class MediaOperationStoreTests
         var abortLeaseToken = $"lease-abort-hold-{suffix}";
         var abortRequestId = $"request-abort-hold-{suffix}";
         var abortHoldId = $"hold-abort-{suffix}";
+        var retryLeaseToken = $"lease-retry-hold-{suffix}";
+        var retryRequestId = $"request-retry-hold-{suffix}";
+        var retryHoldId = $"hold-retry-{suffix}";
+        var retryLeaseToken2 = $"lease-retry-hold-2-{suffix}";
+        var retryRequestId2 = $"request-retry-hold-2-{suffix}";
+        var retryHoldId2 = $"hold-retry-2-{suffix}";
         var configuration = new ConfigurationBuilder().AddInMemoryCollection(
             new Dictionary<string, string?>
             {
@@ -88,6 +94,24 @@ public sealed class MediaOperationStoreTests
             Assert.True((await store.AbortAsync(abortLeaseToken, "client_disconnect")).Accepted);
             Assert.Equal("released", await ReadHoldStatus(dataSource, abortHoldId));
             Assert.True((await store.AbortAsync(abortLeaseToken, "client_disconnect")).Duplicate);
+
+            var retryRequest = new LeaseCreateRequest(
+                retryLeaseToken, retryRequestId, "hash-hold", 94001, 95001, 96001, 97001,
+                "gpt-4o", "gpt-4o", "chat_completions", 1m, retryHoldId, 10m,
+                DateTime.UtcNow.AddMinutes(10), "idem-retry-" + suffix, "fingerprint-retry");
+            Assert.True(await store.CreateAsync(retryRequest));
+            Assert.True((await store.AbortAsync(retryLeaseToken, "upstream_failure")).Accepted);
+
+            var reopened = await store.CreateDetailedAsync(retryRequest with
+            {
+                LeaseToken = retryLeaseToken2,
+                RequestId = retryRequestId2,
+                HoldHandle = retryHoldId2,
+            });
+            Assert.True(reopened.Created);
+            Assert.Equal("active", await ReadHoldStatus(dataSource, retryHoldId2));
+            Assert.Equal("lease-retry-hold-2-" + suffix,
+                await ReadIdempotencyLease(dataSource, 94001, "idem-retry-" + suffix));
         }
         finally
         {
@@ -100,20 +124,30 @@ public sealed class MediaOperationStoreTests
                 await cleanupUsage.ExecuteNonQueryAsync();
             }
             await using (var cleanupHolds = dataSource.CreateCommand(
-                "DELETE FROM balance_holds WHERE hold_id IN ($1, $2, $3, $4)"))
+                "DELETE FROM balance_holds WHERE hold_id IN ($1, $2, $3, $4, $5, $6)"))
             {
                 cleanupHolds.Parameters.AddWithValue(holdId);
                 cleanupHolds.Parameters.AddWithValue(abortHoldId);
                 cleanupHolds.Parameters.AddWithValue(holdId + "-replay");
                 cleanupHolds.Parameters.AddWithValue(holdId + "-conflict");
+                cleanupHolds.Parameters.AddWithValue(retryHoldId);
+                cleanupHolds.Parameters.AddWithValue(retryHoldId2);
                 await cleanupHolds.ExecuteNonQueryAsync();
             }
             await using var cleanupLeases = dataSource.CreateCommand(
-                "DELETE FROM request_leases WHERE lease_token IN ($1, $2, $3)");
+                "DELETE FROM request_leases WHERE lease_token IN ($1, $2, $3, $4, $5)");
             cleanupLeases.Parameters.AddWithValue(leaseToken);
             cleanupLeases.Parameters.AddWithValue(duplicateLeaseToken);
             cleanupLeases.Parameters.AddWithValue(abortLeaseToken);
+            cleanupLeases.Parameters.AddWithValue(retryLeaseToken);
+            cleanupLeases.Parameters.AddWithValue(retryLeaseToken2);
             await cleanupLeases.ExecuteNonQueryAsync();
+
+            await using var cleanupIdempotency = dataSource.CreateCommand(
+                "DELETE FROM request_idempotency WHERE idempotency_key IN ($1, $2)");
+            cleanupIdempotency.Parameters.AddWithValue("idem-hold-" + suffix);
+            cleanupIdempotency.Parameters.AddWithValue("idem-retry-" + suffix);
+            await cleanupIdempotency.ExecuteNonQueryAsync();
         }
     }
 
@@ -271,6 +305,16 @@ public sealed class MediaOperationStoreTests
     {
         await using var command = dataSource.CreateCommand(
             "SELECT status FROM request_idempotency WHERE api_key_id = $1 AND idempotency_key = $2");
+        command.Parameters.AddWithValue(apiKeyId);
+        command.Parameters.AddWithValue(idempotencyKey);
+        return (string)(await command.ExecuteScalarAsync())!;
+    }
+
+    private static async Task<string> ReadIdempotencyLease(NpgsqlDataSource dataSource,
+        long apiKeyId, string idempotencyKey)
+    {
+        await using var command = dataSource.CreateCommand(
+            "SELECT lease_token FROM request_idempotency WHERE api_key_id = $1 AND idempotency_key = $2");
         command.Parameters.AddWithValue(apiKeyId);
         command.Parameters.AddWithValue(idempotencyKey);
         return (string)(await command.ExecuteScalarAsync())!;

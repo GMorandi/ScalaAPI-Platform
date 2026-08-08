@@ -161,19 +161,49 @@ public sealed class RequestLeaseStore(
                 await using var existing = connection.CreateCommand();
                 existing.Transaction = transaction;
                 existing.CommandText = """
-                    SELECT request_fingerprint
+                    SELECT request_fingerprint, status
                     FROM request_idempotency
                     WHERE api_key_id = $1 AND idempotency_key = $2
                     FOR UPDATE
                     """;
                 existing.Parameters.AddWithValue(request.ApiKeyId);
                 existing.Parameters.AddWithValue(request.IdempotencyKey.Trim());
-                var existingFingerprint = (string?)await existing.ExecuteScalarAsync(ct) ?? "";
-                await transaction.RollbackAsync(ct);
-                return string.Equals(existingFingerprint, request.RequestFingerprint ?? "",
-                    StringComparison.Ordinal)
-                    ? LeaseCreateResult.Duplicate()
-                    : LeaseCreateResult.IdempotencyConflict();
+                await using var existingReader = await existing.ExecuteReaderAsync(ct);
+                if (!await existingReader.ReadAsync(ct))
+                {
+                    await transaction.RollbackAsync(ct);
+                    return LeaseCreateResult.Duplicate();
+                }
+
+                var existingFingerprint = existingReader.GetString(0);
+                var existingStatus = existingReader.GetString(1);
+                await existingReader.DisposeAsync();
+                if (!string.Equals(existingFingerprint, request.RequestFingerprint ?? "",
+                    StringComparison.Ordinal))
+                {
+                    await transaction.RollbackAsync(ct);
+                    return LeaseCreateResult.IdempotencyConflict();
+                }
+
+                if (existingStatus is not ("aborted" or "expired"))
+                {
+                    await transaction.RollbackAsync(ct);
+                    return LeaseCreateResult.Duplicate();
+                }
+
+                await using var reopen = connection.CreateCommand();
+                reopen.Transaction = transaction;
+                reopen.CommandText = """
+                    UPDATE request_idempotency
+                    SET request_id = $3, lease_token = $4, status = 'active', updated_at = now()
+                    WHERE api_key_id = $1 AND idempotency_key = $2
+                      AND status IN ('aborted', 'expired')
+                    """;
+                reopen.Parameters.AddWithValue(request.ApiKeyId);
+                reopen.Parameters.AddWithValue(request.IdempotencyKey.Trim());
+                reopen.Parameters.AddWithValue(request.RequestId);
+                reopen.Parameters.AddWithValue(request.LeaseToken);
+                await reopen.ExecuteNonQueryAsync(ct);
             }
         }
 
@@ -202,14 +232,17 @@ public sealed class RequestLeaseStore(
     {
         if (string.IsNullOrWhiteSpace(idempotencyKey)) return IdempotencyLookup.Missing();
         await using var command = dataSource.CreateCommand("""
-            SELECT request_fingerprint
+            SELECT request_fingerprint, status
             FROM request_idempotency
             WHERE api_key_id = $1 AND idempotency_key = $2
             """);
         command.Parameters.AddWithValue(apiKeyId);
         command.Parameters.AddWithValue(idempotencyKey.Trim());
-        var existing = (string?)await command.ExecuteScalarAsync(ct);
-        if (existing is null) return IdempotencyLookup.Missing();
+        await using var reader = await command.ExecuteReaderAsync(ct);
+        if (!await reader.ReadAsync(ct)) return IdempotencyLookup.Missing();
+        var existing = reader.GetString(0);
+        var status = reader.GetString(1);
+        if (status is "aborted" or "expired") return IdempotencyLookup.Missing();
         return string.Equals(existing, requestFingerprint ?? "", StringComparison.Ordinal)
             ? IdempotencyLookup.Replay()
             : IdempotencyLookup.FingerprintConflict();
