@@ -9,8 +9,8 @@ release artifacts.
 
 | Repository | Commit | Worktree | Responsibility |
 | --- | --- | --- | --- |
-| `gateway` | `1ec32e3` | clean | C++ HTTP/WebSocket edge, protocol conversion, chunked streaming, Provider transport, versioned Garnet client, malformed-usage guard, Cap'n Proto client |
-| `platform` | `c180136` | clean | C# Orleans control plane, PostgreSQL persistence, leases, NUMERIC ledger, durable holds/idempotency, usage, media lifecycle, Admin API, versioned Garnet rebuild, replayable balance effects |
+| `gateway` | `93f0f14` | clean | C++ HTTP/WebSocket edge, protocol conversion, chunked streaming, Provider transport, versioned Garnet client, malformed-usage guard, fixed-scale Cap'n Proto client |
+| `platform` | `b42eeba` | clean | C# Orleans control plane, PostgreSQL persistence, leases, NUMERIC ledger, durable holds/idempotency, usage, media lifecycle, Admin API, versioned Garnet rebuild, replayable balance effects, fixed-scale RPC contract |
 | `sub2api` | `43ec48d` | read-only clean reference | Functional requirements catalogue only |
 
 The current source inventory is 50 tracked Gateway source files, 83 CTest cases,
@@ -31,8 +31,9 @@ not implementation parity or a migration target.
 - Platform has Orleans grains for users, API keys, groups, accounts, scheduling,
   pricing, leases, usage, media operations, and invalidation, plus an Admin API.
 - Business and routing contracts use `decimal`; PostgreSQL monetary and pricing
-  columns use `NUMERIC`. The current Cap'n Proto generated boundary still has
-  Float64 rate fields, with explicit casts isolated in the RPC serializer.
+  columns use `NUMERIC`. Cap'n Proto monetary and pricing fields now use signed
+  integers in a documented 1e8 fixed scale; conversion is isolated at the RPC
+  serializer and covered by a precision round-trip test.
 - Admin discovery uses the product-owned `entity_registry` table rather than
   Orleans internal storage. Registration, CRUD creation/deletion, OAuth identity
   creation, and API-key self-service maintain registry membership.
@@ -92,9 +93,9 @@ not implementation parity or a migration target.
 - PostgreSQL business state and opaque Orleans storage are still split; the new
   registry removes internal-storage discovery, but full aggregate repositories and
   accounting authority remain to be implemented.
-- The Cap'n Proto schema and checked-in generated artifacts still encode money/rate
-  fields as Float64; replace them with fixed-scale integer or canonical decimal text
-  before declaring the public RPC contract complete.
+- The fixed-scale Cap'n Proto schema and checked-in C# artifacts are current, but
+  CI must still regenerate the C# output from the canonical schema and compare it
+  before declaring contract generation complete.
 - Full empty-environment migration replay from an actually empty volume is still a
   release gate; the current isolated database applied 005 through 008 and a
   second migrator invocation skipped all eight recorded migrations.

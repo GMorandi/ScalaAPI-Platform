@@ -12,7 +12,7 @@ This does not close the product rewrite. The next stage is one authoritative,
 billable OpenAI Chat Completions vertical slice. Work outside that slice stays
 `partial`, `skeleton`, or `missing` in the inventory.
 
-## Progress checkpoint (2026-08-08, platform `c180136`, gateway `1ec32e3`)
+## Progress checkpoint (2026-08-08, platform `b42eeba`, gateway `93f0f14`)
 
 - Completed in `b266e17`: business balances, quotas, costs, limits, and routing
   multipliers use `decimal`; precision projections cover User, Group, and API key.
@@ -46,6 +46,11 @@ billable OpenAI Chat Completions vertical slice. Work outside that slice stays
   User Grain balance effect. Current-image runtime evidence is first-request `200`,
   duplicate `409`, one redemption row, one ledger row, and recovery after a Silo
   contract restart; concurrent HTTP and audit-event tests remain.
+- Completed in `b42eeba` and `93f0f14`: all monetary and pricing fields in the
+  revision-1 Cap'n Proto contract use signed 1e8 fixed-scale integers. Platform
+  encodes decimal rates and holds at the boundary, Gateway decodes them without
+  Float64 wire fields, and a Host precision round-trip test passes; CI generation
+  comparison remains open.
 - Still open: PostgreSQL aggregate repositories/foreign keys, fixed-precision RPC
   schema generation, crash/restart settlement scenarios, provider failure matrix,
   empty-volume CI automation, and Garnet flush/stale-version/TLS/multi-client evidence.
@@ -62,9 +67,8 @@ register/login -> create API key/group/provider account -> Gateway request
 
 ### 1. Authority and numeric contracts
 
-- Keep the completed decimal conversion, then replace the remaining Cap'n Proto
-  Float64 money/rate fields with an explicit fixed-scale integer or canonical decimal
-  text. PostgreSQL remains `NUMERIC`.
+- Keep the completed decimal conversion and fixed-scale RPC fields. Add canonical
+  C# generation in CI and reject schema/output drift. PostgreSQL remains `NUMERIC`.
 - Extend the completed `entity_registry` discovery boundary into repositories for
   user, API key, group, account, lease, hold, usage, and ledger records. No Orleans
   storage internals may be queried for business data.
