@@ -14,7 +14,7 @@ public class ApiKeyGrainTests
     private IApiKeyGrain GetGrain(long id) => _cluster.GrainFactory.GetGrain<IApiKeyGrain>(id.ToString());
 
     private static ApiKeyUpsert DefaultUpsert(long userId = 1, long groupId = 1) => new(
-        userId, groupId, 100.0, null, [], [], 0, 0, 0);
+        userId, groupId, 100.0m, null, [], [], 0, 0, 0);
 
     [Fact]
     public async Task Create_SetsVersionToOne()
@@ -46,20 +46,45 @@ public class ApiKeyGrainTests
     public async Task Validate_ActiveKey_ReturnsAuthResult()
     {
         var userGrain = _cluster.GrainFactory.GetGrain<IUserGrain>(2001);
-        await userGrain.Create(new UserUpsert("user", 50.0, 2, 60, [3001]));
+        await userGrain.Create(new UserUpsert("user", 50.0m, 2, 60, [3001]));
 
         var groupGrain = _cluster.GrainFactory.GetGrain<IGroupGrain>(3001);
-        await groupGrain.Create(new GroupUpsert("anthropic", 1.0, false, null, false, null, false, new(), [1], 0, null, null, null));
+        await groupGrain.Create(new GroupUpsert("anthropic", 1.0m, false, null, false, null, false, new(), [1], 0, null, null, null));
 
         var grain = GetGrain(1004);
         await grain.Create(DefaultUpsert(2001, 3001));
 
-        var result = await grain.Validate(new AuthRequest("10.0.0.1", "req-1"));
+        var result = await grain.Validate(new AuthRequest("10.0m.0.1", "req-1"));
         Assert.Equal(1004, result.ApiKeyId);
         Assert.Equal(2001, result.UserId);
         Assert.Equal(3001, result.GroupId);
         Assert.Equal("anthropic", result.Platform);
         Assert.Equal("active", result.Status);
+    }
+
+    [Fact]
+    public async Task Validate_PreservesDecimalPrecisionAcrossProjections()
+    {
+        var user = _cluster.GrainFactory.GetGrain<IUserGrain>(2020);
+        await user.Create(new UserUpsert("user", 123.45678901m, 1, 0, [3020]));
+
+        var group = _cluster.GrainFactory.GetGrain<IGroupGrain>(3020);
+        await group.Create(new GroupUpsert(
+            "openai", 1.23456789m, false, 9876.54321098m, false, null,
+            false, new(), [], 0, null, null, null));
+
+        var grain = GetGrain(1020);
+        await grain.Create(new ApiKeyUpsert(
+            2020, 3020, 987.65432109m, null, [], [],
+            0.12345678m, 1.23456789m, 12.34567890m));
+
+        var result = await grain.Validate(new AuthRequest("10.0.0.1", "req-decimal"));
+
+        Assert.Equal(987.65432109m, result.Quota);
+        Assert.Equal(0m, result.QuotaUsed);
+        Assert.Equal(123.45678901m, result.User.Balance);
+        Assert.Equal(1.23456789m, result.Group.RateMultiplier);
+        Assert.Equal(9876.54321098m, result.Group.DailyLimitUsd);
     }
 
     [Fact]
@@ -70,7 +95,7 @@ public class ApiKeyGrainTests
         await grain.Revoke();
 
         await Assert.ThrowsAsync<InvalidOperationException>(
-            () => grain.Validate(new AuthRequest("10.0.0.1", "req-2")));
+            () => grain.Validate(new AuthRequest("10.0m.0.1", "req-2")));
     }
 
     [Fact]
@@ -78,45 +103,45 @@ public class ApiKeyGrainTests
     {
         var grain = GetGrain(1006);
         var expired = DateTimeOffset.UtcNow.AddHours(-1).ToUnixTimeMilliseconds();
-        await grain.Create(new ApiKeyUpsert(1, 1, 100.0, expired, [], [], 0, 0, 0));
+        await grain.Create(new ApiKeyUpsert(1, 1, 100.0m, expired, [], [], 0, 0, 0));
 
         await Assert.ThrowsAsync<InvalidOperationException>(
-            () => grain.Validate(new AuthRequest("10.0.0.1", "req-3")));
+            () => grain.Validate(new AuthRequest("10.0m.0.1", "req-3")));
     }
 
     [Fact]
     public async Task Validate_BlacklistedIp_Throws()
     {
         var grain = GetGrain(1007);
-        await grain.Create(new ApiKeyUpsert(1, 1, 100.0, null, [], ["192.168.1.1"], 0, 0, 0));
+        await grain.Create(new ApiKeyUpsert(1, 1, 100.0m, null, [], ["192.168m.1.1"], 0, 0, 0));
 
         await Assert.ThrowsAsync<InvalidOperationException>(
-            () => grain.Validate(new AuthRequest("192.168.1.1", "req-4")));
+            () => grain.Validate(new AuthRequest("192.168m.1.1", "req-4")));
     }
 
     [Fact]
     public async Task Validate_WhitelistEnforced_Throws()
     {
         var grain = GetGrain(1008);
-        await grain.Create(new ApiKeyUpsert(1, 1, 100.0, null, ["10.0.0.1"], [], 0, 0, 0));
+        await grain.Create(new ApiKeyUpsert(1, 1, 100.0m, null, ["10.0m.0.1"], [], 0, 0, 0));
 
         await Assert.ThrowsAsync<InvalidOperationException>(
-            () => grain.Validate(new AuthRequest("10.0.0.2", "req-5")));
+            () => grain.Validate(new AuthRequest("10.0m.0.2", "req-5")));
     }
 
     [Fact]
     public async Task Validate_WhitelistedIp_Succeeds()
     {
         var userGrain = _cluster.GrainFactory.GetGrain<IUserGrain>(2002);
-        await userGrain.Create(new UserUpsert("user", 50.0, 1, 0, []));
+        await userGrain.Create(new UserUpsert("user", 50.0m, 1, 0, []));
 
         var groupGrain = _cluster.GrainFactory.GetGrain<IGroupGrain>(3002);
-        await groupGrain.Create(new GroupUpsert("openai", 1.0, false, null, false, null, false, new(), [], 0, null, null, null));
+        await groupGrain.Create(new GroupUpsert("openai", 1.0m, false, null, false, null, false, new(), [], 0, null, null, null));
 
         var grain = GetGrain(1009);
-        await grain.Create(new ApiKeyUpsert(2002, 3002, 100.0, null, ["10.0.0.1"], [], 0, 0, 0));
+        await grain.Create(new ApiKeyUpsert(2002, 3002, 100.0m, null, ["10.0m.0.1"], [], 0, 0, 0));
 
-        var result = await grain.Validate(new AuthRequest("10.0.0.1", "req-6"));
+        var result = await grain.Validate(new AuthRequest("10.0m.0.1", "req-6"));
         Assert.Equal("active", result.Status);
     }
 
@@ -124,32 +149,32 @@ public class ApiKeyGrainTests
     public async Task Validate_ExhaustedQuota_Throws()
     {
         var user = _cluster.GrainFactory.GetGrain<IUserGrain>(2010);
-        await user.Create(new UserUpsert("user", 50.0, 1, 0, []));
+        await user.Create(new UserUpsert("user", 50.0m, 1, 0, []));
         var group = _cluster.GrainFactory.GetGrain<IGroupGrain>(3010);
-        await group.Create(new GroupUpsert("openai", 1.0, false, null, false,
+        await group.Create(new GroupUpsert("openai", 1.0m, false, null, false,
             null, false, new(), [], 0, null, null, null));
         var grain = GetGrain(1012);
-        await grain.Create(new ApiKeyUpsert(2010, 3010, 1.0, null, [], [], 0, 0, 0));
+        await grain.Create(new ApiKeyUpsert(2010, 3010, 1.0m, null, [], [], 0, 0, 0));
         await grain.AddUsage(1.0m);
 
         await Assert.ThrowsAsync<InvalidOperationException>(
-            () => grain.Validate(new AuthRequest("10.0.0.1", "req-quota")));
+            () => grain.Validate(new AuthRequest("10.0m.0.1", "req-quota")));
     }
 
     [Fact]
     public async Task Validate_DisabledUser_Throws()
     {
         var user = _cluster.GrainFactory.GetGrain<IUserGrain>(2011);
-        await user.Create(new UserUpsert("user", 50.0, 1, 0, []));
+        await user.Create(new UserUpsert("user", 50.0m, 1, 0, []));
         await user.SetStatus("disabled");
         var group = _cluster.GrainFactory.GetGrain<IGroupGrain>(3011);
-        await group.Create(new GroupUpsert("openai", 1.0, false, null, false,
+        await group.Create(new GroupUpsert("openai", 1.0m, false, null, false,
             null, false, new(), [], 0, null, null, null));
         var grain = GetGrain(1013);
-        await grain.Create(new ApiKeyUpsert(2011, 3011, 10.0, null, [], [], 0, 0, 0));
+        await grain.Create(new ApiKeyUpsert(2011, 3011, 10.0m, null, [], [], 0, 0, 0));
 
         await Assert.ThrowsAsync<InvalidOperationException>(
-            () => grain.Validate(new AuthRequest("10.0.0.1", "req-disabled")));
+            () => grain.Validate(new AuthRequest("10.0m.0.1", "req-disabled")));
     }
 
     [Fact]
@@ -158,7 +183,7 @@ public class ApiKeyGrainTests
         var grain = GetGrain(1099);
 
         await Assert.ThrowsAsync<InvalidOperationException>(
-            () => grain.Validate(new AuthRequest("10.0.0.1", "req-unknown")));
+            () => grain.Validate(new AuthRequest("10.0m.0.1", "req-unknown")));
     }
 
     [Fact]

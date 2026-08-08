@@ -90,7 +90,7 @@ public class ApiKeyGrain : Grain, IApiKeyGrain
 
         return new AuthResult(
             s.ApiKeyId, s.UserId, s.GroupId, group.Platform, s.Status,
-            (double)s.Quota, (double)s.QuotaUsed, group.RateMultiplier,
+            s.Quota, s.QuotaUsed, group.RateMultiplier,
             user.Concurrency, user.RpmLimit, s.Version, user, group);
     }
 
@@ -164,13 +164,13 @@ public class ApiKeyGrain : Grain, IApiKeyGrain
         s.ApiKeyId = apiKeyId;
         s.UserId = input.UserId;
         s.GroupId = input.GroupId;
-        s.Quota = (decimal)input.Quota;
+        s.Quota = input.Quota;
         s.ExpiresAt = input.ExpiresAt;
         s.IpWhitelist = input.IpWhitelist;
         s.IpBlacklist = input.IpBlacklist;
-        s.RateLimit5h = (decimal)input.RateLimit5h;
-        s.RateLimit1d = (decimal)input.RateLimit1d;
-        s.RateLimit7d = (decimal)input.RateLimit7d;
+        s.RateLimit5h = input.RateLimit5h;
+        s.RateLimit1d = input.RateLimit1d;
+        s.RateLimit7d = input.RateLimit7d;
         s.Version = 1;
         await _state.WriteStateAsync();
         _invalidation.NotifyChange("apiKey", this.GetPrimaryKeyString());
@@ -181,13 +181,13 @@ public class ApiKeyGrain : Grain, IApiKeyGrain
         var s = _state.State;
         s.UserId = input.UserId;
         s.GroupId = input.GroupId;
-        s.Quota = (decimal)input.Quota;
+        s.Quota = input.Quota;
         s.ExpiresAt = input.ExpiresAt;
         s.IpWhitelist = input.IpWhitelist;
         s.IpBlacklist = input.IpBlacklist;
-        s.RateLimit5h = (decimal)input.RateLimit5h;
-        s.RateLimit1d = (decimal)input.RateLimit1d;
-        s.RateLimit7d = (decimal)input.RateLimit7d;
+        s.RateLimit5h = input.RateLimit5h;
+        s.RateLimit1d = input.RateLimit1d;
+        s.RateLimit7d = input.RateLimit7d;
         s.Version++;
         await _state.WriteStateAsync();
         _invalidation.NotifyChange("apiKey", this.GetPrimaryKeyString());

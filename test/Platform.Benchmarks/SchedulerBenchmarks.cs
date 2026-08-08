@@ -28,14 +28,14 @@ public class SchedulerBenchmarks
 
         var groupGrain = _cluster.GrainFactory.GetGrain<IGroupGrain>(groupId);
         await groupGrain.Create(new GroupUpsert(
-            "anthropic", 1.0, false, null, false, null, false, new(), accountIds, 0, null, null, null));
+            "anthropic", 1.0m, false, null, false, null, false, new(), accountIds, 0, null, null, null));
 
         foreach (var id in accountIds)
         {
             var acct = _cluster.GrainFactory.GetGrain<IAccountGrain>(id);
             await acct.Create(new AccountUpsert(
                 $"acct-{id}", "anthropic", "api_key", "https://api.example.com",
-                1, 100, 100, 1.0, true, new(), new(), [], null, false));
+                1, 100, 100, 1.0m, true, new(), new(), [], null, false));
         }
 
         _scheduler = _cluster.GrainFactory.GetGrain<ISchedulerGrain>(groupId);

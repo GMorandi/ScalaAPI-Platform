@@ -5,7 +5,7 @@ public record HoldHandle(string Id, decimal Amount);
 
 [GenerateSerializer]
 public record UserUpsert(
-    string Role, double Balance, int Concurrency,
+    string Role, decimal Balance, int Concurrency,
     int RpmLimit, long[] AllowedGroups);
 
 public interface IUserGrain : IGrainWithIntegerKey
@@ -25,6 +25,6 @@ public interface IUserGrain : IGrainWithIntegerKey
     Task Create(UserUpsert input);
     Task Update(UserUpsert input);
     Task SetStatus(string status);
-    Task AdjustBalance(double delta);
+    Task AdjustBalance(decimal delta);
     Task Delete();
 }

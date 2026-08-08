@@ -16,7 +16,7 @@ public class AccountState
     [Id(5)] public int Priority { get; set; }
     [Id(6)] public int Concurrency { get; set; } = 1;
     [Id(7)] public int LoadFactor { get; set; } = 1;
-    [Id(8)] public double RateMultiplier { get; set; } = 1.0;
+    [Id(8)] public decimal RateMultiplier { get; set; } = 1.0m;
     [Id(9)] public bool Schedulable { get; set; } = true;
     [Id(10)] public long? RateLimitResetAt { get; set; }
     [Id(11)] public long? OverloadUntil { get; set; }

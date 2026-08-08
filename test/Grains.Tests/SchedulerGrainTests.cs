@@ -14,14 +14,14 @@ public class SchedulerGrainTests
     {
         var groupGrain = _cluster.GrainFactory.GetGrain<IGroupGrain>(groupId);
         await groupGrain.Create(new GroupUpsert(
-            platform, 1.0, false, null, false, null, false, new(), accountIds, 0, null, null, null));
+            platform, 1.0m, false, null, false, null, false, new(), accountIds, 0, null, null, null));
 
         foreach (var id in accountIds)
         {
             var acctGrain = _cluster.GrainFactory.GetGrain<IAccountGrain>(id);
             await acctGrain.Create(new AccountUpsert(
                 $"acct-{id}", platform, "api_key", "https://api.example.com",
-                1, 5, 100, 1.0, true, new(), new(), [], null, false));
+                1, 5, 100, 1.0m, true, new(), new(), [], null, false));
         }
     }
 

@@ -2,10 +2,10 @@ namespace ScalaAPI.Grains.Interfaces;
 
 [GenerateSerializer]
 public record GroupConfig(
-    long Id, string Platform, double RateMultiplier,
+    long Id, string Platform, decimal RateMultiplier,
     bool ModelRoutingEnabled, bool ClaudeCodeOnly,
     long? FallbackGroupId, int RpmLimit,
-    double? PeakMultiplier, int? PeakStartHour, int? PeakEndHour);
+    decimal? PeakMultiplier, int? PeakStartHour, int? PeakEndHour);
 
 [GenerateSerializer]
 public record ModelRoute(string Pattern, long[] AccountIds);
@@ -16,11 +16,11 @@ public record CompositeRouteDecision(
 
 [GenerateSerializer]
 public record GroupUpsert(
-    string Platform, double RateMultiplier, bool IsExclusive,
-    double? DailyLimitUsd, bool ClaudeCodeOnly, long? FallbackGroupId,
+    string Platform, decimal RateMultiplier, bool IsExclusive,
+    decimal? DailyLimitUsd, bool ClaudeCodeOnly, long? FallbackGroupId,
     bool ModelRoutingEnabled, Dictionary<string, long[]> ModelRouting,
     long[] MemberAccountIds, int RpmLimit,
-    double? PeakMultiplier, int? PeakStartHour, int? PeakEndHour);
+    decimal? PeakMultiplier, int? PeakStartHour, int? PeakEndHour);
 
 public interface IGroupGrain : IGrainWithIntegerKey
 {
@@ -29,10 +29,10 @@ public interface IGroupGrain : IGrainWithIntegerKey
     Task<long[]> GetRoutingAccountIds(string model);
     Task<long[]> GetMemberAccountIds();
     Task<CompositeRouteDecision?> ResolveCompositeRoute(string model, string endpoint);
-    Task<double> GetEffectiveMultiplier(DateTimeOffset now);
-    Task<double> GetDailySpend();
+    Task<decimal> GetEffectiveMultiplier(DateTimeOffset now);
+    Task<decimal> GetDailySpend();
     Task<bool> CheckAndRecordRpm();
-    Task RecordSpend(double amount);
+    Task RecordSpend(decimal amount);
     Task RecordLeaseSpend(string leaseToken, decimal amount);
 
     Task Create(GroupUpsert input);

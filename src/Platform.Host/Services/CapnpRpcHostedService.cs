@@ -287,7 +287,9 @@ public class CapnpRpcHostedService : IHostedService
             }
 
             var billing = up.Billing;
-            billing.RateMultiplier = result.Upstream.RateMultiplier;
+            // Cap'n Proto v2 currently stores this boundary field as Float64;
+            // business contracts remain decimal until the fixed-scale schema lands.
+            billing.RateMultiplier = (double)result.Upstream.RateMultiplier;
             billing.HoldHandle = result.Upstream.HoldHandle ?? "";
 
             if (result.Upstream.AuthHeaders.Count > 0)
@@ -501,7 +503,7 @@ public class DispatchService
                     user_id = auth.UserId,
                     group_id = auth.GroupId,
                     status = auth.Status,
-                    rate_multiplier = auth.RateMultiplier,
+                    rate_multiplier = (double)auth.RateMultiplier,
                     rpm_limit = auth.RpmLimit,
                 }));
             }
@@ -608,7 +610,7 @@ public class DispatchService
             await accountGrain.RecordRpm();
 
             var holdAmount = _maxReservationUsd *
-                Math.Max(1m, (decimal)selectedRateMultiplier);
+                Math.Max(1m, selectedRateMultiplier);
             hold = await userGrain.ReserveBalance(holdAmount);
             if (hold is null)
             {
@@ -624,7 +626,7 @@ public class DispatchService
             var created = await _leases.CreateAsync(new LeaseCreateRequest(
                 selection.LeaseToken!, req.RequestId, req.ApiKeyHash, auth.ApiKeyId,
                 auth.UserId, accountId, selectedGroupId, req.RequestedModel, mappedModel,
-                req.Endpoint, (decimal)selectedRateMultiplier, hold.Id, hold.Amount,
+                req.Endpoint, selectedRateMultiplier, hold.Id, hold.Amount,
                 DateTime.UtcNow.Add(_leaseTtl)));
             if (!created)
             {
@@ -969,7 +971,7 @@ public record UpstreamTargetResult
     public long ApiKeyId { get; init; }
     public long UserId { get; init; }
     public long GroupId { get; init; }
-    public double RateMultiplier { get; init; }
+    public decimal RateMultiplier { get; init; }
     public string? HoldHandle { get; init; }
     public string LeaseToken { get; init; } = "";
     public long AuthVersion { get; init; }

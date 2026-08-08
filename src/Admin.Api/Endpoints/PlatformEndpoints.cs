@@ -229,7 +229,7 @@ public static class PlatformEndpoints
                         UserId = payment.UserId, PaymentId = payment.Id,
                         Reference = $"payment:{payment.Id}", Amount = payment.Amount,
                     }).ExecuteCommandAsync();
-                    await client.GetGrain<IUserGrain>(payment.UserId).AdjustBalance((double)payment.Amount);
+                    await client.GetGrain<IUserGrain>(payment.UserId).AdjustBalance(payment.Amount);
                 }
                 catch (Exception)
                 {
@@ -334,7 +334,7 @@ public static class PlatformEndpoints
                 {
                     UserId = user.Id, Reference = $"redeem:{code.Id}:{user.Id}", Amount = code.BonusAmount,
                 }).ExecuteCommandAsync();
-                await client.GetGrain<IUserGrain>(user.Id).AdjustBalance((double)code.BonusAmount);
+                await client.GetGrain<IUserGrain>(user.Id).AdjustBalance(code.BonusAmount);
             }
             return Results.Ok(new { message = "Code redeemed", bonus = code.BonusAmount });
         });
@@ -745,9 +745,9 @@ public static class PlatformEndpoints
     }
 
     private record ApiKeySelfServiceRequest(
-        string? Name, long? GroupId, double? Quota, long? ExpiresAt,
+        string? Name, long? GroupId, decimal? Quota, long? ExpiresAt,
         string[]? IpWhitelist, string[]? IpBlacklist,
-        double? RateLimit5h, double? RateLimit1d, double? RateLimit7d);
+        decimal? RateLimit5h, decimal? RateLimit1d, decimal? RateLimit7d);
     private record RedeemRequest(string Code);
     private record ChannelCheckRequest(long AccountId, string Status, int LatencyMs, string? Error);
     private record RestoreRequest(string BackupId);

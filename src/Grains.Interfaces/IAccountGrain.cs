@@ -10,7 +10,7 @@ public interface ICredentialProtector
 public record AccountProjection(
     long Id, string Name, string Platform, int Priority,
     int Concurrency, int CurrentLoad, bool Schedulable,
-    double RateMultiplier, int LoadFactor, string Status,
+    decimal RateMultiplier, int LoadFactor, string Status,
     long? RateLimitResetAt, long? OverloadUntil,
     long? TempUnschedulableUntil, string[] SupportedModels);
 
@@ -29,7 +29,7 @@ public record ErrorInfo(int StatusCode, int? RetryAfterMs, string? Message);
 [GenerateSerializer]
 public record AccountUpsert(
     string Name, string Platform, string Type, string BaseUrl,
-    int Priority, int Concurrency, int LoadFactor, double RateMultiplier,
+    int Priority, int Concurrency, int LoadFactor, decimal RateMultiplier,
     bool Schedulable, Dictionary<string, string> Credentials,
     Dictionary<string, string> ModelMapping, string[] SupportedModels,
     string? ProxyUrl, bool TlsFingerprint);

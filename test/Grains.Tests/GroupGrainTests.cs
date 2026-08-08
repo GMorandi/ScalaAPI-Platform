@@ -17,16 +17,16 @@ public class GroupGrainTests
     {
         var grain = GetGrain(4001);
         await grain.Create(new GroupUpsert(
-            "anthropic", 1.5, true, 50.0, true, null, true,
-            new() { ["claude*"] = [1, 2] }, [1, 2, 3], 100, 2.0, 9, 18));
+            "anthropic", 1.5m, true, 50.0m, true, null, true,
+            new() { ["claude*"] = [1, 2] }, [1, 2, 3], 100, 2.0m, 9, 18));
 
         var config = await grain.GetConfig();
         Assert.Equal("anthropic", config.Platform);
-        Assert.Equal(1.5, config.RateMultiplier);
+        Assert.Equal(1.5m, config.RateMultiplier);
         Assert.True(config.ModelRoutingEnabled);
         Assert.True(config.ClaudeCodeOnly);
         Assert.Equal(100, config.RpmLimit);
-        Assert.Equal(2.0, config.PeakMultiplier);
+        Assert.Equal(2.0m, config.PeakMultiplier);
         Assert.Equal(9, config.PeakStartHour);
         Assert.Equal(18, config.PeakEndHour);
     }
@@ -36,7 +36,7 @@ public class GroupGrainTests
     {
         var grain = GetGrain(4002);
         await grain.Create(new GroupUpsert(
-            "anthropic", 1.0, false, null, false, null, true,
+            "anthropic", 1.0m, false, null, false, null, true,
             new() { ["claude*"] = [10, 20], ["gpt*"] = [30] }, [10, 20, 30], 0, null, null, null));
 
         var ids = await grain.GetRoutingAccountIds("claude-sonnet-4-20250514");
@@ -48,7 +48,7 @@ public class GroupGrainTests
     {
         var grain = GetGrain(4003);
         await grain.Create(new GroupUpsert(
-            "openai", 1.0, false, null, false, null, true,
+            "openai", 1.0m, false, null, false, null, true,
             new() { ["gpt-4o"] = [40, 50] }, [40, 50], 0, null, null, null));
 
         var ids = await grain.GetRoutingAccountIds("gpt-4o");
@@ -60,7 +60,7 @@ public class GroupGrainTests
     {
         var grain = GetGrain(4004);
         await grain.Create(new GroupUpsert(
-            "anthropic", 1.0, false, null, false, null, false,
+            "anthropic", 1.0m, false, null, false, null, false,
             new() { ["claude*"] = [10] }, [10], 0, null, null, null));
 
         var ids = await grain.GetRoutingAccountIds("claude-sonnet-4-20250514");
@@ -72,13 +72,13 @@ public class GroupGrainTests
     {
         var grain = GetGrain(4005);
         await grain.Create(new GroupUpsert(
-            "anthropic", 1.0, false, null, false, null, false, new(), [], 0, 2.5, 9, 18));
+            "anthropic", 1.0m, false, null, false, null, false, new(), [], 0, 2.5m, 9, 18));
 
         var peakTime = new DateTimeOffset(2026, 1, 15, 12, 0, 0, TimeSpan.Zero);
         var offPeakTime = new DateTimeOffset(2026, 1, 15, 22, 0, 0, TimeSpan.Zero);
 
-        Assert.Equal(2.5, await grain.GetEffectiveMultiplier(peakTime));
-        Assert.Equal(1.0, await grain.GetEffectiveMultiplier(offPeakTime));
+        Assert.Equal(2.5m, await grain.GetEffectiveMultiplier(peakTime));
+        Assert.Equal(1.0m, await grain.GetEffectiveMultiplier(offPeakTime));
     }
 
     [Fact]
@@ -86,7 +86,7 @@ public class GroupGrainTests
     {
         var grain = GetGrain(4006);
         await grain.Create(new GroupUpsert(
-            "anthropic", 1.0, false, null, false, null, false, new(), [], 0, null, null, null));
+            "anthropic", 1.0m, false, null, false, null, false, new(), [], 0, null, null, null));
 
         var route = await grain.ResolveCompositeRoute("claude-sonnet-4-20250514", "");
         Assert.NotNull(route);
@@ -100,9 +100,9 @@ public class GroupGrainTests
     {
         var grain = GetGrain(4007);
         await grain.Create(new GroupUpsert(
-            "gemini", 1.0, false, null, false, null, false, new(), [], 0, null, null, null));
+            "gemini", 1.0m, false, null, false, null, false, new(), [], 0, null, null, null));
 
-        var route = await grain.ResolveCompositeRoute("gemini-2.0-flash", "");
+        var route = await grain.ResolveCompositeRoute("gemini-2.0m-flash", "");
         Assert.NotNull(route);
         Assert.Equal("gemini", route.TargetPlatform);
         Assert.Contains("generateContent", route.Endpoint);
@@ -113,7 +113,7 @@ public class GroupGrainTests
     {
         var grain = GetGrain(4008);
         await grain.Create(new GroupUpsert(
-            "openai", 1.0, false, null, false, null, false, new(), [], 0, null, null, null));
+            "openai", 1.0m, false, null, false, null, false, new(), [], 0, null, null, null));
 
         var route = await grain.ResolveCompositeRoute("gpt-4o", "/v1/responses");
         Assert.NotNull(route);
@@ -125,7 +125,7 @@ public class GroupGrainTests
     {
         var grain = GetGrain(4009);
         await grain.Create(new GroupUpsert(
-            "anthropic", 1.0, false, null, false, null, false, new(), [], 0, null, null, null));
+            "anthropic", 1.0m, false, null, false, null, false, new(), [], 0, null, null, null));
 
         await grain.SetStatus("disabled");
         var proj = await grain.GetAuthProjection();
@@ -137,7 +137,7 @@ public class GroupGrainTests
     {
         var grain = GetGrain(4010);
         await grain.Create(new GroupUpsert(
-            "anthropic", 1.0, false, null, false, null, false, new(), [100, 200, 300], 0, null, null, null));
+            "anthropic", 1.0m, false, null, false, null, false, new(), [100, 200, 300], 0, null, null, null));
 
         var ids = await grain.GetMemberAccountIds();
         Assert.Equal([100, 200, 300], ids);

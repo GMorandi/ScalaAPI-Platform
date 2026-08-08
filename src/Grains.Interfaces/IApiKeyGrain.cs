@@ -10,9 +10,9 @@ public record AuthResult(
     long GroupId,
     string Platform,
     string Status,
-    double Quota,
-    double QuotaUsed,
-    double RateMultiplier,
+    decimal Quota,
+    decimal QuotaUsed,
+    decimal RateMultiplier,
     int Concurrency,
     int RpmLimit,
     long Version,
@@ -21,20 +21,20 @@ public record AuthResult(
 
 [GenerateSerializer]
 public record UserProjection(
-    long Id, string Status, string Role, double Balance,
+    long Id, string Status, string Role, decimal Balance,
     int Concurrency, long[] AllowedGroups, int RpmLimit);
 
 [GenerateSerializer]
 public record GroupProjection(
     long Id, string Platform, bool IsExclusive, string Status,
-    double RateMultiplier, double? DailyLimitUsd, bool ClaudeCodeOnly,
+    decimal RateMultiplier, decimal? DailyLimitUsd, bool ClaudeCodeOnly,
     long? FallbackGroupId, bool ModelRoutingEnabled);
 
 [GenerateSerializer]
 public record ApiKeyUpsert(
-    long UserId, long GroupId, double Quota,
+    long UserId, long GroupId, decimal Quota,
     long? ExpiresAt, string[] IpWhitelist, string[] IpBlacklist,
-    double RateLimit5h, double RateLimit1d, double RateLimit7d);
+    decimal RateLimit5h, decimal RateLimit1d, decimal RateLimit7d);
 
 public interface IApiKeyGrain : IGrainWithStringKey
 {

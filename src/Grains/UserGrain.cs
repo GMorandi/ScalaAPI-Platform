@@ -43,7 +43,7 @@ public class UserGrain : Grain, IUserGrain
     {
         var s = _state.State;
         return Task.FromResult(new UserProjection(
-            s.Id, s.Status, s.Role, (double)(s.Balance - s.FrozenBalance),
+            s.Id, s.Status, s.Role, s.Balance - s.FrozenBalance,
             s.Concurrency, s.AllowedGroups, s.RpmLimit));
     }
 
@@ -201,7 +201,7 @@ public class UserGrain : Grain, IUserGrain
         var s = _state.State;
         s.Id = this.GetPrimaryKeyLong();
         s.Role = input.Role;
-        s.Balance = (decimal)input.Balance;
+        s.Balance = input.Balance;
         s.Concurrency = input.Concurrency;
         s.RpmLimit = input.RpmLimit;
         s.AllowedGroups = input.AllowedGroups;
@@ -227,9 +227,9 @@ public class UserGrain : Grain, IUserGrain
         _invalidation.NotifyChange("user", _state.State.Id.ToString());
     }
 
-    public async Task AdjustBalance(double delta)
+    public async Task AdjustBalance(decimal delta)
     {
-        _state.State.Balance = Math.Max(0m, _state.State.Balance + (decimal)delta);
+        _state.State.Balance = Math.Max(0m, _state.State.Balance + delta);
         await _state.WriteStateAsync();
     }
 

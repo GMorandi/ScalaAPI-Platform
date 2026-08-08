@@ -10,7 +10,7 @@ public class UsageState
 {
     [Id(0)] public long TotalInputTokens { get; set; }
     [Id(1)] public long TotalOutputTokens { get; set; }
-    [Id(2)] public double TotalCost { get; set; }
+    [Id(2)] public decimal TotalCost { get; set; }
     [Id(3)] public long WindowStart { get; set; }
     [Id(4)] public int PendingEvents { get; set; }
 }

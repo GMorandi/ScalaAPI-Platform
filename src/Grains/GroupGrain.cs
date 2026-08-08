@@ -10,16 +10,16 @@ public class GroupState
     [Id(0)] public long Id { get; set; }
     [Id(1)] public string Platform { get; set; } = "anthropic";
     [Id(2)] public string Status { get; set; } = "active";
-    [Id(3)] public double RateMultiplier { get; set; } = 1.0;
+    [Id(3)] public decimal RateMultiplier { get; set; } = 1.0m;
     [Id(4)] public bool IsExclusive { get; set; }
-    [Id(5)] public double? DailyLimitUsd { get; set; }
+    [Id(5)] public decimal? DailyLimitUsd { get; set; }
     [Id(6)] public bool ClaudeCodeOnly { get; set; }
     [Id(7)] public long? FallbackGroupId { get; set; }
     [Id(8)] public bool ModelRoutingEnabled { get; set; }
     [Id(9)] public Dictionary<string, long[]> ModelRouting { get; set; } = new();
     [Id(10)] public long[] MemberAccountIds { get; set; } = [];
     [Id(11)] public int RpmLimit { get; set; }
-    [Id(12)] public double? PeakMultiplier { get; set; }
+    [Id(12)] public decimal? PeakMultiplier { get; set; }
     [Id(13)] public int? PeakStartHour { get; set; }
     [Id(14)] public int? PeakEndHour { get; set; }
     [Id(15)] public decimal DailySpendUsd { get; set; }
@@ -107,7 +107,7 @@ public class GroupGrain : Grain, IGroupGrain
             new CompositeRouteDecision(s.Platform, upstreamModel, targetEndpoint));
     }
 
-    public Task<double> GetEffectiveMultiplier(DateTimeOffset now)
+    public Task<decimal> GetEffectiveMultiplier(DateTimeOffset now)
     {
         var s = _state.State;
         if (s.PeakMultiplier.HasValue && s.PeakStartHour.HasValue && s.PeakEndHour.HasValue)
@@ -119,13 +119,13 @@ public class GroupGrain : Grain, IGroupGrain
         return Task.FromResult(s.RateMultiplier);
     }
 
-    public Task<double> GetDailySpend()
+    public Task<decimal> GetDailySpend()
     {
         var s = _state.State;
         var today = DateTimeOffset.UtcNow.ToString("yyyy-MM-dd");
         if (s.DailySpendDate != today)
-            return Task.FromResult(0.0);
-        return Task.FromResult((double)s.DailySpendUsd);
+            return Task.FromResult(0m);
+        return Task.FromResult(s.DailySpendUsd);
     }
 
     public Task<bool> CheckAndRecordRpm()
@@ -143,9 +143,9 @@ public class GroupGrain : Grain, IGroupGrain
         return Task.FromResult(true);
     }
 
-    public async Task RecordSpend(double amount)
+    public async Task RecordSpend(decimal amount)
     {
-        amount = Math.Max(0, amount);
+        amount = Math.Max(0m, amount);
         var s = _state.State;
         var today = DateTimeOffset.UtcNow.ToString("yyyy-MM-dd");
         if (s.DailySpendDate != today)
@@ -153,7 +153,7 @@ public class GroupGrain : Grain, IGroupGrain
             s.DailySpendDate = today;
             s.DailySpendUsd = 0;
         }
-        s.DailySpendUsd += (decimal)amount;
+        s.DailySpendUsd += amount;
         await _state.WriteStateAsync();
     }
 

@@ -16,7 +16,7 @@ public class UserGrainTests
     public async Task TryAcquireSlot_WithinLimit_Succeeds()
     {
         var grain = GetGrain(7001);
-        await grain.Create(new UserUpsert("user", 100.0, 3, 0, []));
+        await grain.Create(new UserUpsert("user", 100.0m, 3, 0, []));
 
         var result = await grain.TryAcquireSlot("req-1");
         Assert.True(result.Acquired);
@@ -29,7 +29,7 @@ public class UserGrainTests
     public async Task TryAcquireSlot_ExceedsLimit_Fails()
     {
         var grain = GetGrain(7002);
-        await grain.Create(new UserUpsert("user", 100.0, 1, 0, []));
+        await grain.Create(new UserUpsert("user", 100.0m, 1, 0, []));
 
         var first = await grain.TryAcquireSlot("req-a");
         Assert.True(first.Acquired);
@@ -43,7 +43,7 @@ public class UserGrainTests
     public async Task ReleaseSlot_FreesCapacity()
     {
         var grain = GetGrain(7003);
-        await grain.Create(new UserUpsert("user", 100.0, 1, 0, []));
+        await grain.Create(new UserUpsert("user", 100.0m, 1, 0, []));
 
         await grain.TryAcquireSlot("req-x");
         await grain.ReleaseSlot("req-x");
@@ -56,7 +56,7 @@ public class UserGrainTests
     public async Task ReserveBalance_Sufficient_ReturnsHandle()
     {
         var grain = GetGrain(7004);
-        await grain.Create(new UserUpsert("user", 50.0, 1, 0, []));
+        await grain.Create(new UserUpsert("user", 50.0m, 1, 0, []));
 
         var handle = await grain.ReserveBalance(10.0m);
         Assert.NotNull(handle);
@@ -67,7 +67,7 @@ public class UserGrainTests
     public async Task ReserveBalance_Insufficient_ReturnsNull()
     {
         var grain = GetGrain(7005);
-        await grain.Create(new UserUpsert("user", 5.0, 1, 0, []));
+        await grain.Create(new UserUpsert("user", 5.0m, 1, 0, []));
 
         var handle = await grain.ReserveBalance(10.0m);
         Assert.Null(handle);
@@ -77,7 +77,7 @@ public class UserGrainTests
     public async Task CommitUsage_DeductsBalance()
     {
         var grain = GetGrain(7006);
-        await grain.Create(new UserUpsert("user", 100.0, 1, 0, []));
+        await grain.Create(new UserUpsert("user", 100.0m, 1, 0, []));
 
         var handle = await grain.ReserveBalance(20.0m);
         Assert.NotNull(handle);
@@ -91,7 +91,7 @@ public class UserGrainTests
     public async Task ReleaseHold_UnfreezesBalance()
     {
         var grain = GetGrain(7007);
-        await grain.Create(new UserUpsert("user", 100.0, 1, 0, []));
+        await grain.Create(new UserUpsert("user", 100.0m, 1, 0, []));
 
         var handle = await grain.ReserveBalance(80.0m);
         Assert.NotNull(handle);
@@ -108,7 +108,7 @@ public class UserGrainTests
     public async Task SetStatus_ChangesProjection()
     {
         var grain = GetGrain(7008);
-        await grain.Create(new UserUpsert("user", 100.0, 1, 0, []));
+        await grain.Create(new UserUpsert("user", 100.0m, 1, 0, []));
 
         await grain.SetStatus("suspended");
         var proj = await grain.GetAuthProjection();
@@ -119,18 +119,18 @@ public class UserGrainTests
     public async Task AdjustBalance_ModifiesBalance()
     {
         var grain = GetGrain(7009);
-        await grain.Create(new UserUpsert("user", 100.0, 1, 0, []));
+        await grain.Create(new UserUpsert("user", 100.0m, 1, 0, []));
 
-        await grain.AdjustBalance(-30.0);
+        await grain.AdjustBalance(-30.0m);
         var proj = await grain.GetAuthProjection();
-        Assert.Equal(70.0, proj.Balance);
+        Assert.Equal(70.0m, proj.Balance);
     }
 
     [Fact]
     public async Task GetAuthProjection_ReflectsConcurrency()
     {
         var grain = GetGrain(7010);
-        await grain.Create(new UserUpsert("admin", 200.0, 5, 120, [1, 2, 3]));
+        await grain.Create(new UserUpsert("admin", 200.0m, 5, 120, [1, 2, 3]));
 
         var proj = await grain.GetAuthProjection();
         Assert.Equal(5, proj.Concurrency);
