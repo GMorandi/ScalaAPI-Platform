@@ -10,12 +10,12 @@ release artifacts.
 | Repository | Commit | Worktree | Responsibility |
 | --- | --- | --- | --- |
 | `gateway` | `c807dc8` | clean | C++ HTTP/WebSocket edge, protocol conversion, chunked streaming, Provider transport, versioned Garnet client, malformed-usage guard, fixed-scale Cap'n Proto client, unique failover lease IDs, bounded non-stream upstream timeout, bounded response replay, invalidation flush recovery |
-| `platform` | `7b63fd2` | clean | C# Orleans control plane, PostgreSQL persistence, leases, NUMERIC ledger, durable holds/idempotency, usage, media lifecycle, Admin API, signed payment webhooks with pending-event recovery, versioned Admin pricing lifecycle, idempotent subscription purchase/renewal/cancellation/expiry, versioned Garnet rebuild, replayable balance effects, fixed-scale RPC contract, retryable terminal idempotency leases, bounded response persistence/replay, password recovery, email verification, self-service profile/password/account deletion, cancellable Provider mock timeout, restart-safe settlement outbox recovery, immutable lease price snapshots, durable ledger reconciliation endpoint, deterministic rolling quota policy, usage-triggered auth invalidation |
+| `platform` | `6d725ce` | clean | C# Orleans control plane, PostgreSQL persistence, leases, NUMERIC ledger, durable holds/idempotency, usage, media lifecycle, Admin API, signed payment webhooks with pending-event recovery, versioned Admin pricing lifecycle with live Host refresh, idempotent subscription purchase/renewal/cancellation/expiry, versioned Garnet rebuild, replayable balance effects, fixed-scale RPC contract, retryable terminal idempotency leases, bounded response persistence/replay, password recovery, email verification, self-service profile/password/account deletion, cancellable Provider mock timeout, restart-safe settlement outbox recovery, immutable lease price snapshots, durable ledger reconciliation endpoint, deterministic rolling quota policy, usage-triggered auth invalidation |
 | `sub2api` | `43ec48d` | read-only clean reference | Functional requirements catalogue only |
 
 The current source inventory is 50 tracked Gateway source files, 87 CTest cases,
 65 hand-written Platform production C# files plus 3 generated Cap'n Proto files,
-18 tracked Platform test/benchmark C# source files, 80 Platform test cases, 135 mapped
+18 tracked Platform test/benchmark C# source files, 80 Platform test cases, 138 mapped
 Admin API route declarations, 34 product tables, 20 SQLSugar entity types, and 31 Admin Web
 source files with 11 page views. Admin Web has no browser test runner yet.
 
@@ -67,8 +67,9 @@ not implementation parity or a migration target.
   Settlement uses that immutable snapshot even if runtime configuration changes;
   a legacy lease without a snapshot fails retryably instead of being repriced.
 - Admin pricing publishes and closes validated `pricing_versions` with UTC effective
-  intervals and immutable version identities. Existing leases still settle from
-  their stored snapshot; live dispatch refresh and historical backfill remain open.
+  intervals and immutable version identities. Platform Host refreshes currently
+  effective rows into new dispatches; existing leases still settle from their
+  stored snapshot, while historical backfill remains open.
 - API-key absolute quota and 5-hour, daily, and weekly spend windows use one
   deterministic policy. Expired windows reset independently; absolute quota wins
   rejection precedence, then the shortest rolling window. Zero limits remain
@@ -160,8 +161,7 @@ not implementation parity or a migration target.
   flush/stale-version recovery now have runtime or unit evidence; TLS and
   multi-client integration tests remain incomplete even though connection
   outage/recovery passes.
-- Hold reconciliation after Orleans/process failure, live dispatch refresh from
-  authoritative price versions,
+- Hold reconciliation after Orleans/process failure, historical price backfill,
   provider adapters beyond the mock, object-byte lifecycle, User Web, commercial
   workflows, and operational release controls remain partial or skeletal.
 - Admin `/admin/usage/reconcile` now persists a passed/failed run and detects
@@ -175,7 +175,7 @@ not implementation parity or a migration target.
 ## Current runtime evidence
 
 On 2026-08-08 the isolated `scalaapi-stage2` project used current-source images:
-Platform `15bfff385320769f7669ce14c34ec8c4d29b7fcf24927bd7bafe11cd805f684b`,
+Platform `078858c851c5b3b046a992bdba41d9b1231e0a7ab181448eeeffe4cc6b30b017`,
 Admin API `be3d79f84896064e8f21a1bba31223225e0531cf67ce5b5c4a6ff307764719af`,
 migrator `13f5d76642c91c66c7443dcc3b0556f31c9f72d62a7fd86740e76462622cd9b4`,
 Gateway `b072b7600c8acaa0d94a9a319629ddf928a218748ce8523b76912a1f457ef350`, and
@@ -245,6 +245,12 @@ committed hold. A low-quota key completed its first request, then the rebuilt
 projection caused the next request to return `401 authentication_error` with
 `Quota exhausted`; this verifies usage-triggered auth invalidation in the current
 Platform/Gateway stack.
+
+Pricing runtime evidence published `stage2-live-1786199990` for `gpt-4o` with
+`9.00000000`/`19.00000000` input/output rates, rebuilt Platform Silo image
+`078858c8`, and sent a Gateway Chat request. The resulting lease stored that
+version and both NUMERIC rates, proving active database pricing reaches new
+dispatches while lease snapshots remain immutable.
 
 Payment runtime evidence on the current Admin image created order `id=2` with
 `7.25 USD`, accepted a signed `payment.succeeded` webhook once, returned

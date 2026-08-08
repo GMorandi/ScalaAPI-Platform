@@ -127,10 +127,11 @@ billable OpenAI Chat Completions vertical slice. Work outside that slice stays
   stable balance-effect replay. A current-image pending event recovered after an
   Admin restart; provider adapters, reconciliation UI, and exact SQL/cluster
   crash injection remain open.
-- Completed in `7b63fd2`: Admin can publish, query, and close validated
-  `pricing_versions` with UTC effective intervals and duplicate protection. Lease
-  settlement remains snapshot-based; live dispatch refresh, provider price
-  adapters, and historical backfill remain open.
+- Completed in `7b63fd2` and `6d725ce`: Admin can publish, query, and close
+  validated `pricing_versions` with UTC effective intervals and duplicate
+  protection, and Platform Host refreshes active versions into new dispatches.
+  Lease settlement remains snapshot-based; provider price adapters and historical
+  backfill remain open.
 - Still open: PostgreSQL aggregate repositories/foreign keys, fixed-precision RPC
   schema generation, crash/restart settlement scenarios, provider failure matrix,
   empty-volume CI automation, and Garnet flush/stale-version/TLS/multi-client evidence.
