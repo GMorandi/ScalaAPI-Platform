@@ -45,6 +45,9 @@ public static class UserAuthEndpoints
                 CreatedAt = DateTime.UtcNow,
             };
             await db.Insertable(account).ExecuteCommandAsync();
+            account.Id = Convert.ToInt64(await db.Ado.GetScalarAsync(
+                "SELECT id FROM user_accounts WHERE email = @email",
+                new SugarParameter("@email", email)));
             await client.GetGrain<IUserGrain>(account.Id).Create(new UserUpsert(
                 "user", 0, 1, 0, []));
             await registry.RegisterInteger("user", account.Id);
@@ -150,6 +153,9 @@ public static class UserAuthEndpoints
                         CreatedAt = DateTime.UtcNow,
                     };
                     await db.Insertable(account).ExecuteCommandAsync();
+                    account.Id = Convert.ToInt64(await db.Ado.GetScalarAsync(
+                        "SELECT id FROM user_accounts WHERE email = @email",
+                        new SugarParameter("@email", email)));
                     createdIdentity = true;
                 }
                 else

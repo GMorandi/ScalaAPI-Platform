@@ -141,5 +141,8 @@ static async Task BootstrapAdminAsync(IServiceProvider services, IConfiguration 
         CreatedAt = DateTime.UtcNow,
     };
     await db.Insertable(account).ExecuteCommandAsync();
+    account.Id = Convert.ToInt64(await db.Ado.GetScalarAsync(
+        "SELECT id FROM user_accounts WHERE email = @email",
+        new SqlSugar.SugarParameter("@email", normalized)));
     await registry.RegisterInteger("user", account.Id);
 }
