@@ -33,6 +33,8 @@ COPY --from=build /app/migrate ./migrate
 COPY deploy/orleans-postgres-schema.sql ./migrations/000-orleans.sql
 COPY deploy/migrations/001-baseline.sql ./migrations/001-baseline.sql
 COPY deploy/migrations/002-product-invariants.sql ./migrations/002-product-invariants.sql
+COPY deploy/migrations/003-entity-registry.sql ./migrations/003-entity-registry.sql
+COPY deploy/migrations/004-auth-sessions.sql ./migrations/004-auth-sessions.sql
 ENTRYPOINT ["dotnet", "migrate/Db.Migrator.dll", "/app/migrations"]
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS provider-mock
