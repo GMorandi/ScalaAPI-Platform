@@ -10,13 +10,13 @@ read-only requirements reference and is excluded from builds and runtime.
 
 | Repository | Commit | Worktree | Role |
 | --- | --- | --- | --- |
-| `gateway` | `cec13e6` | clean | C++ HTTP/WebSocket edge, protocol parsing/conversion, streaming, Provider transport/evidence, charge-aware failover, durable usage delivery, authenticated Garnet projections, and deterministic fault boundaries |
+| `gateway` | `30b8c2b` | clean | C++ HTTP/WebSocket edge, protocol parsing/conversion, streaming, Provider transport/evidence, charge-aware failover, durable usage delivery, authenticated Garnet projections, deterministic fault boundaries, and fail-closed cancellation/partial-SSE handling |
 | `platform` | `8c3d2e0` | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, identity, scheduling, evidence-backed leases/holds/ledger, audited operator resolution, media lifecycle, Admin API/Web, Provider mock, migrations, deterministic fault boundaries, and deployment gates |
 | `sub2api` | `43ec48d` | read-only clean | Requirements catalogue only; never a runtime or compatibility dependency |
 
 The current tracked inventory is:
 
-- Gateway: 52 production C++ source/header files, 10 test source files, and 94
+- Gateway: 52 production C++ source/header files, 10 test source files, and 97
   CTest cases.
 - Platform: 81 hand-written production C# files, 3 generated Cap'n Proto C#
   files, 26 test/benchmark C# files, and 95 tests: 57 Grain, 28 Host, 4 Admin,
@@ -78,6 +78,12 @@ current-source runtime evidence.
   Body read failure, an empty 2xx payload, or malformed JSON becomes a retryable
   protocol error; an upstream disconnect can no longer escape as a zero-token
   200 response. Streaming requests reject a non-SSE success before client output.
+  SSE completion now requires the source protocol's terminal event (`[DONE]`,
+  `message_stop`, `response.completed`, or a finish reason); EOF/timeout before
+  that event is an incomplete Provider stream and retains the charge hold. A
+  client write returning zero or an error is treated as cancellation, never
+  retried, and records a bounded disconnect/cancellation reason for usage
+  evidence.
 - Gateway's local usage outbox survives restart, replays retryable reports, and
   retires non-retryable terminal reports instead of blocking forever.
 - Gateway and Platform expose opt-in, one-shot deterministic fault hooks at
@@ -166,10 +172,11 @@ current-source runtime evidence.
 
 ## Current verification evidence
 
-At Platform `8c3d2e0` and Gateway `cec13e6`:
+At Platform `8c3d2e0` and Gateway `30b8c2b`:
 
-- Gateway built locally and passed 94/94 CTest cases, including deterministic
-  fault-hook claim/repeat behavior.
+- Gateway built locally and passed 97/97 CTest cases, including deterministic
+  fault-hook claim/repeat behavior, terminal SSE detection, provider EOF
+  classification, and zero-length client-write cancellation.
 - Platform Release test/build passed with 0 warnings and 0 errors: 95/95 tests,
   including 28 Host tests against a fresh real PostgreSQL schema. Host coverage
   includes deterministic fault-hook configuration plus atomic operator
@@ -223,11 +230,14 @@ Detailed gate results and residual coverage are maintained in `verification.md`.
   Admin operators can resolve an open unknown-charge incident exactly once through
   an audited, idempotent `settle` or evidence-gated `release` command; subscription
   quota grants and future affiliate effects still need explicit authority contracts.
-- Upstream disconnect is now covered for non-stream OpenAI Chat, but actual client
-  cancellation, partial SSE output, unknown Provider billing after cancellation,
-  and protocol-wide fault semantics are not closed. A direct transport reset
-  currently returns 502 while scheduler exhaustion after the same reset can return
-  503; the next error-contract slice must normalize the public status and body.
+- Gateway now classifies client cancellation and incomplete SSE as unknown-charge
+  outcomes, records disconnect/cancellation reasons, and prevents failover after
+  output or partial Provider output. The source-level behavior is covered by 97
+  CTest cases; empty-stack assertions for each SSE fault account, actual socket
+  cancellation, and final usage/reconciliation are still open. A direct
+  transport reset currently returns 502 while scheduler exhaustion after the same
+  reset can return 503; the next error-contract slice must normalize the public
+  status and body.
 - One source smoke proves the Platform post-settlement-commit crash boundary and
   replay. The remaining dispatch, Provider-completion, pre-commit, Gateway, and
   outbox-acknowledgement hook matrix still needs independent runtime assertions,

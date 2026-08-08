@@ -2,7 +2,7 @@
 
 ## Checkpoint
 
-The next stage starts from Platform `8c3d2e0`, Gateway `cec13e6`, and read-only
+The next stage starts from Platform `8c3d2e0`, Gateway `30b8c2b`, and read-only
 reference `sub2api@43ec48d`.
 
 The greenfield baseline now starts from empty volumes, uses PostgreSQL as authority,
@@ -27,8 +27,10 @@ event, and audit persistence in the same transaction; subsequent reconciliation
 preserves that decision. Gateway and Platform now expose deterministic one-shot
 fault hooks around dispatch, Provider completion, settlement commit, and outbox
 acknowledgement. The source smoke intentionally crashed Platform after settlement
-commit and recovered a single Orleans silo without a duplicate debit; the remaining
-hook matrix, cancellation, and multi-instance scenarios are still open.
+commit and recovered a single Orleans silo without a duplicate debit. Gateway now
+has source-level terminal-event-gated SSE completion and client-cancellation
+classification; the empty-stack hook matrix, public error normalization, and
+multi-instance scenarios are still open.
 
 This stage contains no compatibility, cutover, dual-write, CDC, snapshot import,
 old-key import, ID preservation, status mapping, or business-data migration work.
@@ -55,7 +57,7 @@ failed assertion makes the top-level command non-zero.
 
 Accounting authority completed at `c15b53b`, reconciliation foundation at
 `fddba62`, dispatch evidence at `6bfb974`/`84634d1`, audited resolution at
-`0559659`, and deterministic fault boundaries at `1cad5b7`/`cec13e6`/`8c3d2e0`:
+`0559659`, and deterministic fault boundaries at `1cad5b7`/`30b8c2b`/`8c3d2e0`:
 
 - Added one per-user `accounting_accounts` authority with NUMERIC posted balance
   and monotonically increasing ledger version.
@@ -140,13 +142,22 @@ an open incident can be resolved only through the audited settle/release contrac
 
 ## Work package 2: cancellation and streaming failure semantics
 
+Progress in Gateway `30b8c2b`: the streaming pipe now requires a source protocol
+terminal event before treating Provider EOF as complete, classifies timeout/EOF as
+incomplete, treats zero/error client writes as cancellation, records bounded
+disconnect/cancellation reasons, and prevents Gateway failover or normal usage
+settlement for ambiguous partial streams. These behaviors are covered by 97 Gateway
+CTest cases. The package is not closed until the public 502/503 contract and the
+empty-volume Provider fault matrix prove the same outcomes through Platform.
+
 Deliverables:
 
 - Normalize direct-reset 502 versus post-cooldown 503 into one documented public
   status, error type, and safe non-empty body. Freeze retryable/non-retryable mapping
   before adding protocol fixtures.
 - Propagate client cancellation through the HTTP/SSE transport and stop retrying as
-  soon as any response bytes have reached the client.
+  soon as any response bytes have reached the client. Gateway source behavior is
+  implemented; stack-level socket and reconciliation evidence remains.
 - Cancellation before `forwarded` evidence may expire/abort and release without a
   usage debit. Once Provider transport has been authorized, absence of client output
   does not prove no charge: continue collecting final usage when possible or enter
@@ -249,8 +260,9 @@ idempotency state, outbox backlog, and reconciliation status:
 
 1. Finish package 1 hook-matrix and recovery tests first; dispatch evidence, the
    authoritative unknown-charge state, audited incident decisions, and one
-   post-commit crash replay now exist, but cancellation cannot be release-complete
-   without every deterministic boundary and multi-instance recovery.
+   post-commit crash replay now exist. Gateway cancellation semantics are source
+   tested, but cancellation cannot be release-complete without the public error
+   contract, every deterministic boundary, and multi-instance recovery.
 2. Package 2 defines transport semantics; package 3 freezes them as fixtures.
 3. Package 4 runs the state machines under concurrency and infrastructure failure.
 4. Package 5 makes the same evidence mandatory in hosted release CI.
