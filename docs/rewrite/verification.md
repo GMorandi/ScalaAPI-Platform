@@ -5,7 +5,7 @@
 | Gate | Result | Interpretation |
 | --- | --- | --- |
 | Gateway build and CTest | Clean local build; 83/83, exit 0 | Current TCP/TLS client and malformed-usage guard included |
-| Platform tests | 67/67, exit 0 | 50 grain and 17 host tests |
+| Platform tests | 68/68, exit 0 | 50 grain and 18 host tests |
 | Platform Release build | Passed, 0 warnings and 0 errors | Includes Platform Host, Admin API, migrator, Provider mock, and benchmark assembly |
 | Admin Web | Typecheck and production build passed | Blocking CI gate exists; browser tests are not configured |
 | Scheduler benchmark dry run | 4/4, exit 0; no-match negative probe exits 1 | Dependency injection and child-result propagation pass; not performance evidence |
