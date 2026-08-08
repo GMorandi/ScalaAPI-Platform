@@ -9,13 +9,13 @@ release artifacts.
 
 | Repository | Commit | Worktree | Responsibility |
 | --- | --- | --- | --- |
-| `gateway` | `06adeb9` | clean | C++ HTTP/WebSocket edge, protocol conversion, chunked streaming, Provider transport, Cap'n Proto client |
-| `platform` | `f1ed79e` | clean | C# Orleans control plane, PostgreSQL persistence, leases, NUMERIC ledger, durable holds/idempotency, usage, media lifecycle, Admin API |
+| `gateway` | `5a3de2a` | clean | C++ HTTP/WebSocket edge, protocol conversion, chunked streaming, Provider transport, versioned Garnet client, Cap'n Proto client |
+| `platform` | `76452e0` | clean | C# Orleans control plane, PostgreSQL persistence, leases, NUMERIC ledger, durable holds/idempotency, usage, media lifecycle, Admin API, versioned Garnet rebuild |
 | `sub2api` | `43ec48d` | read-only clean reference | Functional requirements catalogue only |
 
-The current source inventory is 49 Gateway implementation files, 82 CTest cases,
-105 hand-written Platform production C# files plus 3 generated Cap'n Proto files,
-31 Platform test or benchmark source files, 65 Platform test cases, 123 mapped
+The current source inventory is 50 tracked Gateway source files, 82 CTest cases,
+60 hand-written Platform production C# files plus 3 generated Cap'n Proto files,
+20 tracked Platform test/benchmark source files, 67 Platform test cases, 123 mapped
 Admin API routes, 33 product tables, 20 SQLSugar entity types, and 24 Admin Web
 source files with 11 page views. Admin Web has no browser test runner yet.
 
@@ -62,6 +62,11 @@ not implementation parity or a migration target.
 - Platform and Gateway use authenticated TCP clients for the external Garnet
   service, support TLS with certificate-name verification, and have no embedded
   cache implementation or Microsoft.Garnet package dependency.
+- Garnet projections use the versioned `scalaapi:v1` keyspace with bounded auth,
+  account, route/config, sticky-session, and invalidation TTLs. Platform exposes a
+  token-protected `/internal/cache/rebuild` operation that reconstructs auth
+  projections from `entity_registry` and Orleans aggregates; it never treats cache
+  contents as business authority.
 - A source-owned Provider mock now supplies deterministic JSON, SSE, failure,
   delay, disconnect, and malformed-usage scenarios. Its image, health endpoint,
   success response, and 429 response passed the isolated Compose smoke.
@@ -90,7 +95,8 @@ not implementation parity or a migration target.
   evidence.
 - Generated C# Cap'n Proto files are checked in but are not regenerated and digest
   verified by CI yet.
-- Garnet key TTL policy, projection rebuild, cache-flush recovery, and multi-client
+- Garnet key TTL policy and the authenticated projection rebuild now have runtime
+  evidence; cache-flush recovery, stale-version handling, TLS, and multi-client
   integration tests remain incomplete even though connection outage/recovery passes.
 - Hold reconciliation after Orleans/process failure, pricing-version authority,
   provider adapters beyond the mock, object-byte lifecycle, User Web, commercial
@@ -100,9 +106,9 @@ not implementation parity or a migration target.
 ## Current runtime evidence
 
 On 2026-08-08 the isolated `scalaapi-stage2` project used current-source images:
-Platform `212cbcbcd1ecebd42c95330114975d56aeb908c382f104c62c252862deaf13d4`,
+Platform `1f6ec6330e73d034434796d0b0520cbde2b348e68aebd1d8a153b39b0e7b8b23`,
 migrator `8ea85be1a9ffed1885cf35fbdb54c2813c04384f7c8f6c1d2fe1fbd7ae3fddbf`,
-Gateway `64b62db3278040332554748e7a1ab6602d792032bbd69e4635159e4f19b04e99`, and
+Gateway `2f3b6f7141054c43beb6a830003a575b0810edac07699f49f4cc5770fcbf9789`, and
 Provider mock `425e1430cc32f8756a688d176f1d542c9026603c37e0cb609e55b5ee49d6bcb8`.
 The migrator applied 005-007 and a second run skipped them all. Registration
 returned user id 7 and registry id 7. Provider seed was idempotent (same account
@@ -124,6 +130,10 @@ failover matrix is still a release gate.
 
 Authenticated Garnet `PING`, `SET/GET`, PX expiry, `INCR`, and `DEL` passed. Stopping
 Garnet changed Platform readiness to 503; restarting it restored readiness to 200.
+The protected cache rebuild endpoint returned `discovered=12`, `written=12`,
+`deleted=0`, `errors=0`; an immediate authenticated RESP read returned a
+`scalaapi:v1:auth:*` projection. The current Gateway image then completed a seeded
+Chat JSON request through the rebuilt projection.
 Gateway readiness returned 200 and an unknown API key traversed the current dispatch
 path to a stable 401. This is bootstrap evidence, not evidence for a successful
 billable request or settlement; the seeded request evidence above is the current

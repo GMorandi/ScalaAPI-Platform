@@ -54,7 +54,8 @@ production deployment must enable it and mount trust material through an overrid
 
 Key namespaces are prefixed with `scalaapi:v1`. Auth, model, route, sticky-session,
 rate-window, and invalidation keys have explicit TTLs or are version counters.
-All keys are projections and may be rebuilt from PostgreSQL. Garnet outage makes
+All keys are projections and may be rebuilt from the product registry and Orleans
+aggregate projections through the protected Platform rebuild operation. Garnet outage makes
 new rate-sensitive dispatch fail closed while settlement and recovery outboxes stay
 available.
 

@@ -12,7 +12,7 @@ This does not close the product rewrite. The next stage is one authoritative,
 billable OpenAI Chat Completions vertical slice. Work outside that slice stays
 `partial`, `skeleton`, or `missing` in the inventory.
 
-## Progress checkpoint (2026-08-08, platform `f1ed79e`)
+## Progress checkpoint (2026-08-08, platform `76452e0`, gateway `5a3de2a`)
 
 - Completed in `b266e17`: business balances, quotas, costs, limits, and routing
   multipliers use `decimal`; precision projections cover User, Group, and API key.
@@ -34,9 +34,13 @@ billable OpenAI Chat Completions vertical slice. Work outside that slice stays
 - Completed in `2607006`: optional API-key policy arrays are normalized at the grain
   boundary, so omitted Admin JSON cannot turn authentication into a null-reference
   failure.
+- Completed in `7f755f3`, `5a3de2a`, and `76452e0`: Garnet uses the versioned
+  `scalaapi:v1` keyspace, bounded projection TTLs, authenticated TCP clients, and
+  a protected Platform projection rebuild. Current-image rebuild evidence is
+  `12/12` projections written with zero errors.
 - Still open: PostgreSQL aggregate repositories/foreign keys, fixed-precision RPC
   schema generation, crash/restart settlement scenarios, provider failure matrix,
-  empty-volume CI automation, and Garnet projection rebuild/TLS evidence.
+  empty-volume CI automation, and Garnet flush/stale-version/TLS/multi-client evidence.
 
 ## Stage 2 objective
 
@@ -115,9 +119,12 @@ SSE, including duplicate and failure semantics.
 ### 5. Garnet projection resilience
 
 - Define the `scalaapi:v1` key registry, owner, value schema, TTL, and invalidation
-  version for every key used by the vertical slice.
-- Add a Platform rebuild command and automatic cache-miss repopulation from
-  PostgreSQL; add explicit flush and stale-version recovery tests.
+  version for every key used by the vertical slice. The current source has the
+  namespace and bounded TTLs for auth, account, route/config, sticky, and
+  invalidation keys.
+- The protected Platform rebuild command and cache-miss repopulation now rebuild
+  auth projections from product registry plus Orleans state. Add explicit flush,
+  stale-version, and restart recovery tests.
 - Add authenticated multi-client and TLS integration tests with one Platform and at
   least two Gateway clients. Cache loss must affect readiness/routing but never lose
   durable settlement work.

@@ -5,7 +5,7 @@
 | Lease, hold, or ledger double settlement | P0 | Partial | Lease creation persists an active hold; completion/abort/expiry and NUMERIC debit are transactionally idempotent; add crash injection, reconciliation, and historical replay tests |
 | PostgreSQL and Orleans authority split | P0 | Partial | Product `entity_registry` now owns business discovery; add full PostgreSQL aggregate repositories and accounting authority, with no Orleans storage introspection |
 | Redis or embedded cache reintroduced | P0 | Controlled | Official Garnet digest, external TCP probe, dependency scan, no fallback implementation |
-| Garnet outage or stale projections | P0 | Partial | Fail-closed readiness passes; add explicit TTLs, rebuild job, flush and stale-version tests |
+| Garnet outage or stale projections | P0 | Partial | Fail-closed readiness and authenticated `scalaapi:v1` rebuild pass; add flush, stale-version, TLS, and multi-client tests |
 | Credential disclosure or weak rotation | P0 | Partial | Envelope encryption, redacted logs/API responses, rotation drill, security scan |
 | Provider response and usage differences | P0 | Partial | Deterministic mock JSON/SSE and usage extraction pass; add adapter contract, golden fixtures, malformed-usage reconciliation |
 | Request idempotency replay or fingerprint drift | P0 | Partial | Durable key/fingerprint rows reject duplicate charge and conflict before scheduling; add stored-response replay and restart-before-expiry tests |
