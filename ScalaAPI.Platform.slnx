@@ -12,6 +12,7 @@
     <Project Path="test/Admin.Tests/Admin.Tests.csproj" />
     <Project Path="test/Grains.Tests/Grains.Tests.csproj" />
     <Project Path="test/Host.Tests/Host.Tests.csproj" />
+    <Project Path="test/Provider.Mock.Tests/Provider.Mock.Tests.csproj" />
     <Project Path="test/Platform.Benchmarks/Platform.Benchmarks.csproj" />
   </Folder>
 </Solution>

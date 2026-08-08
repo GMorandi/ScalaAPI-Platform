@@ -334,12 +334,7 @@ app.MapPost("/v1/chat/completions", async (HttpContext context, CancellationToke
         : "mock-model";
     var requestId = context.Request.Headers["X-Provider-Request-Id"].FirstOrDefault()
         ?? $"mock-{Guid.NewGuid():N}";
-    var scenario = context.Request.Headers["X-Provider-Scenario"].FirstOrDefault()
-        ?? context.Request.Query["scenario"].FirstOrDefault()
-        ?? (root.TryGetProperty("mock_scenario", out var scenarioValue)
-            ? scenarioValue.GetString()
-            : null)
-        ?? "success";
+    var scenario = MockProviderHelpers.Scenario(context, root);
 
     switch (scenario.ToLowerInvariant())
     {
