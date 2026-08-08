@@ -5,12 +5,12 @@
 | Gate | Result | Interpretation |
 | --- | --- | --- |
 | Gateway build and CTest | Clean local build; 83/83, exit 0 | Current TCP/TLS client and malformed-usage guard included |
-| Platform tests | 68/68, exit 0 | 50 grain and 18 host tests |
+| Platform tests | 68/68, exit 0 | 50 grain and 18 host tests; includes idempotent balance-effect replay |
 | Platform Release build | Passed, 0 warnings and 0 errors | Includes Platform Host, Admin API, migrator, Provider mock, and benchmark assembly |
 | Admin Web | Typecheck and production build passed | Blocking CI gate exists; browser tests are not configured |
 | Scheduler benchmark dry run | 4/4, exit 0; no-match negative probe exits 1 | Dependency injection and child-result propagation pass; not performance evidence |
 | Contract digest | Canonical and Gateway vendor schemas match | Generated C# digest gate remains pending |
-| PostgreSQL migrator | Current image applied 005, 006, and 007; repeated invocation skipped all recorded migrations, exit 0 | No source database, CDC, or compatibility tables used; a truly empty-volume replay remains a release gate |
+| PostgreSQL migrator | Current image applied 005 through 008; repeated invocation skipped all recorded migrations, exit 0 | No source database, CDC, or compatibility tables used; a truly empty-volume replay remains a release gate |
 | Current-image Compose smoke | All long-running services healthy; migrator exit 0 | Isolated project and new volumes |
 | Garnet smoke | Auth, PING, SET/GET, PX, INCR, DEL passed | Official digest; no Redis or embedded server |
 | Garnet outage/recovery | Platform readiness 503 then 200 | Automatic TCP reconnect verified |
@@ -21,6 +21,7 @@
 | Request idempotency smoke | Concurrent same-key calls produced one 200 and one 409 replay; different fingerprint produced 409 conflict; one lease/debit/hold per key | Stored-response replay and crash recovery before lease expiry remain |
 | Admin settlement queries | Ledger, lease, and hold endpoints returned current PostgreSQL rows with user filters | Pagination/export and browser assertions remain |
 | Auth lifecycle smoke | Refresh replay and logout revocation returned 401 on the current image | Concurrent rotation and multi-device HTTP tests remain |
+| Redeem-code settlement smoke | First redemption returned 200; repeat returned 409; after a Silo contract restart a committed redemption remained 409 and replayed its balance effect; one redemption and one NUMERIC ledger row were observed | Concurrent HTTP contention and audit-event assertions remain |
 
 ## Remaining release gates
 

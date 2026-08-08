@@ -31,7 +31,7 @@ BILL-04,Usage / billing,Money precision transactional integrity and idempotency,
 BILL-05,Usage / billing,Usage query dashboards exports and cleanup,P1,partial,Platform,Aggregates exports retention and UI tests
 COM-01,Commercial,Payment providers orders webhooks refunds and reconciliation,P0,skeleton,Platform,Signed webhook state machine and reconciliation tests
 COM-02,Commercial,Subscription purchase renewal expiry and quota reset,P1,skeleton,Platform,Entitlement lifecycle and renewal tests
-COM-03,Commercial,Redeem and promotion codes,P1,partial,Platform,Atomic redemption concurrency and audit tests
+COM-03,Commercial,Redeem and promotion codes,P1,partial,Platform,Transactional redemption, replayable balance effect, concurrent HTTP contention, and audit tests
 COM-04,Commercial,Affiliate referral rebate and transfer lifecycle,P2,skeleton,Platform,Attribution anti-abuse and ledger tests
 COM-05,Commercial,Announcements and read tracking,P2,partial,Platform,Targeting scheduling and read-state tests
 OPS-01,Administration / operations,Core admin CRUD dashboard and config,P0,partial,Platform + Admin Web,Authorization bulk filters and UI tests

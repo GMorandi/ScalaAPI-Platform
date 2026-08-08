@@ -10,12 +10,12 @@ release artifacts.
 | Repository | Commit | Worktree | Responsibility |
 | --- | --- | --- | --- |
 | `gateway` | `1ec32e3` | clean | C++ HTTP/WebSocket edge, protocol conversion, chunked streaming, Provider transport, versioned Garnet client, malformed-usage guard, Cap'n Proto client |
-| `platform` | `d48e5f4` | clean | C# Orleans control plane, PostgreSQL persistence, leases, NUMERIC ledger, durable holds/idempotency, usage, media lifecycle, Admin API, versioned Garnet rebuild |
+| `platform` | `c180136` | clean | C# Orleans control plane, PostgreSQL persistence, leases, NUMERIC ledger, durable holds/idempotency, usage, media lifecycle, Admin API, versioned Garnet rebuild, replayable balance effects |
 | `sub2api` | `43ec48d` | read-only clean reference | Functional requirements catalogue only |
 
 The current source inventory is 50 tracked Gateway source files, 83 CTest cases,
 60 hand-written Platform production C# files plus 3 generated Cap'n Proto files,
-20 tracked Platform test/benchmark source files, 67 Platform test cases, 123 mapped
+20 tracked Platform test/benchmark source files, 68 Platform test cases, 123 mapped
 Admin API routes, 33 product tables, 20 SQLSugar entity types, and 24 Admin Web
 source files with 11 page views. Admin Web has no browser test runner yet.
 
@@ -59,6 +59,11 @@ not implementation parity or a migration target.
 - Provider usage counters are validated as bounded non-negative integers. A malformed
   provider usage response returns `502 provider_error`, aborts the lease, releases
   its durable hold, and suppresses usage/ledger settlement.
+- Redeem-code redemption locks the PostgreSQL code row, records one user redemption,
+  increments usage, and appends one `redeem_bonus` ledger effect transactionally. A
+  unique `(code_id, user_id)` redemption and partial `(reference, entry_type)` ledger
+  key make retries deterministic; the User Grain applies a stable effect id exactly
+  once and can replay a committed ledger effect after a projection failure.
 - CDC consumers, Debezium configuration, migration fences, migration write gates,
   migration-control endpoints, CDC-only tables, and their tests are removed from
   active code. Their documents remain under `docs/archive/migration`.
@@ -91,7 +96,7 @@ not implementation parity or a migration target.
   fields as Float64; replace them with fixed-scale integer or canonical decimal text
   before declaring the public RPC contract complete.
 - Full empty-environment migration replay from an actually empty volume is still a
-  release gate; the current isolated database applied 005, 006, and 007 and a
+  release gate; the current isolated database applied 005 through 008 and a
   second migrator invocation skipped all eight recorded migrations.
 - Session concurrent-rotation HTTP tests, crash injection, and API-key policy tests
   remain pending even though replay/logout, rotation, and revoke paths have runtime
@@ -109,11 +114,12 @@ not implementation parity or a migration target.
 ## Current runtime evidence
 
 On 2026-08-08 the isolated `scalaapi-stage2` project used current-source images:
-Platform `1f6ec6330e73d034434796d0b0520cbde2b348e68aebd1d8a153b39b0e7b8b23`,
-migrator `8ea85be1a9ffed1885cf35fbdb54c2813c04384f7c8f6c1d2fe1fbd7ae3fddbf`,
+Platform `08f08471ac3d7f25f34dca2c1ecf8dffe2875cab1d085899c0e0c69a98ed4b9d`,
+Admin API `16f0ba426375edfe96398f22357333c8bcc657c8e60a5a74b387d2c349fd139c`,
+migrator `e23af7d134b39bd328082875a9b99a1ebd0e1358d527825bd650c34984f3ca95`,
 Gateway `4ae2b43b753cf97f3baf07441f91d1dda68d53970d730372b7e5278781bb9989`, and
 Provider mock `425e1430cc32f8756a688d176f1d542c9026603c37e0cb609e55b5ee49d6bcb8`.
-The migrator applied 005-007 and a second run skipped them all. Registration
+The migrator applied 005-008 and a second run skipped them all. Registration
 returned user id 7 and registry id 7. Provider seed was idempotent (same account
 and group on two calls); API-key rotation revoked the old key; Admin-created keys
 were projected into `user_api_keys`. Seeded JSON and SSE requests both returned
@@ -131,6 +137,12 @@ Provider mock upstream-failure probes created terminal `aborted` leases with
 the same no-charge state; a 429 probe returned `503 provider_unavailable` after
 account exhaustion with released holds and no ledger rows. A complete 429/500 retry,
 timeout, disconnect, and failover matrix is still a release gate.
+
+Redeem-code runtime evidence created a one-use `1.25` code, returned `200` on the
+first request and `409` on repeat, then recovered a committed redemption after a
+Silo contract restart. PostgreSQL showed `used_count=1`, one redemption row, one
+`redeem_bonus` ledger row, and the Admin projection reported the expected decimal
+balance. Grain tests cover duplicate balance-effect application.
 
 Authenticated Garnet `PING`, `SET/GET`, PX expiry, `INCR`, and `DEL` passed. Stopping
 Garnet changed Platform readiness to 503; restarting it restored readiness to 200.

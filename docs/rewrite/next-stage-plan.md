@@ -12,7 +12,7 @@ This does not close the product rewrite. The next stage is one authoritative,
 billable OpenAI Chat Completions vertical slice. Work outside that slice stays
 `partial`, `skeleton`, or `missing` in the inventory.
 
-## Progress checkpoint (2026-08-08, platform `d48e5f4`, gateway `1ec32e3`)
+## Progress checkpoint (2026-08-08, platform `c180136`, gateway `1ec32e3`)
 
 - Completed in `b266e17`: business balances, quotas, costs, limits, and routing
   multipliers use `decimal`; precision projections cover User, Group, and API key.
@@ -41,6 +41,11 @@ billable OpenAI Chat Completions vertical slice. Work outside that slice stays
 - Completed in `1ec32e3`: malformed provider usage is rejected before settlement;
   the live mock probe returned `502`, an aborted lease, a released hold, and zero
   ledger rows.
+- Completed in `adbccdc`, `a8b53c3`, and `c180136`: redeem-code effects use a
+  PostgreSQL row lock, unique redemption and ledger keys, and a stable replayable
+  User Grain balance effect. Current-image runtime evidence is first-request `200`,
+  duplicate `409`, one redemption row, one ledger row, and recovery after a Silo
+  contract restart; concurrent HTTP and audit-event tests remain.
 - Still open: PostgreSQL aggregate repositories/foreign keys, fixed-precision RPC
   schema generation, crash/restart settlement scenarios, provider failure matrix,
   empty-volume CI automation, and Garnet flush/stale-version/TLS/multi-client evidence.
