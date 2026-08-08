@@ -268,6 +268,79 @@ public sealed class MediaOperationStoreTests
         }
     }
 
+    [Fact]
+    public async Task ExpiryReleasesHoldAndAllowsMatchingRetry()
+    {
+        var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
+        if (string.IsNullOrWhiteSpace(connectionString)) return;
+
+        await using var dataSource = NpgsqlDataSource.Create(connectionString);
+        var suffix = Guid.NewGuid().ToString("N");
+        var leaseToken = $"lease-expiry-{suffix}";
+        var requestId = $"request-expiry-{suffix}";
+        var retryToken = $"lease-expiry-retry-{suffix}";
+        var retryRequestId = $"request-expiry-retry-{suffix}";
+        var holdId = $"hold-expiry-{suffix}";
+        var retryHoldId = $"hold-expiry-retry-{suffix}";
+        var idempotencyKey = $"idem-expiry-{suffix}";
+        const long apiKeyId = 98001;
+        try
+        {
+            var store = new RequestLeaseStore(dataSource,
+                new ModelPricingService(new ConfigurationBuilder().Build()),
+                NullLogger<RequestLeaseStore>.Instance);
+            var request = new LeaseCreateRequest(
+                leaseToken, requestId, "hash-expiry", apiKeyId, 98002, 98003, 98004,
+                "gpt-4o", "gpt-4o", "chat_completions", 1m, holdId, 3m,
+                DateTime.UtcNow.AddMinutes(-1), idempotencyKey, "expiry-fingerprint");
+            Assert.True(await store.CreateAsync(request));
+            Assert.Equal(1, await store.ExpireActiveAsync());
+            Assert.Equal("expired", await ReadLeaseStatus(dataSource, leaseToken));
+            Assert.Equal("released", await ReadHoldStatus(dataSource, holdId));
+            Assert.Equal("expired", await ReadIdempotencyStatus(dataSource, apiKeyId, idempotencyKey));
+
+            var retry = await store.CreateDetailedAsync(request with
+            {
+                LeaseToken = retryToken,
+                RequestId = retryRequestId,
+                HoldHandle = retryHoldId,
+                ExpiresAt = DateTime.UtcNow.AddMinutes(10),
+            });
+            Assert.True(retry.Created);
+            Assert.Equal("active", await ReadHoldStatus(dataSource, retryHoldId));
+        }
+        finally
+        {
+            foreach (var table in new[] { "usage_outbox", "usage_logs", "usage_events" })
+            {
+                await using var cleanupUsage = dataSource.CreateCommand(
+                    $"DELETE FROM {table} WHERE lease_token IN ($1, $2)");
+                cleanupUsage.Parameters.AddWithValue(leaseToken);
+                cleanupUsage.Parameters.AddWithValue(retryToken);
+                await cleanupUsage.ExecuteNonQueryAsync();
+            }
+            await using (var cleanupHolds = dataSource.CreateCommand(
+                "DELETE FROM balance_holds WHERE hold_id IN ($1, $2)"))
+            {
+                cleanupHolds.Parameters.AddWithValue(holdId);
+                cleanupHolds.Parameters.AddWithValue(retryHoldId);
+                await cleanupHolds.ExecuteNonQueryAsync();
+            }
+            await using (var cleanupIdempotency = dataSource.CreateCommand(
+                "DELETE FROM request_idempotency WHERE api_key_id = $1 AND idempotency_key = $2"))
+            {
+                cleanupIdempotency.Parameters.AddWithValue(apiKeyId);
+                cleanupIdempotency.Parameters.AddWithValue(idempotencyKey);
+                await cleanupIdempotency.ExecuteNonQueryAsync();
+            }
+            await using var cleanupLeases = dataSource.CreateCommand(
+                "DELETE FROM request_leases WHERE lease_token IN ($1, $2)");
+            cleanupLeases.Parameters.AddWithValue(leaseToken);
+            cleanupLeases.Parameters.AddWithValue(retryToken);
+            await cleanupLeases.ExecuteNonQueryAsync();
+        }
+    }
+
     private static async Task InsertLease(NpgsqlDataSource dataSource,
         string leaseToken, string requestId)
     {
@@ -289,6 +362,14 @@ public sealed class MediaOperationStoreTests
         await using var command = dataSource.CreateCommand(
             "SELECT status FROM balance_holds WHERE hold_id = $1");
         command.Parameters.AddWithValue(holdId);
+        return (string)(await command.ExecuteScalarAsync())!;
+    }
+
+    private static async Task<string> ReadLeaseStatus(NpgsqlDataSource dataSource, string leaseToken)
+    {
+        await using var command = dataSource.CreateCommand(
+            "SELECT status FROM request_leases WHERE lease_token = $1");
+        command.Parameters.AddWithValue(leaseToken);
         return (string)(await command.ExecuteScalarAsync())!;
     }
 
