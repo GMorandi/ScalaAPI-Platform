@@ -63,6 +63,23 @@ public class ApiKeyGrainTests
     }
 
     [Fact]
+    public async Task Validate_NormalizesOmittedIpLists()
+    {
+        var userGrain = _cluster.GrainFactory.GetGrain<IUserGrain>(2050);
+        await userGrain.Create(new UserUpsert("user", 50.0m, 1, 0, []));
+        var groupGrain = _cluster.GrainFactory.GetGrain<IGroupGrain>(3050);
+        await groupGrain.Create(new GroupUpsert("openai", 1.0m, false, null, false,
+            null, false, new(), [], 0, null, null, null));
+
+        var grain = GetGrain(1050);
+        await grain.Create(new ApiKeyUpsert(
+            2050, 3050, 10.0m, null, null!, null!, 0, 0, 0));
+
+        var result = await grain.Validate(new AuthRequest("10.0.0.1", "req-null-lists"));
+        Assert.Equal(1050, result.ApiKeyId);
+    }
+
+    [Fact]
     public async Task Validate_PreservesDecimalPrecisionAcrossProjections()
     {
         var user = _cluster.GrainFactory.GetGrain<IUserGrain>(2020);

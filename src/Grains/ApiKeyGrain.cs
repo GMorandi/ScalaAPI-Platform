@@ -58,10 +58,12 @@ public class ApiKeyGrain : Grain, IApiKeyGrain
         if (s.ExpiresAt.HasValue && s.ExpiresAt.Value < DateTimeOffset.UtcNow.ToUnixTimeMilliseconds())
             throw new InvalidOperationException("API key expired");
 
-        if (s.IpBlacklist.Contains(req.ClientIp))
+        var ipBlacklist = s.IpBlacklist ?? [];
+        var ipWhitelist = s.IpWhitelist ?? [];
+        if (ipBlacklist.Contains(req.ClientIp))
             throw new InvalidOperationException("IP blacklisted");
 
-        if (s.IpWhitelist.Length > 0 && !s.IpWhitelist.Contains(req.ClientIp))
+        if (ipWhitelist.Length > 0 && !ipWhitelist.Contains(req.ClientIp))
             throw new InvalidOperationException("IP not in whitelist");
 
         var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
@@ -83,7 +85,8 @@ public class ApiKeyGrain : Grain, IApiKeyGrain
         var group = await groupGrain.GetAuthProjection();
         if (group.Status != "active")
             throw new InvalidOperationException("Group is not active");
-        if (user.AllowedGroups.Length > 0 && !user.AllowedGroups.Contains(s.GroupId))
+        var allowedGroups = user.AllowedGroups ?? [];
+        if (allowedGroups.Length > 0 && !allowedGroups.Contains(s.GroupId))
             throw new InvalidOperationException("User is not allowed to use this group");
         if (s.Quota > 0 && s.QuotaUsed >= s.Quota)
             throw new InvalidOperationException("API key quota exhausted");
@@ -175,8 +178,8 @@ public class ApiKeyGrain : Grain, IApiKeyGrain
         s.GroupId = input.GroupId;
         s.Quota = input.Quota;
         s.ExpiresAt = input.ExpiresAt;
-        s.IpWhitelist = input.IpWhitelist;
-        s.IpBlacklist = input.IpBlacklist;
+        s.IpWhitelist = input.IpWhitelist ?? [];
+        s.IpBlacklist = input.IpBlacklist ?? [];
         s.RateLimit5h = input.RateLimit5h;
         s.RateLimit1d = input.RateLimit1d;
         s.RateLimit7d = input.RateLimit7d;
@@ -192,8 +195,8 @@ public class ApiKeyGrain : Grain, IApiKeyGrain
         s.GroupId = input.GroupId;
         s.Quota = input.Quota;
         s.ExpiresAt = input.ExpiresAt;
-        s.IpWhitelist = input.IpWhitelist;
-        s.IpBlacklist = input.IpBlacklist;
+        s.IpWhitelist = input.IpWhitelist ?? [];
+        s.IpBlacklist = input.IpBlacklist ?? [];
         s.RateLimit5h = input.RateLimit5h;
         s.RateLimit1d = input.RateLimit1d;
         s.RateLimit7d = input.RateLimit7d;
