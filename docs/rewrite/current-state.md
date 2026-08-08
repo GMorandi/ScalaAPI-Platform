@@ -9,14 +9,14 @@ release artifacts.
 
 | Repository | Commit | Worktree | Responsibility |
 | --- | --- | --- | --- |
-| `gateway` | `d5cf804` | local changes present | C++ HTTP/WebSocket edge, protocol conversion, streaming, Provider transport, Cap'n Proto client |
-| `platform` | `6a1f47a` | local changes present | C# Orleans control plane, PostgreSQL persistence, leases, usage, media lifecycle, Admin API |
+| `gateway` | `d19ef59` | clean | C++ HTTP/WebSocket edge, protocol conversion, streaming, Provider transport, Cap'n Proto client |
+| `platform` | `227623f` | clean | C# Orleans control plane, PostgreSQL persistence, leases, usage, media lifecycle, Admin API |
 | `sub2api` | `43ec48d` | read-only clean reference | Functional requirements catalogue only |
 
-The current source inventory is 49 Gateway implementation files, 8 Gateway test or
-benchmark files, 82 CTest cases, 55 hand-written Platform production C# files plus
-3 generated Cap'n Proto files, 16 Platform test or benchmark source files, 62
-Platform test cases, 84 mapped Admin API endpoints, 31 product tables, 20 SQLSugar
+The current source inventory is 49 Gateway implementation files, 8 Gateway test
+sources, 82 CTest cases, 101 hand-written Platform production C# files plus 3
+generated Cap'n Proto files, 31 Platform test or benchmark source files, 63
+Platform test cases, 84 mapped Admin API endpoints, 33 product tables, 20 SQLSugar
 entity types, and 24 Admin Web source files with 11 page views. Admin Web has no
 browser test runner yet.
 
@@ -31,6 +31,15 @@ not implementation parity or a migration target.
   proxy/TLS hooks, and a durable local usage outbox.
 - Platform has Orleans grains for users, API keys, groups, accounts, scheduling,
   pricing, leases, usage, media operations, and invalidation, plus an Admin API.
+- Business and routing contracts use `decimal`; PostgreSQL monetary and pricing
+  columns use `NUMERIC`. The current Cap'n Proto generated boundary still has
+  Float64 rate fields, with explicit casts isolated in the RPC serializer.
+- Admin discovery uses the product-owned `entity_registry` table rather than
+  Orleans internal storage. Registration, CRUD creation/deletion, OAuth identity
+  creation, and API-key self-service maintain registry membership.
+- Password and OAuth logins issue database-backed sessions with hashed rotating
+  refresh tokens. JWT validation checks the active session row; user and admin
+  logout plus per-session revoke are available.
 - CDC consumers, Debezium configuration, migration fences, migration write gates,
   migration-control endpoints, CDC-only tables, and their tests are removed from
   active code. Their documents remain under `docs/archive/migration`.
@@ -51,10 +60,15 @@ not implementation parity or a migration target.
 - The current baseline creates a clean product schema and is checksum-idempotent,
   but its broad table set has not yet been reviewed against explicit aggregate
   ownership and repository contracts.
-- PostgreSQL business state and opaque Orleans storage are still split; business
-  listing must not query Orleans internal tables.
-- Public DTOs and grain contracts still contain floating-point balances, quotas, and
-  costs; all monetary paths must be converted to decimal/NUMERIC.
+- PostgreSQL business state and opaque Orleans storage are still split; the new
+  registry removes internal-storage discovery, but full aggregate repositories and
+  accounting authority remain to be implemented.
+- The Cap'n Proto schema and checked-in generated artifacts still encode money/rate
+  fields as Float64; replace them with fixed-scale integer or canonical decimal text
+  before declaring the public RPC contract complete.
+- The entity-registry and auth-session migrations have not yet been rebuilt in a
+  fresh current-image Compose environment; session replay/concurrency HTTP tests are
+  also pending.
 - Generated C# Cap'n Proto files are checked in but are not regenerated and digest
   verified by CI yet.
 - Garnet key TTL policy, projection rebuild, cache-flush recovery, and multi-client
@@ -66,20 +80,21 @@ not implementation parity or a migration target.
 
 ## Current runtime evidence
 
-On 2026-08-08 the isolated `scalaapi-build` project was built from the current
+On 2026-08-08 the isolated `scalaapi-build` project was built from the pre-Stage-2
 worktrees and started with new volumes. Platform image
 `b999930ed8f11760d509ffbe856ec0cec221d4cf152e0f77026b8473bcf66756`, Gateway image
 `7b8f0d63e81337565967b287bf50b17df0bc399f1b20b9ab1d18f3041a778746`, and Provider
 mock image `425e1430cc32f8756a688d176f1d542c9026603c37e0cb609e55b5ee49d6bcb8`
 were used. Every long-running service became healthy and the migrator exited zero;
-the first execution applied all three files and repeated executions skipped the
-same checksums.
+the first execution applied the then-current files and repeated executions skipped
+the same checksums.
 
 Authenticated Garnet `PING`, `SET/GET`, PX expiry, `INCR`, and `DEL` passed. Stopping
 Garnet changed Platform readiness to 503; restarting it restored readiness to 200.
 Gateway readiness returned 200 and an unknown API key traversed the current dispatch
 path to a stable 401. This is bootstrap evidence, not evidence for a successful
-billable request or settlement.
+billable request or settlement. This is bootstrap evidence for the pre-`b266e17`
+source snapshot, not evidence for the later registry/session migrations.
 
 ## Historical runtime boundary
 

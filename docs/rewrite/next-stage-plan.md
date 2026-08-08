@@ -12,6 +12,17 @@ This does not close the product rewrite. The next stage is one authoritative,
 billable OpenAI Chat Completions vertical slice. Work outside that slice stays
 `partial`, `skeleton`, or `missing` in the inventory.
 
+## Progress checkpoint (2026-08-08)
+
+- Completed in `b266e17`: business balances, quotas, costs, limits, and routing
+  multipliers use `decimal`; precision projections cover User, Group, and API key.
+- Completed in `7f6c855`: Admin discovery is backed by the product `entity_registry`
+  migration and no active listing path reads Orleans internal storage.
+- Completed in `227623f`: password/OAuth login issues rotating database-backed
+  sessions; refresh replay, logout, and per-session revocation are now API contracts.
+- Still open: PostgreSQL aggregate repositories/foreign keys, fixed-precision RPC
+  schema generation, provider seed command, API-key rotation tests, and billable E2E.
+
 ## Stage 2 objective
 
 Deliver this path from an empty environment:
@@ -24,12 +35,12 @@ register/login -> create API key/group/provider account -> Gateway request
 
 ### 1. Authority and numeric contracts
 
-- Replace monetary and rate `double` fields in public DTOs, grain contracts, state,
-  and RPC conversion with `decimal`; encode contract money as an explicit fixed-scale
-  integer or canonical decimal text. PostgreSQL remains `NUMERIC`.
-- Define aggregate ownership for user, API key, group, account, lease, hold, usage,
-  and ledger records. Add business repositories and stop using Orleans storage
-  internals for list or accounting queries.
+- Keep the completed decimal conversion, then replace the remaining Cap'n Proto
+  Float64 money/rate fields with an explicit fixed-scale integer or canonical decimal
+  text. PostgreSQL remains `NUMERIC`.
+- Extend the completed `entity_registry` discovery boundary into repositories for
+  user, API key, group, account, lease, hold, usage, and ledger records. No Orleans
+  storage internals may be queried for business data.
 - Add a forward migration for missing constraints, foreign keys, immutable price
   versions, idempotency fingerprints, and append-only ledger entries.
 - Generate Platform C# RPC artifacts from `contracts/capnp` in CI and compare them
@@ -40,10 +51,11 @@ with PostgreSQL, and contract drift fails CI.
 
 ### 2. Identity and control-plane setup
 
-- Complete password registration/login plus rotating refresh sessions, replay
-  detection, logout, and revocation.
+- Harden the completed password/OAuth session path with replay/concurrent-rotation
+  integration tests, session limits, and refresh-token audit events.
 - Complete API-key create/list/rotate/revoke with one-time plaintext display and
-  hash-only persistence.
+  hash-only persistence; registry-backed list/revoke exists, rotation and policy
+  tests remain.
 - Complete group and provider-account creation with encrypted credentials and a
   deterministic Provider mock seed profile.
 - Add one idempotent seed command for local/E2E use; production starts without it.
