@@ -32,13 +32,21 @@ jobs:
       GREENFIELD_SCHEMA_CONNECTION: Host=localhost;Port=5432;Database=platform;Username=platform;Password=ci-password
     steps:
       - uses: actions/checkout@v4
+      - name: Build pinned Cap'n Proto compiler
+        run: |
+          git clone --depth 1 --branch v1.0.2 https://github.com/capnproto/capnproto.git "$RUNNER_TEMP/capnproto"
+          test "$(git -C "$RUNNER_TEMP/capnproto" rev-parse HEAD)" = "1a0e12c0a3ba1f0dbbad45ddfef555166e0a14fc"
+          cmake -S "$RUNNER_TEMP/capnproto" -B "$RUNNER_TEMP/capnproto-build" -DBUILD_TESTING=OFF
+          cmake --build "$RUNNER_TEMP/capnproto-build" --target capnp_tool --parallel 2
+          echo "CAPNP_COMPILER=$RUNNER_TEMP/capnproto-build/c++/src/capnp/capnp" >> "$GITHUB_ENV"
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: "10.0.x"
       - name: Verify contract digest and retired dependency scan
         run: |
           scripts/verify-contracts.sh
-          if rg -n -i 'debezium|migration_fence|migrationwritegate|microsoft\.garnet|redis|legacy|sub2api|subdata' \
+          scripts/verify-generated-contracts.sh
+          if rg -n -i 'debezium|migration_fence|migrationwritegate|microsoft\.garnet|redis|legacy[_-]|sub2api|subdata' \
               src deploy --glob '!deploy/stack/README.md'; then
             exit 1
           fi

@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "isRoot": true,
+  "tools": {
+    "capnpc-csharp": {
+      "version": "1.3.118",
+      "commands": [
+        "capnpc-csharp"
+      ],
+      "rollForward": false
+    }
+  }
+}

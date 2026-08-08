@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+export DOTNET_ROLL_FORWARD=Major
+package_root="${NUGET_PACKAGES:-$(dotnet nuget locals global-packages --list \
+    | sed -n 's/^global-packages: //p')}"
+tool_dll="${package_root%/}/capnpc-csharp/1.3.118/tools/netcoreapp2.1/any/capnpc-csharp.dll"
+if [[ ! -f "$tool_dll" ]]; then
+    echo "Restored capnpc-csharp 1.3.118 assembly not found: $tool_dll" >&2
+    exit 2
+fi
+exec dotnet "$tool_dll" "$@"
