@@ -37,8 +37,11 @@ append-only ledger entries, usage settlement, media metadata, and Admin/User API
 Orleans coordinates concurrency; PostgreSQL is the durable business and accounting
 source of truth. Orleans storage internals are never used as a business listing API.
 
-`request_leases`, `balance_holds`, `request_idempotency`, usage events, the NUMERIC
-ledger, and the outbox form one durable billing boundary. Media operations use their
+`accounting_accounts` is the monetary authority: one row per product user stores a
+NUMERIC posted balance and monotonically increasing ledger version. The account,
+append-only `balance_ledger`, `request_leases`, `balance_holds`, request idempotency,
+usage events, and outboxes form one durable billing boundary. All current monetary
+effects acquire the same per-user PostgreSQL transaction lock. Media operations use their
 own idempotency key and lifecycle table because asynchronous response metadata must
 survive provider polling. A repeated synchronous/streaming key is checked before
 scheduling and returns replay or fingerprint conflict; completed non-stream
@@ -48,15 +51,21 @@ is a separate protocol concern. Each lease also stores an immutable price versio
 and NUMERIC unit-rate snapshot; settlement never reprices from mutable process
 configuration.
 
-User creation and configuration never carry a balance. Administrative funding is
-an accounting command with a required idempotency key and reason: PostgreSQL takes
-a per-user transaction lock, verifies the product registry and active holds,
-appends one `admin_adjustment` ledger row and actor audit, and computes the
-authoritative ledger balance. Orleans receives the committed balance as an
-idempotent projection snapshot. If projection fails, the API returns retryable 503;
-replaying the same key reuses the SQL effect. The remaining commercial and usage
-effects must adopt an ordered ledger watermark before this split projection can be
-considered fully reconciled.
+User creation and configuration never carry a balance. Administrative funding,
+payment credit/refund, redeem bonus, and usage debit use stable effect IDs and one
+repository. An accepted effect atomically updates the account, appends the next
+versioned ledger row, and upserts the latest projection snapshot. Administrative
+commands additionally require an idempotency key/reason, verify active holds, and
+persist actor audit. Dispatch availability is computed from posted balance minus
+active SQL holds in the same serialization domain.
+
+Orleans is not a monetary authority. The user Grain stores only the last projected
+ledger version and balance, ignores older snapshots, and permits same-version repair
+when its stored value is corrupt. Admin requests may project immediately; a Platform
+hosted worker drains `accounting_projection_outbox` with expiring claims and bounded
+backoff. A failed projection never rolls back or duplicates committed money. A
+periodic account/ledger/hold/Grain reconciler and unknown-Provider-charge state are
+still required before the billing slice is release-complete.
 
 ## Garnet
 

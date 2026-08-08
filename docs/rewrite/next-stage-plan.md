@@ -2,7 +2,7 @@
 
 ## Checkpoint
 
-The next stage starts from Platform `63befca`, Gateway `dc69269`, and read-only
+The next stage starts from Platform `ea83e5a`, Gateway `dc69269`, and read-only
 reference `sub2api@43ec48d`.
 
 The greenfield baseline now starts from empty volumes, uses PostgreSQL as authority,
@@ -10,9 +10,9 @@ Garnet as the only distributed projection/cache, S3-compatible object storage fo
 media, and a source-owned Provider mock. The checked-in gate proves idempotent
 migrations, Chat settlement/replay, clean requests after Platform/Gateway
 replacement, and no-charge outcomes for non-stream OpenAI Chat 429, 500, malformed
-usage, upstream disconnect, and timeout. New users start at zero; administrative
-funding is now a required-key PostgreSQL ledger command with exact replay, conflict,
-actor audit, active-hold overdraft protection, and retryable Orleans projection.
+usage, upstream disconnect, and timeout. PostgreSQL now owns one ordered account per
+user; administrative, payment/refund, redeem, and usage effects share one append
+rule, SQL holds authorize dispatch, and Orleans is a retryable versioned projection.
 
 This stage contains no compatibility, cutover, dual-write, CDC, snapshot import,
 old-key import, ID preservation, status mapping, or business-data migration work.
@@ -35,53 +35,51 @@ new user/session/key/group/account
 The slice remains `partial` until every exit scenario below is automated and a
 failed assertion makes the top-level command non-zero.
 
-## Work package 1: accounting authority and recovery
+## Work package 1: reconciliation and exact-boundary recovery
 
-Completed foundation at `63befca`:
+Completed at `c15b53b` and gated at `ea83e5a`:
 
-- Removed balance from user create/configuration API and Admin Web contracts.
-- Added unique `admin_adjustment` effects with reason/actor audit, exact replay,
-  conflict detection, per-user SQL serialization, active-hold protection, and an
-  authoritative projection snapshot.
-- Proved the contract in a real-database test and in the empty-volume Compose gate.
+- Added one per-user `accounting_accounts` authority with NUMERIC posted balance
+  and monotonically increasing ledger version.
+- Routed administrative adjustments, payment credits/refunds, redeem bonuses, and
+  usage debits through one per-user SQL serialization and stable effect contract.
+- Moved hold reservation, availability checks, completion, abort, and expiry into
+  the SQL authority; Grain no longer owns money or permits dispatch.
+- Added versioned Grain snapshots, latest-only projection outbox, retry worker, and
+  backlog/retry metrics. Stale snapshots cannot regress a newer balance.
+- Proved 20 concurrent versions, replay/conflict, hold oversubscription, protected
+  debit, account/ledger equality, projection drain, migration idempotency, service
+  replacement, and zero-charge Provider faults.
 
 Next implementation slice:
 
-- Add one per-user accounting account row with a monotonically increasing ledger
-  version and authoritative NUMERIC posted balance. Every ledger write returns the
-  resulting version and balance.
-- Route payment credit/refund, redeem bonus, subscription grant, administrative
-  adjustment, and usage debit through one accounting repository and one per-user
-  serialization rule. Remove unordered Orleans delta application.
-- Persist the last applied ledger version in the user Grain. Ignore stale snapshots,
-  apply newer snapshots atomically, and allow reconciliation to repair a missing
-  projection without replaying money.
-- Make durable hold reservation and debit availability checks use the same account
-  authority so concurrent usage and administrative changes cannot publish a stale
-  balance.
-- Add a reconciliation worker that compares account balance/version, active holds,
-  ledger effects, and Grain projection, repairs safe projection drift, and persists
-  operator-visible failures.
+- Define and migrate one lease state machine covering held, forwarded,
+  output-started, completed, aborted, expired, and reconciliation-needed. Store the
+  Provider/transport evidence needed to distinguish safe release from unknown cost.
+- Add deterministic fault hooks before/after Provider dispatch, after Provider
+  completion, before/after settlement commit, and before outbox acknowledgement.
+- Add a reconciliation worker that checks account balance/version against ledger
+  sum/max/contiguity, active holds against lease state, committed usage against one
+  debit, and Grain projection against the account snapshot.
+- Repair only provably safe projection drift and expired pre-dispatch holds. Persist
+  every unknown-charge or monetary mismatch as an operator-visible incident; never
+  guess or silently release it.
+- Add replay tests for duplicate completion, abort, expiry, worker reclaim,
+  projection replacement, and process restart at every fault hook.
 
 Remaining package deliverables:
 
-- Define one documented lease state machine and legal transitions for held,
-  forwarded, output-started, completed, aborted, expired, and reconciliation-needed
-  outcomes. Terminal transitions must be idempotent.
-- Move every remaining balance mutation behind unique, append-only PostgreSQL ledger
-  effects. Orleans may project a committed version but must not be the only authority
-  for money.
-- Add a reconciliation worker for expired leases, active holds, committed usage,
-  and idempotency rows. It must distinguish safe release from an unknown Provider
-  charge that needs operator reconciliation.
-- Add deterministic fault hooks immediately before/after Provider dispatch, after
-  Provider completion, before/after the settlement SQL commit, and before outbox
-  acknowledgement.
-- Prove duplicate completion, abort, expiry, worker reclaim, and outbox replay never
-  create a second debit or lose a committed debit.
+- Define authority contracts before adding subscription grants, affiliate rebates,
+  or any new monetary effect. They must use the same account/version API and cannot
+  write `balance_ledger` directly.
+- Expose reconciliation incidents, age, retry state, account/ledger mismatch, and
+  unknown-charge counts through Admin query APIs and metrics.
+- Add a blocking negative probe for each fault hook so a swallowed child failure or
+  missing scenario makes the top-level gate non-zero.
 
-Dependencies: migration 017 administrative effects, existing lease snapshots,
-durable holds, response replay, settlement outbox, and reconciliation query.
+Dependencies: migration 018 accounting authority, versioned ledger effects,
+durable holds, response replay, settlement/projection outboxes, and the existing
+reconciliation run table.
 
 Exit: every injected crash converges after restart to zero orphan active holds, one
 terminal lease, at most one usage debit, and a durable operator-visible reason when
@@ -91,6 +89,9 @@ the Provider charge is unknowable.
 
 Deliverables:
 
+- Normalize direct-reset 502 versus post-cooldown 503 into one documented public
+  status, error type, and safe non-empty body. Freeze retryable/non-retryable mapping
+  before adding protocol fixtures.
 - Propagate client cancellation through the HTTP/SSE transport and stop retrying as
   soon as any response bytes have reached the client.
 - Before Provider output starts, cancellation must abort the lease, release the hold,
@@ -194,9 +195,8 @@ idempotency state, outbox backlog, and reconciliation status:
 
 ## Sequence and commit discipline
 
-1. Finish package 1 account versioning and projection repair first because
-   cancellation and cluster behavior need an authoritative unknown-charge and
-   reconciliation state.
+1. Finish package 1 reconciliation incidents and crash hooks first because
+   cancellation and cluster behavior need an authoritative unknown-charge state.
 2. Package 2 defines transport semantics; package 3 freezes them as fixtures.
 3. Package 4 runs the state machines under concurrency and infrastructure failure.
 4. Package 5 makes the same evidence mandatory in hosted release CI.

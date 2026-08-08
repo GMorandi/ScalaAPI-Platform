@@ -11,17 +11,17 @@ read-only requirements reference and is excluded from builds and runtime.
 | Repository | Commit | Worktree | Role |
 | --- | --- | --- | --- |
 | `gateway` | `dc69269` | clean | C++ HTTP/WebSocket edge, protocol parsing/conversion, streaming, Provider transport, failover, durable usage delivery, and authenticated Garnet projections |
-| `platform` | `63befca` | clean | C# Orleans control plane, PostgreSQL authority, identity, scheduling, leases/holds/ledger, media lifecycle, Admin API/Web, Provider mock, migrations, and deployment gates |
+| `platform` | `ea83e5a` | clean | C# Orleans control plane, PostgreSQL accounting/product authority, identity, scheduling, leases/holds/ledger, media lifecycle, Admin API/Web, Provider mock, migrations, and deployment gates |
 | `sub2api` | `43ec48d` | read-only clean | Requirements catalogue only; never a runtime or compatibility dependency |
 
 The current tracked inventory is:
 
 - Gateway: 50 production C++ source/header files, 9 test source files, and 91
   CTest cases.
-- Platform: 71 hand-written production C# files, 3 generated Cap'n Proto C#
-  files, 21 test/benchmark C# files, and 90 tests: 58 Grain, 22 Host, 4 Admin,
+- Platform: 74 hand-written production C# files, 3 generated Cap'n Proto C#
+  files, 22 test/benchmark C# files, and 90 tests: 57 Grain, 23 Host, 4 Admin,
   and 6 Provider mock tests.
-- Product surface: 143 direct Admin API route declarations, 34 product tables,
+- Product surface: 113 direct Admin API route declarations, 40 product tables,
   20 SQLSugar entity types, 23 Admin Web TypeScript/TSX files, and 11 page views.
 - Reference scope: approximately 612 Sub2API route registrations, 39 concrete
   Ent schemas, 82 Vue view/component files, and 240 migrations. These are scope
@@ -40,6 +40,10 @@ current-source runtime evidence.
 - PostgreSQL is authoritative for product and accounting state. Orleans
   coordinates aggregate concurrency. `entity_registry`, rather than Orleans
   storage internals, is used for business discovery and administrative listing.
+- Each user has one `accounting_accounts` row containing an authoritative NUMERIC
+  posted balance and monotonically increasing ledger version. Every current
+  money-mutating path uses the same per-user transaction lock and append rule;
+  Orleans holds only a versioned projection and cannot authorize spending.
 - Garnet is the only distributed cache/projection service. Both products use
   authenticated external TCP clients with optional TLS and no embedded RESP
   server, Microsoft.Garnet package, Redis process, image, or fallback.
@@ -85,21 +89,23 @@ current-source runtime evidence.
 
 ### Billing and idempotency
 
-- Lease creation transactionally creates an `active` durable balance hold and a
+- Lease creation checks the SQL-authoritative posted balance minus active holds,
+  then transactionally creates an `active` durable balance hold and a
   request-idempotency record. Completion transactionally records usage, a unique
-  `usage_debit`, terminal lease/hold state, and an outbox record. Abort and expiry
-  release holds idempotently.
+  versioned `usage_debit`, terminal lease/hold state, and outbox records. Abort and
+  expiry release holds idempotently.
 - Completed non-stream requests persist a bounded response for exact replay.
   Matching settled requests return the stored response without a second lease or
   debit; active duplicates and fingerprint conflicts are deterministic.
 - Settlement outbox claims expire and can be reclaimed after process failure.
   Financial effects use stable IDs and bounded retry rather than silent loss.
-- User create/configuration contracts cannot set balance. Administrative credits
-  and debits require a caller-supplied idempotency key and reason, append one
-  PostgreSQL `admin_adjustment` ledger entry plus an actor audit event, reject
-  conflicting replay and active-hold overdraft, then project the committed ledger
-  balance to Orleans. A projection failure returns retryable 503 without rolling
-  back or duplicating the committed effect.
+- User create/configuration contracts cannot set balance. Administrative credits,
+  payment credits/refunds, redeem bonuses, and usage debits append through one
+  `AccountingStore`; stable effect identity provides exact replay/conflict
+  semantics and every accepted effect advances one per-user ledger version.
+  Administrative debits additionally reject active-hold overdraft and persist an
+  actor/reason audit. A latest-snapshot SQL outbox retries Orleans projection;
+  stale versions cannot overwrite a newer Grain balance.
 - Admin exposes lease, hold, ledger, usage, and reconciliation queries. Clean-seed
   reconciliation passes, while historical repair automation remains incomplete.
 
@@ -121,8 +127,8 @@ current-source runtime evidence.
 
 ### Bootstrap and deployment
 
-- The active migrator applies Orleans support plus migrations 001-017 to an empty
-  PostgreSQL database and rejects checksum drift. A second execution skips all 18
+- The active migrator applies Orleans support plus migrations 001-018 to an empty
+  PostgreSQL database and rejects checksum drift. A second execution skips all 19
   files. No source database, snapshot, old key, CDC table, or compatibility mapping
   is required.
 - `deploy/stack` independently starts PostgreSQL, authenticated Garnet, MinIO,
@@ -135,7 +141,7 @@ current-source runtime evidence.
 
 ## Current verification evidence
 
-At Platform `63befca` and Gateway `dc69269`:
+At Platform `ea83e5a` and Gateway `dc69269`:
 
 - Gateway built locally and passed 91/91 CTest cases.
 - Platform Release test/build passed with 0 warnings and 0 errors: 90/90 tests.
@@ -143,14 +149,16 @@ At Platform `63befca` and Gateway `dc69269`:
 - Scheduler benchmark integrity dry run executed all 4 selected child benchmarks
   and returned zero. It is a failure-propagation check, not performance evidence.
 - `deploy/stack/smoke.sh` built current sibling sources in the isolated Podman
-  project `scalaapi-smoke-balance1`, created new volumes, applied all 18 migrations,
-  and observed all 18 skip on the second migrator run.
+  project `scalaapi-smoke-accounting4`, created new volumes, applied all 19
+  migrations, and observed all 19 skip on the second migrator run.
 - The clean-stack Admin API funded a new zero-balance user once. Exact replay
   returned the same ledger identity, changed replay returned 409, overdraft returned
   409, and PostgreSQL contained exactly one NUMERIC adjustment and one actor audit.
 - The empty-stack Chat request settled with one completed lease, one committed
-  hold, one usage effect, one NUMERIC debit, and drained Platform/Gateway outboxes.
-  Exact response replay produced no second charge.
+  hold, one usage effect, one versioned NUMERIC debit, and drained Platform,
+  accounting-projection, and Gateway outboxes. Exact response replay produced no
+  second charge. SQL assertions proved posted balance equals ledger sum and every
+  user ledger version is contiguous and unique.
 - Platform and Gateway were independently replaced; a fresh billable request after
   each replacement settled once.
 - Independent 500, 429, malformed-usage, upstream-disconnect, and timeout scenarios
@@ -166,13 +174,17 @@ Detailed gate results and residual coverage are maintained in `verification.md`.
 
 ## Known gaps
 
-- PostgreSQL and Orleans still split parts of business authority. Administrative
-  funding is now ledger-authoritative, but payment, refund, redeem, subscription,
-  and usage projections do not yet share one ordered ledger watermark or automatic
-  mismatch repair path.
+- PostgreSQL is now the only monetary authority and Orleans applies ordered
+  snapshots, but no periodic reconciler yet proves account balance/version equals
+  the ledger, classifies unknown Provider charges, repairs projection drift, and
+  persists operator-visible incidents. Subscription quota grants and future
+  affiliate effects still need explicit authority contracts as those features are
+  completed.
 - Upstream disconnect is now covered for non-stream OpenAI Chat, but actual client
   cancellation, partial SSE output, unknown Provider billing after cancellation,
-  and protocol-wide fault semantics are not closed.
+  and protocol-wide fault semantics are not closed. A direct transport reset
+  currently returns 502 while scheduler exhaustion after the same reset can return
+  503; the next error-contract slice must normalize the public status and body.
 - Process replacement after clean requests passes. Crashes precisely between
   dispatch, Provider completion, usage report, SQL commit, and outbox acknowledgement
   still need deterministic injection and hold/idempotency reconciliation.
