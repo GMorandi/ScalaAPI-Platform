@@ -17,5 +17,9 @@ public static class AuthClaims
     }
 
     public static string? SessionId(ClaimsPrincipal principal) =>
-        principal.FindFirst("sid")?.Value;
+        principal.Claims.FirstOrDefault(claim =>
+            claim.Type.Equals("sid", StringComparison.OrdinalIgnoreCase)
+            || claim.Type.Equals("session_id", StringComparison.OrdinalIgnoreCase)
+            || claim.Type.EndsWith("/sid", StringComparison.OrdinalIgnoreCase)
+            || claim.Type.EndsWith("/sessionid", StringComparison.OrdinalIgnoreCase))?.Value;
 }
