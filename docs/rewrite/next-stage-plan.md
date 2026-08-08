@@ -2,7 +2,7 @@
 
 ## Checkpoint
 
-The next stage starts from Platform `d4fb0cc`, Gateway `24a1c84`, and read-only
+The next stage starts from Platform `e5c2fb8`, Gateway `be90413`, and read-only
 reference `sub2api@43ec48d`.
 
 The greenfield baseline now starts from empty volumes, uses PostgreSQL as authority,
@@ -12,8 +12,8 @@ migrations, Chat settlement/replay, clean requests after Platform/Gateway
 replacement, and evidence-based failure outcomes for non-stream and selected
 streaming OpenAI Chat. An
 actual non-stream and streaming 429/500 Provider rejections release; malformed
-success, upstream disconnect, and timeout make no second attempt and retain their
-holds for reconciliation.
+success, upstream disconnect, timeout, and invalid streaming media type make no
+second attempt and retain their holds for reconciliation.
 PostgreSQL now owns one ordered account per
 user; administrative, payment/refund, redeem, and usage effects share one append
 rule, SQL holds authorize dispatch, and Orleans is a retryable versioned projection.
@@ -33,8 +33,8 @@ commit and recovered a single Orleans silo without a duplicate debit. Gateway no
 has source-level terminal-event-gated SSE completion, incomplete chunked-body
 classification, and client-cancellation classification. The empty stack proves
 Provider disconnect, disconnect-before-output, malformed-usage, and actual
-downstream client-cancellation SSE retention with seven total unknown-charge
-incidents; public error normalization, final-usage/replay reconciliation, the
+downstream client-cancellation and invalid-content-type SSE retention with eight
+total unknown-charge incidents; public error normalization, final-usage/replay reconciliation, the
 remaining hook matrix, and multi-instance scenarios are still open.
 
 This stage contains no compatibility, cutover, dual-write, CDC, snapshot import,
@@ -63,8 +63,8 @@ failed assertion makes the top-level command non-zero.
 Accounting authority completed at `c15b53b`, reconciliation foundation at
 `fddba62`, dispatch evidence at `6bfb974`/`84634d1`, audited resolution at
 `0559659`, and deterministic fault boundaries at `1cad5b7`/`30b8c2b`/`8c3d2e0`,
-with current streaming/empty-stack evidence in Gateway `24a1c84` and Platform
-`d4fb0cc`:
+with current streaming/empty-stack evidence in Gateway `be90413` and Platform
+`e5c2fb8`:
 
 - Added one per-user `accounting_accounts` authority with NUMERIC posted balance
   and monotonically increasing ledger version.
@@ -149,15 +149,17 @@ an open incident can be resolved only through the audited settle/release contrac
 
 ## Work package 2: cancellation and streaming failure semantics
 
-Progress in Gateway `24a1c84` and Platform `d4fb0cc`: the streaming pipe now requires a source protocol
+Progress in Gateway `be90413` and Platform `e5c2fb8`: the streaming pipe now requires a source protocol
 terminal event before treating Provider EOF as complete, classifies timeout/EOF as
 incomplete (including Photon incomplete chunked-body `-1/errno=0`), treats
 zero/error client writes as cancellation, records bounded
 disconnect/cancellation reasons, and prevents Gateway failover or normal usage
-settlement for ambiguous partial streams. These behaviors are covered by 98 Gateway
+settlement for ambiguous partial streams. These behaviors are covered by 99 Gateway
 CTest cases. Platform smoke proves Provider disconnect, disconnect-before-output,
-malformed-usage, downstream client cancellation, and streaming 429/500 rejection
-outcomes with the expected hold/debit behavior.
+malformed-usage, invalid content type, downstream client cancellation, and streaming
+429/500 rejection outcomes with the expected hold/debit behavior. Exact
+`text/event-stream` media type validation rejects JSON or lookalike media types
+before client output and retains the authorized hold as unknown charge.
 The package is not closed until the public 502/503 contract and final-usage/replay
 behavior are proven through Platform. Actual downstream client socket cancellation
 is now proven from an empty stack: the Provider emits one SSE event, a short-lived
@@ -178,11 +180,10 @@ Deliverables:
   does not prove no charge: continue collecting final usage when possible or enter
   `reconciliation_needed`. After `output_started`, retries are always forbidden.
 - Extend the isolated fault accounts to SSE: Provider disconnect before first event,
-  disconnect after partial output, malformed usage, and established-SSE status
+  disconnect after partial output, malformed usage, invalid content type, and established-SSE status
   retention now pass in the empty-stack gate, as do streaming 429/500 no-charge
-  rejections. Add timeout-before-first-event, invalid content type, and
-  protocol-wide assertions; actual client disconnect is covered by the current
-  fault matrix.
+  rejections. Add timeout-before-first-event and protocol-wide assertions; actual
+  client disconnect and invalid content type are covered by the current fault matrix.
 - Add bounded-buffer/backpressure assertions and verify that partial output cannot
   be replayed as a complete response or retried against another account.
 

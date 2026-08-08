@@ -1,7 +1,7 @@
 # ScalaAPI Rewrite Current State
 
 This document is the active baseline for the new ScalaAPI product as of
-2026-08-08. ScalaAPI reimplements the useful product capabilities catalogued in
+2026-08-09. ScalaAPI reimplements the useful product capabilities catalogued in
 Sub2API, but it does not preserve Sub2API APIs, internal contracts, schemas, IDs,
 keys, state mappings, deployment processes, or data. The Sub2API repository is a
 read-only requirements reference and is excluded from builds and runtime.
@@ -10,8 +10,8 @@ read-only requirements reference and is excluded from builds and runtime.
 
 | Repository | Commit | Worktree | Role |
 | --- | --- | --- | --- |
-| `gateway` | `24a1c84` | clean | C++ HTTP/WebSocket edge, protocol parsing/conversion, streaming, Provider transport/evidence, charge-aware failover, durable usage delivery, authenticated Garnet projections, deterministic fault boundaries, and fail-closed cancellation/partial-SSE handling |
-| `platform` | `d4fb0cc` | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, identity, scheduling, evidence-backed leases/holds/ledger, audited operator resolution, media lifecycle, Admin API/Web, Provider mock, migrations, deterministic fault boundaries, and deployment gates |
+| `gateway` | `be90413` | clean | C++ HTTP/WebSocket edge, protocol parsing/conversion, streaming, strict Provider media contracts, transport/evidence, charge-aware failover, durable usage delivery, authenticated Garnet projections, deterministic fault boundaries, and fail-closed cancellation/partial-SSE handling |
+| `platform` | `e5c2fb8` | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, identity, scheduling, evidence-backed leases/holds/ledger, audited operator resolution, media lifecycle, Admin API/Web, Provider mock, migrations, deterministic fault boundaries, and deployment gates |
 | `sub2api` | `43ec48d` | read-only clean | Requirements catalogue only; never a runtime or compatibility dependency |
 
 The current tracked inventory is:
@@ -143,7 +143,7 @@ current-source runtime evidence.
   invalid stream content, and a delayed stream used to prove downstream client
   cancellation.
 - Normalized OpenAI Chat input can select a fault without private headers. A
-  protected seed endpoint creates six independent fault accounts/groups so one
+  protected seed endpoint creates seven independent fault accounts/groups so one
   scheduler cooldown cannot mask another scenario.
 - Media polling copies Provider bytes to S3-compatible storage and persists object
   ownership metadata. Signed downloads, output deletion, and terminal operation
@@ -173,9 +173,9 @@ current-source runtime evidence.
 
 ## Current verification evidence
 
-At Platform `d4fb0cc` and Gateway `24a1c84`:
+At Platform `e5c2fb8` and Gateway `be90413`:
 
-- Gateway built locally and passed 98/98 CTest cases, including deterministic
+- Gateway built locally and passed 99/99 CTest cases, including deterministic
   fault-hook claim/repeat behavior, terminal SSE detection, provider EOF
   classification, incomplete chunked-body disconnect classification, and
   zero-length client-write cancellation.
@@ -187,20 +187,20 @@ At Platform `d4fb0cc` and Gateway `24a1c84`:
 - Scheduler benchmark integrity dry run executed all 4 selected child benchmarks
   and returned zero. It is a failure-propagation check, not performance evidence.
 - `deploy/stack/smoke.sh` built current sibling sources in the isolated Podman
-  project `scalaapi-smoke-streamreject-0809`, created new volumes, applied all 22
+  project `scalaapi-smoke-contenttype-0809`, created new volumes, applied all 22
   migrations, and observed all 22 skip on the second migrator run. Source-built
-  image IDs were Platform `30c342fbbf80`, Admin API `a1da8df5958a`, Gateway
-  `8e8aefbfe5e3`, Provider mock `ee910c20fa77`, migrator `983a8a488324`, and
-  Admin Web `78cf0f826da3`. The smoke intentionally crashed Platform once at
+  image IDs were Platform `c08eb3863319`, Admin API `ec196250cbb2`, Gateway
+  `74834536bd68`, Provider mock `5c1554c552a9`, migrator `99c9d1252d75`, and
+  Admin Web `17f11657502d`. The smoke intentionally crashed Platform once at
   `platform.after_settlement_commit`; single-silo membership recovery restarted
   the same service, replayed the durable usage outbox, and preserved one debit.
-  It separated explicit non-stream and streaming 429/500 rejections from seven
+  It separated explicit non-stream and streaming 429/500 rejections from eight
   unknown-charge scenarios,
   including Provider disconnect, disconnect-before-output, malformed usage,
-  timeout, partial SSE disconnect, and a real downstream client timeout after
-  the first SSE event. It resolved one incident through the Admin API with
+  timeout, partial SSE disconnect, invalid streaming content type, and a real
+  downstream client timeout after the first SSE event. It resolved one incident through the Admin API with
   `settle`, replayed the same command as `duplicate`, and reduced open incidents
-  from seven to six before the second reconciliation run.
+  from eight to seven before the second reconciliation run.
 - The clean-stack Admin API funded a new zero-balance user once. Exact replay
   returned the same ledger identity, changed replay returned 409, overdraft returned
   409, and PostgreSQL contained exactly one NUMERIC adjustment and one actor audit.
@@ -222,9 +222,9 @@ At Platform `d4fb0cc` and Gateway `24a1c84`:
   Malformed-success, upstream-disconnect, and timeout each made one attempt, did not
   fail over, ended `reconciliation_needed`, retained the hold/idempotency key, and
   created one operator-visible incident without a usage debit. Streaming Provider
-  disconnect, disconnect-before-output, malformed-usage, and downstream client
-  cancellation scenarios did the same; each retained the hold with no usage or
-  debit. The client-cancellation request used a short-lived curl, received the
+  disconnect, disconnect-before-output, malformed-usage, invalid-content-type, and
+  downstream client cancellation scenarios did the same; each retained the hold
+  with no usage or debit. The client-cancellation request used a short-lived curl, received the
   first SSE event, closed before the delayed second write, and returned transport
   status 000 while the Gateway recorded unknown charge evidence. Streaming 500
   exhausted four accounts and streaming 429 exhausted one account; both returned
@@ -232,8 +232,9 @@ At Platform `d4fb0cc` and Gateway `24a1c84`:
 - Garnet authentication returned `PONG`; asynchronous media bootstrapped the empty
   MinIO bucket and a signed URL downloaded the expected 67-byte object.
 - The smoke command exited zero and its cleanup trap removed only its containers and
-  temporary volumes. No project container remained afterward; the host retained only
-  the three named `apitf_*` baseline volumes and no `scalaapi-smoke-*` image tags.
+  temporary volumes. The exact `scalaapi-smoke-contenttype-0809_*` image tags were
+  then removed explicitly; no project container or temporary image remained. The host
+  retained only the three named `apitf_*` baseline volumes and the Garnet base image.
 
 Detailed gate results and residual coverage are maintained in `verification.md`.
 
