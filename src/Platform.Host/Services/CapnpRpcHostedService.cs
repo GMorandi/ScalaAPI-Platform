@@ -312,6 +312,9 @@ public class CapnpRpcHostedService : IHostedService
         }
 
         writer.ProtocolVersion = result.ProtocolVersion;
+        writer.ReplayStatusCode = result.ReplayStatusCode;
+        writer.ReplayContentType = result.ReplayContentType;
+        writer.ReplayBody = result.ReplayBody;
         return SerializeToFrame(0x81, message.Frame);
     }
 
@@ -368,7 +371,10 @@ public class CapnpRpcHostedService : IHostedService
             UpstreamEndpoint: report.UpstreamEndpoint ?? "",
             CancellationReason: report.CancellationReason ?? "",
             MediaOperationId: report.MediaOperationId ?? "",
-            PricingVersion: report.PricingVersion ?? "");
+            PricingVersion: report.PricingVersion ?? "",
+            ResponseStatusCode: report.ResponseStatusCode,
+            ResponseContentType: report.ResponseContentType ?? "",
+            ResponseBody: report.ResponseBody ?? "");
 
         var ack = await svc.HandleReportUsage(req);
         return SerializeWriteAck(0x82, ack);
@@ -528,6 +534,9 @@ public class DispatchService
             if (idempotency.Conflict)
                 return DispatchResult.Rejected("idempotencyConflict",
                     "Idempotency key was already used for a different request");
+            if (idempotency.Found && idempotency.HasResponse)
+                return DispatchResult.Replay(idempotency.ResponseStatusCode,
+                    idempotency.ResponseContentType, idempotency.ResponseBody);
             if (idempotency.Found)
                 return DispatchResult.Rejected("idempotencyReplay",
                     "Request has already been dispatched");
@@ -751,7 +760,8 @@ public class DispatchService
             req.RealtimeDurationMs, req.RealtimeFrames, req.DisconnectReason,
             req.ProviderUsageJson, req.ReasoningTokens, req.ServiceTier,
             req.UpstreamEndpoint, req.CancellationReason,
-            req.MediaOperationId, req.PricingVersion));
+            req.MediaOperationId, req.PricingVersion,
+            req.ResponseStatusCode, req.ResponseContentType, req.ResponseBody));
     }
 
     public async Task<MediaOperationRpcResult> HandleMediaOperation(
@@ -966,7 +976,8 @@ public record UsageReportRequest(
     int RealtimeDurationMs = 0, int RealtimeFrames = 0, string DisconnectReason = "",
     string ProviderUsageJson = "", int ReasoningTokens = 0, string ServiceTier = "",
     string UpstreamEndpoint = "", string CancellationReason = "",
-    string MediaOperationId = "", string PricingVersion = "");
+    string MediaOperationId = "", string PricingVersion = "",
+    int ResponseStatusCode = 0, string ResponseContentType = "", string ResponseBody = "");
 
 public sealed record MediaOperationRpcRequest(
     string ApiKeyHash, string OperationId, string Action, string RequestId,
@@ -1029,12 +1040,26 @@ public record DispatchResult
     public int WaitTimeoutMs { get; init; }
     public long AuthVersion { get; init; }
     public ushort ProtocolVersion { get; init; } = 2;
+    public int ReplayStatusCode { get; init; }
+    public string ReplayContentType { get; init; } = "";
+    public string ReplayBody { get; init; } = "";
 
     public static DispatchResult Ok(UpstreamTargetResult upstream) =>
         new() { Outcome = "ok", Upstream = upstream, AuthVersion = upstream.AuthVersion };
 
     public static DispatchResult Rejected(string code, string message) =>
         new() { Outcome = "rejected", RejectCode = code, RejectMessage = message };
+
+    public static DispatchResult Replay(int statusCode, string contentType, string body) =>
+        new()
+        {
+            Outcome = "rejected",
+            RejectCode = "idempotencyReplay",
+            RejectMessage = "Request has already been dispatched",
+            ReplayStatusCode = statusCode,
+            ReplayContentType = contentType,
+            ReplayBody = body,
+        };
 
     public static DispatchResult Wait(int timeoutMs) =>
         new() { Outcome = "wait", WaitTimeoutMs = timeoutMs };

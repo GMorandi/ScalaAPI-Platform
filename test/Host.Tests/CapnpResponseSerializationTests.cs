@@ -84,6 +84,19 @@ public class CapnpResponseSerializationTests
     }
 
     [Fact]
+    public void IdempotentReplayPreservesResponsePayload()
+    {
+        var decoded = Deserialize(Serialize(DispatchResult.Replay(
+            200, "application/json", "{\"ok\":true}")));
+
+        Assert.Equal(DispatchResponse.Outcome.rejected, decoded.TheOutcome);
+        Assert.Equal(RejectInfo.RejectCode.idempotencyReplay, decoded.Reject.Code);
+        Assert.Equal(200, decoded.ReplayStatusCode);
+        Assert.Equal("application/json", decoded.ReplayContentType);
+        Assert.Equal("{\"ok\":true}", decoded.ReplayBody);
+    }
+
+    [Fact]
     public void MediaOperationResponsePreservesDurableTaskFields()
     {
         var result = new MediaOperationRpcResult(true, 202, "med_1",

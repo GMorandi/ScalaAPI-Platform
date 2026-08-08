@@ -1312,6 +1312,9 @@ namespace CapnpGen
             Reject = CapnpSerializable.Create<CapnpGen.RejectInfo>(reader.Reject);
             LeaseToken = reader.LeaseToken;
             ProtocolVersion = reader.ProtocolVersion;
+            ReplayStatusCode = reader.ReplayStatusCode;
+            ReplayContentType = reader.ReplayContentType;
+            ReplayBody = reader.ReplayBody;
             applyDefaults();
         }
 
@@ -1325,6 +1328,9 @@ namespace CapnpGen
             Reject?.serialize(writer.Reject);
             writer.LeaseToken = LeaseToken;
             writer.ProtocolVersion = ProtocolVersion;
+            writer.ReplayStatusCode = ReplayStatusCode;
+            writer.ReplayContentType = ReplayContentType;
+            writer.ReplayBody = ReplayBody;
         }
 
         void ICapnpSerializable.Serialize(SerializerState arg_)
@@ -1384,6 +1390,24 @@ namespace CapnpGen
             set;
         }
 
+        public int ReplayStatusCode
+        {
+            get;
+            set;
+        }
+
+        public string ReplayContentType
+        {
+            get;
+            set;
+        }
+
+        public string ReplayBody
+        {
+            get;
+            set;
+        }
+
         public struct READER
         {
             readonly DeserializerState ctx;
@@ -1403,13 +1427,16 @@ namespace CapnpGen
             public CapnpGen.RejectInfo.READER Reject => ctx.ReadStruct(3, CapnpGen.RejectInfo.READER.create);
             public string LeaseToken => ctx.ReadText(4, null);
             public ushort ProtocolVersion => ctx.ReadDataUShort(16UL, (ushort)0);
+            public int ReplayStatusCode => ctx.ReadDataInt(32UL, 0);
+            public string ReplayContentType => ctx.ReadText(5, null);
+            public string ReplayBody => ctx.ReadText(6, null);
         }
 
         public class WRITER : SerializerState
         {
             public WRITER()
             {
-                this.SetStruct(2, 5);
+                this.SetStruct(2, 7);
             }
 
             public CapnpGen.DispatchResponse.Outcome TheOutcome
@@ -1458,6 +1485,24 @@ namespace CapnpGen
             {
                 get => this.ReadDataUShort(16UL, (ushort)0);
                 set => this.WriteData(16UL, value, (ushort)0);
+            }
+
+            public int ReplayStatusCode
+            {
+                get => this.ReadDataInt(32UL, 0);
+                set => this.WriteData(32UL, value, 0);
+            }
+
+            public string ReplayContentType
+            {
+                get => this.ReadText(5, null);
+                set => this.WriteText(5, value, null);
+            }
+
+            public string ReplayBody
+            {
+                get => this.ReadText(6, null);
+                set => this.WriteText(6, value, null);
             }
         }
 

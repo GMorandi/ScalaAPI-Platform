@@ -41,6 +41,7 @@ COPY deploy/migrations/007-request-idempotency.sql ./migrations/007-request-idem
 COPY deploy/migrations/008-redeem-code-atomicity.sql ./migrations/008-redeem-code-atomicity.sql
 COPY deploy/migrations/009-password-reset-tokens.sql ./migrations/009-password-reset-tokens.sql
 COPY deploy/migrations/010-email-verification.sql ./migrations/010-email-verification.sql
+COPY deploy/migrations/011-idempotency-response-replay.sql ./migrations/011-idempotency-response-replay.sql
 ENTRYPOINT ["dotnet", "migrate/Db.Migrator.dll", "/app/migrations"]
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS provider-mock

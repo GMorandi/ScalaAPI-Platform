@@ -76,13 +76,23 @@ public sealed class MediaOperationStoreTests
             Assert.True(conflict.Conflict);
 
             var completed = await store.CompleteAsync(new LeaseCompletion(
-                leaseToken, 100, 0, 0, 0, 20, 0, 200, false, false));
+                leaseToken, 100, 0, 0, 0, 20, 0, 200, false, false,
+                ResponseStatusCode: 200, ResponseContentType: "application/json",
+                ResponseBody: "{\"ok\":true}"));
             Assert.True(completed.Accepted);
             Assert.False(completed.Duplicate);
             Assert.Equal(10m, await ReadHoldAmount(dataSource, holdId));
             Assert.Equal("committed", await ReadHoldStatus(dataSource, holdId));
             Assert.Equal("completed", await ReadIdempotencyStatus(dataSource,
                 94001, "idem-hold-" + suffix));
+            var replayLookup = await store.CheckIdempotencyAsync(
+                94001, "idem-hold-" + suffix, "fingerprint-a");
+            Assert.True(replayLookup.Found);
+            Assert.False(replayLookup.Conflict);
+            Assert.True(replayLookup.HasResponse);
+            Assert.Equal(200, replayLookup.ResponseStatusCode);
+            Assert.Equal("application/json", replayLookup.ResponseContentType);
+            Assert.Equal("{\"ok\":true}", replayLookup.ResponseBody);
             Assert.True((await store.CompleteAsync(new LeaseCompletion(
                 leaseToken, 100, 0, 0, 0, 20, 0, 200, false, false))).Duplicate);
 

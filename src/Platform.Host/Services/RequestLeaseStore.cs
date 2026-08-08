@@ -1,4 +1,5 @@
 using System.Data;
+using System.Text;
 using Npgsql;
 
 namespace ScalaAPI.Host.Services;
@@ -46,11 +47,18 @@ public sealed record LeaseCreateResult(bool Created, bool Replay, bool Conflict)
     public static LeaseCreateResult IdempotencyConflict() => new(false, false, true);
 }
 
-public sealed record IdempotencyLookup(bool Found, bool Conflict)
+public sealed record IdempotencyLookup(
+    bool Found,
+    bool Conflict,
+    int ResponseStatusCode,
+    string ResponseContentType,
+    string ResponseBody)
 {
-    public static IdempotencyLookup Missing() => new(false, false);
-    public static IdempotencyLookup Replay() => new(true, false);
-    public static IdempotencyLookup FingerprintConflict() => new(true, true);
+    public static IdempotencyLookup Missing() => new(false, false, 0, "", "");
+    public static IdempotencyLookup Replay(int statusCode = 0, string contentType = "", string body = "") =>
+        new(true, false, statusCode, contentType, body);
+    public static IdempotencyLookup FingerprintConflict() => new(true, true, 0, "", "");
+    public bool HasResponse => ResponseStatusCode > 0 && ResponseBody.Length > 0;
 }
 
 public sealed record LeaseCompletion(
@@ -79,7 +87,10 @@ public sealed record LeaseCompletion(
     string UpstreamEndpoint = "",
     string CancellationReason = "",
     string MediaOperationId = "",
-    string PricingVersion = "");
+    string PricingVersion = "",
+    int ResponseStatusCode = 0,
+    string ResponseContentType = "",
+    string ResponseBody = "");
 
 public sealed record WriteAck(bool Accepted, bool Duplicate, bool Retryable, string ErrorCode)
 {
@@ -232,7 +243,10 @@ public sealed class RequestLeaseStore(
     {
         if (string.IsNullOrWhiteSpace(idempotencyKey)) return IdempotencyLookup.Missing();
         await using var command = dataSource.CreateCommand("""
-            SELECT request_fingerprint, status
+            SELECT request_fingerprint, status,
+                   COALESCE(response_status_code, 0),
+                   COALESCE(response_content_type, ''),
+                   COALESCE(response_body, '')
             FROM request_idempotency
             WHERE api_key_id = $1 AND idempotency_key = $2
             """);
@@ -243,8 +257,11 @@ public sealed class RequestLeaseStore(
         var existing = reader.GetString(0);
         var status = reader.GetString(1);
         if (status is "aborted" or "expired") return IdempotencyLookup.Missing();
+        var responseStatusCode = reader.GetInt32(2);
+        var responseContentType = reader.GetString(3);
+        var responseBody = reader.GetString(4);
         return string.Equals(existing, requestFingerprint ?? "", StringComparison.Ordinal)
-            ? IdempotencyLookup.Replay()
+            ? IdempotencyLookup.Replay(responseStatusCode, responseContentType, responseBody)
             : IdempotencyLookup.FingerprintConflict();
     }
 
@@ -275,6 +292,11 @@ public sealed class RequestLeaseStore(
             RealtimeDurationMs = Math.Max(0, completion.RealtimeDurationMs),
             RealtimeFrames = Math.Max(0, completion.RealtimeFrames),
             ReasoningTokens = Math.Max(0, completion.ReasoningTokens),
+            ResponseStatusCode = Math.Clamp(completion.ResponseStatusCode, 0, 999),
+            ResponseContentType = completion.ResponseContentType.Length > 256
+                ? completion.ResponseContentType[..256] : completion.ResponseContentType,
+            ResponseBody = Encoding.UTF8.GetByteCount(completion.ResponseBody) <= 4 * 1024 * 1024
+                ? completion.ResponseBody : "",
         };
         if (!pricing.TryGetPrice(lease.Model, out var price))
         {
@@ -359,6 +381,9 @@ public sealed class RequestLeaseStore(
 
         await FinalizeHoldAsync(connection, transaction, lease.HoldHandle, "committed", ct);
         await FinalizeIdempotencyAsync(connection, transaction, lease.LeaseToken, "completed", ct);
+        await StoreIdempotencyResponseAsync(connection, transaction, lease.LeaseToken,
+            normalized.ResponseStatusCode, normalized.ResponseContentType,
+            normalized.ResponseBody, ct);
         await EnqueueAsync(connection, transaction, lease.LeaseToken, "complete", ct);
         await transaction.CommitAsync(ct);
         return WriteAck.Ok();
@@ -656,6 +681,29 @@ public sealed class RequestLeaseStore(
             """;
         command.Parameters.AddWithValue(leaseToken);
         command.Parameters.AddWithValue(status);
+        await command.ExecuteNonQueryAsync(ct);
+    }
+
+    private static async Task StoreIdempotencyResponseAsync(NpgsqlConnection connection,
+        NpgsqlTransaction transaction, string leaseToken, int statusCode,
+        string contentType, string body, CancellationToken ct)
+    {
+        if (statusCode <= 0 || string.IsNullOrEmpty(body)) return;
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            UPDATE request_idempotency
+            SET response_status_code = $2,
+                response_content_type = $3,
+                response_body = $4,
+                completed_at = now(),
+                updated_at = now()
+            WHERE lease_token = $1 AND status = 'completed'
+            """;
+        command.Parameters.AddWithValue(leaseToken);
+        command.Parameters.AddWithValue(statusCode);
+        command.Parameters.AddWithValue(contentType);
+        command.Parameters.AddWithValue(body);
         await command.ExecuteNonQueryAsync(ct);
     }
 }

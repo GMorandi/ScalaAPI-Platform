@@ -1642,6 +1642,9 @@ namespace CapnpGen
             CancellationReason = reader.CancellationReason;
             MediaOperationId = reader.MediaOperationId;
             PricingVersion = reader.PricingVersion;
+            ResponseStatusCode = reader.ResponseStatusCode;
+            ResponseContentType = reader.ResponseContentType;
+            ResponseBody = reader.ResponseBody;
             applyDefaults();
         }
 
@@ -1684,6 +1687,9 @@ namespace CapnpGen
             writer.CancellationReason = CancellationReason;
             writer.MediaOperationId = MediaOperationId;
             writer.PricingVersion = PricingVersion;
+            writer.ResponseStatusCode = ResponseStatusCode;
+            writer.ResponseContentType = ResponseContentType;
+            writer.ResponseBody = ResponseBody;
         }
 
         void ICapnpSerializable.Serialize(SerializerState arg_)
@@ -1917,6 +1923,24 @@ namespace CapnpGen
             set;
         }
 
+        public int ResponseStatusCode
+        {
+            get;
+            set;
+        }
+
+        public string ResponseContentType
+        {
+            get;
+            set;
+        }
+
+        public string ResponseBody
+        {
+            get;
+            set;
+        }
+
         public struct READER
         {
             readonly DeserializerState ctx;
@@ -1965,13 +1989,16 @@ namespace CapnpGen
             public string CancellationReason => ctx.ReadText(13, null);
             public string MediaOperationId => ctx.ReadText(14, null);
             public string PricingVersion => ctx.ReadText(15, null);
+            public int ResponseStatusCode => ctx.ReadDataInt(736UL, 0);
+            public string ResponseContentType => ctx.ReadText(16, null);
+            public string ResponseBody => ctx.ReadText(17, null);
         }
 
         public class WRITER : SerializerState
         {
             public WRITER()
             {
-                this.SetStruct(12, 16);
+                this.SetStruct(12, 18);
             }
 
             public string LeaseToken
@@ -2194,6 +2221,24 @@ namespace CapnpGen
             {
                 get => this.ReadText(15, null);
                 set => this.WriteText(15, value, null);
+            }
+
+            public int ResponseStatusCode
+            {
+                get => this.ReadDataInt(736UL, 0);
+                set => this.WriteData(736UL, value, 0);
+            }
+
+            public string ResponseContentType
+            {
+                get => this.ReadText(16, null);
+                set => this.WriteText(16, value, null);
+            }
+
+            public string ResponseBody
+            {
+                get => this.ReadText(17, null);
+                set => this.WriteText(17, value, null);
             }
         }
     }
