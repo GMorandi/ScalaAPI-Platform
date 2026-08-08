@@ -26,5 +26,6 @@ public interface IUserGrain : IGrainWithIntegerKey
     Task Update(UserUpsert input);
     Task SetStatus(string status);
     Task AdjustBalance(decimal delta);
+    Task ApplyBalanceEffect(string effectId, decimal delta);
     Task Delete();
 }

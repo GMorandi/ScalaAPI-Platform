@@ -124,6 +124,11 @@ public class UserGrainTests
         await grain.AdjustBalance(-30.0m);
         var proj = await grain.GetAuthProjection();
         Assert.Equal(70.0m, proj.Balance);
+
+        await grain.ApplyBalanceEffect("redeem:1:1", 12.5m);
+        await grain.ApplyBalanceEffect("redeem:1:1", 12.5m);
+        proj = await grain.GetAuthProjection();
+        Assert.Equal(82.5m, proj.Balance);
     }
 
     [Fact]

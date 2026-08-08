@@ -389,42 +389,56 @@ public static class PlatformEndpoints
             var expiresAt = reader.IsDBNull(5) ? (DateTime?)null : reader.GetDateTime(5);
             await reader.DisposeAsync();
 
-            if (!string.Equals(status, "active", StringComparison.OrdinalIgnoreCase)
+            var alreadyRedeemed = false;
+            await using (var existing = connection.CreateCommand())
+            {
+                existing.Transaction = transaction;
+                existing.CommandText = "SELECT 1 FROM redeem_code_redemptions WHERE code_id = $1 AND user_id = $2 LIMIT 1";
+                existing.Parameters.AddWithValue(codeId);
+                existing.Parameters.AddWithValue(user.Id);
+                alreadyRedeemed = await existing.ExecuteScalarAsync() is not null;
+            }
+
+            if (!alreadyRedeemed && (!string.Equals(status, "active", StringComparison.OrdinalIgnoreCase)
                 || (expiresAt.HasValue && expiresAt.Value <= DateTime.UtcNow)
-                || (maxUses > 0 && usedCount >= maxUses))
+                || (maxUses > 0 && usedCount >= maxUses)))
                 return Results.BadRequest(new { error = "Code usage limit reached or expired" });
 
-            await using (var redemption = connection.CreateCommand())
+            if (!alreadyRedeemed)
             {
-                redemption.Transaction = transaction;
-                redemption.CommandText = """
-                    INSERT INTO redeem_code_redemptions(code_id, user_id, bonus_amount)
-                    VALUES ($1, $2, $3)
-                    ON CONFLICT (code_id, user_id) DO NOTHING
-                    RETURNING bonus_amount
-                    """;
-                redemption.Parameters.AddWithValue(codeId);
-                redemption.Parameters.AddWithValue(user.Id);
-                redemption.Parameters.AddWithValue(bonus);
-                var inserted = await redemption.ExecuteScalarAsync();
-                if (inserted is null || inserted is DBNull)
-                    return Results.Conflict(new { error = "Code already redeemed" });
+                await using (var redemption = connection.CreateCommand())
+                {
+                    redemption.Transaction = transaction;
+                    redemption.CommandText = """
+                        INSERT INTO redeem_code_redemptions(code_id, user_id, bonus_amount)
+                        VALUES ($1, $2, $3)
+                        ON CONFLICT (code_id, user_id) DO NOTHING
+                        RETURNING bonus_amount
+                        """;
+                    redemption.Parameters.AddWithValue(codeId);
+                    redemption.Parameters.AddWithValue(user.Id);
+                    redemption.Parameters.AddWithValue(bonus);
+                    var inserted = await redemption.ExecuteScalarAsync();
+                    if (inserted is null || inserted is DBNull)
+                        alreadyRedeemed = true;
+                }
+
+                if (!alreadyRedeemed)
+                {
+                    await using var increment = connection.CreateCommand();
+                    increment.Transaction = transaction;
+                    increment.CommandText = """
+                        UPDATE redeem_codes
+                        SET used_count = used_count + 1, last_redeemed_by = $2
+                        WHERE id = $1
+                        """;
+                    increment.Parameters.AddWithValue(codeId);
+                    increment.Parameters.AddWithValue(user.Id);
+                    await increment.ExecuteNonQueryAsync();
+                }
             }
 
-            await using (var increment = connection.CreateCommand())
-            {
-                increment.Transaction = transaction;
-                increment.CommandText = """
-                    UPDATE redeem_codes
-                    SET used_count = used_count + 1, last_redeemed_by = $2
-                    WHERE id = $1
-                    """;
-                increment.Parameters.AddWithValue(codeId);
-                increment.Parameters.AddWithValue(user.Id);
-                await increment.ExecuteNonQueryAsync();
-            }
-
-            if (bonus != 0)
+            if (!alreadyRedeemed && bonus != 0)
             {
                 await using var ledger = connection.CreateCommand();
                 ledger.Transaction = transaction;
@@ -442,12 +456,12 @@ public static class PlatformEndpoints
             await transaction.CommitAsync();
             if (bonus != 0)
             {
-                // PostgreSQL is authoritative for the redemption effect. The
-                // Orleans balance projection is reconciled by the existing
-                // ledger path if this process is interrupted after commit.
-                await client.GetGrain<IUserGrain>(user.Id).AdjustBalance(bonus);
+                await client.GetGrain<IUserGrain>(user.Id)
+                    .ApplyBalanceEffect($"redeem:{codeId}:{user.Id}", bonus);
             }
-            return Results.Ok(new { message = "Code redeemed", bonus });
+            return alreadyRedeemed
+                ? Results.Conflict(new { error = "Code already redeemed" })
+                : Results.Ok(new { message = "Code redeemed", bonus });
         });
     }
 

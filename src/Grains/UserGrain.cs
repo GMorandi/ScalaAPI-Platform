@@ -17,6 +17,7 @@ public class UserState
     [Id(6)] public int RpmLimit { get; set; }
     [Id(7)] public long[] AllowedGroups { get; set; } = [];
     [Id(8)] public HashSet<string> FinalizedLeases { get; set; } = [];
+    [Id(9)] public HashSet<string> AppliedBalanceEffects { get; set; } = [];
 }
 
 public class UserGrain : Grain, IUserGrain
@@ -229,6 +230,15 @@ public class UserGrain : Grain, IUserGrain
 
     public async Task AdjustBalance(decimal delta)
     {
+        _state.State.Balance = Math.Max(0m, _state.State.Balance + delta);
+        await _state.WriteStateAsync();
+    }
+
+    public async Task ApplyBalanceEffect(string effectId, decimal delta)
+    {
+        if (!_state.State.AppliedBalanceEffects.Add(effectId))
+            return;
+
         _state.State.Balance = Math.Max(0m, _state.State.Balance + delta);
         await _state.WriteStateAsync();
     }
