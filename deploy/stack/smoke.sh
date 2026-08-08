@@ -108,6 +108,7 @@ platform_restart_request_id="smoke-platform-restart-${suffix}"
 platform_restart_idempotency_key="smoke-platform-restart-idem-${suffix}"
 gateway_restart_request_id="smoke-gateway-restart-${suffix}"
 gateway_restart_idempotency_key="smoke-gateway-restart-idem-${suffix}"
+fault_request_prefix="smoke-fault-${suffix}"
 media_idempotency_key="smoke-media-idem-${suffix}"
 chat_price_version="smoke-chat-${suffix}-v1"
 media_price_version="smoke-media-${suffix}-v1"
@@ -157,6 +158,74 @@ assert_equals() {
     fi
 }
 
+create_api_key() {
+    local group_id=$1
+    local response
+    response="$(admin_request POST /admin/apikeys/ \
+        "$(jq -cn --argjson user "$user_id" --argjson group "$group_id" \
+            '{userId:$user,groupId:$group,quota:100,expiresAt:null,ipWhitelist:[],ipBlacklist:[],rateLimit5h:0,rateLimit1d:0,rateLimit7d:0}')" \
+        "$admin_token")"
+    jq -er '.key' <<<"$response"
+}
+
+run_chat_fault() {
+    local scenario=$1
+    local scenario_api_key=$2
+    local expected_status=$3
+    local expected_error_type=$4
+    local client_timeout=$5
+    local request_id="${fault_request_prefix}-${scenario}"
+    local idempotency_key="${request_id}-idem"
+    local request_body
+    local response
+    local response_body
+    local response_status
+    local fault_state
+    local lease_count
+
+    request_body="$(jq -cn --arg scenario "$scenario" \
+        '{model:"gpt-4o",messages:[{role:"user",content:"greenfield fault matrix"}],stream:false,user:("scalaapi-mock:" + $scenario)}')"
+    response="$(curl -sS --max-time "$client_timeout" --write-out $'\n%{http_code}' \
+        "$gateway_url/v1/chat/completions" \
+        -H "Authorization: Bearer $scenario_api_key" \
+        -H "Content-Type: application/json" \
+        -H "X-Request-ID: $request_id" \
+        -H "Idempotency-Key: $idempotency_key" \
+        --data "$request_body")"
+    response_status="${response##*$'\n'}"
+    response_body="${response%$'\n'*}"
+    assert_equals "$expected_status" "$response_status" \
+        "Provider $scenario response status"
+    if [[ "$expected_error_type" != "-" ]]; then
+        jq -e --arg expected "$expected_error_type" '.error.type == $expected' \
+            <<<"$response_body" >/dev/null
+    fi
+
+    fault_state="$(db_query "
+WITH target_leases AS (
+  SELECT lease_token, request_id, status
+  FROM request_leases
+  WHERE request_id = '$request_id' OR request_id LIKE '$request_id:retry:%'
+)
+SELECT
+  (SELECT count(*) FROM target_leases) || '|' ||
+  (SELECT count(*) FROM target_leases WHERE status = 'aborted') || '|' ||
+  (SELECT count(*) FROM balance_holds h JOIN target_leases l USING (lease_token)) || '|' ||
+  (SELECT count(*) FROM balance_holds h JOIN target_leases l USING (lease_token) WHERE h.status = 'released') || '|' ||
+  (SELECT count(*) FROM usage_events u JOIN target_leases l ON l.request_id = u.request_id) || '|' ||
+  (SELECT count(*) FROM usage_logs u JOIN target_leases l ON l.request_id = u.request_id) || '|' ||
+  (SELECT count(*) FROM balance_ledger b JOIN target_leases l USING (lease_token)) || '|' ||
+  (SELECT count(*) FROM request_idempotency WHERE idempotency_key = '$idempotency_key' AND status = 'aborted');")"
+    lease_count="${fault_state%%|*}"
+    if (( lease_count < 1 )); then
+        echo "Provider $scenario did not create a lease" >&2
+        return 1
+    fi
+    assert_equals "$lease_count|$lease_count|$lease_count|$lease_count|0|0|0|1" \
+        "$fault_state" "Provider $scenario terminal billing invariants"
+    echo "PASS: Provider $scenario -> HTTP $response_status ($lease_count aborted leases, all holds released)"
+}
+
 echo "Starting isolated Compose project '$project'"
 up_arguments=(up -d)
 if [[ "${SMOKE_SKIP_BUILD:-0}" != "1" ]]; then
@@ -185,21 +254,45 @@ openai_group_id="$(jq -er '.providers[] | select(.provider == "openai") | .group
 assert_equals "3" "$(jq -er '.providers | length' <<<"$seed_response")" \
     "Seeded provider count"
 
+fault_seed_response="$(admin_request POST /admin/seed/provider-mock-fault-matrix '{}' \
+    "$admin_token")"
+fault_429_group_id="$(jq -er '.scenarios[] | select(.scenario == "429") | .group_id' \
+    <<<"$fault_seed_response")"
+fault_500_group_id="$(jq -er '.scenarios[] | select(.scenario == "500") | .group_id' \
+    <<<"$fault_seed_response")"
+fault_timeout_group_id="$(jq -er '.scenarios[] | select(.scenario == "timeout") | .group_id' \
+    <<<"$fault_seed_response")"
+fault_disconnect_group_id="$(jq -er '.scenarios[] | select(.scenario == "disconnect") | .group_id' \
+    <<<"$fault_seed_response")"
+fault_malformed_group_id="$(jq -er '.scenarios[] | select(.scenario == "malformed_usage") | .group_id' \
+    <<<"$fault_seed_response")"
+assert_equals "5" "$(jq -er '.scenarios | length' <<<"$fault_seed_response")" \
+    "Seeded fault scenario count"
+
 register_response="$(admin_request POST /auth/register \
     "$(jq -cn --arg email "$user_email" --arg password "$user_password" \
         '{email:$email,password:$password,displayName:"Compose smoke"}')")"
 user_id="$(jq -er '.id' <<<"$register_response")"
 
+allowed_groups="$(jq -cn \
+    --argjson openai "$openai_group_id" \
+    --argjson fault429 "$fault_429_group_id" \
+    --argjson fault500 "$fault_500_group_id" \
+    --argjson timeout "$fault_timeout_group_id" \
+    --argjson disconnect "$fault_disconnect_group_id" \
+    --argjson malformed "$fault_malformed_group_id" \
+    '[$openai,$fault429,$fault500,$timeout,$disconnect,$malformed]')"
 admin_request PUT "/admin/users/$user_id" \
-    "$(jq -cn --argjson group "$openai_group_id" \
-        '{role:"user",balance:100,concurrency:4,rpmLimit:0,allowedGroups:[$group]}')" \
+    "$(jq -cn --argjson groups "$allowed_groups" \
+        '{role:"user",balance:100,concurrency:4,rpmLimit:0,allowedGroups:$groups}')" \
     "$admin_token" >/dev/null
 
-key_response="$(admin_request POST /admin/apikeys/ \
-    "$(jq -cn --argjson user "$user_id" --argjson group "$openai_group_id" \
-        '{userId:$user,groupId:$group,quota:100,expiresAt:null,ipWhitelist:[],ipBlacklist:[],rateLimit5h:0,rateLimit1d:0,rateLimit7d:0}')" \
-    "$admin_token")"
-api_key="$(jq -er '.key' <<<"$key_response")"
+api_key="$(create_api_key "$openai_group_id")"
+fault_429_api_key="$(create_api_key "$fault_429_group_id")"
+fault_500_api_key="$(create_api_key "$fault_500_group_id")"
+fault_timeout_api_key="$(create_api_key "$fault_timeout_group_id")"
+fault_disconnect_api_key="$(create_api_key "$fault_disconnect_group_id")"
+fault_malformed_api_key="$(create_api_key "$fault_malformed_group_id")"
 
 effective_from="1970-01-01T00:00:00Z"
 admin_request POST /admin/pricing/versions \
@@ -271,6 +364,13 @@ gateway_restart_settled() {
 }
 wait_for "post-Gateway-restart settlement" 30 gateway_restart_settled
 
+echo "Running isolated Provider failure matrix"
+run_chat_fault "500" "$fault_500_api_key" "503" "provider_unavailable" "20"
+run_chat_fault "429" "$fault_429_api_key" "503" "provider_unavailable" "20"
+run_chat_fault "malformed_usage" "$fault_malformed_api_key" "502" "provider_error" "20"
+run_chat_fault "disconnect" "$fault_disconnect_api_key" "503" "provider_unavailable" "20"
+run_chat_fault "timeout" "$fault_timeout_api_key" "502" "-" "40"
+
 media_response="$(curl -fsS "$gateway_url/v1/images/generations/async" \
     -H "Authorization: Bearer $api_key" -H "Content-Type: application/json" \
     -H "Idempotency-Key: $media_idempotency_key" \
@@ -336,4 +436,5 @@ echo "PASS: Garnet-authenticated Gateway -> Platform -> Provider mock request"
 echo "PASS: terminal lease, hold, usage, ledger, and outbox invariants"
 echo "PASS: idempotent response replay without duplicate billing"
 echo "PASS: new billable requests after Platform and Gateway restarts"
+echo "PASS: isolated 429, 500, malformed-usage, disconnect, and timeout billing failures"
 echo "PASS: S3-compatible bucket bootstrap, object persistence, and signed download ($media_size bytes)"

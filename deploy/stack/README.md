@@ -33,8 +33,17 @@ API key, Provider mock groups, and active price versions through product APIs,
 then verifies chat settlement, idempotent replay, Garnet authentication, and an
 asynchronous image stored in the S3-compatible object store. It also restarts the
 Platform and Gateway separately, sends a new billable request after each restart,
-and checks the resulting lease, hold, usage, ledger, and outbox invariants. Use
-`CONTAINER_CLI=podman` or `CONTAINER_CLI=docker` to select the runtime. Set
+and checks the resulting lease, hold, usage, ledger, and outbox invariants.
+
+The same gate seeds independent Provider mock accounts for HTTP 429, HTTP 500,
+malformed usage, upstream disconnect, and timeout scenarios. For every scenario
+it requires a terminal aborted lease, a released balance hold, no usage event,
+no usage log, no ledger entry, no request log, and one aborted idempotency record.
+Independent accounts prevent one scenario's scheduler cooldown from masking the
+next scenario.
+
+Use `CONTAINER_CLI=podman` or `CONTAINER_CLI=docker` to select the runtime. Set
 `KEEP_STACK=1` to retain a failed or successful project for inspection, and set
 the `SMOKE_*_PORT` variables documented in `smoke.sh` when the default host ports
-are occupied.
+are occupied. By default, the cleanup trap removes only the unique Compose
+project and volumes created by that smoke run.
