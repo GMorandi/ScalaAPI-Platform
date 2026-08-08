@@ -15,10 +15,10 @@ public class InvalidationService : IInvalidationService
 
     public void NotifyChange(string entityType, string entityKey)
     {
-        _garnet.Increment("invalidation:version");
+        _garnet.Increment(GarnetKeyspace.InvalidationVersion);
         if (string.Equals(entityType, "apiKey", StringComparison.OrdinalIgnoreCase)
             && !string.IsNullOrWhiteSpace(entityKey))
-            _garnet.Delete($"auth:{entityKey}");
+            _garnet.Delete(GarnetKeyspace.Auth(entityKey));
         _authCache.EvictAll();
     }
 }

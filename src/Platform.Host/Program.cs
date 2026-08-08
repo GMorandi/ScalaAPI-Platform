@@ -1,5 +1,6 @@
 using ScalaAPI.Host.Services;
 using Npgsql;
+using System.Security.Cryptography;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -57,6 +58,7 @@ builder.Services.AddHostedService(sp => sp.GetRequiredService<CapnpRpcHostedServ
 // Garnet write-through service (used by grains)
 builder.Services.AddSingleton<GarnetWriteThroughService>();
 builder.Services.AddSingleton<AuthProjectionCache>();
+builder.Services.AddSingleton<GarnetProjectionRebuildService>();
 builder.Services.AddSingleton<CredentialProtector>();
 builder.Services.AddSingleton<ScalaAPI.Grains.Interfaces.ICredentialProtector>(sp =>
     sp.GetRequiredService<CredentialProtector>());
@@ -97,6 +99,19 @@ app.MapGet("/ready", async (NpgsqlDataSource db, CapnpRpcHostedService rpc,
     }
 });
 app.MapGet("/health", () => Results.Redirect("/ready"));
+app.MapPost("/internal/cache/rebuild", async (HttpRequest request,
+    IConfiguration configuration, GarnetProjectionRebuildService rebuild,
+    CancellationToken ct) =>
+{
+    var expected = configuration["Internal:CacheRebuildToken"];
+    if (string.IsNullOrWhiteSpace(expected)
+        || !CryptographicOperations.FixedTimeEquals(
+            System.Text.Encoding.UTF8.GetBytes(expected),
+            System.Text.Encoding.UTF8.GetBytes(request.Headers["X-Internal-Token"].ToString())))
+        return Results.Unauthorized();
+
+    return Results.Ok(await rebuild.RebuildAsync(ct));
+});
 app.MapGet("/metrics", async (NpgsqlDataSource db, CancellationToken ct) =>
 {
     await using var command = db.CreateCommand("""

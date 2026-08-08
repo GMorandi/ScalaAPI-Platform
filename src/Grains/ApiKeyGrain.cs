@@ -108,6 +108,14 @@ public class ApiKeyGrain : Grain, IApiKeyGrain
             s.RateLimit5h, s.RateLimit1d, s.RateLimit7d));
     }
 
+    public Task<ApiKeyProjection> GetProjection()
+    {
+        var s = _state.State;
+        return Task.FromResult(new ApiKeyProjection(
+            s.ApiKeyId, s.UserId, s.GroupId, s.Status, s.Version,
+            s.Quota, s.QuotaUsed, s.ExpiresAt));
+    }
+
     public async Task AddUsage(decimal usd)
     {
         var s = _state.State;
