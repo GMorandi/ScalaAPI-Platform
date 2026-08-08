@@ -42,6 +42,24 @@ public static class SeedEndpoints
             }
             return Results.Ok(new { providers = result });
         });
+
+        group.MapPost("/provider-mock-fault-matrix", async (IClusterClient client,
+            ListingRepository registry) =>
+        {
+            var result = new List<object>();
+            foreach (var profile in FaultProfiles)
+            {
+                var accountId = await EnsureAccountAsync(client, registry, profile.Profile);
+                var groupId = await EnsureGroupAsync(client, registry, profile.Profile, accountId);
+                result.Add(new
+                {
+                    scenario = profile.Scenario,
+                    account_id = accountId,
+                    group_id = groupId,
+                });
+            }
+            return Results.Ok(new { scenarios = result });
+        });
     }
 
     private static async Task<long> EnsureAccountAsync(
@@ -120,5 +138,14 @@ public static class SeedEndpoints
         new(ProviderName, "openai", ["gpt-4o", "text-embedding-3-small", "mock-image-1", "mock-video-1"]),
         new("scalaapi-provider-mock-anthropic", "anthropic", ["claude-3-5-sonnet"]),
         new("scalaapi-provider-mock-gemini", "gemini", ["gemini-2.0-flash"]),
+    ];
+
+    private static readonly (string Scenario, MockProviderProfile Profile)[] FaultProfiles =
+    [
+        ("429", new("scalaapi-provider-mock-fault-429", "openai", ["gpt-4o"])),
+        ("500", new("scalaapi-provider-mock-fault-500", "openai", ["gpt-4o"])),
+        ("timeout", new("scalaapi-provider-mock-fault-timeout", "openai", ["gpt-4o"])),
+        ("disconnect", new("scalaapi-provider-mock-fault-disconnect", "openai", ["gpt-4o"])),
+        ("malformed_usage", new("scalaapi-provider-mock-fault-malformed-usage", "openai", ["gpt-4o"])),
     ];
 }
