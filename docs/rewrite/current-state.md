@@ -10,7 +10,7 @@ release artifacts.
 | Repository | Commit | Worktree | Responsibility |
 | --- | --- | --- | --- |
 | `gateway` | `3643ec7` | clean | C++ HTTP/WebSocket edge, protocol conversion, chunked streaming, Provider transport, versioned Garnet client, malformed-usage guard, fixed-scale Cap'n Proto client, unique failover lease IDs, bounded non-stream upstream timeout, bounded response replay |
-| `platform` | `653c908` | clean | C# Orleans control plane, PostgreSQL persistence, leases, NUMERIC ledger, durable holds/idempotency, usage, media lifecycle, Admin API, versioned Garnet rebuild, replayable balance effects, fixed-scale RPC contract, retryable terminal idempotency leases, bounded response persistence/replay, password recovery, email verification, cancellable Provider mock timeout, restart-safe settlement outbox recovery |
+| `platform` | `b90ff11` | clean | C# Orleans control plane, PostgreSQL persistence, leases, NUMERIC ledger, durable holds/idempotency, usage, media lifecycle, Admin API, versioned Garnet rebuild, replayable balance effects, fixed-scale RPC contract, retryable terminal idempotency leases, bounded response persistence/replay, password recovery, email verification, cancellable Provider mock timeout, restart-safe settlement outbox recovery, immutable lease price snapshots |
 | `sub2api` | `43ec48d` | read-only clean reference | Functional requirements catalogue only |
 
 The current source inventory is 50 tracked Gateway source files, 84 CTest cases,
@@ -59,6 +59,9 @@ not implementation parity or a migration target.
 - Lease creation writes an `active` row to `balance_holds` in that same transaction.
   Completion marks it `committed`; abort and expiry mark it `released`, using
   idempotent active-only updates.
+- Lease creation also persists the model price version and every NUMERIC unit rate.
+  Settlement uses that immutable snapshot even if runtime configuration changes;
+  a legacy lease without a snapshot fails retryably instead of being repriced.
 - Settlement outbox claims expire after 30 seconds, so a process restart can
   reclaim work. Failed financial effects use bounded exponential backoff without
   automatic dead-lettering; startup requeues any unprocessed rows left by an older
@@ -121,8 +124,8 @@ not implementation parity or a migration target.
   CI must still regenerate the C# output from the canonical schema and compare it
   before declaring contract generation complete.
 - Full empty-environment migration replay from an actually empty volume is still a
-  release gate; the current isolated database has migrations 000-011 and a second
-  migrator invocation skipped all twelve recorded migrations.
+  release gate; the current isolated database has migrations 000-012 and a second
+  migrator invocation skipped all thirteen recorded migrations.
 - Session concurrent-rotation HTTP tests, crash injection, and API-key policy tests
   remain pending even though replay/logout, rotation, and revoke paths have runtime
   evidence.
@@ -131,7 +134,8 @@ not implementation parity or a migration target.
 - Garnet key TTL policy and the authenticated projection rebuild now have runtime
   evidence; cache-flush recovery, stale-version handling, TLS, and multi-client
   integration tests remain incomplete even though connection outage/recovery passes.
-- Hold reconciliation after Orleans/process failure, pricing-version authority,
+- Hold reconciliation after Orleans/process failure, authoritative price-version
+  administration,
   provider adapters beyond the mock, object-byte lifecycle, User Web, commercial
   workflows, and operational release controls remain partial or skeletal.
 - Admin Web typecheck/build is now a blocking CI step, but browser coverage is absent.
@@ -139,18 +143,21 @@ not implementation parity or a migration target.
 ## Current runtime evidence
 
 On 2026-08-08 the isolated `scalaapi-stage2` project used current-source images:
-Platform `ce08b2d3e83513716db09dd9dad820831668793c071926b202f05ef66278acfb`,
+Platform `15ca7ca2ccbf47da884d078cddfcdc8f6883d746ed1c355ed137814859241aeb`,
 Admin API `24416a1d267708f7c046dfb8fb4713a312c7f156ca5841267e0d6139d44ceaba`,
-migrator `5e5bbf68f2463273c8c49a8b818219f290af4d633e7dfdda32b3344d7b1fd683`,
+migrator `53824dbce4883ba1b46aa1af6385c5c1720f6a66664f472266afdee0447af289`,
 Gateway `4af127e144518ceba532f900278cc1895d8b23ddc48cbac4d4ad49298ca79359`, and
 Provider mock `95b8632dea20b787127dad9f8302afad1bffb70633283dcc61720a67a388b4a6`.
-The migrator applied 011 after the existing 000-010 baseline and a second run
-skipped all twelve migrations. Registration
+The migrator applied 012 after the existing 000-011 baseline and a second run
+skipped all thirteen migrations. Registration
 returned user id 7 and registry id 7. Provider seed was idempotent (same account
 and group on two calls); API-key rotation revoked the old key; Admin-created keys
 were projected into `user_api_keys`. Seeded JSON and SSE requests both returned
 200 through Provider mock. A completed lease settled at `0.00006750` USD with one
-`-0.00006750` NUMERIC ledger row and one committed durable hold. The Platform
+`-0.00006750` NUMERIC ledger row and one committed durable hold. The request lease
+stored `runtime-v1` with input/output rates `2.50000000`/`10.00000000`; after a
+Platform restart the completed request settled once at the same price snapshot.
+The Platform
 Silo was then force-recreated from the restart-safe outbox image; Gateway readiness
 returned `200`, PostgreSQL showed zero unprocessed/dead-lettered outbox rows and
 zero active holds, and all 38 seeded leases remained terminal.
@@ -182,7 +189,7 @@ adapter requirement.
 Email-verification runtime evidence on the same image returned a debug token only
 with the explicit isolated-stack flag, accepted it once, rejected the replay with
 `400`, and persisted `email_verified=true` plus `email_verified_at`. The migrator
-applied 010 and 011 and skipped both on subsequent invocations.
+applied 010-012 and skipped all three on subsequent invocations.
 
 The cancellable Provider mock `timeout` scenario held a non-stream request until
 Gateway's 30-second boundary; the current image returned `502` at 30.3 seconds,

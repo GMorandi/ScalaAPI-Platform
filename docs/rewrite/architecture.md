@@ -44,7 +44,9 @@ survive provider polling. A repeated synchronous/streaming key is checked before
 scheduling and returns replay or fingerprint conflict; completed non-stream
 responses additionally retain a bounded body for replay after settlement. Active
 duplicates remain 409 until the completion report is durable, and streaming replay
-is a separate protocol concern.
+is a separate protocol concern. Each lease also stores an immutable price version
+and NUMERIC unit-rate snapshot; settlement never reprices from mutable process
+configuration.
 
 ## Garnet
 
