@@ -163,6 +163,21 @@ assert_equals() {
     fi
 }
 
+assert_one_of() {
+    local expected_values=$1
+    local actual=$2
+    local description=$3
+    local expected
+    IFS='|' read -r -a expected <<<"$expected_values"
+    for value in "${expected[@]}"; do
+        if [[ "$actual" == "$value" ]]; then
+            return 0
+        fi
+    done
+    echo "$description: expected one of '$expected_values', got '$actual'" >&2
+    return 1
+}
+
 create_api_key() {
     local group_id=$1
     local response
@@ -199,7 +214,7 @@ run_chat_fault() {
         --data "$request_body")"
     response_status="${response##*$'\n'}"
     response_body="${response%$'\n'*}"
-    assert_equals "$expected_status" "$response_status" \
+    assert_one_of "$expected_status" "$response_status" \
         "Provider $scenario response status"
     if [[ "$expected_error_type" != "-" ]]; then
         jq -e --arg expected "$expected_error_type" '.error.type == $expected' \
@@ -408,7 +423,9 @@ echo "Running isolated Provider failure matrix"
 run_chat_fault "500" "$fault_500_api_key" "503" "provider_unavailable" "20"
 run_chat_fault "429" "$fault_429_api_key" "503" "provider_unavailable" "20"
 run_chat_fault "malformed_usage" "$fault_malformed_api_key" "502" "provider_error" "20"
-run_chat_fault "disconnect" "$fault_disconnect_api_key" "503" "provider_unavailable" "40"
+# A reset can terminate in the transport (502) or after the account cooldown
+# exhausts dispatch waiting (503). Both outcomes must preserve zero-charge state.
+run_chat_fault "disconnect" "$fault_disconnect_api_key" "502|503" "-" "40"
 run_chat_fault "timeout" "$fault_timeout_api_key" "502" "-" "40"
 
 media_response="$(curl -fsS "$gateway_url/v1/images/generations/async" \
