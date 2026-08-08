@@ -10,15 +10,14 @@ release artifacts.
 | Repository | Commit | Worktree | Responsibility |
 | --- | --- | --- | --- |
 | `gateway` | `06adeb9` | clean | C++ HTTP/WebSocket edge, protocol conversion, chunked streaming, Provider transport, Cap'n Proto client |
-| `platform` | `8a3850b` | clean | C# Orleans control plane, PostgreSQL persistence, leases, NUMERIC ledger, usage, media lifecycle, Admin API |
+| `platform` | `f1ed79e` | clean | C# Orleans control plane, PostgreSQL persistence, leases, NUMERIC ledger, durable holds/idempotency, usage, media lifecycle, Admin API |
 | `sub2api` | `43ec48d` | read-only clean reference | Functional requirements catalogue only |
 
-The current source inventory is 49 Gateway implementation files, 8 Gateway test
-sources, 82 CTest cases, 101 hand-written Platform production C# files plus 3
-generated Cap'n Proto files, 31 Platform test or benchmark source files, 63
-Platform test cases, 84 mapped Admin API endpoints, 33 product tables, 20 SQLSugar
-entity types, and 24 Admin Web source files with 11 page views. Admin Web has no
-browser test runner yet.
+The current source inventory is 49 Gateway implementation files, 82 CTest cases,
+105 hand-written Platform production C# files plus 3 generated Cap'n Proto files,
+31 Platform test or benchmark source files, 65 Platform test cases, 123 mapped
+Admin API routes, 33 product tables, 20 SQLSugar entity types, and 24 Admin Web
+source files with 11 page views. Admin Web has no browser test runner yet.
 
 The reference inventory is 612 route registration calls, 39 concrete Ent schemas,
 82 Vue view/component files, and 240 SQL migrations. These numbers describe scope,
@@ -46,6 +45,14 @@ not implementation parity or a migration target.
 - Lease completion writes the usage event, `balance_ledger` `usage_debit`, terminal
   lease state, and durable outbox entry in one PostgreSQL transaction. The ledger
   key `(lease_token, entry_type)` is unique and all amounts remain `NUMERIC`.
+- Lease creation writes an `active` row to `balance_holds` in that same transaction.
+  Completion marks it `committed`; abort and expiry mark it `released`, using
+  idempotent active-only updates.
+- Non-media requests persist `(api_key_id, idempotency_key, request_fingerprint)`
+  in `request_idempotency` with the lease. Existing keys are checked before
+  scheduling and return replay or fingerprint conflict; the create transaction
+  remains the race-safe fallback. Media operations retain their own lifecycle
+  table and idempotency contract.
 - OpenAI Chat JSON and SSE pass the current Gateway -> Cap'n Proto -> Platform ->
   Provider mock path. Photon streaming responses use explicit chunked framing and
   provider usage is captured for settlement.
@@ -75,46 +82,54 @@ not implementation parity or a migration target.
 - The Cap'n Proto schema and checked-in generated artifacts still encode money/rate
   fields as Float64; replace them with fixed-scale integer or canonical decimal text
   before declaring the public RPC contract complete.
-- Full empty-environment migration replay for 001-005 is still a release gate; the
-  isolated Stage-2 runtime applied 005 in place, but the documented smoke script
-  does not yet capture every current image ID.
-- Session replay/concurrency HTTP tests and API-key rotation tests remain pending.
+- Full empty-environment migration replay from an actually empty volume is still a
+  release gate; the current isolated database applied 005, 006, and 007 and a
+  second migrator invocation skipped all eight recorded migrations.
+- Session concurrent-rotation HTTP tests, crash injection, and API-key policy tests
+  remain pending even though replay/logout, rotation, and revoke paths have runtime
+  evidence.
 - Generated C# Cap'n Proto files are checked in but are not regenerated and digest
   verified by CI yet.
 - Garnet key TTL policy, projection rebuild, cache-flush recovery, and multi-client
   integration tests remain incomplete even though connection outage/recovery passes.
-- Holds, usage debits, pricing versions, reconciliation, refresh sessions, provider
-  adapters, object storage, User Web, commercial workflows, and operational release
-  controls remain partial or skeletal.
+- Hold reconciliation after Orleans/process failure, pricing-version authority,
+  provider adapters beyond the mock, object-byte lifecycle, User Web, commercial
+  workflows, and operational release controls remain partial or skeletal.
 - Admin Web typecheck/build is now a blocking CI step, but browser coverage is absent.
 
 ## Current runtime evidence
 
 On 2026-08-08 the isolated `scalaapi-stage2` project used current-source images:
-Platform `cd4de3094a18113a12277574225ae05303f61de4546cb52f4117c8c8fb683d49`,
+Platform `212cbcbcd1ecebd42c95330114975d56aeb908c382f104c62c252862deaf13d4`,
+migrator `8ea85be1a9ffed1885cf35fbdb54c2813c04384f7c8f6c1d2fe1fbd7ae3fddbf`,
 Gateway `64b62db3278040332554748e7a1ab6602d792032bbd69e4635159e4f19b04e99`, and
 Provider mock `425e1430cc32f8756a688d176f1d542c9026603c37e0cb609e55b5ee49d6bcb8`.
-Registration returned user id 7 and registry id 7. Admin-created provider
-account/group/API key data drove a JSON 200 and SSE 200 request through Gateway.
-Completed leases settled at `0.00006750` USD; one matching `balance_ledger` row
-contained `-0.00006750`, and the completion outbox was marked processed. Replaying
-the ledger insert affected zero rows, proving the database effect is unique.
-Refresh-token replay and logout revocation also returned 401 after the first use.
+The migrator applied 005-007 and a second run skipped them all. Registration
+returned user id 7 and registry id 7. Provider seed was idempotent (same account
+and group on two calls); API-key rotation revoked the old key; Admin-created keys
+were projected into `user_api_keys`. Seeded JSON and SSE requests both returned
+200 through Provider mock. A completed lease settled at `0.00006750` USD with one
+`-0.00006750` NUMERIC ledger row and one committed durable hold.
+
+For request idempotency, two concurrent calls with the same key produced one 200
+and one 409 replay; a different fingerprint produced 409 conflict. Each key had
+one lease, one usage debit, and one committed hold. Admin ledger, lease, and hold
+query endpoints returned the corresponding PostgreSQL rows. Refresh-token replay
+and logout revocation also returned 401 after the first use.
 
 Authenticated Garnet `PING`, `SET/GET`, PX expiry, `INCR`, and `DEL` passed. Stopping
 Garnet changed Platform readiness to 503; restarting it restored readiness to 200.
 Gateway readiness returned 200 and an unknown API key traversed the current dispatch
 path to a stable 401. This is bootstrap evidence, not evidence for a successful
-billable request or settlement. This is bootstrap evidence for the pre-`b266e17`
-source snapshot, not evidence for the later registry/session migrations.
+billable request or settlement; the seeded request evidence above is the current
+source billable path.
 
 ## Historical runtime boundary
 
-The old running stack was built on August 1/2 and uses `/var/run/sub2api`, a
-`sub2api` PostgreSQL database, and migrations through 007 containing CDC and fence
-tables. Its healthy probes are historical information only. New ScalaAPI smoke
-tests must use isolated project names, volumes, an empty database, the current
-images, and the external Garnet service.
+The old running stack was built on August 1/2 and uses `/var/run/sub2api` and a
+separate historical database. Its healthy probes are historical information only.
+New ScalaAPI smoke tests must use isolated project names, volumes, an empty
+database, the current images, and the external Garnet service.
 
 ## Acceptance rule
 

@@ -12,7 +12,7 @@ This does not close the product rewrite. The next stage is one authoritative,
 billable OpenAI Chat Completions vertical slice. Work outside that slice stays
 `partial`, `skeleton`, or `missing` in the inventory.
 
-## Progress checkpoint (2026-08-08)
+## Progress checkpoint (2026-08-08, platform `f1ed79e`)
 
 - Completed in `b266e17`: business balances, quotas, costs, limits, and routing
   multipliers use `decimal`; precision projections cover User, Group, and API key.
@@ -24,9 +24,19 @@ billable OpenAI Chat Completions vertical slice. Work outside that slice stays
   current JSON and SSE provider paths are observable in the isolated runtime.
 - Completed in `8a3850b`: lease completion writes a unique NUMERIC usage debit to
   `balance_ledger` in the same transaction as usage and outbox state.
+- Completed in `bea5cbb`: lease creation and terminal settlement persist an
+  idempotent `balance_holds` row with `active`, `committed`, and `released` states.
+- Completed in `05e9300` and `f1ed79e`: non-media request idempotency is durable,
+  fingerprint-aware, checked before scheduling, and race-safe at lease creation.
+- Completed in `0e6b535`, `c4d7c6e`, `334b507`, and `62bbacf`: Admin settlement
+  queries, provider-mock seed, one-time API-key rotation, and Admin-to-user key
+  projection have current-image runtime evidence.
+- Completed in `2607006`: optional API-key policy arrays are normalized at the grain
+  boundary, so omitted Admin JSON cannot turn authentication into a null-reference
+  failure.
 - Still open: PostgreSQL aggregate repositories/foreign keys, fixed-precision RPC
-  schema generation, provider seed command, API-key rotation tests, failure/restart
-  settlement scenarios, and Admin ledger query endpoints.
+  schema generation, crash/restart settlement scenarios, provider failure matrix,
+  empty-volume CI automation, and Garnet projection rebuild/TLS evidence.
 
 ## Stage 2 objective
 
@@ -73,7 +83,9 @@ through product APIs and revoked sessions/keys are rejected across Gateway insta
 - Specify lease states and legal transitions: `created`, `held`, `forwarded`,
   `completed`, `aborted`, `expired`, and `settled`.
 - Bind request ID, idempotency key, request fingerprint, account, price version, and
-  hold to one durable lease before upstream forwarding.
+  durable hold to one lease before upstream forwarding. The current implementation
+  rejects duplicate synchronous/streaming dispatches; it does not yet persist and
+  replay a completed response body.
 - Commit hold release/debit, usage event, ledger entry, and outbox acknowledgement
   transactionally or through replay-safe unique effects. The current completion
   transaction covers usage, ledger debit, lease finalization, and outbox enqueue;
@@ -93,6 +105,8 @@ double charge, lost charge, negative available balance, or orphan hold.
 - Preserve request IDs, bounded streaming/backpressure, usage parsing, provider
   status, retry limits, cancellation, and safe error mapping.
 - Expose Admin request, lease, usage, hold, and ledger queries from PostgreSQL.
+  The current filtered ledger/lease/hold endpoints are a first operator surface;
+  add cursor pagination and export before declaring the domain complete.
 
 Depends on: control-plane seed and settlement state machine. Exit: the full path is
 observable from client request through an Admin/PostgreSQL ledger query for JSON and
@@ -111,7 +125,20 @@ SSE, including duplicate and failure semantics.
 Depends on: authoritative repositories. Exit: flush, restart, stale projection, and
 Garnet outage/recovery tests pass without a billable request failing open.
 
-### 6. Automated acceptance and operations
+### 6. Provider failure and recovery matrix
+
+- Drive Provider mock 429, 500, timeout, disconnect, and malformed usage through
+  both JSON and SSE, asserting bounded retries, terminal lease state, released or
+  committed hold, one usage event, and one ledger debit.
+- Inject Gateway and Platform restarts at dispatch, streaming, report, and outbox
+  boundaries. Reconcile active holds and idempotency rows after lease expiry without
+  reopening a billable request.
+
+Depends on: lease/hold/idempotency state machines and provider seed. Exit: every
+  failure scenario is replay-safe and returns a non-zero test result on assertion
+  failure.
+
+### 7. Automated acceptance and operations
 
 - Run the versioned Compose stack in CI from empty volumes and capture image digests,
   migration checksums, health results, and scenario exit codes.
@@ -127,9 +154,11 @@ and exactly one ledger debit.
 
 ## Sequencing
 
-Work packages 1 and the contract-generation part of 6 can run first. Package 2 then
-provides the seed data required by 4. Package 3 must be complete before 4 is treated
-as billable. Package 5 follows the repository work and runs before final acceptance.
+Work packages 1 and the contract-generation part of 7 can run first. Package 2 then
+provides the seed data required by 4 and 6. Package 3 is now implemented for the
+happy path but must pass the crash/reconciliation controls in 6 before the slice is
+treated as billable. Package 5 follows repository work and runs before final
+acceptance.
 
 The stage exits only when all acceptance scenarios run against current-source images
 from an empty database. Route presence, mock-only success, or compatibility with

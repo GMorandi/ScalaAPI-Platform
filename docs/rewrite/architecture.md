@@ -12,7 +12,7 @@ Gateway (HTTP/WebSocket, conversion, streaming, Provider transport)
       v
 Platform (identity, scheduler, leases, pricing, ledger, media, Admin/User API)
       |             |                    |
- PostgreSQL      Garnet             S3-compatible storage
+PostgreSQL      Garnet             S3-compatible storage
   authority      projection/cache    media bytes
       |
  Provider accounts and settlement metadata
@@ -36,6 +36,13 @@ credentials, scheduler state, lease state machines, balance holds, decimal prici
 append-only ledger entries, usage settlement, media metadata, and Admin/User APIs.
 Orleans coordinates concurrency; PostgreSQL is the durable business and accounting
 source of truth. Orleans storage internals are never used as a business listing API.
+
+`request_leases`, `balance_holds`, `request_idempotency`, usage events, the NUMERIC
+ledger, and the outbox form one durable billing boundary. Media operations use their
+own idempotency key and lifecycle table because asynchronous response metadata must
+survive provider polling. A repeated synchronous/streaming key is checked before
+scheduling and returns replay or fingerprint conflict; response-body replay is a
+later product increment.
 
 ## Garnet
 
