@@ -214,6 +214,7 @@ public class UserGrain : Grain, IUserGrain
     {
         var s = _state.State;
         s.Role = input.Role;
+        s.Balance = Math.Max(0m, input.Balance);
         s.Concurrency = input.Concurrency;
         s.RpmLimit = input.RpmLimit;
         s.AllowedGroups = input.AllowedGroups;

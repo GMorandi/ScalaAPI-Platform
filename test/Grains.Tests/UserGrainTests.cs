@@ -132,6 +132,21 @@ public class UserGrainTests
     }
 
     [Fact]
+    public async Task Update_AppliesAdministrativeBalanceAndConfiguration()
+    {
+        var grain = GetGrain(7011);
+        await grain.Create(new UserUpsert("user", 0m, 1, 0, []));
+
+        await grain.Update(new UserUpsert("user", 100m, 4, 60, [41]));
+
+        var projection = await grain.GetAuthProjection();
+        Assert.Equal(100m, projection.Balance);
+        Assert.Equal(4, projection.Concurrency);
+        Assert.Equal(60, projection.RpmLimit);
+        Assert.Equal([41], projection.AllowedGroups);
+    }
+
+    [Fact]
     public async Task GetAuthProjection_ReflectsConcurrency()
     {
         var grain = GetGrain(7010);
