@@ -10,13 +10,13 @@ read-only requirements reference and is excluded from builds and runtime.
 
 | Repository | Commit | Worktree | Role |
 | --- | --- | --- | --- |
-| `gateway` | `be90413` | clean | C++ HTTP/WebSocket edge, protocol parsing/conversion, streaming, strict Provider media contracts, transport/evidence, charge-aware failover, durable usage delivery, authenticated Garnet projections, deterministic fault boundaries, and fail-closed cancellation/partial-SSE handling |
-| `platform` | `e5c2fb8` | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, identity, scheduling, evidence-backed leases/holds/ledger, audited operator resolution, media lifecycle, Admin API/Web, Provider mock, migrations, deterministic fault boundaries, and deployment gates |
+| `gateway` | `4bfe577` | clean | C++ HTTP/WebSocket edge, protocol parsing/conversion, streaming, strict Provider media contracts, bounded stream header/client timeouts, transport/evidence, charge-aware failover, durable usage delivery, authenticated Garnet projections, deterministic fault boundaries, and fail-closed cancellation/partial-SSE handling |
+| `platform` | `ef2654d` | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, identity, scheduling, evidence-backed leases/holds/ledger, audited operator resolution, media lifecycle, Admin API/Web, Provider mock, migrations, deterministic fault boundaries, and deployment gates |
 | `sub2api` | `43ec48d` | read-only clean | Requirements catalogue only; never a runtime or compatibility dependency |
 
 The current tracked inventory is:
 
-- Gateway: 52 production C++ source/header files, 10 test source files, and 98
+- Gateway: 52 production C++ source/header files, 10 test source files, and 99
   CTest cases.
 - Platform: 81 hand-written production C# files, 3 generated Cap'n Proto C#
   files, 26 test/benchmark C# files, and 95 tests: 57 Grain, 28 Host, 4 Admin,
@@ -64,8 +64,11 @@ current-source runtime evidence.
   conversion exist, including OpenAI, Gemini, and nested Anthropic streaming
   usage extraction.
 - Non-stream Provider requests have a 30-second boundary and bounded retries.
-  Failover retains the public idempotency key while allocating a unique internal
-  request/lease ID per attempt.
+  Streaming Provider calls now bound the response-header wait by the first-token
+  deadline and extend the incoming client socket for the configured stream window;
+  separate inter-chunk and total-stream timers remain open. Failover retains the
+  public idempotency key while allocating a unique internal request/lease ID per
+  attempt.
 - Gateway durably changes a lease from `held` to `forwarded` before opening HTTP or
   realtime Provider transport. The first response bytes successfully written to a
   streaming client record `output_started`. If evidence persistence fails before
@@ -173,12 +176,13 @@ current-source runtime evidence.
 
 ## Current verification evidence
 
-At Platform `e5c2fb8` and Gateway `be90413`:
+At Platform `ef2654d` and Gateway `4bfe577`:
 
 - Gateway built locally and passed 99/99 CTest cases, including deterministic
   fault-hook claim/repeat behavior, terminal SSE detection, provider EOF
-  classification, incomplete chunked-body disconnect classification, and
-  zero-length client-write cancellation.
+  classification, incomplete chunked-body disconnect classification, zero-length
+  client-write cancellation, and bounded Provider pre-header stream timeout
+  handling.
 - Platform Release test/build passed with 0 warnings and 0 errors: 95/95 tests,
   including 28 Host tests against a fresh real PostgreSQL schema. Host coverage
   includes deterministic fault-hook configuration plus atomic operator
@@ -187,20 +191,27 @@ At Platform `e5c2fb8` and Gateway `be90413`:
 - Scheduler benchmark integrity dry run executed all 4 selected child benchmarks
   and returned zero. It is a failure-propagation check, not performance evidence.
 - `deploy/stack/smoke.sh` built current sibling sources in the isolated Podman
-  project `scalaapi-smoke-contenttype-0809`, created new volumes, applied all 22
-  migrations, and observed all 22 skip on the second migrator run. Source-built
-  image IDs were Platform `c08eb3863319`, Admin API `ec196250cbb2`, Gateway
-  `74834536bd68`, Provider mock `5c1554c552a9`, migrator `99c9d1252d75`, and
-  Admin Web `17f11657502d`. The smoke intentionally crashed Platform once at
+  project `scalaapi-smoke-streamtimeout-fix3-0809`, created new volumes, applied
+  all 22 migrations, and observed all 22 skip on the second migrator run.
+  Source-built image IDs were Platform
+  `46b1be29fb3e8eacfdcc97f5c979b01e766b577f00f2e7a2f8b1122d267d3eff`, Admin API
+  `bfd6f70a86e01e5e1ab14c968e2770752c1e36d0e31830a91943aca3b9f4c1fa`, Gateway
+  `5b589b1252bdb9d083807a3ac6f998204c8ceae6f9ae8223fd32a22dacdb64aa`, Provider
+  mock `cb2284848158d9d3ce1541de7a4f7e1dd931e8368c872dcdcd18d0678f920d6f`,
+  migrator `371add0cb87b23abc64f4df496412789c6afd536a4838d214163ca6f86575049`,
+  and Admin Web `2c66104c9ef79eede07543bafea08f7a2e973fbc248c05fd0e94de18da144acd`.
+  The smoke intentionally crashed Platform once at
   `platform.after_settlement_commit`; single-silo membership recovery restarted
   the same service, replayed the durable usage outbox, and preserved one debit.
-  It separated explicit non-stream and streaming 429/500 rejections from eight
-  unknown-charge scenarios,
-  including Provider disconnect, disconnect-before-output, malformed usage,
-  timeout, partial SSE disconnect, invalid streaming content type, and a real
-  downstream client timeout after the first SSE event. It resolved one incident through the Admin API with
-  `settle`, replayed the same command as `duplicate`, and reduced open incidents
-  from eight to seven before the second reconciliation run.
+  It separated explicit non-stream and streaming 429/500 rejections from nine
+  unknown-charge scenarios, including Provider disconnect,
+  disconnect-before-output, malformed usage, timeout before response headers,
+  partial SSE disconnect, invalid streaming content type, and a real downstream
+  client timeout after the first SSE event. The pre-header timeout returned a
+  bounded HTTP 502 with `provider_protocol_error`, retained one unknown-charge
+  hold, and did not fail over. It resolved one incident through the Admin API
+  with `settle`, replayed the same command as `duplicate`, and reduced open
+  incidents from nine to eight before the second reconciliation run.
 - The clean-stack Admin API funded a new zero-balance user once. Exact replay
   returned the same ledger identity, changed replay returned 409, overdraft returned
   409, and PostgreSQL contained exactly one NUMERIC adjustment and one actor audit.
@@ -232,7 +243,7 @@ At Platform `e5c2fb8` and Gateway `be90413`:
 - Garnet authentication returned `PONG`; asynchronous media bootstrapped the empty
   MinIO bucket and a signed URL downloaded the expected 67-byte object.
 - The smoke command exited zero and its cleanup trap removed only its containers and
-  temporary volumes. The exact `scalaapi-smoke-contenttype-0809_*` image tags were
+  temporary volumes. The exact `scalaapi-smoke-streamtimeout-fix3-0809_*` image tags were
   then removed explicitly; no project container or temporary image remained. The host
   retained only the three named `apitf_*` baseline volumes and the Garnet base image.
 
@@ -247,9 +258,10 @@ Detailed gate results and residual coverage are maintained in `verification.md`.
   quota grants and future affiliate effects still need explicit authority contracts.
 - Gateway now classifies client cancellation and incomplete SSE as unknown-charge
   outcomes, records disconnect/cancellation reasons, and prevents failover after
-  output or partial Provider output. The source-level behavior is covered by 98
+  output or partial Provider output. The source-level behavior is covered by 99
   CTest cases; the empty-stack gate now proves Provider partial-SSE disconnect,
-  disconnect-before-output, and malformed-usage retention with no usage/debit.
+  disconnect-before-output, malformed-usage retention, and bounded pre-header
+  timeout handling with no usage/debit.
   The empty-stack gate now proves actual downstream socket cancellation as well;
   final usage/reconciliation fixtures for a truncated stream remain.
   A direct
