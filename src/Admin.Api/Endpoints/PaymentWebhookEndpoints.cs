@@ -75,6 +75,7 @@ public static class PaymentWebhookEndpoints
         await using var transaction = await connection.BeginTransactionAsync(ct);
 
         var existing = await FindEventAsync(connection, transaction, provider, payload.EventId, ct);
+        var wasExisting = existing is not null;
         if (existing is not null)
         {
             if (!string.Equals(existing.Value.PayloadHash, payloadHash, StringComparison.Ordinal))
@@ -178,7 +179,7 @@ public static class PaymentWebhookEndpoints
         mark.Parameters.AddWithValue(provider);
         mark.Parameters.AddWithValue(payload.EventId);
         await mark.ExecuteNonQueryAsync(ct);
-        return Results.Ok(new { duplicate = existing is not null, status = "applied" });
+        return Results.Ok(new { duplicate = wasExisting, status = "applied" });
     }
 
     private static bool IsSupportedEvent(string eventType) =>

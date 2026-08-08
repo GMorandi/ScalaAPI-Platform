@@ -253,6 +253,10 @@ public static class PlatformEndpoints
             req.Status = "pending";
             req.CreatedAt = DateTime.UtcNow;
             await db.Insertable(req).ExecuteCommandAsync();
+            req.Id = Convert.ToInt64(await db.Ado.GetScalarAsync(
+                "SELECT id FROM payment_orders WHERE user_id = @user_id AND idempotency_key = @key",
+                new SugarParameter("@user_id", user.Id),
+                new SugarParameter("@key", idempotencyKey)));
             return Results.Ok(new { id = req.Id, status = req.Status });
         });
 
