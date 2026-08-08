@@ -15,6 +15,11 @@ public class GarnetWriteThroughService
             ttl ?? TimeSpan.FromSeconds(60));
     }
 
+    public void EvictAuthSnapshot(string keyHash)
+    {
+        _garnet.Delete(GarnetKeyspace.Auth(keyHash));
+    }
+
     public void WriteAccountProjection(long accountId, string serializedProjection)
     {
         _garnet.Set(GarnetKeyspace.AccountProjection(accountId), serializedProjection,

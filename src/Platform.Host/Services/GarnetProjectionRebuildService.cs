@@ -50,7 +50,7 @@ public sealed class GarnetProjectionRebuildService(
                 if (entry.EntityId is null ||
                     !string.Equals(entry.Status, "active", StringComparison.OrdinalIgnoreCase))
                 {
-                    garnet.Evict(entry.EntityKey);
+                    garnet.EvictAuthSnapshot(entry.EntityKey);
                     deleted++;
                     continue;
                 }
@@ -66,7 +66,7 @@ public sealed class GarnetProjectionRebuildService(
                     || !string.Equals(user.Status, "active", StringComparison.OrdinalIgnoreCase)
                     || !string.Equals(group.Status, "active", StringComparison.OrdinalIgnoreCase))
                 {
-                    garnet.Evict(entry.EntityKey);
+                    garnet.EvictAuthSnapshot(entry.EntityKey);
                     deleted++;
                     continue;
                 }
