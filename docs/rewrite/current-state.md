@@ -10,7 +10,7 @@ release artifacts.
 | Repository | Commit | Worktree | Responsibility |
 | --- | --- | --- | --- |
 | `gateway` | `c807dc8` | clean | C++ HTTP/WebSocket edge, protocol conversion, chunked streaming, Provider transport, versioned Garnet client, malformed-usage guard, fixed-scale Cap'n Proto client, unique failover lease IDs, bounded non-stream upstream timeout, bounded response replay, invalidation flush recovery |
-| `platform` | `7613b92` | clean | C# Orleans control plane, PostgreSQL persistence, leases, NUMERIC ledger, durable holds/idempotency, usage, media lifecycle, Admin API, signed payment webhooks with pending-event recovery, versioned Admin pricing lifecycle with live Host refresh, idempotent subscription purchase/renewal/cancellation/expiry, versioned Garnet rebuild, replayable balance effects, fixed-scale RPC contract, retryable terminal idempotency leases, bounded response persistence/replay, password recovery, email verification, self-service profile/password/account deletion, deterministic multi-protocol Provider mock with pollable media tasks, restart-safe settlement outbox recovery, immutable lease price snapshots, durable ledger reconciliation endpoint, deterministic rolling quota policy, usage-triggered auth invalidation |
+| `platform` | `66ef4a2` | clean | C# Orleans control plane, PostgreSQL persistence, leases, NUMERIC ledger, durable holds/idempotency, usage, media lifecycle, Admin API, signed payment webhooks with pending-event recovery, versioned Admin pricing lifecycle with live Host refresh, idempotent subscription purchase/renewal/cancellation/expiry, versioned Garnet rebuild, replayable balance effects, fixed-scale RPC contract, retryable terminal idempotency leases, bounded response persistence/replay, password recovery, email verification, self-service profile/password/account deletion, deterministic multi-protocol Provider mock with pollable media tasks, S3-compatible media ownership with SigV4 presigned access, restart-safe settlement outbox recovery, immutable lease price snapshots, durable ledger reconciliation endpoint, deterministic rolling quota policy, usage-triggered auth invalidation |
 | `sub2api` | `43ec48d` | read-only clean reference | Functional requirements catalogue only |
 
 The current source inventory is 50 tracked Gateway source files, 87 CTest cases,
@@ -152,8 +152,8 @@ not implementation parity or a migration target.
   CI must still regenerate the C# output from the canonical schema and compare it
   before declaring contract generation complete.
 - Full empty-environment migration replay from an actually empty volume is still a
-  release gate; the current isolated database has migrations 000-015 and a second
-  migrator invocation skipped all sixteen recorded migrations.
+  release gate; the current isolated database has migrations 000-016 and a second
+  migrator invocation skipped all seventeen recorded migrations.
 - Session concurrent-rotation HTTP tests, crash injection, and API-key policy tests
   remain pending even though replay/logout, rotation, and revoke paths have runtime
   evidence.
@@ -164,8 +164,9 @@ not implementation parity or a migration target.
   multi-client integration tests remain incomplete even though connection
   outage/recovery passes.
 - Hold reconciliation after Orleans/process failure, historical price backfill,
-  provider adapters beyond the mock, object-byte lifecycle, User Web, commercial
-  workflows, and operational release controls remain partial or skeletal.
+  provider adapters beyond the mock, object deletion/reconciliation/restore,
+  User Web, commercial workflows, and operational release controls remain partial
+  or skeletal.
 - Admin `/admin/usage/reconcile` now persists a passed/failed run and detects
   missing usage debits. An initial run against the long-lived smoke database
   caught two missing debits and orphan historical test ledger rows; after an
@@ -177,13 +178,13 @@ not implementation parity or a migration target.
 ## Current runtime evidence
 
 On 2026-08-08 the isolated `scalaapi-stage2` project used current-source images:
-Platform `f6560489487200c737c5b81ef50be64e4f51e23c6efb6d36d13c28c8e646ef48`,
+Platform `69ca5794e6596fc051e72206701a98f47b7d9a9a33b5d77c71368a937ab59d1a`,
 Admin API `ea0cbe88a5b1bab8dd171b930ff5e6ec31be234b0bf4becf6ac6f4b74d38ca73`,
 migrator `8c1b3d4299fa8a2dc20abedcdaa15e2faa42f85d4c9156ca1e4d6919e146d880`,
 Gateway `4099c8aa22de23b7db13a114d40e301c0502b033545bcbbf0ed1dd0cbe7d29ca`, and
 Provider mock `bfd1a32c4f1dff5efc3d040bd488a4e13db9e8d65a671eb9de14cf3b1cebe2d7`.
-The migrator applied the complete 000-015 sequence and a second run skipped all
-sixteen migrations. Registration
+The migrator applied the complete 000-016 sequence and a second run skipped all
+seventeen migrations. Registration
 returned user id 7 and registry id 7. Provider seed was idempotent (same account
 and group on two calls); API-key rotation revoked the old key; Admin-created keys
 were projected into `user_api_keys`. Seeded JSON and SSE requests both returned
@@ -261,8 +262,17 @@ synchronous image generation. Active `pricing_versions` for
 dispatch, and their leases stored the exact NUMERIC version/rates. Asynchronous
 image and video creation returned durable `med_*` operation IDs, then Platform
 polling transitioned both rows to `succeeded` in one attempt with `image/png` and
-`video/mp4` output types. The output bytes are still provider-owned URLs; copying,
-signing, and reconciling them in object storage remain open.
+`video/mp4` output types. The initial provider-only output URL behavior is now
+superseded by the object-storage stage below.
+
+Object-storage runtime evidence then applied migration 016 and rebuilt the Silo with
+the SigV4 client. A retried image operation copied 67 bytes to
+`media/med_948b989edea74db3a57455328fc353b2.png`, stored its ETag and
+`object_status=stored`, and returned a one-hour presigned MinIO URL that downloaded
+the exact provider-mock bytes. A video operation copied 62 bytes to its `.mp4` key
+with `video/mp4` metadata and the same signed-download proof. A deliberately failed
+signature attempt left the operation retryable with `object_status=failed` and no
+settlement; the later retry cleared the stale error before marking it stored.
 
 Payment runtime evidence on the current Admin image created order `id=2` with
 `7.25 USD`, accepted a signed `payment.succeeded` webhook once, returned

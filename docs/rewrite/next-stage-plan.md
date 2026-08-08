@@ -12,7 +12,7 @@ This does not close the product rewrite. The next stage is one authoritative,
 billable OpenAI Chat Completions vertical slice. Work outside that slice stays
 `partial`, `skeleton`, or `missing` in the inventory.
 
-## Progress checkpoint (2026-08-08, platform `7613b92`, gateway `c807dc8`)
+## Progress checkpoint (2026-08-08, platform `66ef4a2`, gateway `c807dc8`)
 
 - Completed in `b266e17`: business balances, quotas, costs, limits, and routing
   multipliers use `decimal`; precision projections cover User, Group, and API key.
@@ -139,9 +139,15 @@ billable OpenAI Chat Completions vertical slice. Work outside that slice stays
   types. Current-image Gateway probes pass for Responses, models, embeddings,
   synchronous images, and durable asynchronous image/video completion. Provider
   groups for Anthropic/Gemini and object-store byte ownership remain open.
+- Completed in `66ef4a2`: migration 016 gives media operations native object
+  metadata. Successful provider polls download bytes into MinIO through a SigV4
+  client, store key/ETag/size/status, and return one-hour presigned URLs; a failed
+  upload leaves the operation retryable and does not settle usage. Image and video
+  Compose probes downloaded the stored bytes. Deletion, reconciliation, restore,
+  and lifecycle cleanup remain release work.
 - Still open: PostgreSQL aggregate repositories/foreign keys, fixed-precision RPC
   schema generation, crash/restart settlement scenarios, provider failure matrix,
-  object-store media ownership, empty-volume CI automation, and Garnet
+  object-store deletion/reconciliation/restore, empty-volume CI automation, and Garnet
   flush/stale-version/TLS/multi-client evidence.
 
 ## Stage 2 objective

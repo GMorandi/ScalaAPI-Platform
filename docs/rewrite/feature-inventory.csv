@@ -6,8 +6,8 @@ GW-04,Gateway / protocol,Gemini generateContent and streamGenerateContent,P0,par
 GW-05,Gateway / protocol,Cross-protocol request response and stream conversion,P0,partial,Gateway,Pairwise conversion fixtures and malformed input tests
 GW-06,Gateway / protocol,Models catalog and token counting,P1,partial,Gateway,Deterministic OpenAI/Gemini model metadata and Anthropic token-count mock contracts exist; add versioned catalog authority tokenizer tests and provider-group E2E
 GW-07,Gateway / protocol,Embeddings,P0,partial,Gateway,Dimensions encoding and provider error tests
-GW-08,Gateway / protocol,Image generation sync async and batch,P0,partial,Gateway,Sync and durable async Provider mock paths pass with one-attempt polling and image/png metadata; add batch cancellation restart and object-store E2E
-GW-09,Gateway / protocol,Video generation lifecycle,P1,partial,Gateway,OpenAI video scheduling and durable Provider mock polling pass with video/mp4 metadata; add cancellation media-unit pricing restart and object-store tests
+GW-08,Gateway / protocol,Image generation sync async and batch,P0,partial,Gateway,Sync and durable async Provider mock paths copy bytes to MinIO with one-attempt polling image/png metadata and SigV4 access; add batch cancellation restart deletion and reconciliation E2E
+GW-09,Gateway / protocol,Video generation lifecycle,P1,partial,Gateway,OpenAI video scheduling and durable Provider mock polling copy bytes with video/mp4 metadata and SigV4 access; add cancellation media-unit pricing restart deletion and reconciliation tests
 GW-10,Gateway / protocol,Realtime WebSocket and calls,P0,partial,Gateway,Backpressure disconnect and settlement soak
 GW-11,Gateway / protocol,API-key auth dispatch failover and durable usage lease,P0,partial,Gateway + Platform,Exactly-once lease and usage E2E including settled non-stream idempotency replay
 GW-12,Gateway / protocol,Provider fidelity methods headers status proxy and TLS fingerprint,P0,partial,Gateway,Header status proxy and TLS contract fixtures
@@ -50,7 +50,7 @@ UI-03,Frontend,User authentication and recovery UI,P1,missing,User Web,Auth reco
 UI-04,Frontend,Payments redeem subscriptions and affiliate UI,P1,missing,User Web + Admin Web,Commercial workflow browser tests
 UI-05,Frontend,Operations risk audit monitor and backup UI,P1,missing,Admin Web,Operator recovery workflow browser tests
 UI-06,Frontend,Public model setup status and legal pages,P2,missing,Admin Web + Gateway,Public route and accessibility tests
-DEP-01,Deployment / reliability,Fresh target schema and idempotent migrator,P0,partial,Platform,Current 000-015 checksum replay passes; add truly empty-volume smoke with no compatibility or Redis dependency
+DEP-01,Deployment / reliability,Fresh target schema and idempotent migrator,P0,partial,Platform,Current 000-016 checksum replay passes; add truly empty-volume smoke with object bucket bootstrap and no compatibility or Redis dependency
 DEP-02,Deployment / reliability,Independent bootstrap without source data or CDC,P0,implemented,Platform,No source dependency and clean-schema assertion
 DEP-03,Deployment / reliability,Container stack health readiness and metrics,P0,partial,Platform + Gateway,Current-source Compose health, Garnet outage/recovery, and projection rebuild pass; add failure and metrics assertions
 DEP-04,Deployment / reliability,Orleans HA rolling deployment and failure recovery,P0,skeleton,Platform,Multi-silo outage and rolling test
