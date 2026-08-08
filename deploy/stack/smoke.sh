@@ -415,7 +415,9 @@ fault_client_disconnect_group_id="$(jq -er '.scenarios[] | select(.scenario == "
     <<<"$fault_seed_response")"
 fault_malformed_group_id="$(jq -er '.scenarios[] | select(.scenario == "malformed_usage") | .group_id' \
     <<<"$fault_seed_response")"
-assert_equals "6" "$(jq -er '.scenarios | length' <<<"$fault_seed_response")" \
+fault_invalid_content_type_group_id="$(jq -er '.scenarios[] | select(.scenario == "invalid_content_type") | .group_id' \
+    <<<"$fault_seed_response")"
+assert_equals "7" "$(jq -er '.scenarios | length' <<<"$fault_seed_response")" \
     "Seeded fault scenario count"
 
 register_response="$(admin_request POST /auth/register \
@@ -431,7 +433,8 @@ allowed_groups="$(jq -cn \
     --argjson disconnect "$fault_disconnect_group_id" \
     --argjson clientDisconnect "$fault_client_disconnect_group_id" \
     --argjson malformed "$fault_malformed_group_id" \
-    '[$openai,$fault429,$fault500,$timeout,$disconnect,$clientDisconnect,$malformed]')"
+    --argjson invalidContentType "$fault_invalid_content_type_group_id" \
+    '[$openai,$fault429,$fault500,$timeout,$disconnect,$clientDisconnect,$malformed,$invalidContentType]')"
 admin_request PUT "/admin/users/$user_id" \
     "$(jq -cn --argjson groups "$allowed_groups" \
         '{role:"user",concurrency:4,rpmLimit:0,allowedGroups:$groups}')" \
@@ -479,6 +482,7 @@ fault_timeout_api_key="$(create_api_key "$fault_timeout_group_id")"
 fault_disconnect_api_key="$(create_api_key "$fault_disconnect_group_id")"
 fault_client_disconnect_api_key="$(create_api_key "$fault_client_disconnect_group_id")"
 fault_malformed_api_key="$(create_api_key "$fault_malformed_group_id")"
+fault_invalid_content_type_api_key="$(create_api_key "$fault_invalid_content_type_group_id")"
 
 effective_from="1970-01-01T00:00:00Z"
 admin_request POST /admin/pricing/versions \
@@ -573,6 +577,7 @@ run_chat_stream_fault "disconnect" "$fault_disconnect_api_key"
 run_chat_stream_fault "disconnect_before_output" "$fault_disconnect_api_key"
 run_chat_stream_fault "client_disconnect" "$fault_client_disconnect_api_key" "2"
 run_chat_stream_fault "malformed_usage" "$fault_malformed_api_key"
+run_chat_stream_fault "invalid_content_type" "$fault_invalid_content_type_api_key"
 
 media_response="$(curl -fsS "$gateway_url/v1/images/generations/async" \
     -H "Authorization: Bearer $api_key" -H "Content-Type: application/json" \
@@ -609,7 +614,7 @@ SELECT
   (SELECT count(*) FROM usage_events WHERE request_id = '$chat_request_id') || '|' ||
   (SELECT count(*) FROM usage_logs WHERE request_id = '$chat_request_id') || '|' ||
   (SELECT count(*) FROM balance_ledger l JOIN request_leases r ON r.lease_token = l.lease_token WHERE r.request_id = '$chat_request_id' AND l.entry_type = 'usage_debit' AND l.amount = -r.final_cost_usd);")"
-assert_equals "0|7|7|0|0|1|1|1|1" "$terminal_state" "Terminal billing invariants"
+assert_equals "0|8|8|0|0|1|1|1|1" "$terminal_state" "Terminal billing invariants"
 
 accounting_projection_drained() {
     [[ "$(db_query "SELECT count(*) FROM accounting_projection_outbox WHERE user_id = $user_id;")" == "0" ]]
@@ -633,11 +638,11 @@ assert_equals "true|true|0" "$accounting_state" \
 reconciliation_response="$(admin_request POST /admin/reconciliation/run '{}' "$admin_token")"
 assert_equals "true" "$(jq -er '.started' <<<"$reconciliation_response")" \
     "Accounting reconciliation started"
-assert_equals "failed|7" \
+assert_equals "failed|8" \
     "$(jq -r '.status + "|" + (.openIncidents | tostring)' <<<"$reconciliation_response")" \
     "Accounting reconciliation result"
 open_incidents="$(admin_request GET '/admin/reconciliation/incidents?status=open' '' "$admin_token")"
-assert_equals "7" "$(jq -er '.total' <<<"$open_incidents")" \
+assert_equals "8" "$(jq -er '.total' <<<"$open_incidents")" \
     "Accounting reconciliation open incident count"
 
 operator_incident_id="$(jq -er '[.items[] | select(.kind == "unknown_provider_charge")][0].id' \
@@ -661,11 +666,11 @@ assert_equals "duplicate" "$(jq -er '.status' <<<"$operator_replay")" \
 assert_equals "1" "$(db_query "SELECT count(*) FROM accounting_reconciliation_resolutions WHERE incident_id = ${operator_incident_id};")" \
     "Operator resolution audit row"
 open_after_resolution="$(admin_request GET '/admin/reconciliation/incidents?status=open' '' "$admin_token")"
-assert_equals "6" "$(jq -er '.total' <<<"$open_after_resolution")" \
+assert_equals "7" "$(jq -er '.total' <<<"$open_after_resolution")" \
     "Remaining unknown-charge incidents after operator settlement"
 
 reconciliation_after_resolution="$(admin_request POST /admin/reconciliation/run '{}' "$admin_token")"
-assert_equals "failed|6" \
+assert_equals "failed|7" \
     "$(jq -r '.status + "|" + (.openIncidents | tostring)' <<<"$reconciliation_after_resolution")" \
     "Reconciliation after operator settlement"
 
@@ -700,5 +705,5 @@ echo "PASS: terminal lease, hold, usage, ledger, and outbox invariants"
 echo "PASS: account/ledger/hold/Grain reconciliation with audited operator resolution"
 echo "PASS: idempotent response replay without duplicate billing"
 echo "PASS: new billable requests after Platform and Gateway restarts"
-echo "PASS: isolated 429/500 no-charge and malformed/disconnect/timeout unknown-charge failures"
+echo "PASS: isolated 429/500 no-charge and malformed/disconnect/timeout/content-type unknown-charge failures"
 echo "PASS: S3-compatible bucket bootstrap, object persistence, and signed download ($media_size bytes)"

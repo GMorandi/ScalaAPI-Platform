@@ -348,6 +348,26 @@ app.MapPost("/v1/chat/completions", async (HttpContext context, CancellationToke
             context.Response.StatusCode = StatusCodes.Status500InternalServerError;
             await context.Response.WriteAsJsonAsync(new { error = new { code = "mock_upstream_failure" } }, cancellationToken);
             return;
+        case "invalid_content_type":
+            context.Response.StatusCode = StatusCodes.Status200OK;
+            context.Response.ContentType = stream ? "application/json" : "text/plain";
+            if (stream)
+            {
+                await context.Response.WriteAsync(
+                    $"data: {{\"id\":\"{requestId}\",\"object\":\"chat.completion.chunk\",\"model\":\"{model}\",\"choices\":[{{\"index\":0,\"delta\":{{\"content\":\"wrong media type\"}},\"finish_reason\":\"stop\"}}]}}\n\n",
+                    cancellationToken);
+            }
+            else
+            {
+                await context.Response.WriteAsync(JsonSerializer.Serialize(new
+                {
+                    id = requestId,
+                    model,
+                    choices = new[] { new { index = 0, message = new { role = "assistant", content = "wrong media type" }, finish_reason = "stop" } },
+                    usage = new { prompt_tokens = 7, completion_tokens = 5, total_tokens = 12 }
+                }), cancellationToken);
+            }
+            return;
         case "delay":
             await Task.Delay(TimeSpan.FromSeconds(5), cancellationToken);
             break;
