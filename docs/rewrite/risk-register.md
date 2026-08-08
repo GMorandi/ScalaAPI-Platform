@@ -2,7 +2,7 @@
 
 | Risk | Severity | Current state | Required control |
 | --- | --- | --- | --- |
-| Lease, hold, or ledger double settlement | P0 | Partial | Lease creation persists an active hold; completion/abort/expiry and NUMERIC debit are transactionally idempotent; outbox claims recover after restart and financial events never auto-dead-letter; Admin reconciliation detects missing/orphan debits; repair the current smoke mismatch and add crash injection/historical replay tests |
+| Lease, hold, or ledger double settlement | P0 | Partial | Lease creation persists an active hold; completion/abort/expiry and NUMERIC debit are transactionally idempotent; outbox claims recover after restart and financial events never auto-dead-letter; Admin reconciliation detects missing/orphan debits and a clean seeded run passes; automate historical repair/backfill and add crash injection/replay tests |
 | PostgreSQL and Orleans authority split | P0 | Partial | Product `entity_registry` now owns business discovery; add full PostgreSQL aggregate repositories and accounting authority, with no Orleans storage introspection |
 | Redis or embedded cache reintroduced | P0 | Controlled | Official Garnet digest, external TCP probe, dependency scan, no fallback implementation |
 | Garnet outage or stale projections | P0 | Partial | Fail-closed readiness, authenticated `scalaapi:v1` rebuild, and Gateway deleted-version flush recovery pass; add TLS, multi-client, and deployment restart tests |

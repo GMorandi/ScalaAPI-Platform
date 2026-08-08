@@ -92,9 +92,10 @@ billable OpenAI Chat Completions vertical slice. Work outside that slice stays
   evidence remain.
 - Completed in `e07e5ac`: Admin `/admin/usage/reconcile` compares usage events,
   usage-debit ledger entries, and active holds, then persists a NUMERIC mismatch
-  result in `ledger_reconciliation_runs`. The current reused smoke database
-  correctly failed this check due two missing debits and orphan test ledger rows;
-  clean-seed pass and repair workflow remain release gates.
+  result in `ledger_reconciliation_runs`. The first reused smoke run correctly
+  failed on two missing debits and orphan test ledger rows; after an isolated
+  usage/ledger reset, a fresh seeded request passed with zero mismatch. Automate
+  clean-seed repair and historical backfill before release.
 - Still open: PostgreSQL aggregate repositories/foreign keys, fixed-precision RPC
   schema generation, crash/restart settlement scenarios, provider failure matrix,
   empty-volume CI automation, and Garnet flush/stale-version/TLS/multi-client evidence.

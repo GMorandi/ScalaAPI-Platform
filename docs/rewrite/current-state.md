@@ -140,10 +140,11 @@ not implementation parity or a migration target.
   provider adapters beyond the mock, object-byte lifecycle, User Web, commercial
   workflows, and operational release controls remain partial or skeletal.
 - Admin `/admin/usage/reconcile` now persists a passed/failed run and detects
-  missing usage debits. The long-lived smoke database currently reports two
-  completed usage events without matching debits plus orphan historical test
-  ledger rows; this is a real release-blocking reconciliation failure, not a
-  compatibility behavior.
+  missing usage debits. An initial run against the long-lived smoke database
+  caught two missing debits and orphan historical test ledger rows; after an
+  isolated usage/ledger reset, a fresh seeded request produced a passed run with
+  zero mismatch, zero missing debits, and zero active holds. Automated clean-seed
+  repair and historical backfill remain release work.
 - Admin Web typecheck/build is now a blocking CI step, but browser coverage is absent.
 
 ## Current runtime evidence
