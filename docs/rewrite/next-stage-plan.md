@@ -12,7 +12,7 @@ This does not close the product rewrite. The next stage is one authoritative,
 billable OpenAI Chat Completions vertical slice. Work outside that slice stays
 `partial`, `skeleton`, or `missing` in the inventory.
 
-## Progress checkpoint (2026-08-08, platform `b90ff11`, gateway `3643ec7`)
+## Progress checkpoint (2026-08-08, platform `b90ff11`, gateway `c807dc8`)
 
 - Completed in `b266e17`: business balances, quotas, costs, limits, and routing
   multipliers use `decimal`; precision projections cover User, Group, and API key.
@@ -85,6 +85,11 @@ billable OpenAI Chat Completions vertical slice. Work outside that slice stays
   Host integration changed the configured price after lease creation and observed
   the original cost. Admin-authoritative price lifecycle and historical backfill
   remain open.
+- Completed in `c807dc8`: Gateway treats a deleted Garnet invalidation-version
+  key as a flush event, evicts speculative authorization, and re-establishes a
+  baseline when the key returns. CTest covers version change, flush, recovery,
+  and repeated missing-key polls; TLS, multi-client, and deployment restart
+  evidence remain.
 - Still open: PostgreSQL aggregate repositories/foreign keys, fixed-precision RPC
   schema generation, crash/restart settlement scenarios, provider failure matrix,
   empty-volume CI automation, and Garnet flush/stale-version/TLS/multi-client evidence.
@@ -176,14 +181,16 @@ SSE, including duplicate and failure semantics.
   namespace and bounded TTLs for auth, account, route/config, sticky, and
   invalidation keys.
 - The protected Platform rebuild command and cache-miss repopulation now rebuild
-  auth projections from product registry plus Orleans state. Add explicit flush,
-  stale-version, and restart recovery tests.
+  auth projections from product registry plus Orleans state. Gateway unit
+  coverage handles invalidation-version changes and Garnet flush/recovery;
+  add TLS, multi-client, and deployment restart tests.
 - Add authenticated multi-client and TLS integration tests with one Platform and at
   least two Gateway clients. Cache loss must affect readiness/routing but never lose
   durable settlement work.
 
-Depends on: authoritative repositories. Exit: flush, restart, stale projection, and
-Garnet outage/recovery tests pass without a billable request failing open.
+Depends on: authoritative repositories. Exit: flush, restart, stale projection,
+and Garnet outage/recovery tests pass without a billable request failing open;
+the remaining TLS/multi-client checks must run in the release stack.
 
 ### 6. Provider failure and recovery matrix
 

@@ -4,7 +4,7 @@
 
 | Gate | Result | Interpretation |
 | --- | --- | --- |
-| Gateway build and CTest | Clean local build; 84/84, exit 0 | Current TCP/TLS client, bounded response replay, and malformed-usage guard included |
+| Gateway build and CTest | Clean local build; 87/87, exit 0 | Current TCP/TLS client, bounded response replay, malformed-usage guard, and Garnet invalidation flush recovery included |
 | Platform tests | 72/72, exit 0 | 50 grain tests plus 22 PostgreSQL-connected Host tests; includes response replay, immutable price snapshots, expiry recovery, restart-safe outbox claims, and idempotent balance-effect replay |
 | Platform Release build | Passed, 0 warnings and 0 errors | Includes Platform Host, Admin API, migrator, Provider mock, and benchmark assembly |
 | Admin Web | Typecheck and production build passed | Blocking CI gate exists; browser tests are not configured |
@@ -14,7 +14,7 @@
 | Current-image Compose smoke | All long-running services healthy; migrator exit 0; Platform Silo force-recreated from `15ca7ca2` and Gateway readiness returned 200; PostgreSQL showed zero pending/dead-lettered outbox rows and zero active holds; a seeded request stored `runtime-v1` rates and settled once | Isolated project and new volumes; full crash injection remains |
 | Garnet smoke | Auth, PING, SET/GET, PX, INCR, DEL passed | Official digest; no Redis or embedded server |
 | Garnet outage/recovery | Platform readiness 503 then 200 | Automatic TCP reconnect verified |
-| Garnet projection rebuild | `discovered=12`, `written=12`, `deleted=0`, `errors=0`; immediate `scalaapi:v1:auth:*` read succeeded | Flush, stale-version, TLS, and multi-client assertions remain |
+| Garnet projection rebuild | `discovered=12`, `written=12`, `deleted=0`, `errors=0`; immediate `scalaapi:v1:auth:*` read succeeded; Gateway CTest covers version change and deleted-version flush/recovery | TLS and multi-client assertions remain |
 | Provider mock | Health, JSON success, SSE, malformed-usage `502`, fresh 500/429 exhaustion returned `503 provider_unavailable` with distinct `:retry:N` leases, and cancellable timeout returned `502` after 30.3s with an aborted lease and zero usage events | Disconnect, bounded retry assertions for both protocols, and adapter golden scenarios remain |
 | Gateway dispatch smoke | Readiness 200; seeded OpenAI Chat JSON and SSE returned 200 through Provider mock | Failure/retry matrix and clean-environment automation remain |
 | Billable settlement smoke | JSON and SSE completed; durable hold committed; usage outbox processed; one NUMERIC ledger debit per lease | Full crash/restart, disconnect, and clean-seed automation remain |

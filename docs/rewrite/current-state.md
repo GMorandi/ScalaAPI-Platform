@@ -9,11 +9,11 @@ release artifacts.
 
 | Repository | Commit | Worktree | Responsibility |
 | --- | --- | --- | --- |
-| `gateway` | `3643ec7` | clean | C++ HTTP/WebSocket edge, protocol conversion, chunked streaming, Provider transport, versioned Garnet client, malformed-usage guard, fixed-scale Cap'n Proto client, unique failover lease IDs, bounded non-stream upstream timeout, bounded response replay |
+| `gateway` | `c807dc8` | clean | C++ HTTP/WebSocket edge, protocol conversion, chunked streaming, Provider transport, versioned Garnet client, malformed-usage guard, fixed-scale Cap'n Proto client, unique failover lease IDs, bounded non-stream upstream timeout, bounded response replay, invalidation flush recovery |
 | `platform` | `b90ff11` | clean | C# Orleans control plane, PostgreSQL persistence, leases, NUMERIC ledger, durable holds/idempotency, usage, media lifecycle, Admin API, versioned Garnet rebuild, replayable balance effects, fixed-scale RPC contract, retryable terminal idempotency leases, bounded response persistence/replay, password recovery, email verification, cancellable Provider mock timeout, restart-safe settlement outbox recovery, immutable lease price snapshots |
 | `sub2api` | `43ec48d` | read-only clean reference | Functional requirements catalogue only |
 
-The current source inventory is 50 tracked Gateway source files, 84 CTest cases,
+The current source inventory is 50 tracked Gateway source files, 87 CTest cases,
 62 hand-written Platform production C# files plus 3 generated Cap'n Proto files,
 32 tracked Platform test/benchmark C# source files, 72 Platform test cases, 123 mapped
 Admin API routes, 33 product tables, 20 SQLSugar entity types, and 31 Admin Web
@@ -131,9 +131,10 @@ not implementation parity or a migration target.
   evidence.
 - Generated C# Cap'n Proto files are checked in but are not regenerated and digest
   verified by CI yet.
-- Garnet key TTL policy and the authenticated projection rebuild now have runtime
-  evidence; cache-flush recovery, stale-version handling, TLS, and multi-client
-  integration tests remain incomplete even though connection outage/recovery passes.
+- Garnet key TTL policy, authenticated projection rebuild, and Gateway invalidation
+  flush/stale-version recovery now have runtime or unit evidence; TLS and
+  multi-client integration tests remain incomplete even though connection
+  outage/recovery passes.
 - Hold reconciliation after Orleans/process failure, authoritative price-version
   administration,
   provider adapters beyond the mock, object-byte lifecycle, User Web, commercial
