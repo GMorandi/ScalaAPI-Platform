@@ -378,8 +378,33 @@ app.MapPost("/v1/chat/completions", async (HttpContext context, CancellationToke
             {
                 context.Response.StatusCode = StatusCodes.Status200OK;
                 context.Response.ContentType = "text/event-stream";
+                // A zero-length response closes deterministically without a
+                // terminal SSE event; the Gateway must retain the hold.
+                context.Response.ContentLength = 0;
+                return;
+            }
+            context.Response.StatusCode = StatusCodes.Status200OK;
+            context.Abort();
+            return;
+        case "client_disconnect":
+            if (stream)
+            {
+                context.Response.StatusCode = StatusCodes.Status200OK;
+                context.Response.ContentType = "text/event-stream";
+                context.Response.Headers.CacheControl = "no-cache";
+                await context.Response.WriteAsync(
+                    $"data: {{\"id\":\"{requestId}\",\"object\":\"chat.completion.chunk\",\"model\":\"{model}\",\"choices\":[{{\"index\":0,\"delta\":{{\"content\":\"first\"}},\"finish_reason\":null}}]}}\n\n",
+                    cancellationToken);
                 await context.Response.Body.FlushAsync(cancellationToken);
-                context.Abort();
+                // Give a short-lived client time to close after the first event.
+                await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken);
+                for (var index = 0; index < 32; index++)
+                {
+                    await context.Response.WriteAsync(
+                        $"data: {{\"id\":\"{requestId}\",\"object\":\"chat.completion.chunk\",\"model\":\"{model}\",\"choices\":[{{\"index\":0,\"delta\":{{\"content\":\"continued-{index}\"}},\"finish_reason\":null}}]}}\n\n",
+                        cancellationToken);
+                    await context.Response.Body.FlushAsync(cancellationToken);
+                }
                 return;
             }
             context.Response.StatusCode = StatusCodes.Status200OK;

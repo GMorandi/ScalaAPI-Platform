@@ -146,6 +146,7 @@ public static class SeedEndpoints
         ("500", new("scalaapi-provider-mock-fault-500", "openai", ["gpt-4o"])),
         ("timeout", new("scalaapi-provider-mock-fault-timeout", "openai", ["gpt-4o"])),
         ("disconnect", new("scalaapi-provider-mock-fault-disconnect", "openai", ["gpt-4o"])),
+        ("client_disconnect", new("scalaapi-provider-mock-fault-client-disconnect", "openai", ["gpt-4o"])),
         ("malformed_usage", new("scalaapi-provider-mock-fault-malformed-usage", "openai", ["gpt-4o"])),
     ];
 }
