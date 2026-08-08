@@ -12,7 +12,7 @@ This does not close the product rewrite. The next stage is one authoritative,
 billable OpenAI Chat Completions vertical slice. Work outside that slice stays
 `partial`, `skeleton`, or `missing` in the inventory.
 
-## Progress checkpoint (2026-08-08, platform `76452e0`, gateway `5a3de2a`)
+## Progress checkpoint (2026-08-08, platform `76452e0`, gateway `1ec32e3`)
 
 - Completed in `b266e17`: business balances, quotas, costs, limits, and routing
   multipliers use `decimal`; precision projections cover User, Group, and API key.
@@ -38,6 +38,9 @@ billable OpenAI Chat Completions vertical slice. Work outside that slice stays
   `scalaapi:v1` keyspace, bounded projection TTLs, authenticated TCP clients, and
   a protected Platform projection rebuild. Current-image rebuild evidence is
   `12/12` projections written with zero errors.
+- Completed in `1ec32e3`: malformed provider usage is rejected before settlement;
+  the live mock probe returned `502`, an aborted lease, a released hold, and zero
+  ledger rows.
 - Still open: PostgreSQL aggregate repositories/foreign keys, fixed-precision RPC
   schema generation, crash/restart settlement scenarios, provider failure matrix,
   empty-volume CI automation, and Garnet flush/stale-version/TLS/multi-client evidence.

@@ -7,7 +7,7 @@
 | Redis or embedded cache reintroduced | P0 | Controlled | Official Garnet digest, external TCP probe, dependency scan, no fallback implementation |
 | Garnet outage or stale projections | P0 | Partial | Fail-closed readiness and authenticated `scalaapi:v1` rebuild pass; add flush, stale-version, TLS, and multi-client tests |
 | Credential disclosure or weak rotation | P0 | Partial | Envelope encryption, redacted logs/API responses, rotation drill, security scan |
-| Provider response and usage differences | P0 | Partial | Deterministic mock JSON/SSE and usage extraction pass; add adapter contract, golden fixtures, malformed-usage reconciliation |
+| Provider response and usage differences | P0 | Partial | Deterministic mock JSON/SSE and malformed-usage fail-closed settlement pass; add adapter contract, golden fixtures, retry/timeout/disconnect reconciliation |
 | Request idempotency replay or fingerprint drift | P0 | Partial | Durable key/fingerprint rows reject duplicate charge and conflict before scheduling; add stored-response replay and restart-before-expiry tests |
 | Pricing version or decimal precision error | P0 | Partial | Decimal-only business DTOs and projection precision tests pass; replace Cap'n Proto Float64 fields and add NUMERIC historical settlement tests |
 | Scheduler split-brain or stale sticky route | P0 | Open | Orleans lease ownership, Garnet rebuild, multi-silo failure drills |

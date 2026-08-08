@@ -9,11 +9,11 @@ release artifacts.
 
 | Repository | Commit | Worktree | Responsibility |
 | --- | --- | --- | --- |
-| `gateway` | `5a3de2a` | clean | C++ HTTP/WebSocket edge, protocol conversion, chunked streaming, Provider transport, versioned Garnet client, Cap'n Proto client |
+| `gateway` | `1ec32e3` | clean | C++ HTTP/WebSocket edge, protocol conversion, chunked streaming, Provider transport, versioned Garnet client, malformed-usage guard, Cap'n Proto client |
 | `platform` | `76452e0` | clean | C# Orleans control plane, PostgreSQL persistence, leases, NUMERIC ledger, durable holds/idempotency, usage, media lifecycle, Admin API, versioned Garnet rebuild |
 | `sub2api` | `43ec48d` | read-only clean reference | Functional requirements catalogue only |
 
-The current source inventory is 50 tracked Gateway source files, 82 CTest cases,
+The current source inventory is 50 tracked Gateway source files, 83 CTest cases,
 60 hand-written Platform production C# files plus 3 generated Cap'n Proto files,
 20 tracked Platform test/benchmark source files, 67 Platform test cases, 123 mapped
 Admin API routes, 33 product tables, 20 SQLSugar entity types, and 24 Admin Web
@@ -56,6 +56,9 @@ not implementation parity or a migration target.
 - OpenAI Chat JSON and SSE pass the current Gateway -> Cap'n Proto -> Platform ->
   Provider mock path. Photon streaming responses use explicit chunked framing and
   provider usage is captured for settlement.
+- Provider usage counters are validated as bounded non-negative integers. A malformed
+  provider usage response returns `502 provider_error`, aborts the lease, releases
+  its durable hold, and suppresses usage/ledger settlement.
 - CDC consumers, Debezium configuration, migration fences, migration write gates,
   migration-control endpoints, CDC-only tables, and their tests are removed from
   active code. Their documents remain under `docs/archive/migration`.
@@ -124,9 +127,10 @@ query endpoints returned the corresponding PostgreSQL rows. Refresh-token replay
 and logout revocation also returned 401 after the first use.
 
 Provider mock upstream-failure probes created terminal `aborted` leases with
-`released` holds and zero ledger rows. Account cooldown then failed closed with
-`provider_unavailable` when no account was available; a complete 429/500 retry and
-failover matrix is still a release gate.
+`released` holds and zero ledger rows. A malformed-usage probe returned `502` with
+the same no-charge state; a 429 probe returned `503 provider_unavailable` after
+account exhaustion with released holds and no ledger rows. A complete 429/500 retry,
+timeout, disconnect, and failover matrix is still a release gate.
 
 Authenticated Garnet `PING`, `SET/GET`, PX expiry, `INCR`, and `DEL` passed. Stopping
 Garnet changed Platform readiness to 503; restarting it restored readiness to 200.

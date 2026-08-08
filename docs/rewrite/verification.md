@@ -4,7 +4,7 @@
 
 | Gate | Result | Interpretation |
 | --- | --- | --- |
-| Gateway build and CTest | Clean local build; 82/82, exit 0 | Current TCP/TLS client included |
+| Gateway build and CTest | Clean local build; 83/83, exit 0 | Current TCP/TLS client and malformed-usage guard included |
 | Platform tests | 67/67, exit 0 | 50 grain and 17 host tests |
 | Platform Release build | Passed, 0 warnings and 0 errors | Includes Platform Host, Admin API, migrator, Provider mock, and benchmark assembly |
 | Admin Web | Typecheck and production build passed | Blocking CI gate exists; browser tests are not configured |
@@ -15,7 +15,7 @@
 | Garnet smoke | Auth, PING, SET/GET, PX, INCR, DEL passed | Official digest; no Redis or embedded server |
 | Garnet outage/recovery | Platform readiness 503 then 200 | Automatic TCP reconnect verified |
 | Garnet projection rebuild | `discovered=12`, `written=12`, `deleted=0`, `errors=0`; immediate `scalaapi:v1:auth:*` read succeeded | Flush, stale-version, TLS, and multi-client assertions remain |
-| Provider mock | Health, JSON success, SSE, and upstream-failure probes passed; 429/500 attempts left aborted leases, released holds, and zero ledger rows | Complete retry/failover, timeout, disconnect, malformed-usage, and adapter golden scenarios remain |
+| Provider mock | Health, JSON success, SSE, malformed-usage `502`, and 429 exhaustion probes passed; failure leases were aborted with released holds and zero ledger rows | Complete 500/retry/failover, timeout, disconnect, and adapter golden scenarios remain |
 | Gateway dispatch smoke | Readiness 200; seeded OpenAI Chat JSON and SSE returned 200 through Provider mock | Failure/retry matrix and clean-environment automation remain |
 | Billable settlement smoke | JSON and SSE completed; durable hold committed; usage outbox processed; one NUMERIC ledger debit per lease | Crash/restart, provider failures, and clean-seed automation remain |
 | Request idempotency smoke | Concurrent same-key calls produced one 200 and one 409 replay; different fingerprint produced 409 conflict; one lease/debit/hold per key | Stored-response replay and crash recovery before lease expiry remain |
