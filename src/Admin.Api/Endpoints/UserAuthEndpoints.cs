@@ -18,6 +18,8 @@ public record TotpSetupResponse(string Secret, string QrUri);
 public record TotpVerifyRequest(string Code);
 public record PasswordResetRequest(string Email);
 public record PasswordResetConfirmRequest(string Token, string NewPassword);
+public record EmailVerificationRequest(string Email);
+public record EmailVerificationConfirmRequest(string Token);
 
 public static class UserAuthEndpoints
 {
@@ -154,6 +156,35 @@ public static class UserAuthEndpoints
             if (!await resets.ConsumeAsync(req.Token, req.NewPassword))
                 return Results.BadRequest(new { error = "Invalid or expired reset token" });
             return Results.NoContent();
+        });
+
+        auth.MapPost("/email-verification/request", async (EmailVerificationRequest req,
+            EmailVerificationService verification, IConfiguration config,
+            IWebHostEnvironment environment) =>
+        {
+            var issued = await verification.IssueAsync(req.Email);
+            if (issued is not null
+                && (environment.IsDevelopment()
+                    || string.Equals(config["EmailVerification:ExposeToken"], "true",
+                        StringComparison.OrdinalIgnoreCase)))
+            {
+                return Results.Accepted(value: new
+                {
+                    accepted = true,
+                    debug_token = issued.Token,
+                    expires_at = issued.ExpiresAt,
+                });
+            }
+
+            return Results.Accepted(value: new { accepted = true });
+        });
+
+        auth.MapPost("/email-verification/confirm", async (
+            EmailVerificationConfirmRequest req, EmailVerificationService verification) =>
+        {
+            return await verification.ConsumeAsync(req.Token)
+                ? Results.NoContent()
+                : Results.BadRequest(new { error = "Invalid or expired verification token" });
         });
 
         auth.MapPost("/oauth/callback", async (OAuthCallbackRequest req, ISqlSugarClient db,

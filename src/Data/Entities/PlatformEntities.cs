@@ -38,6 +38,12 @@ public class UserAccountEntity
     [SugarColumn(ColumnName = "totp_backup_codes", IsNullable = true, ColumnDataType = "text")]
     public string? TotpBackupCodes { get; set; }
 
+    [SugarColumn(ColumnName = "email_verified")]
+    public bool EmailVerified { get; set; }
+
+    [SugarColumn(ColumnName = "email_verified_at", IsNullable = true)]
+    public DateTime? EmailVerifiedAt { get; set; }
+
     [SugarColumn(ColumnName = "created_at")]
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 

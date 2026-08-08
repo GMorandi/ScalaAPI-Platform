@@ -13,7 +13,7 @@ public sealed class MigrationSchemaTests
 
         var required = new Dictionary<string, string[]>(StringComparer.Ordinal)
         {
-            ["user_accounts"] = ["id", "email", "status", "role"],
+            ["user_accounts"] = ["id", "email", "status", "role", "email_verified", "email_verified_at"],
             ["user_api_keys"] = ["id", "key_hash", "status"],
             ["accounts"] = ["id", "name", "platform", "credentials", "status"],
             ["groups"] = ["id", "name", "platform", "status"],
@@ -28,7 +28,8 @@ public sealed class MigrationSchemaTests
             ["ledger_reconciliation_runs"] = ["id", "status", "mismatch_total"],
             ["entity_registry"] = ["entity_type", "entity_key", "entity_id", "status"],
             ["auth_sessions"] = ["session_id", "user_id", "refresh_token_hash", "expires_at", "revoked_at"],
-            ["password_reset_tokens"] = ["token_hash", "user_id", "expires_at", "used_at"]
+            ["password_reset_tokens"] = ["token_hash", "user_id", "expires_at", "used_at"],
+            ["email_verification_tokens"] = ["token_hash", "user_id", "expires_at", "used_at"]
         };
 
         await using var connection = new NpgsqlConnection(connectionString);
