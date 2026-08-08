@@ -12,7 +12,7 @@ This does not close the product rewrite. The next stage is one authoritative,
 billable OpenAI Chat Completions vertical slice. Work outside that slice stays
 `partial`, `skeleton`, or `missing` in the inventory.
 
-## Progress checkpoint (2026-08-08, platform `b90ff11`, gateway `c807dc8`)
+## Progress checkpoint (2026-08-08, platform `e07e5ac`, gateway `c807dc8`)
 
 - Completed in `b266e17`: business balances, quotas, costs, limits, and routing
   multipliers use `decimal`; precision projections cover User, Group, and API key.
@@ -90,6 +90,11 @@ billable OpenAI Chat Completions vertical slice. Work outside that slice stays
   baseline when the key returns. CTest covers version change, flush, recovery,
   and repeated missing-key polls; TLS, multi-client, and deployment restart
   evidence remain.
+- Completed in `e07e5ac`: Admin `/admin/usage/reconcile` compares usage events,
+  usage-debit ledger entries, and active holds, then persists a NUMERIC mismatch
+  result in `ledger_reconciliation_runs`. The current reused smoke database
+  correctly failed this check due two missing debits and orphan test ledger rows;
+  clean-seed pass and repair workflow remain release gates.
 - Still open: PostgreSQL aggregate repositories/foreign keys, fixed-precision RPC
   schema generation, crash/restart settlement scenarios, provider failure matrix,
   empty-volume CI automation, and Garnet flush/stale-version/TLS/multi-client evidence.

@@ -10,7 +10,7 @@ release artifacts.
 | Repository | Commit | Worktree | Responsibility |
 | --- | --- | --- | --- |
 | `gateway` | `c807dc8` | clean | C++ HTTP/WebSocket edge, protocol conversion, chunked streaming, Provider transport, versioned Garnet client, malformed-usage guard, fixed-scale Cap'n Proto client, unique failover lease IDs, bounded non-stream upstream timeout, bounded response replay, invalidation flush recovery |
-| `platform` | `b90ff11` | clean | C# Orleans control plane, PostgreSQL persistence, leases, NUMERIC ledger, durable holds/idempotency, usage, media lifecycle, Admin API, versioned Garnet rebuild, replayable balance effects, fixed-scale RPC contract, retryable terminal idempotency leases, bounded response persistence/replay, password recovery, email verification, cancellable Provider mock timeout, restart-safe settlement outbox recovery, immutable lease price snapshots |
+| `platform` | `e07e5ac` | clean | C# Orleans control plane, PostgreSQL persistence, leases, NUMERIC ledger, durable holds/idempotency, usage, media lifecycle, Admin API, versioned Garnet rebuild, replayable balance effects, fixed-scale RPC contract, retryable terminal idempotency leases, bounded response persistence/replay, password recovery, email verification, cancellable Provider mock timeout, restart-safe settlement outbox recovery, immutable lease price snapshots, durable ledger reconciliation endpoint |
 | `sub2api` | `43ec48d` | read-only clean reference | Functional requirements catalogue only |
 
 The current source inventory is 50 tracked Gateway source files, 87 CTest cases,
@@ -139,13 +139,18 @@ not implementation parity or a migration target.
   administration,
   provider adapters beyond the mock, object-byte lifecycle, User Web, commercial
   workflows, and operational release controls remain partial or skeletal.
+- Admin `/admin/usage/reconcile` now persists a passed/failed run and detects
+  missing usage debits. The long-lived smoke database currently reports two
+  completed usage events without matching debits plus orphan historical test
+  ledger rows; this is a real release-blocking reconciliation failure, not a
+  compatibility behavior.
 - Admin Web typecheck/build is now a blocking CI step, but browser coverage is absent.
 
 ## Current runtime evidence
 
 On 2026-08-08 the isolated `scalaapi-stage2` project used current-source images:
 Platform `15ca7ca2ccbf47da884d078cddfcdc8f6883d746ed1c355ed137814859241aeb`,
-Admin API `24416a1d267708f7c046dfb8fb4713a312c7f156ca5841267e0d6139d44ceaba`,
+Admin API `d522f4107be506f085d4168a647cf4af9dfe62e7030526a5ff307fed56dc4cc5`,
 migrator `53824dbce4883ba1b46aa1af6385c5c1720f6a66664f472266afdee0447af289`,
 Gateway `4af127e144518ceba532f900278cc1895d8b23ddc48cbac4d4ad49298ca79359`, and
 Provider mock `95b8632dea20b787127dad9f8302afad1bffb70633283dcc61720a67a388b4a6`.
