@@ -10,6 +10,10 @@ public sealed class LeaseOutboxHostedService(
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        var recovered = await store.RequeueUnprocessedDeadLettersAsync(stoppingToken);
+        if (recovered > 0)
+            logger.LogWarning("Requeued {OutboxCount} unprocessed settlement events after restart", recovered);
+
         var workers = Enumerable.Range(0, 4)
             .Select(i => WorkerLoopAsync($"outbox-{Environment.ProcessId}-{i}", stoppingToken));
         await Task.WhenAll(workers);

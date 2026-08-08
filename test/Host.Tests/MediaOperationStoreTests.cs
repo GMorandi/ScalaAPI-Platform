@@ -351,6 +351,102 @@ public sealed class MediaOperationStoreTests
         }
     }
 
+    [Fact]
+    public async Task ExpiredSettlementOutboxSurvivesRestartClaimsAndRetryExhaustion()
+    {
+        var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
+        if (string.IsNullOrWhiteSpace(connectionString)) return;
+
+        await using var dataSource = NpgsqlDataSource.Create(connectionString);
+        var suffix = Guid.NewGuid().ToString("N");
+        var leaseToken = $"lease-outbox-recovery-{suffix}";
+        var requestId = $"request-outbox-recovery-{suffix}";
+        var holdId = $"hold-outbox-recovery-{suffix}";
+        var store = new RequestLeaseStore(dataSource,
+            new ModelPricingService(new ConfigurationBuilder().Build()),
+            NullLogger<RequestLeaseStore>.Instance);
+        try
+        {
+            Assert.True(await store.CreateAsync(new LeaseCreateRequest(
+                leaseToken, requestId, "hash-outbox-recovery", 98101, 98102, 98103, 98104,
+                "gpt-4o", "gpt-4o", "chat_completions", 1m, holdId, 3m,
+                DateTime.UtcNow.AddMinutes(-1))));
+            Assert.Equal(1, await store.ExpireActiveAsync());
+
+            // Simulate a process dying after claiming the durable event.
+            var firstClaim = Assert.Single(await store.ClaimOutboxBatchAsync("test-recovery-1"));
+            Assert.Equal("expire", firstClaim.Item.EventType);
+            await using (var expireClaim = dataSource.CreateCommand("""
+                UPDATE usage_outbox
+                SET claimed_until = now() - interval '1 second'
+                WHERE id = $1
+                """))
+            {
+                expireClaim.Parameters.AddWithValue(firstClaim.Item.Id);
+                await expireClaim.ExecuteNonQueryAsync();
+            }
+
+            var secondClaim = Assert.Single(await store.ClaimOutboxBatchAsync("test-recovery-2"));
+            Assert.Equal(firstClaim.Item.Id, secondClaim.Item.Id);
+
+            // Settlement errors must remain claimable even after the old
+            // 25-attempt threshold that previously dead-lettered financial work.
+            var error = new InvalidOperationException("transient grain unavailable");
+            for (var i = 0; i < 26; i++)
+                await store.MarkRetryAsync(secondClaim.Item with { Attempts = i }, error);
+
+            // Also cover recovery of a row written by the previous process
+            // version, which could have set dead_lettered_at at this point.
+            await using (var quarantine = dataSource.CreateCommand(
+                "UPDATE usage_outbox SET dead_lettered_at = now() WHERE id = $1"))
+            {
+                quarantine.Parameters.AddWithValue(firstClaim.Item.Id);
+                await quarantine.ExecuteNonQueryAsync();
+            }
+            Assert.True(await store.RequeueUnprocessedDeadLettersAsync() >= 1);
+
+            await using (var makeDue = dataSource.CreateCommand("""
+                UPDATE usage_outbox
+                SET next_attempt_at = now(), claimed_until = NULL, claimed_by = NULL
+                WHERE id = $1
+                """))
+            {
+                makeDue.Parameters.AddWithValue(firstClaim.Item.Id);
+                await makeDue.ExecuteNonQueryAsync();
+            }
+
+            var recovered = Assert.Single(await store.ClaimOutboxBatchAsync("test-recovery-3"));
+            Assert.Equal(firstClaim.Item.Id, recovered.Item.Id);
+            await using var state = dataSource.CreateCommand(
+                "SELECT processed_at, dead_lettered_at, attempts FROM usage_outbox WHERE id = $1");
+            state.Parameters.AddWithValue(firstClaim.Item.Id);
+            await using var reader = await state.ExecuteReaderAsync();
+            Assert.True(await reader.ReadAsync());
+            Assert.True(reader.IsDBNull(0));
+            Assert.True(reader.IsDBNull(1));
+            Assert.Equal(26, reader.GetInt32(2));
+        }
+        finally
+        {
+            await using (var cleanupOutbox = dataSource.CreateCommand(
+                "DELETE FROM usage_outbox WHERE lease_token = $1"))
+            {
+                cleanupOutbox.Parameters.AddWithValue(leaseToken);
+                await cleanupOutbox.ExecuteNonQueryAsync();
+            }
+            await using (var cleanupHold = dataSource.CreateCommand(
+                "DELETE FROM balance_holds WHERE hold_id = $1"))
+            {
+                cleanupHold.Parameters.AddWithValue(holdId);
+                await cleanupHold.ExecuteNonQueryAsync();
+            }
+            await using var cleanupLease = dataSource.CreateCommand(
+                "DELETE FROM request_leases WHERE lease_token = $1");
+            cleanupLease.Parameters.AddWithValue(leaseToken);
+            await cleanupLease.ExecuteNonQueryAsync();
+        }
+    }
+
     private static async Task InsertLease(NpgsqlDataSource dataSource,
         string leaseToken, string requestId)
     {

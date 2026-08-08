@@ -508,8 +508,7 @@ public sealed class RequestLeaseStore(
                 next_attempt_at = now() + make_interval(secs => $2),
                 last_error = $3,
                 claimed_by = NULL,
-                claimed_until = NULL,
-                dead_lettered_at = CASE WHEN attempts + 1 >= 25 THEN now() ELSE dead_lettered_at END
+                claimed_until = NULL
             WHERE id = $1
             """);
         command.Parameters.AddWithValue(item.Id);
@@ -518,6 +517,22 @@ public sealed class RequestLeaseStore(
         command.Parameters.AddWithValue(error.Length > 1000 ? error[..1000] : error);
         await command.ExecuteNonQueryAsync(ct);
         logger.LogWarning(exception, "Lease outbox {OutboxId} retry in {DelaySeconds}s", item.Id, delaySeconds);
+    }
+
+    // Financial settlement events are never automatically discarded. A prior
+    // process version could have dead-lettered an event, so recover those rows
+    // before workers start claiming new work after a restart.
+    public async Task<int> RequeueUnprocessedDeadLettersAsync(CancellationToken ct = default)
+    {
+        await using var command = dataSource.CreateCommand("""
+            UPDATE usage_outbox
+            SET dead_lettered_at = NULL,
+                next_attempt_at = now(),
+                claimed_by = NULL,
+                claimed_until = NULL
+            WHERE processed_at IS NULL AND dead_lettered_at IS NOT NULL
+            """);
+        return await command.ExecuteNonQueryAsync(ct);
     }
 
     public async Task DeadLetterAsync(OutboxItem item, string reason, CancellationToken ct = default)
