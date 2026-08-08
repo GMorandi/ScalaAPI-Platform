@@ -96,6 +96,15 @@ public class ApiKeyGrain : Grain, IApiKeyGrain
 
     public Task<long> GetVersion() => Task.FromResult(_state.State.Version);
 
+    public Task<ApiKeyConfig> GetConfig()
+    {
+        var s = _state.State;
+        return Task.FromResult(new ApiKeyConfig(
+            s.UserId, s.GroupId, s.Quota, s.ExpiresAt,
+            s.IpWhitelist, s.IpBlacklist,
+            s.RateLimit5h, s.RateLimit1d, s.RateLimit7d));
+    }
+
     public async Task AddUsage(decimal usd)
     {
         var s = _state.State;

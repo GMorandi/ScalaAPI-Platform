@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Security.Claims;
 using System.Security.Cryptography;
+using System.Text;
 using System.Text.RegularExpressions;
 using MailKit.Net.Smtp;
 using MimeKit;
@@ -80,6 +81,9 @@ public static class PlatformEndpoints
                 CreatedAt = DateTime.UtcNow,
             };
             await db.Insertable(entity).ExecuteCommandAsync();
+            entity.Id = Convert.ToInt64(await db.Ado.GetScalarAsync(
+                "SELECT id FROM user_api_keys WHERE key_hash = @hash",
+                new SugarParameter("@hash", keyHash)));
             await registry.RegisterString("apiKey", keyHash, apiKeyId);
 
             return Results.Ok(new { id = entity.Id, key = rawKey, message = "Store this key securely, it cannot be retrieved again" });
@@ -97,6 +101,54 @@ public static class PlatformEndpoints
                 .Where(x => x.Id == id && x.UserEmail == email).ExecuteCommandAsync();
             await registry.Unregister("apiKey", key.KeyHash);
             return Results.Ok(new { message = "Key revoked" });
+        });
+
+        group.MapPost("/{id:long}/rotate", async (long id, ClaimsPrincipal principal,
+            ISqlSugarClient db, IClusterClient client, ListingRepository registry) =>
+        {
+            var email = principal.Identity?.Name ?? "";
+            var old = await db.Queryable<UserApiKeyEntity>()
+                .Where(x => x.Id == id && x.UserEmail == email && x.Status == "active")
+                .FirstAsync();
+            if (old is null) return Results.NotFound();
+
+            var config = await client.GetGrain<IApiKeyGrain>(old.KeyHash).GetConfig();
+            var rawKey = $"sk-{Convert.ToHexString(RandomNumberGenerator.GetBytes(24)).ToLowerInvariant()}";
+            var keyHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(rawKey)))
+                .ToLowerInvariant();
+            var allocator = client.GetGrain<IIdAllocatorGrain>("apiKey");
+            var apiKeyId = await allocator.Next();
+            await client.GetGrain<IApiKeyGrain>(keyHash).Create(new ApiKeyUpsert(
+                config.UserId, config.GroupId, config.Quota, config.ExpiresAt,
+                config.IpWhitelist, config.IpBlacklist,
+                config.RateLimit5h, config.RateLimit1d, config.RateLimit7d), apiKeyId);
+
+            var replacement = new UserApiKeyEntity
+            {
+                UserEmail = email,
+                KeyHash = keyHash,
+                KeyPrefix = rawKey[..12],
+                Name = old.Name,
+                ApiKeyId = apiKeyId,
+                Status = "active",
+                CreatedAt = DateTime.UtcNow,
+            };
+            await db.Insertable(replacement).ExecuteCommandAsync();
+            replacement.Id = Convert.ToInt64(await db.Ado.GetScalarAsync(
+                "SELECT id FROM user_api_keys WHERE key_hash = @hash",
+                new SugarParameter("@hash", keyHash)));
+            await registry.RegisterString("apiKey", keyHash, apiKeyId);
+
+            await client.GetGrain<IApiKeyGrain>(old.KeyHash).Revoke();
+            await db.Updateable<UserApiKeyEntity>().SetColumns(x => x.Status == "revoked")
+                .Where(x => x.Id == old.Id && x.UserEmail == email).ExecuteCommandAsync();
+            await registry.Unregister("apiKey", old.KeyHash);
+
+            return Results.Ok(new
+            {
+                id = replacement.Id, key = rawKey,
+                message = "Store this key securely, it cannot be retrieved again",
+            });
         });
     }
 

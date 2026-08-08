@@ -36,10 +36,17 @@ public record ApiKeyUpsert(
     long? ExpiresAt, string[] IpWhitelist, string[] IpBlacklist,
     decimal RateLimit5h, decimal RateLimit1d, decimal RateLimit7d);
 
+[GenerateSerializer]
+public record ApiKeyConfig(
+    long UserId, long GroupId, decimal Quota, long? ExpiresAt,
+    string[] IpWhitelist, string[] IpBlacklist,
+    decimal RateLimit5h, decimal RateLimit1d, decimal RateLimit7d);
+
 public interface IApiKeyGrain : IGrainWithStringKey
 {
     Task<AuthResult> Validate(AuthRequest req);
     Task<long> GetVersion();
+    Task<ApiKeyConfig> GetConfig();
     Task AddUsage(decimal usd);
     Task AddLeaseUsage(string leaseToken, decimal usd);
 
