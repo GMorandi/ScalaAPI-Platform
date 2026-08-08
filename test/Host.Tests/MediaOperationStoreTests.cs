@@ -9,6 +9,94 @@ namespace ScalaAPI.Host.Tests;
 public sealed class MediaOperationStoreTests
 {
     [Fact]
+    public async Task RequestLeasePersistsAndFinalizesDurableBalanceHoldIdempotently()
+    {
+        var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
+        if (string.IsNullOrWhiteSpace(connectionString)) return;
+
+        await using var dataSource = NpgsqlDataSource.Create(connectionString);
+        var suffix = Guid.NewGuid().ToString("N");
+        var leaseToken = $"lease-hold-{suffix}";
+        var duplicateLeaseToken = $"lease-hold-duplicate-{suffix}";
+        var requestId = $"request-hold-{suffix}";
+        var holdId = $"hold-{suffix}";
+        var abortLeaseToken = $"lease-abort-hold-{suffix}";
+        var abortRequestId = $"request-abort-hold-{suffix}";
+        var abortHoldId = $"hold-abort-{suffix}";
+        var configuration = new ConfigurationBuilder().AddInMemoryCollection(
+            new Dictionary<string, string?>
+            {
+                ["Pricing:Models:gpt-4o:InputPerMillion"] = "1"
+            }).Build();
+        var store = new RequestLeaseStore(dataSource,
+            new ModelPricingService(configuration), NullLogger<RequestLeaseStore>.Instance);
+        try
+        {
+            var request = new LeaseCreateRequest(
+                leaseToken, requestId, "hash-hold", 94001, 95001, 96001, 97001,
+                "gpt-4o", "gpt-4o", "chat_completions", 1m, holdId, 10m,
+                DateTime.UtcNow.AddMinutes(10));
+            Assert.True(await store.CreateAsync(request));
+
+            await using (var active = dataSource.CreateCommand(
+                "SELECT status, lease_token, amount FROM balance_holds WHERE hold_id = $1"))
+            {
+                active.Parameters.AddWithValue(holdId);
+                await using var reader = await active.ExecuteReaderAsync();
+                Assert.True(await reader.ReadAsync());
+                Assert.Equal("active", reader.GetString(0));
+                Assert.Equal(leaseToken, reader.GetString(1));
+                Assert.Equal(10m, reader.GetDecimal(2));
+            }
+
+            var duplicate = request with { LeaseToken = duplicateLeaseToken };
+            Assert.False(await store.CreateAsync(duplicate));
+
+            var completed = await store.CompleteAsync(new LeaseCompletion(
+                leaseToken, 100, 0, 0, 0, 20, 0, 200, false, false));
+            Assert.True(completed.Accepted);
+            Assert.False(completed.Duplicate);
+            Assert.Equal(10m, await ReadHoldAmount(dataSource, holdId));
+            Assert.Equal("committed", await ReadHoldStatus(dataSource, holdId));
+            Assert.True((await store.CompleteAsync(new LeaseCompletion(
+                leaseToken, 100, 0, 0, 0, 20, 0, 200, false, false))).Duplicate);
+
+            var abortRequest = new LeaseCreateRequest(
+                abortLeaseToken, abortRequestId, "hash-hold", 94001, 95001, 96001, 97001,
+                "gpt-4o", "gpt-4o", "chat_completions", 1m, abortHoldId, 10m,
+                DateTime.UtcNow.AddMinutes(10));
+            Assert.True(await store.CreateAsync(abortRequest));
+            Assert.True((await store.AbortAsync(abortLeaseToken, "client_disconnect")).Accepted);
+            Assert.Equal("released", await ReadHoldStatus(dataSource, abortHoldId));
+            Assert.True((await store.AbortAsync(abortLeaseToken, "client_disconnect")).Duplicate);
+        }
+        finally
+        {
+            foreach (var table in new[] { "usage_outbox", "usage_logs", "usage_events" })
+            {
+                await using var cleanupUsage = dataSource.CreateCommand(
+                    $"DELETE FROM {table} WHERE lease_token IN ($1, $2)");
+                cleanupUsage.Parameters.AddWithValue(leaseToken);
+                cleanupUsage.Parameters.AddWithValue(abortLeaseToken);
+                await cleanupUsage.ExecuteNonQueryAsync();
+            }
+            await using (var cleanupHolds = dataSource.CreateCommand(
+                "DELETE FROM balance_holds WHERE hold_id IN ($1, $2)"))
+            {
+                cleanupHolds.Parameters.AddWithValue(holdId);
+                cleanupHolds.Parameters.AddWithValue(abortHoldId);
+                await cleanupHolds.ExecuteNonQueryAsync();
+            }
+            await using var cleanupLeases = dataSource.CreateCommand(
+                "DELETE FROM request_leases WHERE lease_token IN ($1, $2, $3)");
+            cleanupLeases.Parameters.AddWithValue(leaseToken);
+            cleanupLeases.Parameters.AddWithValue(duplicateLeaseToken);
+            cleanupLeases.Parameters.AddWithValue(abortLeaseToken);
+            await cleanupLeases.ExecuteNonQueryAsync();
+        }
+    }
+
+    [Fact]
     public async Task DurableLifecycleIsIdempotentClaimableAndTerminal()
     {
         var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
@@ -139,5 +227,21 @@ public sealed class MediaOperationStoreTests
         command.Parameters.AddWithValue(leaseToken);
         command.Parameters.AddWithValue(requestId);
         await command.ExecuteNonQueryAsync();
+    }
+
+    private static async Task<string> ReadHoldStatus(NpgsqlDataSource dataSource, string holdId)
+    {
+        await using var command = dataSource.CreateCommand(
+            "SELECT status FROM balance_holds WHERE hold_id = $1");
+        command.Parameters.AddWithValue(holdId);
+        return (string)(await command.ExecuteScalarAsync())!;
+    }
+
+    private static async Task<decimal> ReadHoldAmount(NpgsqlDataSource dataSource, string holdId)
+    {
+        await using var command = dataSource.CreateCommand(
+            "SELECT amount FROM balance_holds WHERE hold_id = $1");
+        command.Parameters.AddWithValue(holdId);
+        return (decimal)(await command.ExecuteScalarAsync())!;
     }
 }

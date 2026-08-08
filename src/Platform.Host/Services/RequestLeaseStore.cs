@@ -84,7 +84,11 @@ public sealed class RequestLeaseStore(
 {
     public async Task<bool> CreateAsync(LeaseCreateRequest request, CancellationToken ct = default)
     {
-        await using var command = dataSource.CreateCommand("""
+        await using var connection = await dataSource.OpenConnectionAsync(ct);
+        await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.ReadCommitted, ct);
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
             INSERT INTO request_leases (
                 lease_token, request_id, api_key_hash, api_key_id, user_id,
                 account_id, group_id, model, upstream_model, inbound_endpoint,
@@ -92,7 +96,7 @@ public sealed class RequestLeaseStore(
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 'active', $14)
             ON CONFLICT (request_id) DO NOTHING
             RETURNING lease_token
-            """);
+            """;
         command.Parameters.AddWithValue(request.LeaseToken);
         command.Parameters.AddWithValue(request.RequestId);
         command.Parameters.AddWithValue(request.ApiKeyHash);
@@ -108,7 +112,30 @@ public sealed class RequestLeaseStore(
         command.Parameters.AddWithValue(request.HoldAmount);
         command.Parameters.AddWithValue(request.ExpiresAt);
         var inserted = await command.ExecuteScalarAsync(ct);
-        return inserted is not null && inserted is not DBNull;
+        if (inserted is null || inserted is DBNull)
+        {
+            await transaction.CommitAsync(ct);
+            return false;
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.HoldHandle))
+        {
+            await using var hold = connection.CreateCommand();
+            hold.Transaction = transaction;
+            hold.CommandText = """
+                INSERT INTO balance_holds (hold_id, user_id, lease_token, amount, status)
+                VALUES ($1, $2, $3, $4, 'active')
+                ON CONFLICT (hold_id) DO NOTHING
+                """;
+            hold.Parameters.AddWithValue(request.HoldHandle);
+            hold.Parameters.AddWithValue(request.UserId);
+            hold.Parameters.AddWithValue(request.LeaseToken);
+            hold.Parameters.AddWithValue(request.HoldAmount);
+            await hold.ExecuteNonQueryAsync(ct);
+        }
+
+        await transaction.CommitAsync(ct);
+        return true;
     }
 
     public async Task<WriteAck> CompleteAsync(LeaseCompletion completion, CancellationToken ct = default)
@@ -220,6 +247,7 @@ public sealed class RequestLeaseStore(
             await finalize.ExecuteNonQueryAsync(ct);
         }
 
+        await FinalizeHoldAsync(connection, transaction, lease.HoldHandle, "committed", ct);
         await EnqueueAsync(connection, transaction, lease.LeaseToken, "complete", ct);
         await transaction.CommitAsync(ct);
         return WriteAck.Ok();
@@ -248,6 +276,7 @@ public sealed class RequestLeaseStore(
         command.Parameters.AddWithValue(leaseToken);
         command.Parameters.AddWithValue(reason.Length > 500 ? reason[..500] : reason);
         await command.ExecuteNonQueryAsync(ct);
+        await FinalizeHoldAsync(connection, transaction, lease.HoldHandle, "released", ct);
         await EnqueueAsync(connection, transaction, leaseToken, "abort", ct);
         await transaction.CommitAsync(ct);
         return WriteAck.Ok();
@@ -272,7 +301,10 @@ public sealed class RequestLeaseStore(
                 expired.Add(reader.GetString(0));
         }
         foreach (var token in expired)
+        {
+            await FinalizeHoldByLeaseAsync(connection, transaction, token, "released", ct);
             await EnqueueAsync(connection, transaction, token, "expire", ct);
+        }
         await transaction.CommitAsync(ct);
         return expired.Count;
     }
@@ -465,6 +497,37 @@ public sealed class RequestLeaseStore(
             """;
         command.Parameters.AddWithValue(leaseToken);
         command.Parameters.AddWithValue(eventType);
+        await command.ExecuteNonQueryAsync(ct);
+    }
+
+    private static async Task FinalizeHoldAsync(NpgsqlConnection connection,
+        NpgsqlTransaction transaction, string? holdId, string status, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(holdId)) return;
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            UPDATE balance_holds
+            SET status = $2, finalized_at = now()
+            WHERE hold_id = $1 AND status = 'active'
+            """;
+        command.Parameters.AddWithValue(holdId);
+        command.Parameters.AddWithValue(status);
+        await command.ExecuteNonQueryAsync(ct);
+    }
+
+    private static async Task FinalizeHoldByLeaseAsync(NpgsqlConnection connection,
+        NpgsqlTransaction transaction, string leaseToken, string status, CancellationToken ct)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            UPDATE balance_holds
+            SET status = $2, finalized_at = now()
+            WHERE lease_token = $1 AND status = 'active'
+            """;
+        command.Parameters.AddWithValue(leaseToken);
+        command.Parameters.AddWithValue(status);
         await command.ExecuteNonQueryAsync(ct);
     }
 }
