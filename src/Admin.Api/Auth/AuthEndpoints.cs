@@ -34,8 +34,9 @@ public static class AuthEndpoints
         app.MapPost("/admin/auth/logout", async (ClaimsPrincipal principal,
             AuthSessionService sessions, HttpContext http) =>
         {
-            var sessionId = AuthClaims.SessionId(principal)
-                ?? AuthSessionService.SessionIdFromAuthorization(
+            var sessionId = AuthClaims.SessionId(principal);
+            if (string.IsNullOrWhiteSpace(sessionId))
+                sessionId = AuthSessionService.SessionIdFromAuthorization(
                     http.Request.Headers.Authorization.ToString());
             if (string.IsNullOrWhiteSpace(sessionId))
                 return Results.Unauthorized();

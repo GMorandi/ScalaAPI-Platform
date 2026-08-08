@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.IdentityModel.Tokens.Jwt;
+using Microsoft.IdentityModel.Tokens;
 using Npgsql;
 
 namespace ScalaAPI.Admin.Auth;
@@ -27,7 +28,7 @@ public sealed class AuthSessionService(
             var token = new JwtSecurityTokenHandler().ReadJwtToken(authorization[7..]);
             return token.Claims.FirstOrDefault(c => c.Type == "sid")?.Value;
         }
-        catch (ArgumentException)
+        catch (Exception ex) when (ex is ArgumentException or SecurityTokenException)
         {
             return null;
         }

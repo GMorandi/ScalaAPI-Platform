@@ -242,8 +242,9 @@ public static class UserAuthEndpoints
         user.MapPost("/logout", async (ClaimsPrincipal principal, AuthSessionService sessions,
             HttpContext http) =>
         {
-            var sessionId = AuthClaims.SessionId(principal)
-                ?? AuthSessionService.SessionIdFromAuthorization(
+            var sessionId = AuthClaims.SessionId(principal);
+            if (string.IsNullOrWhiteSpace(sessionId))
+                sessionId = AuthSessionService.SessionIdFromAuthorization(
                     http.Request.Headers.Authorization.ToString());
             if (string.IsNullOrWhiteSpace(sessionId))
                 return Results.Unauthorized();
@@ -254,8 +255,9 @@ public static class UserAuthEndpoints
         user.MapGet("/sessions", async (ClaimsPrincipal principal,
             AuthSessionService sessions, HttpContext http) =>
         {
-            var sessionId = AuthClaims.SessionId(principal)
-                ?? AuthSessionService.SessionIdFromAuthorization(
+            var sessionId = AuthClaims.SessionId(principal);
+            if (string.IsNullOrWhiteSpace(sessionId))
+                sessionId = AuthSessionService.SessionIdFromAuthorization(
                     http.Request.Headers.Authorization.ToString());
             if (!AuthClaims.TryGetUserId(principal, out var userId))
                 userId = sessionId is null ? 0 : await sessions.GetUserIdAsync(sessionId) ?? 0;
@@ -266,8 +268,9 @@ public static class UserAuthEndpoints
         user.MapDelete("/sessions/{sessionId}", async (string sessionId,
             ClaimsPrincipal principal, AuthSessionService sessions, HttpContext http) =>
         {
-            var currentSessionId = AuthClaims.SessionId(principal)
-                ?? AuthSessionService.SessionIdFromAuthorization(
+            var currentSessionId = AuthClaims.SessionId(principal);
+            if (string.IsNullOrWhiteSpace(currentSessionId))
+                currentSessionId = AuthSessionService.SessionIdFromAuthorization(
                     http.Request.Headers.Authorization.ToString());
             if (!AuthClaims.TryGetUserId(principal, out var userId))
                 userId = currentSessionId is null ? 0 : await sessions.GetUserIdAsync(currentSessionId) ?? 0;
