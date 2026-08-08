@@ -12,7 +12,7 @@ This does not close the product rewrite. The next stage is one authoritative,
 billable OpenAI Chat Completions vertical slice. Work outside that slice stays
 `partial`, `skeleton`, or `missing` in the inventory.
 
-## Progress checkpoint (2026-08-08, platform `cb09e34`, gateway `c807dc8`)
+## Progress checkpoint (2026-08-08, platform `7613b92`, gateway `c807dc8`)
 
 - Completed in `b266e17`: business balances, quotas, costs, limits, and routing
   multipliers use `decimal`; precision projections cover User, Group, and API key.
@@ -132,9 +132,17 @@ billable OpenAI Chat Completions vertical slice. Work outside that slice stays
   protection, and Platform Host refreshes active versions into new dispatches.
   Lease settlement remains snapshot-based; provider price adapters and historical
   backfill remain open.
+- Completed in `7613b92`: Provider mock now owns deterministic OpenAI
+  Chat/Responses/models/embeddings, Anthropic Messages/count-tokens, Gemini
+  models/generation, and pollable image/video contracts. OpenAI scheduling admits
+  video operations, and media polling preserves `image/png`/`video/mp4` output
+  types. Current-image Gateway probes pass for Responses, models, embeddings,
+  synchronous images, and durable asynchronous image/video completion. Provider
+  groups for Anthropic/Gemini and object-store byte ownership remain open.
 - Still open: PostgreSQL aggregate repositories/foreign keys, fixed-precision RPC
   schema generation, crash/restart settlement scenarios, provider failure matrix,
-  empty-volume CI automation, and Garnet flush/stale-version/TLS/multi-client evidence.
+  object-store media ownership, empty-volume CI automation, and Garnet
+  flush/stale-version/TLS/multi-client evidence.
 
 ## Stage 2 objective
 

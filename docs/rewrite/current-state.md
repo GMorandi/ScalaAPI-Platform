@@ -10,12 +10,12 @@ release artifacts.
 | Repository | Commit | Worktree | Responsibility |
 | --- | --- | --- | --- |
 | `gateway` | `c807dc8` | clean | C++ HTTP/WebSocket edge, protocol conversion, chunked streaming, Provider transport, versioned Garnet client, malformed-usage guard, fixed-scale Cap'n Proto client, unique failover lease IDs, bounded non-stream upstream timeout, bounded response replay, invalidation flush recovery |
-| `platform` | `6d725ce` | clean | C# Orleans control plane, PostgreSQL persistence, leases, NUMERIC ledger, durable holds/idempotency, usage, media lifecycle, Admin API, signed payment webhooks with pending-event recovery, versioned Admin pricing lifecycle with live Host refresh, idempotent subscription purchase/renewal/cancellation/expiry, versioned Garnet rebuild, replayable balance effects, fixed-scale RPC contract, retryable terminal idempotency leases, bounded response persistence/replay, password recovery, email verification, self-service profile/password/account deletion, cancellable Provider mock timeout, restart-safe settlement outbox recovery, immutable lease price snapshots, durable ledger reconciliation endpoint, deterministic rolling quota policy, usage-triggered auth invalidation |
+| `platform` | `7613b92` | clean | C# Orleans control plane, PostgreSQL persistence, leases, NUMERIC ledger, durable holds/idempotency, usage, media lifecycle, Admin API, signed payment webhooks with pending-event recovery, versioned Admin pricing lifecycle with live Host refresh, idempotent subscription purchase/renewal/cancellation/expiry, versioned Garnet rebuild, replayable balance effects, fixed-scale RPC contract, retryable terminal idempotency leases, bounded response persistence/replay, password recovery, email verification, self-service profile/password/account deletion, deterministic multi-protocol Provider mock with pollable media tasks, restart-safe settlement outbox recovery, immutable lease price snapshots, durable ledger reconciliation endpoint, deterministic rolling quota policy, usage-triggered auth invalidation |
 | `sub2api` | `43ec48d` | read-only clean reference | Functional requirements catalogue only |
 
 The current source inventory is 50 tracked Gateway source files, 87 CTest cases,
-66 hand-written Platform production C# files plus 3 generated Cap'n Proto files,
-18 tracked Platform test/benchmark C# source files, 80 Platform test cases, 138 mapped
+68 hand-written Platform production C# files plus 3 generated Cap'n Proto files,
+19 tracked Platform test/benchmark C# source files, 82 Platform test cases, 138 mapped
 Admin API route declarations, 34 product tables, 20 SQLSugar entity types, and 31 Admin Web
 source files with 11 page views. Admin Web has no browser test runner yet.
 
@@ -129,9 +129,11 @@ not implementation parity or a migration target.
   token-protected `/internal/cache/rebuild` operation that reconstructs auth
   projections from `entity_registry` and Orleans aggregates; it never treats cache
   contents as business authority.
-- A source-owned Provider mock now supplies deterministic JSON, SSE, failure,
-  delay, disconnect, and malformed-usage scenarios. Its image, health endpoint,
-  success response, and 429 response passed the isolated Compose smoke.
+- A source-owned Provider mock now supplies deterministic OpenAI Chat/Responses,
+  Anthropic Messages/count-tokens, Gemini generation/model metadata, embeddings,
+  model discovery, JSON/SSE failure scenarios, and pollable image/video tasks.
+  Media polling preserves the provider-declared output content type instead of the
+  polling response's JSON content type.
 - Platform owns the revision-1 Cap'n Proto schemas under `contracts/capnp`; Gateway
   vendors byte-identical copies and both repositories enforce the recorded SHA-256
   schema digests.
@@ -175,11 +177,11 @@ not implementation parity or a migration target.
 ## Current runtime evidence
 
 On 2026-08-08 the isolated `scalaapi-stage2` project used current-source images:
-Platform `078858c851c5b3b046a992bdba41d9b1231e0a7ab181448eeeffe4cc6b30b017`,
-Admin API `be3d79f84896064e8f21a1bba31223225e0531cf67ce5b5c4a6ff307764719af`,
-migrator `ff1ea8d89a319384e23cbe496ecc38a886a77c35adb5bd0adb36a0b9347fc605`,
-Gateway `b072b7600c8acaa0d94a9a319629ddf928a218748ce8523b76912a1f457ef350`, and
-Provider mock `95b8632dea20b787127dad9f8302afad1bffb70633283dcc61720a67a388b4a6`.
+Platform `f6560489487200c737c5b81ef50be64e4f51e23c6efb6d36d13c28c8e646ef48`,
+Admin API `ea0cbe88a5b1bab8dd171b930ff5e6ec31be234b0bf4becf6ac6f4b74d38ca73`,
+migrator `8c1b3d4299fa8a2dc20abedcdaa15e2faa42f85d4c9156ca1e4d6919e146d880`,
+Gateway `4099c8aa22de23b7db13a114d40e301c0502b033545bcbbf0ed1dd0cbe7d29ca`, and
+Provider mock `bfd1a32c4f1dff5efc3d040bd488a4e13db9e8d65a671eb9de14cf3b1cebe2d7`.
 The migrator applied the complete 000-015 sequence and a second run skipped all
 sixteen migrations. Registration
 returned user id 7 and registry id 7. Provider seed was idempotent (same account
@@ -251,6 +253,16 @@ Pricing runtime evidence published `stage2-live-1786199990` for `gpt-4o` with
 `078858c8`, and sent a Gateway Chat request. The resulting lease stored that
 version and both NUMERIC rates, proving active database pricing reaches new
 dispatches while lease snapshots remain immutable.
+
+Expanded Provider runtime evidence used a seeded OpenAI-compatible account through
+Gateway and returned `200` for model discovery, Responses, Chat, embeddings, and
+synchronous image generation. Active `pricing_versions` for
+`text-embedding-3-small`, `mock-image-1`, and `mock-video-1` were refreshed before
+dispatch, and their leases stored the exact NUMERIC version/rates. Asynchronous
+image and video creation returned durable `med_*` operation IDs, then Platform
+polling transitioned both rows to `succeeded` in one attempt with `image/png` and
+`video/mp4` output types. The output bytes are still provider-owned URLs; copying,
+signing, and reconciling them in object storage remain open.
 
 Payment runtime evidence on the current Admin image created order `id=2` with
 `7.25 USD`, accepted a signed `payment.succeeded` webhook once, returned
