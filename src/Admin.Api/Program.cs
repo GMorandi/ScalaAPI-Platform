@@ -6,6 +6,7 @@ using ScalaAPI.Admin.Data;
 using ScalaAPI.Admin.Endpoints;
 using ScalaAPI.Admin.Payments;
 using ScalaAPI.Data.Repositories;
+using ScalaAPI.Data.Accounting;
 using Npgsql;
 using System.IdentityModel.Tokens.Jwt;
 
@@ -41,6 +42,8 @@ builder.Services.AddScoped<ISqlSugarClient>(_ => new SqlSugarClient(new Connecti
 }));
 builder.Services.AddScoped<ListingRepository>();
 builder.Services.AddScoped<BalanceAdjustmentStore>();
+builder.Services.AddSingleton<AccountingStore>();
+builder.Services.AddSingleton<AccountingProjectionService>();
 builder.Services.AddScoped<IUsageLogRepository, UsageLogRepository>();
 builder.Services.AddHttpClient();
 builder.Services.AddSingleton(NpgsqlDataSource.Create(pgConnection));

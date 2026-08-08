@@ -1,12 +1,13 @@
 using Npgsql;
-using Orleans;
-using ScalaAPI.Grains.Interfaces;
+using ScalaAPI.Admin.Data;
+using ScalaAPI.Data.Accounting;
 
 namespace ScalaAPI.Admin.Payments;
 
 public sealed class PaymentWebhookRecoveryService(
     NpgsqlDataSource dataSource,
-    IClusterClient cluster,
+    AccountingStore accounting,
+    AccountingProjectionService projection,
     ILogger<PaymentWebhookRecoveryService> logger) : BackgroundService
 {
     private const int BatchSize = 20;
@@ -90,15 +91,10 @@ public sealed class PaymentWebhookRecoveryService(
 
     private async Task ApplyAsync(PendingWebhook row, CancellationToken ct)
     {
-        var isRefund = row.EventType.Equals("payment.refunded", StringComparison.OrdinalIgnoreCase);
-        var effectId = isRefund
-            ? $"payment-refund:{row.EventId}"
-            : $"payment:{row.PaymentId}";
-        var delta = isRefund ? -row.Amount : row.Amount;
         try
         {
-            await cluster.GetGrain<IUserGrain>(row.UserId)
-                .ApplyBalanceEffect(effectId, delta);
+            var snapshot = await accounting.GetSnapshotAsync(row.UserId, ct);
+            await projection.ApplyAsync(snapshot, ct);
             await using var mark = dataSource.CreateCommand("""
                 UPDATE payment_webhook_events
                 SET status = 'applied', applied_at = now(), next_attempt_at = NULL, error = NULL

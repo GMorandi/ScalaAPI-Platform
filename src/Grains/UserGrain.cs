@@ -1,4 +1,3 @@
-using Microsoft.Extensions.Logging;
 using Orleans;
 using Orleans.Runtime;
 using ScalaAPI.Grains.Interfaces;
@@ -12,31 +11,26 @@ public class UserState
     [Id(1)] public string Status { get; set; } = "active";
     [Id(2)] public string Role { get; set; } = "user";
     [Id(3)] public decimal Balance { get; set; }
-    [Id(4)] public decimal FrozenBalance { get; set; }
     [Id(5)] public int Concurrency { get; set; } = 1;
     [Id(6)] public int RpmLimit { get; set; }
     [Id(7)] public long[] AllowedGroups { get; set; } = [];
     [Id(8)] public HashSet<string> FinalizedLeases { get; set; } = [];
-    [Id(9)] public HashSet<string> AppliedBalanceEffects { get; set; } = [];
+    [Id(10)] public long BalanceVersion { get; set; }
 }
 
 public class UserGrain : Grain, IUserGrain
 {
     private readonly IPersistentState<UserState> _state;
-    private readonly ILogger<UserGrain> _logger;
     private readonly IInvalidationService _invalidation;
     private readonly Dictionary<string, long> _activeSlots = new();
-    private readonly Dictionary<string, decimal> _holds = new();
     private int _rpmCount;
     private long _rpmWindowStart;
 
     public UserGrain(
         [PersistentState("user", "postgres")] IPersistentState<UserState> state,
-        ILogger<UserGrain> logger,
         IInvalidationService invalidation)
     {
         _state = state;
-        _logger = logger;
         _invalidation = invalidation;
     }
 
@@ -44,7 +38,7 @@ public class UserGrain : Grain, IUserGrain
     {
         var s = _state.State;
         return Task.FromResult(new UserProjection(
-            s.Id, s.Status, s.Role, s.Balance - s.FrozenBalance,
+            s.Id, s.Status, s.Role, s.Balance,
             s.Concurrency, s.AllowedGroups, s.RpmLimit));
     }
 
@@ -72,70 +66,12 @@ public class UserGrain : Grain, IUserGrain
         return Task.CompletedTask;
     }
 
-    public async Task<HoldHandle?> ReserveBalance(decimal amount)
-    {
-        amount = Math.Max(0m, amount);
-        var s = _state.State;
-        var available = s.Balance - s.FrozenBalance;
-        if (available < amount)
-            return null;
-
-        var handleId = Guid.NewGuid().ToString("N");
-        s.FrozenBalance += amount;
-        _holds[handleId] = amount;
-        try
-        {
-            await _state.WriteStateAsync();
-        }
-        catch
-        {
-            s.FrozenBalance -= amount;
-            _holds.Remove(handleId);
-            throw;
-        }
-        return new HoldHandle(handleId, amount);
-    }
-
-    public async Task CommitUsage(HoldHandle handle, decimal actual)
-    {
-        var s = _state.State;
-        s.FrozenBalance = Math.Max(0m, s.FrozenBalance - Math.Max(0m, handle.Amount));
-        var charge = Math.Min(Math.Max(0m, actual), Math.Max(0m, s.Balance));
-        if (charge != actual)
-            _logger.LogError("Billing anomaly for user {UserId}: requested {Actual} with balance {Balance}",
-                s.Id, actual, s.Balance);
-        s.Balance -= charge;
-        _holds.Remove(handle.Id);
-        await _state.WriteStateAsync();
-    }
-
-    public async Task ReleaseHold(HoldHandle handle)
-    {
-        _state.State.FrozenBalance = Math.Max(0m,
-            _state.State.FrozenBalance - Math.Max(0m, handle.Amount));
-        _holds.Remove(handle.Id);
-        await _state.WriteStateAsync();
-    }
-
-    public async Task CompleteLease(string leaseToken, string requestId,
-        HoldHandle? handle, decimal actual)
+    public async Task FinalizeLease(string leaseToken, string requestId)
     {
         var s = _state.State;
         if (!s.FinalizedLeases.Add(leaseToken)) return;
 
         var hadSlot = _activeSlots.Remove(leaseToken) || _activeSlots.Remove(requestId);
-        var previousFrozen = s.FrozenBalance;
-        var previousBalance = s.Balance;
-        if (handle is not null)
-        {
-            s.FrozenBalance = Math.Max(0m, s.FrozenBalance - handle.Amount);
-            _holds.Remove(handle.Id);
-        }
-        var charge = Math.Min(Math.Max(0m, actual), Math.Max(0m, s.Balance));
-        if (charge != actual)
-            _logger.LogError("Billing anomaly for user {UserId}: requested {Actual} with balance {Balance}",
-                s.Id, actual, s.Balance);
-        s.Balance -= charge;
         try
         {
             await _state.WriteStateAsync();
@@ -143,44 +79,9 @@ public class UserGrain : Grain, IUserGrain
         catch
         {
             s.FinalizedLeases.Remove(leaseToken);
-            s.FrozenBalance = previousFrozen;
-            s.Balance = previousBalance;
             if (hadSlot) _activeSlots[leaseToken] = DateTimeOffset.UtcNow.AddMinutes(10).ToUnixTimeMilliseconds();
-            if (handle is not null) _holds[handle.Id] = handle.Amount;
             throw;
         }
-    }
-
-    public async Task AbortLease(string leaseToken, string requestId, HoldHandle? handle)
-    {
-        var s = _state.State;
-        if (!s.FinalizedLeases.Add(leaseToken)) return;
-
-        var hadSlot = _activeSlots.Remove(leaseToken) || _activeSlots.Remove(requestId);
-        var previousFrozen = s.FrozenBalance;
-        if (handle is not null)
-        {
-            s.FrozenBalance = Math.Max(0m, s.FrozenBalance - handle.Amount);
-            _holds.Remove(handle.Id);
-        }
-        try
-        {
-            await _state.WriteStateAsync();
-        }
-        catch
-        {
-            s.FinalizedLeases.Remove(leaseToken);
-            s.FrozenBalance = previousFrozen;
-            if (hadSlot) _activeSlots[leaseToken] = DateTimeOffset.UtcNow.AddMinutes(10).ToUnixTimeMilliseconds();
-            if (handle is not null) _holds[handle.Id] = handle.Amount;
-            throw;
-        }
-    }
-
-    public Task<bool> CheckBalance(decimal required)
-    {
-        var available = _state.State.Balance - _state.State.FrozenBalance;
-        return Task.FromResult(available >= required);
     }
 
     public Task<bool> CheckAndRecordRpm(int limit)
@@ -202,7 +103,8 @@ public class UserGrain : Grain, IUserGrain
         var s = _state.State;
         s.Id = this.GetPrimaryKeyLong();
         s.Role = input.Role;
-        s.Balance = input.InitialBalance;
+        s.Balance = 0m;
+        s.BalanceVersion = 0;
         s.Concurrency = input.Concurrency;
         s.RpmLimit = input.RpmLimit;
         s.AllowedGroups = input.AllowedGroups;
@@ -228,43 +130,32 @@ public class UserGrain : Grain, IUserGrain
         _invalidation.NotifyChange("user", _state.State.Id.ToString());
     }
 
-    public async Task ApplyBalanceEffect(string effectId, decimal delta)
+    public Task<BalanceProjection> GetBalanceProjection()
     {
         var s = _state.State;
-        if (!s.AppliedBalanceEffects.Add(effectId))
-            return;
-
-        var previousBalance = s.Balance;
-        s.Balance = Math.Max(0m, s.Balance + delta);
-        try
-        {
-            await _state.WriteStateAsync();
-        }
-        catch
-        {
-            s.AppliedBalanceEffects.Remove(effectId);
-            s.Balance = previousBalance;
-            throw;
-        }
-        _invalidation.NotifyChange("user", s.Id.ToString());
+        return Task.FromResult(new BalanceProjection(s.BalanceVersion, s.Balance));
     }
 
-    public async Task ApplyBalanceSnapshot(string effectId, decimal balance)
+    public async Task ApplyBalanceSnapshot(long version, decimal balance)
     {
         var s = _state.State;
-        if (!s.AppliedBalanceEffects.Add(effectId))
+        if (version < s.BalanceVersion)
+            return;
+        if (version == s.BalanceVersion && balance == s.Balance)
             return;
 
         var previousBalance = s.Balance;
-        s.Balance = Math.Max(0m, balance);
+        var previousVersion = s.BalanceVersion;
+        s.Balance = balance;
+        s.BalanceVersion = version;
         try
         {
             await _state.WriteStateAsync();
         }
         catch
         {
-            s.AppliedBalanceEffects.Remove(effectId);
             s.Balance = previousBalance;
+            s.BalanceVersion = previousVersion;
             throw;
         }
         _invalidation.NotifyChange("user", s.Id.ToString());

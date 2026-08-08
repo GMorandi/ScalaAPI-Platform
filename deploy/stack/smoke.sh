@@ -243,10 +243,10 @@ wait_for "Admin API readiness" 60 compose exec -T admin-api \
     curl -fsS http://127.0.0.1:5001/ready >/dev/null
 
 migration_count="$(db_query "SELECT count(*) FROM schema_migrations;")"
-assert_equals "18" "$migration_count" "Applied migration count"
+assert_equals "19" "$migration_count" "Applied migration count"
 second_migration_output="$(compose run --rm migrate 2>&1)"
 second_skip_count="$(grep -cE 'skip .+\.sql' <<<"$second_migration_output" || true)"
-assert_equals "18" "$second_skip_count" "Idempotent migrator skip count"
+assert_equals "19" "$second_skip_count" "Idempotent migrator skip count"
 
 login_response="$(admin_request POST /admin/auth/login \
     "$(jq -cn --arg username "$ADMIN_USERNAME" --arg password "$ADMIN_PASSWORD" \
@@ -295,10 +295,12 @@ admin_request PUT "/admin/users/$user_id" \
 balance_body='{"delta":100,"reason":"Initial smoke-test funding"}'
 balance_response="$(admin_request POST "/admin/users/$user_id/balance" \
     "$balance_body" "$admin_token" "$balance_idempotency_key")"
-assert_equals "100" "$(jq -er '.balance' <<<"$balance_response")" \
+assert_equals "true" "$(jq -er '.balance == 100' <<<"$balance_response")" \
     "Administrative balance result"
 assert_equals "false" "$(jq -er '.duplicate' <<<"$balance_response")" \
     "Administrative balance first-write marker"
+assert_equals "1" "$(jq -er '.ledger_version' <<<"$balance_response")" \
+    "Administrative balance ledger version"
 balance_replay="$(admin_request POST "/admin/users/$user_id/balance" \
     "$balance_body" "$admin_token" "$balance_idempotency_key")"
 assert_equals "true" "$(jq -er '.duplicate' <<<"$balance_replay")" \
@@ -445,6 +447,25 @@ SELECT
   (SELECT count(*) FROM balance_ledger l JOIN request_leases r ON r.lease_token = l.lease_token WHERE r.request_id = '$chat_request_id' AND l.entry_type = 'usage_debit' AND l.amount = -r.final_cost_usd);")"
 assert_equals "0|0|0|0|1|1|1|1" "$terminal_state" "Terminal billing invariants"
 
+accounting_projection_drained() {
+    [[ "$(db_query "SELECT count(*) FROM accounting_projection_outbox WHERE user_id = $user_id;")" == "0" ]]
+}
+wait_for "accounting projection drain" 30 accounting_projection_drained
+
+accounting_state="$(db_query "
+SELECT
+  ((SELECT posted_balance FROM accounting_accounts WHERE user_id = $user_id) =
+   (SELECT sum(amount) FROM balance_ledger WHERE user_id = $user_id)) || '|' ||
+  ((SELECT ledger_version FROM accounting_accounts WHERE user_id = $user_id) =
+   (SELECT max(ledger_version) FROM balance_ledger WHERE user_id = $user_id)
+   AND (SELECT count(*) FROM balance_ledger WHERE user_id = $user_id) =
+       (SELECT max(ledger_version) FROM balance_ledger WHERE user_id = $user_id)
+   AND (SELECT count(DISTINCT ledger_version) FROM balance_ledger WHERE user_id = $user_id) =
+       (SELECT count(*) FROM balance_ledger WHERE user_id = $user_id)) || '|' ||
+  (SELECT count(*) FROM accounting_projection_outbox WHERE user_id = $user_id);")"
+assert_equals "true|true|0" "$accounting_state" \
+    "Authoritative account, contiguous ledger versions, and projection drain"
+
 restart_state="$(db_query "
 SELECT
   (SELECT count(*) FROM request_leases WHERE request_id IN ('$platform_restart_request_id', '$gateway_restart_request_id') AND status = 'completed') || '|' ||
@@ -469,7 +490,7 @@ if [[ "$garnet_probe" != *PONG* ]]; then
     exit 1
 fi
 
-echo "PASS: 18 empty-volume migrations and second-run idempotency"
+echo "PASS: 19 empty-volume migrations and second-run idempotency"
 echo "PASS: idempotent administrative funding, audit, conflict, and overdraft guards"
 echo "PASS: Garnet-authenticated Gateway -> Platform -> Provider mock request"
 echo "PASS: terminal lease, hold, usage, ledger, and outbox invariants"

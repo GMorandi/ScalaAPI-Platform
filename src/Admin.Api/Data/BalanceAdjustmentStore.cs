@@ -1,6 +1,7 @@
 using System.Data;
 using System.Text.Json;
 using Npgsql;
+using ScalaAPI.Data.Accounting;
 
 namespace ScalaAPI.Admin.Data;
 
@@ -17,9 +18,12 @@ public sealed record BalanceAdjustmentResult(
     BalanceAdjustmentStatus Status,
     string EffectId,
     long? LedgerId,
+    long Version,
     decimal BalanceAfter);
 
-public sealed class BalanceAdjustmentStore(NpgsqlDataSource dataSource)
+public sealed class BalanceAdjustmentStore(
+    NpgsqlDataSource dataSource,
+    AccountingStore accounting)
 {
     public const string EntryType = "admin_adjustment";
 
@@ -36,63 +40,32 @@ public sealed class BalanceAdjustmentStore(NpgsqlDataSource dataSource)
         await using var transaction = await connection.BeginTransactionAsync(
             IsolationLevel.ReadCommitted, ct);
 
-        await using (var userLock = connection.CreateCommand())
-        {
-            userLock.Transaction = transaction;
-            userLock.CommandText = "SELECT pg_advisory_xact_lock($1)";
-            userLock.Parameters.AddWithValue(userId);
-            await userLock.ExecuteNonQueryAsync(ct);
-        }
-
+        await AccountingStore.AcquireUserLockAsync(connection, transaction, userId, ct);
         if (!await UserExistsAsync(connection, transaction, userId, ct))
-            return new(BalanceAdjustmentStatus.UserNotFound, effectId, null, 0m);
+            return new(BalanceAdjustmentStatus.UserNotFound, effectId, null, 0, 0m);
 
-        var existing = await FindExistingAsync(
-            connection, transaction, userId, idempotencyKey, ct);
-        if (existing is not null)
-        {
-            var currentBalance = await GetLedgerBalanceAsync(
-                connection, transaction, userId, ct);
-            await transaction.CommitAsync(ct);
-            var status = existing.Value.Amount == delta
-                && string.Equals(existing.Value.Description, reason, StringComparison.Ordinal)
-                ? BalanceAdjustmentStatus.Replay
-                : BalanceAdjustmentStatus.Conflict;
-            return new(status, effectId, existing.Value.Id, currentBalance);
-        }
-
-        var ledgerBalance = await GetLedgerBalanceAsync(
-            connection, transaction, userId, ct);
         var activeHolds = await GetActiveHoldsAsync(
             connection, transaction, userId, ct);
-        var balanceAfter = ledgerBalance + delta;
-        if (balanceAfter < activeHolds)
-            return new(BalanceAdjustmentStatus.InsufficientFunds,
-                effectId, null, ledgerBalance);
+        var effect = await accounting.AppendEffectAsync(connection, transaction,
+            new AccountingEffect(
+                userId, effectId, EntryType, delta,
+                IdempotencyKey: idempotencyKey,
+                Description: reason,
+                CreatedBy: actorId,
+                MinimumBalance: activeHolds), ct);
 
-        long ledgerId;
-        await using (var insert = connection.CreateCommand())
+        var status = effect.Status switch
         {
-            insert.Transaction = transaction;
-            insert.CommandText = """
-                INSERT INTO balance_ledger(
-                    user_id, reference, amount, entry_type,
-                    idempotency_key, description, created_by)
-                VALUES ($1, $2, $3, $4, $5, $6, $7)
-                RETURNING id
-                """;
-            insert.Parameters.AddWithValue(userId);
-            insert.Parameters.AddWithValue(effectId);
-            insert.Parameters.AddWithValue(delta);
-            insert.Parameters.AddWithValue(EntryType);
-            insert.Parameters.AddWithValue(idempotencyKey);
-            insert.Parameters.AddWithValue(reason);
-            insert.Parameters.AddWithValue(actorId);
-            ledgerId = Convert.ToInt64(await insert.ExecuteScalarAsync(ct));
-        }
+            AccountingEffectStatus.Created => BalanceAdjustmentStatus.Created,
+            AccountingEffectStatus.Replay => BalanceAdjustmentStatus.Replay,
+            AccountingEffectStatus.Conflict => BalanceAdjustmentStatus.Conflict,
+            AccountingEffectStatus.InsufficientFunds => BalanceAdjustmentStatus.InsufficientFunds,
+            _ => throw new InvalidOperationException($"Unknown accounting status {effect.Status}"),
+        };
 
-        await using (var audit = connection.CreateCommand())
+        if (status == BalanceAdjustmentStatus.Created)
         {
+            await using var audit = connection.CreateCommand();
             audit.Transaction = transaction;
             audit.CommandText = """
                 INSERT INTO audit_logs(
@@ -107,13 +80,15 @@ public sealed class BalanceAdjustmentStore(NpgsqlDataSource dataSource)
                 effect_id = effectId,
                 delta,
                 reason,
-                balance_after = balanceAfter,
+                ledger_version = effect.Snapshot.Version,
+                balance_after = effect.Snapshot.Balance,
             }));
             await audit.ExecuteNonQueryAsync(ct);
         }
 
         await transaction.CommitAsync(ct);
-        return new(BalanceAdjustmentStatus.Created, effectId, ledgerId, balanceAfter);
+        return new(status, effectId, effect.LedgerId,
+            effect.Snapshot.Version, effect.Snapshot.Balance);
     }
 
     private static async Task<bool> UserExistsAsync(
@@ -131,42 +106,6 @@ public sealed class BalanceAdjustmentStore(NpgsqlDataSource dataSource)
             """;
         command.Parameters.AddWithValue(userId);
         return (bool)(await command.ExecuteScalarAsync(ct) ?? false);
-    }
-
-    private static async Task<(long Id, decimal Amount, string Description)?> FindExistingAsync(
-        NpgsqlConnection connection,
-        NpgsqlTransaction transaction,
-        long userId,
-        string idempotencyKey,
-        CancellationToken ct)
-    {
-        await using var command = connection.CreateCommand();
-        command.Transaction = transaction;
-        command.CommandText = """
-            SELECT id, amount, description
-            FROM balance_ledger
-            WHERE user_id = $1 AND idempotency_key = $2 AND entry_type = $3
-            """;
-        command.Parameters.AddWithValue(userId);
-        command.Parameters.AddWithValue(idempotencyKey);
-        command.Parameters.AddWithValue(EntryType);
-        await using var reader = await command.ExecuteReaderAsync(ct);
-        if (!await reader.ReadAsync(ct)) return null;
-        return (reader.GetInt64(0), reader.GetDecimal(1), reader.GetString(2));
-    }
-
-    private static async Task<decimal> GetLedgerBalanceAsync(
-        NpgsqlConnection connection,
-        NpgsqlTransaction transaction,
-        long userId,
-        CancellationToken ct)
-    {
-        await using var command = connection.CreateCommand();
-        command.Transaction = transaction;
-        command.CommandText =
-            "SELECT COALESCE(sum(amount), 0) FROM balance_ledger WHERE user_id = $1";
-        command.Parameters.AddWithValue(userId);
-        return Convert.ToDecimal(await command.ExecuteScalarAsync(ct));
     }
 
     private static async Task<decimal> GetActiveHoldsAsync(

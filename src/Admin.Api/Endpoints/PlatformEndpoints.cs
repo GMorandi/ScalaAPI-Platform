@@ -9,6 +9,7 @@ using Npgsql;
 using SqlSugar;
 using ScalaAPI.Data.Entities;
 using ScalaAPI.Admin.Data;
+using ScalaAPI.Data.Accounting;
 using Orleans;
 using ScalaAPI.Grains.Interfaces;
 
@@ -282,29 +283,51 @@ public static class PlatformEndpoints
             return Results.Ok(new { items });
         });
 
-        group.MapPost("/{id}/confirm", async (long id, ISqlSugarClient db, IClusterClient client) =>
+        group.MapPost("/{id}/confirm", async (long id, NpgsqlDataSource dataSource,
+            AccountingStore accounting, AccountingProjectionService projection,
+            CancellationToken ct) =>
         {
-            var changed = await db.Updateable<PaymentOrderEntity>()
-                .SetColumns(x => x.Status == "paid")
-                .SetColumns(x => x.PaidAt == DateTime.UtcNow)
-                .Where(x => x.Id == id && x.Status == "pending").ExecuteCommandAsync();
-            var payment = await db.Queryable<PaymentOrderEntity>().Where(x => x.Id == id).FirstAsync();
-            if (payment is null) return Results.NotFound();
-            if (changed == 0 && !string.Equals(payment.Status, "paid", StringComparison.OrdinalIgnoreCase))
+            await using var connection = await dataSource.OpenConnectionAsync(ct);
+            await using var transaction = await connection.BeginTransactionAsync(ct);
+            long userId;
+            decimal amount;
+            string status;
+            await using (var find = connection.CreateCommand())
+            {
+                find.Transaction = transaction;
+                find.CommandText = "SELECT user_id, amount, status FROM payment_orders WHERE id = $1 FOR UPDATE";
+                find.Parameters.AddWithValue(id);
+                await using var reader = await find.ExecuteReaderAsync(ct);
+                if (!await reader.ReadAsync(ct)) return Results.NotFound();
+                userId = reader.GetInt64(0);
+                amount = reader.GetDecimal(1);
+                status = reader.GetString(2);
+            }
+            if (status is not ("pending" or "paid"))
                 return Results.Conflict(new { error = "Only a pending or paid payment can be confirmed" });
 
-            await db.Ado.ExecuteCommandAsync("""
-                INSERT INTO balance_ledger(user_id, payment_id, reference, amount, entry_type)
-                VALUES (@user_id, @payment_id, @reference, @amount, 'payment_credit')
-                ON CONFLICT DO NOTHING
-                """,
-                new SugarParameter("@user_id", payment.UserId),
-                new SugarParameter("@payment_id", payment.Id),
-                new SugarParameter("@reference", $"payment:{payment.Id}"),
-                new SugarParameter("@amount", payment.Amount));
-            await client.GetGrain<IUserGrain>(payment.UserId)
-                .ApplyBalanceEffect($"payment:{payment.Id}", payment.Amount);
-            return Results.Ok(new { message = "Payment confirmed", duplicate = changed == 0 });
+            if (status == "pending")
+            {
+                await using var update = connection.CreateCommand();
+                update.Transaction = transaction;
+                update.CommandText = "UPDATE payment_orders SET status = 'paid', paid_at = now() WHERE id = $1";
+                update.Parameters.AddWithValue(id);
+                await update.ExecuteNonQueryAsync(ct);
+            }
+            var effect = await accounting.AppendEffectAsync(connection, transaction,
+                new AccountingEffect(userId, $"payment:{id}", "payment_credit", amount,
+                    PaymentId: id), ct);
+            if (effect.Status == AccountingEffectStatus.Conflict)
+                return Results.Conflict(new { error = "Payment accounting effect changed" });
+            await transaction.CommitAsync(ct);
+            await projection.ApplyAsync(effect.Snapshot, ct);
+            return Results.Ok(new
+            {
+                message = "Payment confirmed",
+                duplicate = effect.Status == AccountingEffectStatus.Replay,
+                ledger_version = effect.Snapshot.Version,
+                balance = effect.Snapshot.Balance,
+            });
         });
     }
 
@@ -696,14 +719,16 @@ public static class PlatformEndpoints
         });
 
         userGroup.MapPost("/", async (ClaimsPrincipal principal, RedeemRequest req,
-            ISqlSugarClient db, NpgsqlDataSource dataSource, IClusterClient client) =>
+            ISqlSugarClient db, NpgsqlDataSource dataSource,
+            AccountingStore accounting, AccountingProjectionService projection,
+            CancellationToken ct) =>
         {
             var email = principal.Identity?.Name ?? "";
             var user = await db.Queryable<UserAccountEntity>().Where(x => x.Email == email).FirstAsync();
             if (user is null || string.IsNullOrWhiteSpace(req.Code)) return Results.BadRequest(new { error = "Invalid code" });
             var codeText = req.Code.Trim();
-            await using var connection = await dataSource.OpenConnectionAsync();
-            await using var transaction = await connection.BeginTransactionAsync();
+            await using var connection = await dataSource.OpenConnectionAsync(ct);
+            await using var transaction = await connection.BeginTransactionAsync(ct);
 
             await using var find = connection.CreateCommand();
             find.Transaction = transaction;
@@ -712,8 +737,8 @@ public static class PlatformEndpoints
                 FROM redeem_codes WHERE code = $1 FOR UPDATE
                 """;
             find.Parameters.AddWithValue(codeText);
-            await using var reader = await find.ExecuteReaderAsync();
-            if (!await reader.ReadAsync())
+            await using var reader = await find.ExecuteReaderAsync(ct);
+            if (!await reader.ReadAsync(ct))
                 return Results.BadRequest(new { error = "Invalid or expired code" });
 
             var codeId = reader.GetInt64(0);
@@ -731,7 +756,7 @@ public static class PlatformEndpoints
                 existing.CommandText = "SELECT 1 FROM redeem_code_redemptions WHERE code_id = $1 AND user_id = $2 LIMIT 1";
                 existing.Parameters.AddWithValue(codeId);
                 existing.Parameters.AddWithValue(user.Id);
-                alreadyRedeemed = await existing.ExecuteScalarAsync() is not null;
+                alreadyRedeemed = await existing.ExecuteScalarAsync(ct) is not null;
             }
 
             if (!alreadyRedeemed && (!string.Equals(status, "active", StringComparison.OrdinalIgnoreCase)
@@ -753,7 +778,7 @@ public static class PlatformEndpoints
                     redemption.Parameters.AddWithValue(codeId);
                     redemption.Parameters.AddWithValue(user.Id);
                     redemption.Parameters.AddWithValue(bonus);
-                    var inserted = await redemption.ExecuteScalarAsync();
+                    var inserted = await redemption.ExecuteScalarAsync(ct);
                     if (inserted is null || inserted is DBNull)
                         alreadyRedeemed = true;
                 }
@@ -769,31 +794,25 @@ public static class PlatformEndpoints
                         """;
                     increment.Parameters.AddWithValue(codeId);
                     increment.Parameters.AddWithValue(user.Id);
-                    await increment.ExecuteNonQueryAsync();
+                    await increment.ExecuteNonQueryAsync(ct);
                 }
             }
 
-            if (!alreadyRedeemed && bonus != 0)
+            AccountingEffectResult? effect = null;
+            if (bonus != 0)
+                effect = await accounting.AppendEffectAsync(connection, transaction,
+                    new AccountingEffect(user.Id, $"redeem:{codeId}:{user.Id}",
+                        "redeem_bonus", bonus), ct);
+
+            if (effect?.Status == AccountingEffectStatus.Conflict)
             {
-                await using var ledger = connection.CreateCommand();
-                ledger.Transaction = transaction;
-                ledger.CommandText = """
-                    INSERT INTO balance_ledger(user_id, reference, amount, entry_type)
-                    VALUES ($1, $2, $3, 'redeem_bonus')
-                    ON CONFLICT (reference, entry_type) WHERE reference IS NOT NULL DO NOTHING
-                    """;
-                ledger.Parameters.AddWithValue(user.Id);
-                ledger.Parameters.AddWithValue($"redeem:{codeId}:{user.Id}");
-                ledger.Parameters.AddWithValue(bonus);
-                await ledger.ExecuteNonQueryAsync();
+                await transaction.RollbackAsync(ct);
+                return Results.Conflict(new { error = "Redeem accounting effect changed" });
             }
 
-            await transaction.CommitAsync();
-            if (bonus != 0)
-            {
-                await client.GetGrain<IUserGrain>(user.Id)
-                    .ApplyBalanceEffect($"redeem:{codeId}:{user.Id}", bonus);
-            }
+            await transaction.CommitAsync(ct);
+            if (effect is not null)
+                await projection.ApplyAsync(effect.Snapshot, ct);
             return alreadyRedeemed
                 ? Results.Conflict(new { error = "Code already redeemed" })
                 : Results.Ok(new { message = "Code redeemed", bonus });

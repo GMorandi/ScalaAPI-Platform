@@ -1,6 +1,7 @@
 using Npgsql;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
+using ScalaAPI.Data.Accounting;
 using ScalaAPI.Host.Services;
 using Xunit;
 
@@ -35,7 +36,10 @@ public sealed class MediaOperationStoreTests
                 ["Pricing:Models:gpt-4o:InputPerMillion"] = "1"
             }).Build();
         var pricing = new ModelPricingService(configuration);
-        var store = new RequestLeaseStore(dataSource, pricing,
+        var accounting = new AccountingStore(dataSource);
+        await accounting.AppendEffectAsync(new AccountingEffect(
+            95001, $"test-funding:{suffix}", "test_credit", 100m));
+        var store = new RequestLeaseStore(dataSource, accounting, pricing,
             NullLogger<RequestLeaseStore>.Instance);
         try
         {
@@ -177,6 +181,7 @@ public sealed class MediaOperationStoreTests
             cleanupIdempotency.Parameters.AddWithValue("idem-hold-" + suffix);
             cleanupIdempotency.Parameters.AddWithValue("idem-retry-" + suffix);
             await cleanupIdempotency.ExecuteNonQueryAsync();
+            await CleanupAccount(dataSource, 95001);
         }
     }
 
@@ -251,7 +256,7 @@ public sealed class MediaOperationStoreTests
                 {
                     ["Pricing:Models:gpt-4o:ImageOutputPerUnit"] = "0.08"
                 }).Build();
-            var leases = new RequestLeaseStore(dataSource,
+            var leases = new RequestLeaseStore(dataSource, new AccountingStore(dataSource),
                 new ModelPricingService(configuration),
                 NullLogger<RequestLeaseStore>.Instance);
             var settlement = await leases.CompleteAsync(new LeaseCompletion(
@@ -294,6 +299,7 @@ public sealed class MediaOperationStoreTests
                 cleanupLease.Parameters.AddWithValue(leaseToken);
                 await cleanupLease.ExecuteNonQueryAsync();
             }
+            await CleanupAccount(dataSource, 93001);
         }
     }
 
@@ -315,7 +321,10 @@ public sealed class MediaOperationStoreTests
         const long apiKeyId = 98001;
         try
         {
-            var store = new RequestLeaseStore(dataSource,
+            var accounting = new AccountingStore(dataSource);
+            await accounting.AppendEffectAsync(new AccountingEffect(
+                98002, $"test-funding:{suffix}", "test_credit", 100m));
+            var store = new RequestLeaseStore(dataSource, accounting,
                 new ModelPricingService(new ConfigurationBuilder().Build()),
                 NullLogger<RequestLeaseStore>.Instance);
             var request = new LeaseCreateRequest(
@@ -367,6 +376,7 @@ public sealed class MediaOperationStoreTests
             cleanupLeases.Parameters.AddWithValue(leaseToken);
             cleanupLeases.Parameters.AddWithValue(retryToken);
             await cleanupLeases.ExecuteNonQueryAsync();
+            await CleanupAccount(dataSource, 98002);
         }
     }
 
@@ -381,7 +391,10 @@ public sealed class MediaOperationStoreTests
         var leaseToken = $"lease-outbox-recovery-{suffix}";
         var requestId = $"request-outbox-recovery-{suffix}";
         var holdId = $"hold-outbox-recovery-{suffix}";
-        var store = new RequestLeaseStore(dataSource,
+        var accounting = new AccountingStore(dataSource);
+        await accounting.AppendEffectAsync(new AccountingEffect(
+            98102, $"test-funding:{suffix}", "test_credit", 100m));
+        var store = new RequestLeaseStore(dataSource, accounting,
             new ModelPricingService(new ConfigurationBuilder().Build()),
             NullLogger<RequestLeaseStore>.Instance);
         try
@@ -463,6 +476,7 @@ public sealed class MediaOperationStoreTests
                 "DELETE FROM request_leases WHERE lease_token = $1");
             cleanupLease.Parameters.AddWithValue(leaseToken);
             await cleanupLease.ExecuteNonQueryAsync();
+            await CleanupAccount(dataSource, 98102);
         }
     }
 
@@ -537,5 +551,19 @@ public sealed class MediaOperationStoreTests
         command.Parameters.AddWithValue(apiKeyId);
         command.Parameters.AddWithValue(idempotencyKey);
         return (string)(await command.ExecuteScalarAsync())!;
+    }
+
+    private static async Task CleanupAccount(NpgsqlDataSource dataSource, long userId)
+    {
+        foreach (var table in new[]
+                 {
+                     "accounting_projection_outbox", "balance_ledger", "accounting_accounts"
+                 })
+        {
+            await using var command = dataSource.CreateCommand(
+                $"DELETE FROM {table} WHERE user_id = $1");
+            command.Parameters.AddWithValue(userId);
+            await command.ExecuteNonQueryAsync();
+        }
     }
 }

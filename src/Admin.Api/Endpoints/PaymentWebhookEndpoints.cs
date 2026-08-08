@@ -3,9 +3,9 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Npgsql;
-using Orleans;
+using ScalaAPI.Admin.Data;
 using ScalaAPI.Admin.Payments;
-using ScalaAPI.Grains.Interfaces;
+using ScalaAPI.Data.Accounting;
 
 namespace ScalaAPI.Admin.Endpoints;
 
@@ -29,7 +29,8 @@ public static class PaymentWebhookEndpoints
         HttpRequest request,
         IConfiguration configuration,
         NpgsqlDataSource dataSource,
-        IClusterClient cluster,
+        AccountingStore accounting,
+        AccountingProjectionService projection,
         CancellationToken ct)
     {
         provider = provider.Trim().ToLowerInvariant();
@@ -124,7 +125,8 @@ public static class PaymentWebhookEndpoints
         }
 
         var isRefund = payload.EventType.Equals("payment.refunded", StringComparison.OrdinalIgnoreCase);
-        if (isRefund && !payment.Value.Status.Equals("paid", StringComparison.OrdinalIgnoreCase))
+        if (isRefund && !payment.Value.Status.Equals("paid", StringComparison.OrdinalIgnoreCase)
+            && !payment.Value.Status.Equals("refunded", StringComparison.OrdinalIgnoreCase))
         {
             await SetEventRejectedAsync(connection, transaction, provider, payload.EventId,
                 "payment_not_paid", ct);
@@ -143,28 +145,35 @@ public static class PaymentWebhookEndpoints
         if (!isRefund && payment.Value.Status.Equals("pending", StringComparison.OrdinalIgnoreCase))
         {
             await UpdatePaymentStatusAsync(connection, transaction, payment.Value.Id, "paid", ct);
-            await InsertLedgerAsync(connection, transaction, payment.Value.UserId,
-                payment.Value.Id, null, payment.Value.Amount, "payment_credit", ct);
         }
-        else if (isRefund)
+        else if (isRefund && payment.Value.Status.Equals("paid", StringComparison.OrdinalIgnoreCase))
         {
             await UpdatePaymentStatusAsync(connection, transaction, payment.Value.Id, "refunded", ct);
-            await InsertLedgerAsync(connection, transaction, payment.Value.UserId,
-                null, $"payment-refund:{payload.EventId}", -payment.Value.Amount, "payment_refund", ct);
+        }
+
+        var effectId = isRefund
+            ? $"payment-refund:{payment.Value.Id}"
+            : $"payment:{payment.Value.Id}";
+        var effect = await accounting.AppendEffectAsync(connection, transaction,
+            new AccountingEffect(
+                payment.Value.UserId,
+                effectId,
+                isRefund ? "payment_refund" : "payment_credit",
+                isRefund ? -payment.Value.Amount : payment.Value.Amount,
+                PaymentId: isRefund ? null : payment.Value.Id), ct);
+        if (effect.Status == AccountingEffectStatus.Conflict)
+        {
+            await transaction.RollbackAsync(ct);
+            return Results.Conflict(new { error = "Payment accounting effect changed" });
         }
 
         await SetEventPendingAsync(connection, transaction, provider, payload.EventId,
             payment.Value.Id, ct);
         await transaction.CommitAsync(ct);
 
-        var effectId = isRefund
-            ? $"payment-refund:{payload.EventId}"
-            : $"payment:{payment.Value.Id}";
-        var delta = isRefund ? -payment.Value.Amount : payment.Value.Amount;
         try
         {
-            await cluster.GetGrain<IUserGrain>(payment.Value.UserId)
-                .ApplyBalanceEffect(effectId, delta);
+            await projection.ApplyAsync(effect.Snapshot, ct);
         }
         catch
         {
@@ -266,25 +275,6 @@ public static class PaymentWebhookEndpoints
         command.CommandText = "UPDATE payment_orders SET status = $2, paid_at = CASE WHEN $2 = 'paid' THEN now() ELSE paid_at END WHERE id = $1";
         command.Parameters.AddWithValue(paymentId);
         command.Parameters.AddWithValue(status);
-        await command.ExecuteNonQueryAsync(ct);
-    }
-
-    private static async Task InsertLedgerAsync(NpgsqlConnection connection,
-        NpgsqlTransaction transaction, long userId, long? paymentId, string? reference,
-        decimal amount, string entryType, CancellationToken ct)
-    {
-        await using var command = connection.CreateCommand();
-        command.Transaction = transaction;
-        command.CommandText = """
-            INSERT INTO balance_ledger(user_id, payment_id, reference, amount, entry_type)
-            VALUES ($1, $2, $3, $4, $5)
-            ON CONFLICT DO NOTHING
-            """;
-        command.Parameters.AddWithValue(userId);
-        command.Parameters.AddWithValue((object?)paymentId ?? DBNull.Value);
-        command.Parameters.AddWithValue((object?)reference ?? DBNull.Value);
-        command.Parameters.AddWithValue(amount);
-        command.Parameters.AddWithValue(entryType);
         await command.ExecuteNonQueryAsync(ct);
     }
 

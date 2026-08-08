@@ -71,20 +71,14 @@ public sealed class LeaseOutboxHostedService(
         await account.ReleaseSlot(lease.LeaseToken);
 
         var user = cluster.GetGrain<IUserGrain>(lease.UserId);
+        await user.FinalizeLease(lease.LeaseToken, lease.RequestId);
         if (item.EventType == "complete")
         {
             var cost = lease.FinalCostUsd ?? 0m;
-            await user.CompleteLease(lease.LeaseToken, lease.RequestId,
-                lease.HoldHandle is null ? null : new HoldHandle(lease.HoldHandle, lease.HoldAmount), cost);
             await cluster.GetGrain<IGroupGrain>(lease.GroupId)
                 .RecordLeaseSpend(lease.LeaseToken, cost);
             await cluster.GetGrain<IApiKeyGrain>(lease.ApiKeyHash)
                 .AddLeaseUsage(lease.LeaseToken, cost);
-        }
-        else
-        {
-            await user.AbortLease(lease.LeaseToken, lease.RequestId,
-                lease.HoldHandle is null ? null : new HoldHandle(lease.HoldHandle, lease.HoldAmount));
         }
     }
 }

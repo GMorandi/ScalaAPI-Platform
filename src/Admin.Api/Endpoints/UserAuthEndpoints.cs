@@ -5,6 +5,7 @@ using SqlSugar;
 using Orleans;
 using ScalaAPI.Admin.Auth;
 using ScalaAPI.Admin.Data;
+using ScalaAPI.Data.Accounting;
 using ScalaAPI.Data.Entities;
 using ScalaAPI.Grains.Interfaces;
 
@@ -148,7 +149,8 @@ public static class UserAuthEndpoints
             return Results.NoContent();
         });
 
-        auth.MapPost("/register", async (RegisterRequest req, ISqlSugarClient db, IClusterClient client, ListingRepository registry) =>
+        auth.MapPost("/register", async (RegisterRequest req, ISqlSugarClient db,
+            IClusterClient client, ListingRepository registry, AccountingStore accounting) =>
         {
             if (string.IsNullOrWhiteSpace(req.Email) || string.IsNullOrWhiteSpace(req.Password))
                 return Results.BadRequest(new { error = "Email and password required" });
@@ -173,8 +175,9 @@ public static class UserAuthEndpoints
                 "SELECT id FROM user_accounts WHERE email = @email",
                 new SugarParameter("@email", email)));
             await client.GetGrain<IUserGrain>(account.Id).Create(new UserCreate(
-                "user", 0, 1, 0, []));
+                "user", 1, 0, []));
             await registry.RegisterInteger("user", account.Id);
+            await accounting.EnsureAccountAsync(account.Id);
 
             return Results.Ok(new { id = account.Id, email = account.Email });
         });
@@ -310,7 +313,7 @@ public static class UserAuthEndpoints
         auth.MapPost("/oauth/callback", async (OAuthCallbackRequest req, ISqlSugarClient db,
             IConfiguration config, IHttpClientFactory httpFactory,
             ListingRepository registry, AuthSessionService sessions, IClusterClient client,
-            HttpContext http) =>
+            AccountingStore accounting, HttpContext http) =>
         {
             var (email, oauthId) = await ExchangeOAuthCode(req, config, httpFactory);
             if (email is null)
@@ -357,7 +360,8 @@ public static class UserAuthEndpoints
             await registry.RegisterInteger("user", account.Id);
             if (createdIdentity)
                 await client.GetGrain<IUserGrain>(account.Id).Create(new UserCreate(
-                    "user", 0m, 1, 0, []));
+                    "user", 1, 0, []));
+            await accounting.EnsureAccountAsync(account.Id);
             var tokens = await sessions.IssueAsync(account.Id, account.Email, account.Role,
                 http.Connection.RemoteIpAddress?.ToString(), http.Request.Headers.UserAgent);
 

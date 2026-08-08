@@ -1,5 +1,6 @@
 using Npgsql;
 using ScalaAPI.Admin.Data;
+using ScalaAPI.Data.Accounting;
 using Xunit;
 
 namespace ScalaAPI.Admin.Tests;
@@ -29,7 +30,8 @@ public sealed class BalanceAdjustmentStoreTests
 
         try
         {
-            var store = new BalanceAdjustmentStore(dataSource);
+            var store = new BalanceAdjustmentStore(
+                dataSource, new AccountingStore(dataSource));
             var created = await store.RecordAsync(
                 userId, actorId, initialKey, 10m, "Initial test funding");
             var replay = await store.RecordAsync(
@@ -41,6 +43,8 @@ public sealed class BalanceAdjustmentStoreTests
             Assert.Equal(BalanceAdjustmentStatus.Replay, replay.Status);
             Assert.Equal(BalanceAdjustmentStatus.Conflict, conflict.Status);
             Assert.Equal(created.LedgerId, replay.LedgerId);
+            Assert.Equal(1, created.Version);
+            Assert.Equal(created.Version, replay.Version);
             Assert.Equal(10m, replay.BalanceAfter);
 
             await using (var hold = dataSource.CreateCommand("""
@@ -78,7 +82,9 @@ public sealed class BalanceAdjustmentStoreTests
             foreach (var statement in new[]
             {
                 "DELETE FROM balance_holds WHERE user_id = $1",
+                "DELETE FROM accounting_projection_outbox WHERE user_id = $1",
                 "DELETE FROM balance_ledger WHERE user_id = $1",
+                "DELETE FROM accounting_accounts WHERE user_id = $1",
                 "DELETE FROM audit_logs WHERE user_id = $2 AND resource_id = $1::text",
                 "DELETE FROM entity_registry WHERE entity_type = 'user' AND entity_id = $1",
             })

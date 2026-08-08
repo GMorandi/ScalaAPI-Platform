@@ -3,6 +3,7 @@ using Orleans;
 using ScalaAPI.Admin.Auth;
 using ScalaAPI.Admin.Data;
 using ScalaAPI.Admin.Models;
+using ScalaAPI.Data.Accounting;
 using ScalaAPI.Grains.Interfaces;
 
 namespace ScalaAPI.Admin.Endpoints;
@@ -32,14 +33,16 @@ public static class UserEndpoints
             return Results.Ok(await grain.GetAuthProjection());
         });
 
-        group.MapPost("/", async (UserCreateRequest req, IClusterClient client, ListingRepository repo) =>
+        group.MapPost("/", async (UserCreateRequest req, IClusterClient client,
+            ListingRepository repo, AccountingStore accounting) =>
         {
             var allocator = client.GetGrain<IIdAllocatorGrain>("user");
             var id = await allocator.Next();
             var grain = client.GetGrain<IUserGrain>(id);
             await grain.Create(new UserCreate(
-                req.Role, 0m, req.Concurrency, req.RpmLimit, req.AllowedGroups));
+                req.Role, req.Concurrency, req.RpmLimit, req.AllowedGroups));
             await repo.RegisterInteger("user", id);
+            await accounting.EnsureAccountAsync(id);
             return Results.Created($"/admin/users/{id}", new { id });
         });
 
@@ -63,8 +66,8 @@ public static class UserEndpoints
             BalanceRequest req,
             ClaimsPrincipal principal,
             HttpRequest http,
-            IClusterClient client,
             BalanceAdjustmentStore store,
+            AccountingProjectionService projection,
             CancellationToken ct) =>
         {
             if (!AuthClaims.TryGetUserId(principal, out var actorId))
@@ -99,8 +102,8 @@ public static class UserEndpoints
 
             try
             {
-                await client.GetGrain<IUserGrain>(id).ApplyBalanceSnapshot(
-                    adjustment.EffectId, adjustment.BalanceAfter);
+                await projection.ApplyAsync(new AccountingSnapshot(
+                    id, adjustment.Version, adjustment.BalanceAfter), ct);
             }
             catch
             {
@@ -116,6 +119,7 @@ public static class UserEndpoints
             {
                 effect_id = adjustment.EffectId,
                 ledger_id = adjustment.LedgerId,
+                ledger_version = adjustment.Version,
                 balance = adjustment.BalanceAfter,
                 duplicate = adjustment.Status == BalanceAdjustmentStatus.Replay,
             });

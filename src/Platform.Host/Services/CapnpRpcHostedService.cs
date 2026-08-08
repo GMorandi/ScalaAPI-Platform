@@ -554,10 +554,6 @@ public class DispatchService
         }
 
         var userGrain = _cluster.GetGrain<IUserGrain>(auth.UserId);
-        if (!await userGrain.CheckBalance(0.01m))
-        {
-            return DispatchResult.Rejected("noBalance", "Insufficient balance");
-        }
 
         var groupGrain = _cluster.GetGrain<IGroupGrain>(auth.GroupId);
         var groupProj = await groupGrain.GetAuthProjection();
@@ -636,21 +632,13 @@ public class DispatchService
             await userGrain.ReleaseSlot(selection.LeaseToken!);
             return DispatchResult.Rejected("rpmExceeded", "User RPM limit reached");
         }
-        HoldHandle? hold = null;
+        var holdId = Guid.NewGuid().ToString("N");
+        var holdAmount = _maxReservationUsd * Math.Max(1m, selectedRateMultiplier);
+        var leaseCreated = false;
         try
         {
             var creds = await accountGrain.Hydrate();
             await accountGrain.RecordRpm();
-
-            var holdAmount = _maxReservationUsd *
-                Math.Max(1m, selectedRateMultiplier);
-            hold = await userGrain.ReserveBalance(holdAmount);
-            if (hold is null)
-            {
-                await accountGrain.ReleaseSlot(selection.LeaseToken!);
-                await userGrain.ReleaseSlot(selection.LeaseToken!);
-                return DispatchResult.Rejected("noBalance", "Insufficient available balance");
-            }
 
             var mappedModel = creds.ModelMapping.GetValueOrDefault(
                 req.RequestedModel, req.RequestedModel);
@@ -659,14 +647,19 @@ public class DispatchService
             var created = await _leases.CreateDetailedAsync(new LeaseCreateRequest(
                 selection.LeaseToken!, req.RequestId, req.ApiKeyHash, auth.ApiKeyId,
                 auth.UserId, accountId, selectedGroupId, req.RequestedModel, mappedModel,
-                req.Endpoint, selectedRateMultiplier, hold.Id, hold.Amount,
+                req.Endpoint, selectedRateMultiplier, holdId, holdAmount,
                 DateTime.UtcNow.Add(_leaseTtl),
                 isMediaOperation ? "" : req.IdempotencyKey,
                 isMediaOperation ? "" : req.RequestFingerprint,
                 requestPrice));
+            if (created.InsufficientFunds)
+            {
+                await accountGrain.ReleaseSlot(selection.LeaseToken!);
+                await userGrain.ReleaseSlot(selection.LeaseToken!);
+                return DispatchResult.Rejected("noBalance", "Insufficient available balance");
+            }
             if (created.Conflict)
             {
-                await userGrain.ReleaseHold(hold);
                 await accountGrain.ReleaseSlot(selection.LeaseToken!);
                 await userGrain.ReleaseSlot(selection.LeaseToken!);
                 return DispatchResult.Rejected("idempotencyConflict",
@@ -674,12 +667,12 @@ public class DispatchService
             }
             if (!created.Created)
             {
-                await userGrain.ReleaseHold(hold);
                 await accountGrain.ReleaseSlot(selection.LeaseToken!);
                 await userGrain.ReleaseSlot(selection.LeaseToken!);
                 return DispatchResult.Rejected("idempotencyReplay",
                     "Request has already been dispatched");
             }
+            leaseCreated = true;
 
             var mediaOperationId = "";
             if (isMediaOperation)
@@ -723,8 +716,8 @@ public class DispatchService
                 UserId = auth.UserId,
                 GroupId = selectedGroupId,
                 RateMultiplier = selectedRateMultiplier,
-                HoldAmount = hold.Amount,
-                HoldHandle = hold.Id,
+                HoldAmount = holdAmount,
+                HoldHandle = holdId,
                 LeaseToken = selection.LeaseToken!,
                 AuthVersion = auth.Version,
                 HttpMethod = ResolveUpstreamMethod(req),
@@ -742,13 +735,40 @@ public class DispatchService
         }
         catch (Exception ex)
         {
-            if (hold is not null)
-                await userGrain.ReleaseHold(hold);
-            await accountGrain.ReleaseSlot(selection.LeaseToken!);
-            await userGrain.ReleaseSlot(selection.LeaseToken!);
             _logger.LogError(ex,
-                "Dispatch compensation for request {RequestId}, account {AccountId}",
+                "Dispatch failed for request {RequestId}, account {AccountId}; applying compensation",
                 req.RequestId, accountId);
+            if (leaseCreated)
+            {
+                try
+                {
+                    await _leases.AbortAsync(selection.LeaseToken!, "dispatch_failed");
+                }
+                catch (Exception compensationError)
+                {
+                    _logger.LogError(compensationError,
+                        "Failed to abort lease {LeaseToken} during dispatch compensation",
+                        selection.LeaseToken);
+                }
+            }
+            try
+            {
+                await accountGrain.ReleaseSlot(selection.LeaseToken!);
+            }
+            catch (Exception compensationError)
+            {
+                _logger.LogError(compensationError,
+                    "Failed to release account slot for lease {LeaseToken}", selection.LeaseToken);
+            }
+            try
+            {
+                await userGrain.ReleaseSlot(selection.LeaseToken!);
+            }
+            catch (Exception compensationError)
+            {
+                _logger.LogError(compensationError,
+                    "Failed to release user slot for lease {LeaseToken}", selection.LeaseToken);
+            }
             return DispatchResult.Rejected("noAccount", "Unable to create request lease");
         }
     }
