@@ -45,6 +45,7 @@ COPY deploy/migrations/011-idempotency-response-replay.sql ./migrations/011-idem
 COPY deploy/migrations/012-lease-pricing-snapshots.sql ./migrations/012-lease-pricing-snapshots.sql
 COPY deploy/migrations/013-payment-webhooks.sql ./migrations/013-payment-webhooks.sql
 COPY deploy/migrations/014-subscription-lifecycle.sql ./migrations/014-subscription-lifecycle.sql
+COPY deploy/migrations/015-payment-webhook-recovery.sql ./migrations/015-payment-webhook-recovery.sql
 ENTRYPOINT ["dotnet", "migrate/Db.Migrator.dll", "/app/migrations"]
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS provider-mock

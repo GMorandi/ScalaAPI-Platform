@@ -32,7 +32,7 @@ public sealed class MigrationSchemaTests
             ["auth_sessions"] = ["session_id", "user_id", "refresh_token_hash", "expires_at", "revoked_at"],
             ["password_reset_tokens"] = ["token_hash", "user_id", "expires_at", "used_at"],
             ["email_verification_tokens"] = ["token_hash", "user_id", "expires_at", "used_at"],
-            ["payment_webhook_events"] = ["provider", "event_id", "event_type", "payload_hash", "status"],
+            ["payment_webhook_events"] = ["provider", "event_id", "event_type", "payload_hash", "status", "attempts", "next_attempt_at"],
             ["subscription_events"] = ["subscription_id", "user_id", "event_type", "idempotency_key", "payload"],
             ["user_subscriptions"] = ["user_id", "plan_id", "status", "idempotency_key", "renewal_at", "quota_granted_usd", "quota_used_usd"]
         };

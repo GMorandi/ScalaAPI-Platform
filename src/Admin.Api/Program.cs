@@ -4,6 +4,7 @@ using SqlSugar;
 using ScalaAPI.Admin.Auth;
 using ScalaAPI.Admin.Data;
 using ScalaAPI.Admin.Endpoints;
+using ScalaAPI.Admin.Payments;
 using ScalaAPI.Data.Repositories;
 using Npgsql;
 using System.IdentityModel.Tokens.Jwt;
@@ -45,6 +46,7 @@ builder.Services.AddSingleton(NpgsqlDataSource.Create(pgConnection));
 builder.Services.AddSingleton<AuthSessionService>();
 builder.Services.AddSingleton<PasswordResetService>();
 builder.Services.AddSingleton<EmailVerificationService>();
+builder.Services.AddHostedService<PaymentWebhookRecoveryService>();
 
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(opts =>
