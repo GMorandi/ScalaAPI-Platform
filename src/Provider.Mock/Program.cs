@@ -35,6 +35,11 @@ app.MapPost("/v1/chat/completions", async (HttpContext context, CancellationToke
         case "delay":
             await Task.Delay(TimeSpan.FromSeconds(5), cancellationToken);
             break;
+        case "timeout":
+            // Keep the request open until the Gateway cancellation deadline.
+            // The token lets shutdown/client cancellation release the handler.
+            await Task.Delay(TimeSpan.FromMinutes(2), cancellationToken);
+            return;
         case "disconnect":
             context.Response.StatusCode = StatusCodes.Status200OK;
             await context.Response.WriteAsync($"{{\"id\":\"{requestId}\",\"choices\":[", cancellationToken);
