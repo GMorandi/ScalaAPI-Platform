@@ -16,6 +16,8 @@ public record RefreshRequest(string RefreshToken);
 public record OAuthCallbackRequest(string Provider, string Code, string RedirectUri);
 public record TotpSetupResponse(string Secret, string QrUri);
 public record TotpVerifyRequest(string Code);
+public record PasswordResetRequest(string Email);
+public record PasswordResetConfirmRequest(string Token, string NewPassword);
 
 public static class UserAuthEndpoints
 {
@@ -123,6 +125,35 @@ public static class UserAuthEndpoints
                     token = tokens.Token, refresh_token = tokens.RefreshToken,
                     expires_at = tokens.ExpiresAt, session_id = tokens.SessionId
                 });
+        });
+
+        auth.MapPost("/password-reset/request", async (PasswordResetRequest req,
+            PasswordResetService resets, IConfiguration config, IWebHostEnvironment environment) =>
+        {
+            var issued = await resets.IssueAsync(req.Email);
+            // Keep the public response identical for unknown and known addresses.
+            if (issued is not null
+                && (environment.IsDevelopment()
+                    || string.Equals(config["PasswordReset:ExposeToken"], "true",
+                        StringComparison.OrdinalIgnoreCase)))
+            {
+                return Results.Accepted(value: new
+                {
+                    accepted = true,
+                    debug_token = issued.Token,
+                    expires_at = issued.ExpiresAt,
+                });
+            }
+
+            return Results.Accepted(value: new { accepted = true });
+        });
+
+        auth.MapPost("/password-reset/confirm", async (PasswordResetConfirmRequest req,
+            PasswordResetService resets) =>
+        {
+            if (!await resets.ConsumeAsync(req.Token, req.NewPassword))
+                return Results.BadRequest(new { error = "Invalid or expired reset token" });
+            return Results.NoContent();
         });
 
         auth.MapPost("/oauth/callback", async (OAuthCallbackRequest req, ISqlSugarClient db,

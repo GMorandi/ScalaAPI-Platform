@@ -27,7 +27,8 @@ public sealed class MigrationSchemaTests
             ["pricing_versions"] = ["version", "model", "effective_from"],
             ["ledger_reconciliation_runs"] = ["id", "status", "mismatch_total"],
             ["entity_registry"] = ["entity_type", "entity_key", "entity_id", "status"],
-            ["auth_sessions"] = ["session_id", "user_id", "refresh_token_hash", "expires_at", "revoked_at"]
+            ["auth_sessions"] = ["session_id", "user_id", "refresh_token_hash", "expires_at", "revoked_at"],
+            ["password_reset_tokens"] = ["token_hash", "user_id", "expires_at", "used_at"]
         };
 
         await using var connection = new NpgsqlConnection(connectionString);

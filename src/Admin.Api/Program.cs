@@ -43,6 +43,7 @@ builder.Services.AddScoped<IUsageLogRepository, UsageLogRepository>();
 builder.Services.AddHttpClient();
 builder.Services.AddSingleton(NpgsqlDataSource.Create(pgConnection));
 builder.Services.AddSingleton<AuthSessionService>();
+builder.Services.AddSingleton<PasswordResetService>();
 
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(opts =>
