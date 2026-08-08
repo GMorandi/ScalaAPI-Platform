@@ -11,7 +11,7 @@
 | Scheduler benchmark dry run | 4/4, exit 0; no-match negative probe exits 1 | Dependency injection and child-result propagation pass; not performance evidence |
 | Contract digest | Canonical and Gateway vendor schemas match; fixed-scale pricing round-trip test passed | CI regeneration and generated-artifact comparison remain pending |
 | PostgreSQL migrator | Current image contains 000-011; repeated invocation skipped all twelve recorded migrations, exit 0 | No source database, CDC, or compatibility tables used; a truly empty-volume replay remains a release gate |
-| Current-image Compose smoke | All long-running services healthy; migrator exit 0 | Isolated project and new volumes |
+| Current-image Compose smoke | All long-running services healthy; migrator exit 0; Platform Silo force-recreated from `ce08b2d3` and Gateway readiness returned 200; PostgreSQL showed zero pending/dead-lettered outbox rows and zero active holds | Isolated project and new volumes; full crash injection remains |
 | Garnet smoke | Auth, PING, SET/GET, PX, INCR, DEL passed | Official digest; no Redis or embedded server |
 | Garnet outage/recovery | Platform readiness 503 then 200 | Automatic TCP reconnect verified |
 | Garnet projection rebuild | `discovered=12`, `written=12`, `deleted=0`, `errors=0`; immediate `scalaapi:v1:auth:*` read succeeded | Flush, stale-version, TLS, and multi-client assertions remain |

@@ -139,7 +139,7 @@ not implementation parity or a migration target.
 ## Current runtime evidence
 
 On 2026-08-08 the isolated `scalaapi-stage2` project used current-source images:
-Platform `328d223b0148748a5d0d90371a1bf3781c45ec0e5d0f936ff54863add789b7ed`,
+Platform `ce08b2d3e83513716db09dd9dad820831668793c071926b202f05ef66278acfb`,
 Admin API `24416a1d267708f7c046dfb8fb4713a312c7f156ca5841267e0d6139d44ceaba`,
 migrator `5e5bbf68f2463273c8c49a8b818219f290af4d633e7dfdda32b3344d7b1fd683`,
 Gateway `4af127e144518ceba532f900278cc1895d8b23ddc48cbac4d4ad49298ca79359`, and
@@ -150,7 +150,10 @@ returned user id 7 and registry id 7. Provider seed was idempotent (same account
 and group on two calls); API-key rotation revoked the old key; Admin-created keys
 were projected into `user_api_keys`. Seeded JSON and SSE requests both returned
 200 through Provider mock. A completed lease settled at `0.00006750` USD with one
-`-0.00006750` NUMERIC ledger row and one committed durable hold.
+`-0.00006750` NUMERIC ledger row and one committed durable hold. The Platform
+Silo was then force-recreated from the restart-safe outbox image; Gateway readiness
+returned `200`, PostgreSQL showed zero unprocessed/dead-lettered outbox rows and
+zero active holds, and all 38 seeded leases remained terminal.
 
 For request idempotency, an immediate second call with the same key produced an
 active-lease 409; after the usage report settled, a matching retry returned
