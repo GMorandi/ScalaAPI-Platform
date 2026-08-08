@@ -2,7 +2,7 @@ using System.Threading.Channels;
 using Microsoft.Extensions.Logging;
 using SqlSugar;
 
-namespace Sub2Api.Data.Infrastructure;
+namespace ScalaAPI.Data.Infrastructure;
 
 public class BatchWriter<T> : IAsyncDisposable where T : class
 {

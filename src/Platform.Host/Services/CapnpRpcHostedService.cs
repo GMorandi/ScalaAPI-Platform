@@ -2,15 +2,14 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Orleans;
-using Sub2Api.Grains.Interfaces;
-using Sub2Api.Data.Migration;
+using ScalaAPI.Grains.Interfaces;
 using System.Buffers.Binary;
 using System.Net.Sockets;
 using System.Text.Json;
 using Capnp;
 using CapnpGen;
 
-namespace Sub2Api.Host.Services;
+namespace ScalaAPI.Host.Services;
 
 public class CapnpRpcHostedService : IHostedService
 {
@@ -30,7 +29,7 @@ public class CapnpRpcHostedService : IHostedService
     {
         _logger = logger;
         _services = services;
-        _socketPath = configuration["CapnpRpc:SocketPath"] ?? "/var/run/sub2api/dispatch.sock";
+        _socketPath = configuration["CapnpRpc:SocketPath"] ?? "/var/run/scalaapi/dispatch.sock";
     }
 
     public Task StartAsync(CancellationToken cancellationToken)
@@ -177,7 +176,7 @@ public class CapnpRpcHostedService : IHostedService
         var state = DeserializeRoot(capnpData);
         var capnpReq = CapnpSerializable.Create<CapnpGen.DispatchRequest>(state)
             ?? throw new InvalidDataException("Missing dispatch request root");
-        if (capnpReq.ProtocolVersion is not (1 or 2))
+        if (capnpReq.ProtocolVersion != 2)
             return BuildDispatchResponse(DispatchResult.Rejected(
                 "invalidKey", "Unsupported dispatch protocol version"));
 
@@ -461,7 +460,6 @@ public class DispatchService
     private readonly AuthProjectionCache _authCache;
     private readonly GarnetWriteThroughService _garnet;
     private readonly ILogger<DispatchService> _logger;
-    private readonly MigrationWriteGate _writeGate;
     private readonly TimeSpan _leaseTtl;
     private readonly decimal _maxReservationUsd;
 
@@ -469,7 +467,7 @@ public class DispatchService
                            MediaOperationStore mediaOperations,
                            ModelPricingService pricing,
                            AuthProjectionCache authCache, GarnetWriteThroughService garnet,
-                           MigrationWriteGate writeGate, IConfiguration configuration,
+                           IConfiguration configuration,
                            ILogger<DispatchService> logger)
     {
         _cluster = cluster;
@@ -478,7 +476,6 @@ public class DispatchService
         _pricing = pricing;
         _authCache = authCache;
         _garnet = garnet;
-        _writeGate = writeGate;
         _logger = logger;
         _leaseTtl = TimeSpan.FromSeconds(
             configuration.GetValue("Dispatch:LeaseTtlSeconds", 360));
@@ -488,15 +485,6 @@ public class DispatchService
 
     public async Task<DispatchResult> HandleDispatch(DispatchRequest req)
     {
-        try
-        {
-            await _writeGate.AssertPlatformPrimaryAsync();
-        }
-        catch (MigrationWriteRejectedException ex)
-        {
-            _logger.LogDebug(ex, "Dispatch rejected by migration fence for request {RequestId}", req.RequestId);
-            return DispatchResult.Rejected("migrationFence", "Platform is not the current write primary");
-        }
         var apiKeyGrain = _cluster.GetGrain<IApiKeyGrain>(req.ApiKeyHash);
 
         AuthResult auth;
@@ -810,15 +798,6 @@ public class DispatchService
 
     public async Task HandleUpstreamError(long accountId, int statusCode, int? retryAfterMs)
     {
-        try
-        {
-            await _writeGate.AssertPlatformPrimaryAsync();
-        }
-        catch (MigrationWriteRejectedException ex)
-        {
-            _logger.LogDebug(ex, "Upstream error write rejected by migration fence for account {AccountId}", accountId);
-            return;
-        }
         var accountGrain = _cluster.GetGrain<IAccountGrain>(accountId);
         await accountGrain.ReportUpstreamError(new ErrorInfo(statusCode, retryAfterMs, null));
     }

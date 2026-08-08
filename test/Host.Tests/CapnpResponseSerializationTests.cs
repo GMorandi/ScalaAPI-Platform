@@ -1,10 +1,10 @@
 using System.Reflection;
 using Capnp;
 using CapnpGen;
-using Sub2Api.Host.Services;
+using ScalaAPI.Host.Services;
 using Xunit;
 
-namespace Sub2Api.Host.Tests;
+namespace ScalaAPI.Host.Tests;
 
 public class CapnpResponseSerializationTests
 {
@@ -89,7 +89,7 @@ public class CapnpResponseSerializationTests
     [Fact]
     public void UpstreamPathPreservesOnlyValidatedQueryStrings()
     {
-        var request = new Sub2Api.Host.Services.DispatchRequest(
+        var request = new ScalaAPI.Host.Services.DispatchRequest(
             "hash", "model", "session", "127.0.0.1", "req", [], 0,
             "models", null, false, Operation: "models", HttpMethod: "GET",
             RequestPath: "/v1/models", Capability: "models",
@@ -106,7 +106,7 @@ public class CapnpResponseSerializationTests
     [Fact]
     public void GeminiStreamingQueryMergesWithRequiredSseFlag()
     {
-        var request = new Sub2Api.Host.Services.DispatchRequest(
+        var request = new ScalaAPI.Host.Services.DispatchRequest(
             "hash", "gemini-2.5-pro", "session", "127.0.0.1", "req", [], 0,
             "gemini", null, true, Operation: "streamGenerateContent",
             RequestPath: "/v1beta/models/gemini-2.5-pro:streamGenerateContent",
@@ -143,7 +143,7 @@ public class CapnpResponseSerializationTests
     }
 
     private static string ResolveUpstreamPath(string platform,
-        Sub2Api.Host.Services.DispatchRequest request, string mappedModel)
+        ScalaAPI.Host.Services.DispatchRequest request, string mappedModel)
     {
         var method = typeof(DispatchService).GetMethod(
             "ResolveUpstreamPath", BindingFlags.NonPublic | BindingFlags.Static);

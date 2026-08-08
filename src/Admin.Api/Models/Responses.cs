@@ -1,4 +1,4 @@
-namespace Sub2Api.Admin.Models;
+namespace ScalaAPI.Admin.Models;
 
 public record PagedResponse<T>(List<T> Items, int Total, int Page, int Size);
 

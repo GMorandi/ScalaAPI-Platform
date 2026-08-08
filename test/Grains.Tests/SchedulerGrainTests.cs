@@ -1,7 +1,7 @@
 using Orleans.TestingHost;
-using Sub2Api.Grains.Interfaces;
+using ScalaAPI.Grains.Interfaces;
 
-namespace Sub2Api.Grains.Tests;
+namespace ScalaAPI.Grains.Tests;
 
 [Collection("Cluster")]
 public class SchedulerGrainTests

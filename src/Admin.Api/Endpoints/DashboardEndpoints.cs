@@ -1,7 +1,7 @@
-using Sub2Api.Admin.Data;
-using Sub2Api.Admin.Models;
+using ScalaAPI.Admin.Data;
+using ScalaAPI.Admin.Models;
 
-namespace Sub2Api.Admin.Endpoints;
+namespace ScalaAPI.Admin.Endpoints;
 
 public static class DashboardEndpoints
 {

@@ -1,9 +1,9 @@
 using Microsoft.Extensions.Logging;
 using Orleans;
 using Orleans.Runtime;
-using Sub2Api.Grains.Interfaces;
+using ScalaAPI.Grains.Interfaces;
 
-namespace Sub2Api.Grains;
+namespace ScalaAPI.Grains;
 
 [GenerateSerializer]
 public class AccountState
@@ -178,27 +178,6 @@ public class AccountGrain : Grain, IAccountGrain
         s.RateMultiplier = input.RateMultiplier;
         s.Schedulable = input.Schedulable;
         s.Credentials = ProtectCredentials(input.Credentials);
-        s.ModelMapping = input.ModelMapping;
-        s.SupportedModels = input.SupportedModels;
-        s.ProxyUrl = input.ProxyUrl;
-        s.TlsFingerprint = input.TlsFingerprint;
-        await _state.WriteStateAsync();
-        _invalidation.NotifyChange("account", s.Id.ToString());
-    }
-
-    public async Task UpsertMetadata(AccountMetadataUpsert input)
-    {
-        var s = _state.State;
-        s.Id = this.GetPrimaryKeyLong();
-        s.Name = input.Name;
-        s.Platform = input.Platform;
-        s.Type = input.Type;
-        s.BaseUrl = input.BaseUrl;
-        s.Priority = input.Priority;
-        s.Concurrency = input.Concurrency;
-        s.LoadFactor = input.LoadFactor;
-        s.RateMultiplier = input.RateMultiplier;
-        s.Schedulable = input.Schedulable;
         s.ModelMapping = input.ModelMapping;
         s.SupportedModels = input.SupportedModels;
         s.ProxyUrl = input.ProxyUrl;

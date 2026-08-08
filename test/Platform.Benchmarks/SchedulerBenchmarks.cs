@@ -2,9 +2,9 @@ using BenchmarkDotNet.Attributes;
 using Microsoft.Extensions.DependencyInjection;
 using NSubstitute;
 using Orleans.TestingHost;
-using Sub2Api.Grains.Interfaces;
+using ScalaAPI.Grains.Interfaces;
 
-namespace Sub2Api.Platform.Benchmarks;
+namespace ScalaAPI.Platform.Benchmarks;
 
 [MemoryDiagnoser]
 public class SchedulerBenchmarks
@@ -65,7 +65,10 @@ public class SchedulerBenchmarks
         {
             siloBuilder.AddMemoryGrainStorage("postgres");
             siloBuilder.ConfigureServices(services =>
-                services.AddSingleton(Substitute.For<IInvalidationService>()));
+            {
+                services.AddSingleton(Substitute.For<IInvalidationService>());
+                services.AddSingleton(Substitute.For<ICredentialProtector>());
+            });
         }
     }
 }

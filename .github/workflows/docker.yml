@@ -8,6 +8,17 @@ on:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - target: platform-silo
+            image: scalaapi-platform
+          - target: admin-api
+            image: scalaapi-admin-api
+          - target: migrate
+            image: scalaapi-migrator
+          - target: provider-mock
+            image: scalaapi-provider-mock
     permissions:
       packages: write
       contents: read
@@ -21,12 +32,13 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push platform
+      - name: Build and push ${{ matrix.target }}
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: src/Garnet.Host/Dockerfile
+          file: Dockerfile
+          target: ${{ matrix.target }}
           push: true
           tags: |
-            ghcr.io/gmorandi/subdata-platform:${{ github.ref_name }}
-            ghcr.io/gmorandi/subdata-platform:latest
+            ghcr.io/gmorandi/${{ matrix.image }}:${{ github.ref_name }}
+            ghcr.io/gmorandi/${{ matrix.image }}:latest

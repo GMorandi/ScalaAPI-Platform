@@ -1,4 +1,4 @@
-namespace Sub2Api.Grains.Interfaces;
+namespace ScalaAPI.Grains.Interfaces;
 
 public interface ICredentialProtector
 {
@@ -34,13 +34,6 @@ public record AccountUpsert(
     Dictionary<string, string> ModelMapping, string[] SupportedModels,
     string? ProxyUrl, bool TlsFingerprint);
 
-[GenerateSerializer]
-public record AccountMetadataUpsert(
-    string Name, string Platform, string Type, string BaseUrl,
-    int Priority, int Concurrency, int LoadFactor, double RateMultiplier,
-    bool Schedulable, Dictionary<string, string> ModelMapping,
-    string[] SupportedModels, string? ProxyUrl, bool TlsFingerprint);
-
 public interface IAccountGrain : IGrainWithIntegerKey
 {
     Task<AccountProjection> GetProjection();
@@ -55,7 +48,6 @@ public interface IAccountGrain : IGrainWithIntegerKey
 
     Task Create(AccountUpsert input);
     Task Update(AccountUpsert input);
-    Task UpsertMetadata(AccountMetadataUpsert input);
     Task SetStatus(string status);
     Task Delete();
 }

@@ -1,4 +1,4 @@
-namespace Sub2Api.Grains.Interfaces;
+namespace ScalaAPI.Grains.Interfaces;
 
 // Shared by scheduler and dispatch so that capability filtering happens before
 // an account lease is created. Account-specific restrictions can narrow this

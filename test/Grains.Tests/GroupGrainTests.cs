@@ -1,7 +1,7 @@
 using Orleans.TestingHost;
-using Sub2Api.Grains.Interfaces;
+using ScalaAPI.Grains.Interfaces;
 
-namespace Sub2Api.Grains.Tests;
+namespace ScalaAPI.Grains.Tests;
 
 [Collection("Cluster")]
 public class GroupGrainTests
@@ -143,24 +143,4 @@ public class GroupGrainTests
         Assert.Equal([100, 200, 300], ids);
     }
 
-    [Fact]
-    public async Task MigrationMetadataAndRelationEventsPreserveMembers()
-    {
-        var grain = GetGrain(4011);
-        await grain.UpsertMetadata(new GroupMetadataUpsert(
-            "anthropic", 1.0, false, null, false, null, false, new(), 0, null, null, null));
-        await grain.AddMemberAccount(100);
-        await grain.AddMemberAccount(100);
-        await grain.UpsertMetadata(new GroupMetadataUpsert(
-            "openai", 1.5, true, 5.0, false, null, true,
-            new() { ["gpt*"] = [100] }, 20, null, null, null));
-
-        var members = await grain.GetMemberAccountIds();
-        Assert.Equal([100], members);
-        Assert.Equal("openai", (await grain.GetConfig()).Platform);
-
-        await grain.RemoveMemberAccount(100);
-        await grain.RemoveMemberAccount(100);
-        Assert.Empty(await grain.GetMemberAccountIds());
-    }
 }

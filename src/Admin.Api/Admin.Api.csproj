@@ -20,7 +20,7 @@
 
   <ItemGroup>
     <ProjectReference Include="../Grains.Interfaces/Grains.Interfaces.csproj" />
-    <ProjectReference Include="../Data/Sub2Api.Data.csproj" />
+    <ProjectReference Include="../Data/ScalaAPI.Data.csproj" />
   </ItemGroup>
 
 </Project>

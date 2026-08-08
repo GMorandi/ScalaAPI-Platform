@@ -3,11 +3,11 @@ using System.Security.Cryptography;
 using OtpNet;
 using SqlSugar;
 using Orleans;
-using Sub2Api.Admin.Auth;
-using Sub2Api.Data.Entities;
-using Sub2Api.Grains.Interfaces;
+using ScalaAPI.Admin.Auth;
+using ScalaAPI.Data.Entities;
+using ScalaAPI.Grains.Interfaces;
 
-namespace Sub2Api.Admin.Endpoints;
+namespace ScalaAPI.Admin.Endpoints;
 
 public record RegisterRequest(string Email, string Password, string? DisplayName);
 public record UserLoginRequest(string Email, string Password, string? TotpCode);
@@ -149,7 +149,7 @@ public static class UserAuthEndpoints
             account.TotpSecret = protector.Protect(secret);
             await db.Updateable(account).UpdateColumns(x => x.TotpSecret).ExecuteCommandAsync();
 
-            var qrUri = $"otpauth://totp/Sub2Api:{email}?secret={secret}&issuer=Sub2Api";
+            var qrUri = $"otpauth://totp/ScalaAPI:{email}?secret={secret}&issuer=ScalaAPI";
             return Results.Ok(new TotpSetupResponse(secret, qrUri));
         });
 
@@ -251,7 +251,7 @@ public static class UserAuthEndpoints
 
             client.DefaultRequestHeaders.Authorization =
                 new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", accessToken);
-            client.DefaultRequestHeaders.UserAgent.ParseAdd("Sub2Api");
+            client.DefaultRequestHeaders.UserAgent.ParseAdd("ScalaAPI");
             var userResp = await client.GetAsync("https://api.github.com/user/emails");
             var emails = await userResp.Content.ReadFromJsonAsync<List<GitHubEmail>>();
             var primary = emails?.FirstOrDefault(e => e.Primary)?.Email;

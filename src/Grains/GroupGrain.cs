@@ -1,8 +1,8 @@
 using Orleans;
 using Orleans.Runtime;
-using Sub2Api.Grains.Interfaces;
+using ScalaAPI.Grains.Interfaces;
 
-namespace Sub2Api.Grains;
+namespace ScalaAPI.Grains;
 
 [GenerateSerializer]
 public class GroupState
@@ -228,39 +228,6 @@ public class GroupGrain : Grain, IGroupGrain
         s.PeakMultiplier = input.PeakMultiplier;
         s.PeakStartHour = input.PeakStartHour;
         s.PeakEndHour = input.PeakEndHour;
-        await _state.WriteStateAsync();
-    }
-
-    public async Task UpsertMetadata(GroupMetadataUpsert input)
-    {
-        var s = _state.State;
-        s.Id = this.GetPrimaryKeyLong();
-        s.Platform = input.Platform;
-        s.RateMultiplier = input.RateMultiplier;
-        s.IsExclusive = input.IsExclusive;
-        s.DailyLimitUsd = input.DailyLimitUsd;
-        s.ClaudeCodeOnly = input.ClaudeCodeOnly;
-        s.FallbackGroupId = input.FallbackGroupId;
-        s.ModelRoutingEnabled = input.ModelRoutingEnabled;
-        s.ModelRouting = input.ModelRouting;
-        s.RpmLimit = input.RpmLimit;
-        s.PeakMultiplier = input.PeakMultiplier;
-        s.PeakStartHour = input.PeakStartHour;
-        s.PeakEndHour = input.PeakEndHour;
-        await _state.WriteStateAsync();
-    }
-
-    public async Task AddMemberAccount(long accountId)
-    {
-        if (_state.State.MemberAccountIds.Contains(accountId)) return;
-        _state.State.MemberAccountIds = [.. _state.State.MemberAccountIds, accountId];
-        await _state.WriteStateAsync();
-    }
-
-    public async Task RemoveMemberAccount(long accountId)
-    {
-        if (!_state.State.MemberAccountIds.Contains(accountId)) return;
-        _state.State.MemberAccountIds = _state.State.MemberAccountIds.Where(x => x != accountId).ToArray();
         await _state.WriteStateAsync();
     }
 

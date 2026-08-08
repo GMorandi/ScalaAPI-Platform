@@ -1,11 +1,10 @@
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Orleans.Configuration;
 using SqlSugar;
-using Sub2Api.Admin.Auth;
-using Sub2Api.Admin.Data;
-using Sub2Api.Admin.Endpoints;
-using Sub2Api.Data.Repositories;
-using Sub2Api.Data.Migration;
+using ScalaAPI.Admin.Auth;
+using ScalaAPI.Admin.Data;
+using ScalaAPI.Admin.Endpoints;
+using ScalaAPI.Data.Repositories;
 using Npgsql;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -22,8 +21,8 @@ builder.UseOrleansClient(client =>
     });
     client.Configure<ClusterOptions>(opts =>
     {
-        opts.ClusterId = "sub2api";
-        opts.ServiceId = "sub2api-platform";
+        opts.ClusterId = "platform";
+        opts.ServiceId = "platform-control-plane";
     });
 });
 
@@ -42,9 +41,6 @@ builder.Services.AddScoped<ListingRepository>();
 builder.Services.AddScoped<IUsageLogRepository, UsageLogRepository>();
 builder.Services.AddHttpClient();
 builder.Services.AddSingleton(NpgsqlDataSource.Create(pgConnection));
-builder.Services.AddSingleton<CdcInboxStore>();
-builder.Services.AddSingleton<MigrationFenceStore>();
-builder.Services.AddSingleton<MigrationWriteGate>();
 
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(opts => opts.TokenValidationParameters = jwtService.GetValidationParameters());
@@ -70,41 +66,6 @@ app.UseCors();
 app.UseAuthentication();
 app.UseAuthorization();
 
-// Business mutations must be fenced. Migration control endpoints and login
-// metadata remain available while Sub2API is the legacy write primary.
-app.Use(async (context, next) =>
-{
-    var method = context.Request.Method;
-    var path = context.Request.Path;
-    var isMutation = HttpMethods.IsPost(method) || HttpMethods.IsPut(method)
-        || HttpMethods.IsPatch(method) || HttpMethods.IsDelete(method);
-    var isBusinessPath = path.StartsWithSegments("/admin")
-        && !path.StartsWithSegments("/admin/auth")
-        && !path.StartsWithSegments("/admin/migration")
-        || path.StartsWithSegments("/user")
-        || path.Equals("/auth/register")
-        || path.Equals("/auth/oauth/callback");
-    if (isMutation && isBusinessPath)
-    {
-        try
-        {
-            await context.RequestServices.GetRequiredService<MigrationWriteGate>()
-                .AssertPlatformPrimaryAsync(context.RequestAborted);
-        }
-        catch (MigrationWriteRejectedException ex)
-        {
-            context.Response.StatusCode = StatusCodes.Status409Conflict;
-            await context.Response.WriteAsJsonAsync(new
-            {
-                error = "migration_fence",
-                message = ex.Message
-            }, context.RequestAborted);
-            return;
-        }
-    }
-    await next(context);
-});
-
 app.MapAuthEndpoints();
 app.MapDashboardEndpoints();
 app.MapAccountEndpoints();
@@ -115,7 +76,6 @@ app.MapConfigEndpoints();
 app.MapUsageEndpoints();
 app.MapUserAuthEndpoints();
 app.MapPlatformEndpoints();
-app.MapMigrationEndpoints();
 
 app.MapGet("/live", () => Results.Ok(new { status = "live" })).AllowAnonymous();
 app.MapGet("/ready", async (ISqlSugarClient db) =>
@@ -147,23 +107,11 @@ static async Task BootstrapAdminAsync(IServiceProvider services, IConfiguration 
     await using var scope = services.CreateAsyncScope();
     var db = scope.ServiceProvider.GetRequiredService<ISqlSugarClient>();
     var normalized = username.Trim().ToLowerInvariant();
-    var existing = await db.Queryable<Sub2Api.Data.Entities.UserAccountEntity>()
+    var existing = await db.Queryable<ScalaAPI.Data.Entities.UserAccountEntity>()
         .Where(x => x.Email == normalized).FirstAsync();
     if (existing is not null) return;
 
-    // Startup provisioning is a business write too. During legacy-primary
-    // operation the target may be queried, but must not create a second writer.
-    try
-    {
-        await scope.ServiceProvider.GetRequiredService<MigrationWriteGate>()
-            .AssertPlatformPrimaryAsync();
-    }
-    catch (MigrationWriteRejectedException)
-    {
-        return;
-    }
-
-    await db.Insertable(new Sub2Api.Data.Entities.UserAccountEntity
+    await db.Insertable(new ScalaAPI.Data.Entities.UserAccountEntity
     {
         Email = normalized,
         PasswordHash = BCrypt.Net.BCrypt.HashPassword(password),

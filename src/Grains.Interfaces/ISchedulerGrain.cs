@@ -1,4 +1,4 @@
-namespace Sub2Api.Grains.Interfaces;
+namespace ScalaAPI.Grains.Interfaces;
 
 [GenerateSerializer]
 public record SelectRequest(

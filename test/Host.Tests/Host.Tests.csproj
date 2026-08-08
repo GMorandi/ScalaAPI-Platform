@@ -5,7 +5,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <IsPackable>false</IsPackable>
-    <RootNamespace>Sub2Api.Host.Tests</RootNamespace>
+    <RootNamespace>ScalaAPI.Host.Tests</RootNamespace>
   </PropertyGroup>
 
   <ItemGroup>
@@ -15,7 +15,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="../../src/Garnet.Host/Garnet.Host.csproj" />
+    <ProjectReference Include="../../src/Platform.Host/Platform.Host.csproj" />
   </ItemGroup>
 
 </Project>

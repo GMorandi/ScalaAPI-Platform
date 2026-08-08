@@ -1,8 +1,7 @@
 using System.Data;
 using Npgsql;
-using Sub2Api.Data.Migration;
 
-namespace Sub2Api.Host.Services;
+namespace ScalaAPI.Host.Services;
 
 public sealed record MediaOperation(
     string OperationId, string IdempotencyKey, string RequestFingerprint,
@@ -17,8 +16,7 @@ public sealed record MediaCreateResult(MediaOperation Operation, bool Created, b
 // PostgreSQL owns media state. Gateway processes only submit commands and
 // render authenticated views; they never keep task state in process memory.
 public sealed class MediaOperationStore(
-    NpgsqlDataSource dataSource,
-    MigrationWriteGate writeGate)
+    NpgsqlDataSource dataSource)
 {
     private const string Projection = """
         operation_id, idempotency_key, request_fingerprint, operation_type,
@@ -43,7 +41,6 @@ public sealed class MediaOperationStore(
         string? idempotencyKey, string requestFingerprint, string provider,
         DateTime expiresAt, CancellationToken ct = default)
     {
-        await writeGate.AssertPlatformPrimaryAsync(ct);
         var key = string.IsNullOrWhiteSpace(idempotencyKey) ? requestId : idempotencyKey.Trim();
         var operationId = $"med_{Guid.NewGuid():N}";
 
@@ -138,7 +135,6 @@ public sealed class MediaOperationStore(
         string? contentType = null, string? error = null,
         CancellationToken ct = default)
     {
-        await writeGate.AssertPlatformPrimaryAsync(ct);
         var terminal = status is "succeeded" or "failed" or "canceled" or "expired";
         await using var command = dataSource.CreateCommand($"""
             UPDATE media_operations
@@ -173,7 +169,6 @@ public sealed class MediaOperationStore(
     public async Task<MediaOperation?> CancelAsync(long apiKeyId, string operationId,
         CancellationToken ct = default)
     {
-        await writeGate.AssertPlatformPrimaryAsync(ct);
         await using var command = dataSource.CreateCommand($"""
             UPDATE media_operations
             SET cancel_requested = true,
@@ -192,7 +187,6 @@ public sealed class MediaOperationStore(
     public async Task<bool> DeleteAsync(long apiKeyId, string operationId,
         CancellationToken ct = default)
     {
-        await writeGate.AssertPlatformPrimaryAsync(ct);
         await using var command = dataSource.CreateCommand("""
             DELETE FROM media_operations
             WHERE api_key_id = $1 AND operation_id = $2
@@ -206,7 +200,6 @@ public sealed class MediaOperationStore(
     public async Task<MediaOperation?> ClearOutputsAsync(long apiKeyId,
         string operationId, CancellationToken ct = default)
     {
-        await writeGate.AssertPlatformPrimaryAsync(ct);
         await using var command = dataSource.CreateCommand($"""
             UPDATE media_operations
             SET output_metadata = NULL, output_url = '', content_type = '', updated_at = now()
@@ -226,7 +219,6 @@ public sealed class MediaOperationStore(
     public async Task<IReadOnlyList<MediaOperation>> ExpireDueAndReturnAsync(
         CancellationToken ct = default)
     {
-        await writeGate.AssertPlatformPrimaryAsync(ct);
         await using var command = dataSource.CreateCommand($"""
             UPDATE media_operations
             SET status = 'expired', progress = 100, next_poll_at = NULL,
@@ -245,7 +237,6 @@ public sealed class MediaOperationStore(
     public async Task<IReadOnlyList<MediaOperation>> ClaimDueAsync(int limit,
         CancellationToken ct = default)
     {
-        await writeGate.AssertPlatformPrimaryAsync(ct);
         await using var connection = await dataSource.OpenConnectionAsync(ct);
         await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.ReadCommitted, ct);
         await using var command = connection.CreateCommand();
@@ -285,7 +276,6 @@ public sealed class MediaOperationStore(
     public async Task<MediaOperation?> RecordPollFailureAsync(MediaOperation operation,
         string error, CancellationToken ct = default)
     {
-        await writeGate.AssertPlatformPrimaryAsync(ct);
         await using var command = dataSource.CreateCommand($"""
             UPDATE media_operations
             SET status = CASE WHEN attempts >= 20 THEN 'failed' ELSE status END,

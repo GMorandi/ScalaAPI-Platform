@@ -1,4 +1,4 @@
-namespace Sub2Api.Grains.Interfaces;
+namespace ScalaAPI.Grains.Interfaces;
 
 [GenerateSerializer]
 public record HoldHandle(string Id, decimal Amount);
@@ -7,10 +7,6 @@ public record HoldHandle(string Id, decimal Amount);
 public record UserUpsert(
     string Role, double Balance, int Concurrency,
     int RpmLimit, long[] AllowedGroups);
-
-[GenerateSerializer]
-public record UserMetadataUpsert(
-    string Role, double Balance, int Concurrency, int RpmLimit);
 
 public interface IUserGrain : IGrainWithIntegerKey
 {
@@ -28,9 +24,6 @@ public interface IUserGrain : IGrainWithIntegerKey
 
     Task Create(UserUpsert input);
     Task Update(UserUpsert input);
-    Task UpsertMetadata(UserMetadataUpsert input);
-    Task AddAllowedGroup(long groupId);
-    Task RemoveAllowedGroup(long groupId);
     Task SetStatus(string status);
     Task AdjustBalance(double delta);
     Task Delete();

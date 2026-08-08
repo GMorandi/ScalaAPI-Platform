@@ -1,8 +1,8 @@
 using BenchmarkDotNet.Attributes;
 using NSubstitute;
-using Sub2Api.Grains.Interfaces;
+using ScalaAPI.Grains.Interfaces;
 
-namespace Sub2Api.Platform.Benchmarks;
+namespace ScalaAPI.Platform.Benchmarks;
 
 [MemoryDiagnoser]
 public class DispatchBenchmarks

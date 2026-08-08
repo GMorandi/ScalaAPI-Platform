@@ -1,10 +1,9 @@
 using System.Net;
 using System.Text.Json;
 using Orleans;
-using Sub2Api.Data.Migration;
-using Sub2Api.Grains.Interfaces;
+using ScalaAPI.Grains.Interfaces;
 
-namespace Sub2Api.Host.Services;
+namespace ScalaAPI.Host.Services;
 
 public sealed class MediaOperationHostedService(
     MediaOperationStore store,
@@ -26,10 +25,6 @@ public sealed class MediaOperationHostedService(
                 await Parallel.ForEachAsync(due,
                     new ParallelOptions { MaxDegreeOfParallelism = 8, CancellationToken = stoppingToken },
                     PollAsync);
-            }
-            catch (MigrationWriteRejectedException)
-            {
-                // Observation-only/legacy-primary deployments do not own task state.
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {

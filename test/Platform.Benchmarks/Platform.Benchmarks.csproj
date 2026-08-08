@@ -5,7 +5,7 @@
     <OutputType>Exe</OutputType>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <RootNamespace>Sub2Api.Platform.Benchmarks</RootNamespace>
+    <RootNamespace>ScalaAPI.Platform.Benchmarks</RootNamespace>
     <!-- Orleans uses Roslyn 5 analyzers while BenchmarkDotNet pins its compiler to 4.14. -->
     <NoWarn>$(NoWarn);NU1608</NoWarn>
   </PropertyGroup>

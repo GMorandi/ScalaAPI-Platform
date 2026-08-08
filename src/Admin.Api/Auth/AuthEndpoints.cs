@@ -1,7 +1,7 @@
-namespace Sub2Api.Admin.Auth;
+namespace ScalaAPI.Admin.Auth;
 
 using SqlSugar;
-using Sub2Api.Data.Entities;
+using ScalaAPI.Data.Entities;
 
 public record LoginRequest(string Username, string Password);
 public record LoginResponse(string Token, string Username);

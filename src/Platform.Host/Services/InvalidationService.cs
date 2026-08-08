@@ -1,6 +1,6 @@
-using Sub2Api.Grains.Interfaces;
+using ScalaAPI.Grains.Interfaces;
 
-namespace Sub2Api.Host.Services;
+namespace ScalaAPI.Host.Services;
 
 public class InvalidationService : IInvalidationService
 {

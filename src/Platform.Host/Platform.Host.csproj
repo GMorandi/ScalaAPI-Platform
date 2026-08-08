@@ -4,8 +4,8 @@
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <RootNamespace>Sub2Api.Host</RootNamespace>
-    <AssemblyName>Sub2Api.Platform.Host</AssemblyName>
+    <RootNamespace>ScalaAPI.Host</RootNamespace>
+    <AssemblyName>ScalaAPI.Platform.Host</AssemblyName>
   </PropertyGroup>
 
   <ItemGroup>
@@ -15,15 +15,13 @@
     <PackageReference Include="Microsoft.Orleans.Reminders.AdoNet" Version="10.2.2" />
     <PackageReference Include="Microsoft.Orleans.Streaming" Version="10.2.2" />
     <PackageReference Include="Npgsql" Version="10.0.3" />
-    <PackageReference Include="Microsoft.Garnet" Version="2.1.1" />
     <PackageReference Include="Capnp.Net.Runtime" Version="1.3.118" />
-    <PackageReference Include="Confluent.Kafka" Version="2.6.1" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="../Grains/Grains.csproj" />
     <ProjectReference Include="../Grains.Interfaces/Grains.Interfaces.csproj" />
-    <ProjectReference Include="../Data/Sub2Api.Data.csproj" />
+    <ProjectReference Include="../Data/ScalaAPI.Data.csproj" />
   </ItemGroup>
 
 </Project>

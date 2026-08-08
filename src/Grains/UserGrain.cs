@@ -1,9 +1,9 @@
 using Microsoft.Extensions.Logging;
 using Orleans;
 using Orleans.Runtime;
-using Sub2Api.Grains.Interfaces;
+using ScalaAPI.Grains.Interfaces;
 
-namespace Sub2Api.Grains;
+namespace ScalaAPI.Grains;
 
 [GenerateSerializer]
 public class UserState
@@ -218,34 +218,6 @@ public class UserGrain : Grain, IUserGrain
         s.AllowedGroups = input.AllowedGroups;
         await _state.WriteStateAsync();
         _invalidation.NotifyChange("user", s.Id.ToString());
-    }
-
-    public async Task UpsertMetadata(UserMetadataUpsert input)
-    {
-        var s = _state.State;
-        s.Id = this.GetPrimaryKeyLong();
-        s.Role = input.Role;
-        s.Balance = (decimal)input.Balance;
-        s.Concurrency = input.Concurrency;
-        s.RpmLimit = input.RpmLimit;
-        await _state.WriteStateAsync();
-        _invalidation.NotifyChange("user", s.Id.ToString());
-    }
-
-    public async Task AddAllowedGroup(long groupId)
-    {
-        if (_state.State.AllowedGroups.Contains(groupId)) return;
-        _state.State.AllowedGroups = [.. _state.State.AllowedGroups, groupId];
-        await _state.WriteStateAsync();
-        _invalidation.NotifyChange("user", _state.State.Id.ToString());
-    }
-
-    public async Task RemoveAllowedGroup(long groupId)
-    {
-        if (!_state.State.AllowedGroups.Contains(groupId)) return;
-        _state.State.AllowedGroups = _state.State.AllowedGroups.Where(x => x != groupId).ToArray();
-        await _state.WriteStateAsync();
-        _invalidation.NotifyChange("user", _state.State.Id.ToString());
     }
 
     public async Task SetStatus(string status)

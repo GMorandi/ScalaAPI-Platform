@@ -1,4 +1,4 @@
-namespace Sub2Api.Host.Services;
+namespace ScalaAPI.Host.Services;
 
 public class GarnetWriteThroughService
 {

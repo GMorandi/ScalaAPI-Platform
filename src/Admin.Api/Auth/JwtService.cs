@@ -3,7 +3,7 @@ using System.Security.Claims;
 using System.Text;
 using Microsoft.IdentityModel.Tokens;
 
-namespace Sub2Api.Admin.Auth;
+namespace ScalaAPI.Admin.Auth;
 
 public class JwtService(IConfiguration config)
 {

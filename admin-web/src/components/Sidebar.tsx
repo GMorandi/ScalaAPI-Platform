@@ -16,7 +16,7 @@ export default function Sidebar() {
   return (
     <aside class="w-56 border-r border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900">
       <div class="flex h-14 items-center px-4 font-bold text-lg border-b border-gray-200 dark:border-gray-800">
-        Sub2API
+        ScalaAPI
       </div>
       <nav class="p-2 space-y-1">
         {links.map((l) => (

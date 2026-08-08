@@ -1,6 +1,6 @@
 using SqlSugar;
 
-namespace Sub2Api.Admin.Data;
+namespace ScalaAPI.Admin.Data;
 
 public class ListingRepository(ISqlSugarClient db)
 {

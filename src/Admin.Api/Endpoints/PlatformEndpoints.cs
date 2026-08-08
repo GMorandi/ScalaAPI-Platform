@@ -5,11 +5,11 @@ using System.Text.RegularExpressions;
 using MailKit.Net.Smtp;
 using MimeKit;
 using SqlSugar;
-using Sub2Api.Data.Entities;
+using ScalaAPI.Data.Entities;
 using Orleans;
-using Sub2Api.Grains.Interfaces;
+using ScalaAPI.Grains.Interfaces;
 
-namespace Sub2Api.Admin.Endpoints;
+namespace ScalaAPI.Admin.Endpoints;
 
 public static class PlatformEndpoints
 {
@@ -673,9 +673,12 @@ public static class PlatformEndpoints
         {
             try
             {
+                var manifestUrl = app.Configuration["Update:ReleaseManifestUrl"];
+                if (string.IsNullOrWhiteSpace(manifestUrl))
+                    return Results.Ok(new { latest = (string?)null, status = "not_configured" });
                 var client = httpFactory.CreateClient();
-                client.DefaultRequestHeaders.UserAgent.ParseAdd("Sub2Api");
-                var resp = await client.GetAsync("https://api.github.com/repos/sub2api/sub2api/releases/latest");
+                client.DefaultRequestHeaders.UserAgent.ParseAdd("Platform");
+                var resp = await client.GetAsync(manifestUrl);
                 if (resp.IsSuccessStatusCode)
                 {
                     var data = await resp.Content.ReadFromJsonAsync<Dictionary<string, object>>();
@@ -688,9 +691,12 @@ public static class PlatformEndpoints
 
         group.MapPost("/update", async (IHttpClientFactory httpFactory, IConfiguration config) =>
         {
+            var manifestUrl = config["Update:ReleaseManifestUrl"];
+            if (string.IsNullOrWhiteSpace(manifestUrl))
+                return Results.BadRequest(new { error = "Update release manifest is not configured" });
             var client = httpFactory.CreateClient();
-            client.DefaultRequestHeaders.UserAgent.ParseAdd("Sub2Api");
-            var resp = await client.GetAsync("https://api.github.com/repos/sub2api/sub2api/releases/latest");
+            client.DefaultRequestHeaders.UserAgent.ParseAdd("Platform");
+            var resp = await client.GetAsync(manifestUrl);
             if (!resp.IsSuccessStatusCode)
                 return Results.BadRequest(new { error = "Failed to check for updates" });
 
@@ -699,7 +705,7 @@ public static class PlatformEndpoints
             if (tag is null)
                 return Results.BadRequest(new { error = "No release found" });
 
-            var installPath = config["Update:InstallPath"] ?? "/usr/local/bin/sub2api";
+            var installPath = config["Update:InstallPath"] ?? "/usr/local/bin/platform";
             return Results.Ok(new { message = $"Update to {tag} downloaded. Restart required.", version = tag, path = installPath });
         });
 
@@ -709,7 +715,7 @@ public static class PlatformEndpoints
             var smtpPort = int.Parse(config["Smtp:Port"] ?? "587");
             var smtpUser = config["Smtp:Username"] ?? "";
             var smtpPass = config["Smtp:Password"] ?? "";
-            var fromAddr = config["Smtp:From"] ?? "noreply@sub2api.com";
+            var fromAddr = config["Smtp:From"] ?? "noreply@example.invalid";
 
             if (string.IsNullOrEmpty(smtpHost))
                 return Results.BadRequest(new { error = "SMTP not configured" });

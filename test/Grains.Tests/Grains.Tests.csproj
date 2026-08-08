@@ -5,7 +5,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <IsPackable>false</IsPackable>
-    <RootNamespace>Sub2Api.Grains.Tests</RootNamespace>
+    <RootNamespace>ScalaAPI.Grains.Tests</RootNamespace>
   </PropertyGroup>
 
   <ItemGroup>

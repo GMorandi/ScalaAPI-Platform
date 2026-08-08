@@ -1,7 +1,7 @@
 using Orleans.TestingHost;
-using Sub2Api.Grains.Interfaces;
+using ScalaAPI.Grains.Interfaces;
 
-namespace Sub2Api.Grains.Tests;
+namespace ScalaAPI.Grains.Tests;
 
 [Collection("Cluster")]
 public class UserGrainTests
@@ -139,21 +139,4 @@ public class UserGrainTests
         Assert.Equal("admin", proj.Role);
     }
 
-    [Fact]
-    public async Task MigrationMetadataAndRelationEventsPreserveAllowedGroups()
-    {
-        var grain = GetGrain(7011);
-        await grain.UpsertMetadata(new UserMetadataUpsert("user", 25.0, 2, 30));
-        await grain.AddAllowedGroup(10);
-        await grain.AddAllowedGroup(10);
-        await grain.UpsertMetadata(new UserMetadataUpsert("admin", 30.0, 4, 60));
-
-        var projection = await grain.GetAuthProjection();
-        Assert.Equal([10], projection.AllowedGroups);
-        Assert.Equal("admin", projection.Role);
-
-        await grain.RemoveAllowedGroup(10);
-        await grain.RemoveAllowedGroup(10);
-        Assert.Empty((await grain.GetAuthProjection()).AllowedGroups);
-    }
 }

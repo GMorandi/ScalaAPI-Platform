@@ -1,45 +1,28 @@
 using Npgsql;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
-using Sub2Api.Data.Migration;
-using Sub2Api.Host.Services;
+using ScalaAPI.Host.Services;
 using Xunit;
 
-namespace Sub2Api.Host.Tests;
+namespace ScalaAPI.Host.Tests;
 
 public sealed class MediaOperationStoreTests
 {
     [Fact]
     public async Task DurableLifecycleIsIdempotentClaimableAndTerminal()
     {
-        var connectionString = Environment.GetEnvironmentVariable("CDC_SCHEMA_CONNECTION");
+        var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
         if (string.IsNullOrWhiteSpace(connectionString)) return;
 
         await using var dataSource = NpgsqlDataSource.Create(connectionString);
-        await using var state = dataSource.CreateCommand(
-            "SELECT write_primary, mode FROM migration_fence WHERE id = 1");
-        await using var stateReader = await state.ExecuteReaderAsync();
-        Assert.True(await stateReader.ReadAsync());
-        var originalPrimary = stateReader.GetString(0);
-        var originalMode = stateReader.GetString(1);
-        await stateReader.DisposeAsync();
-
         var suffix = Guid.NewGuid().ToString("N");
         var leaseToken = $"lease-media-{suffix}";
         var requestId = $"request-media-{suffix}";
         const long apiKeyId = 91001;
         try
         {
-            await using (var promote = dataSource.CreateCommand("""
-                UPDATE migration_fence
-                SET write_primary = 'platform', mode = 'target_primary', updated_at = now()
-                WHERE id = 1
-                """))
-                await promote.ExecuteNonQueryAsync();
-
             await InsertLease(dataSource, leaseToken, requestId);
-            var writeGate = new MigrationWriteGate(new MigrationFenceStore(dataSource));
-            var store = new MediaOperationStore(dataSource, writeGate);
+            var store = new MediaOperationStore(dataSource);
 
             var created = await store.CreateOrGetAsync(apiKeyId, 92001, requestId,
                 leaseToken, "images_generations_async", "idem-" + suffix,
@@ -97,7 +80,7 @@ public sealed class MediaOperationStoreTests
                     ["Pricing:Models:gpt-4o:ImageOutputPerUnit"] = "0.08"
                 }).Build();
             var leases = new RequestLeaseStore(dataSource,
-                new ModelPricingService(configuration), writeGate,
+                new ModelPricingService(configuration),
                 NullLogger<RequestLeaseStore>.Instance);
             var settlement = await leases.CompleteAsync(new LeaseCompletion(
                 leaseToken, 0, 0, 0, 0, 20, 0, 200, false, false,
@@ -139,13 +122,6 @@ public sealed class MediaOperationStoreTests
                 cleanupLease.Parameters.AddWithValue(leaseToken);
                 await cleanupLease.ExecuteNonQueryAsync();
             }
-            await using var restore = dataSource.CreateCommand("""
-                UPDATE migration_fence SET write_primary = $1, mode = $2, updated_at = now()
-                WHERE id = 1
-                """);
-            restore.Parameters.AddWithValue(originalPrimary);
-            restore.Parameters.AddWithValue(originalMode);
-            await restore.ExecuteNonQueryAsync();
         }
     }
 

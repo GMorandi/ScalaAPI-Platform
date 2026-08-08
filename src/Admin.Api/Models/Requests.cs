@@ -1,4 +1,4 @@
-namespace Sub2Api.Admin.Models;
+namespace ScalaAPI.Admin.Models;
 
 public record AccountCreateRequest(
     string Name, string Platform, string Type, string BaseUrl,

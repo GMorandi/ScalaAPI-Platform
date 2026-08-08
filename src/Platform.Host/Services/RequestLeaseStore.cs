@@ -1,8 +1,7 @@
 using System.Data;
 using Npgsql;
-using Sub2Api.Data.Migration;
 
-namespace Sub2Api.Host.Services;
+namespace ScalaAPI.Host.Services;
 
 public sealed record RequestLease(
     string LeaseToken,
@@ -81,12 +80,10 @@ public sealed record ClaimedOutboxItem(OutboxItem Item, RequestLease Lease);
 public sealed class RequestLeaseStore(
     NpgsqlDataSource dataSource,
     ModelPricingService pricing,
-    MigrationWriteGate writeGate,
     ILogger<RequestLeaseStore> logger)
 {
     public async Task<bool> CreateAsync(LeaseCreateRequest request, CancellationToken ct = default)
     {
-        await writeGate.AssertPlatformPrimaryAsync(ct);
         await using var command = dataSource.CreateCommand("""
             INSERT INTO request_leases (
                 lease_token, request_id, api_key_hash, api_key_id, user_id,
@@ -116,15 +113,6 @@ public sealed class RequestLeaseStore(
 
     public async Task<WriteAck> CompleteAsync(LeaseCompletion completion, CancellationToken ct = default)
     {
-        try
-        {
-            await writeGate.AssertPlatformPrimaryAsync(ct);
-        }
-        catch (MigrationWriteRejectedException ex)
-        {
-            logger.LogWarning(ex, "Lease completion rejected by migration fence");
-            return WriteAck.Error("migration_fence", retryable: true);
-        }
         await using var connection = await dataSource.OpenConnectionAsync(ct);
         await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.ReadCommitted, ct);
         var lease = await GetForUpdateAsync(connection, transaction, completion.LeaseToken, ct);
@@ -223,15 +211,6 @@ public sealed class RequestLeaseStore(
     public async Task<WriteAck> AbortAsync(string leaseToken, string reason,
         CancellationToken ct = default)
     {
-        try
-        {
-            await writeGate.AssertPlatformPrimaryAsync(ct);
-        }
-        catch (MigrationWriteRejectedException ex)
-        {
-            logger.LogWarning(ex, "Lease abort rejected by migration fence");
-            return WriteAck.Error("migration_fence", retryable: true);
-        }
         await using var connection = await dataSource.OpenConnectionAsync(ct);
         await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.ReadCommitted, ct);
         var lease = await GetForUpdateAsync(connection, transaction, leaseToken, ct);
@@ -259,15 +238,6 @@ public sealed class RequestLeaseStore(
 
     public async Task<int> ExpireActiveAsync(CancellationToken ct = default)
     {
-        try
-        {
-            await writeGate.AssertPlatformPrimaryAsync(ct);
-        }
-        catch (MigrationWriteRejectedException ex)
-        {
-            logger.LogDebug(ex, "Lease expiry scan paused by migration fence");
-            return 0;
-        }
         await using var connection = await dataSource.OpenConnectionAsync(ct);
         await using var transaction = await connection.BeginTransactionAsync(ct);
         var expired = new List<string>();
@@ -290,17 +260,9 @@ public sealed class RequestLeaseStore(
         return expired.Count;
     }
 
-    public async Task<(OutboxItem Item, RequestLease Lease)?> GetNextOutboxAsync(
-        CancellationToken ct = default)
-    {
-        var batch = await ClaimOutboxBatchAsync($"legacy-{Environment.ProcessId}", 1, ct);
-        return batch.Count == 0 ? null : (batch[0].Item, batch[0].Lease);
-    }
-
     public async Task<IReadOnlyList<ClaimedOutboxItem>> ClaimOutboxBatchAsync(
         string workerId, int batchSize = 50, CancellationToken ct = default)
     {
-        if (!await TargetWritesAllowedAsync(ct)) return [];
         batchSize = Math.Clamp(batchSize, 1, 500);
         await using var connection = await dataSource.OpenConnectionAsync(ct);
         await using var command = connection.CreateCommand();
@@ -343,7 +305,6 @@ public sealed class RequestLeaseStore(
 
     public async Task MarkProcessedAsync(long id, CancellationToken ct = default)
     {
-        if (!await TargetWritesAllowedAsync(ct)) return;
         await using var command = dataSource.CreateCommand(
             "UPDATE usage_outbox SET processed_at = now(), last_error = NULL, claimed_by = NULL, claimed_until = NULL WHERE id = $1");
         command.Parameters.AddWithValue(id);
@@ -353,7 +314,6 @@ public sealed class RequestLeaseStore(
     public async Task MarkRetryAsync(OutboxItem item, Exception exception,
         CancellationToken ct = default)
     {
-        if (!await TargetWritesAllowedAsync(ct)) return;
         var delaySeconds = Math.Min(300, 1 << Math.Min(item.Attempts, 8));
         await using var command = dataSource.CreateCommand("""
             UPDATE usage_outbox
@@ -375,7 +335,6 @@ public sealed class RequestLeaseStore(
 
     public async Task DeadLetterAsync(OutboxItem item, string reason, CancellationToken ct = default)
     {
-        if (!await TargetWritesAllowedAsync(ct)) return;
         await using var command = dataSource.CreateCommand("""
             UPDATE usage_outbox
             SET dead_lettered_at = now(), last_error = $2,
@@ -385,20 +344,6 @@ public sealed class RequestLeaseStore(
         command.Parameters.AddWithValue(item.Id);
         command.Parameters.AddWithValue(reason.Length > 1000 ? reason[..1000] : reason);
         await command.ExecuteNonQueryAsync(ct);
-    }
-
-    private async Task<bool> TargetWritesAllowedAsync(CancellationToken ct)
-    {
-        try
-        {
-            await writeGate.AssertPlatformPrimaryAsync(ct);
-            return true;
-        }
-        catch (MigrationWriteRejectedException ex)
-        {
-            logger.LogDebug(ex, "Lease outbox write paused by migration fence");
-            return false;
-        }
     }
 
     private static decimal ComputeCost(RequestLease lease, LeaseCompletion usage, ModelPrice price)

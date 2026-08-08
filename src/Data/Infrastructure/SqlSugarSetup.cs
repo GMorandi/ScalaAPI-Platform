@@ -1,9 +1,9 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using SqlSugar;
-using Sub2Api.Data.Entities;
+using ScalaAPI.Data.Entities;
 
-namespace Sub2Api.Data.Infrastructure;
+namespace ScalaAPI.Data.Infrastructure;
 
 public static class SqlSugarSetup
 {

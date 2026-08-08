@@ -1,6 +1,6 @@
 using System.Collections.Concurrent;
 
-namespace Sub2Api.Host.Services;
+namespace ScalaAPI.Host.Services;
 
 public record ModelPrice(decimal InputPerMillion, decimal OutputPerMillion,
     decimal CacheCreatePerMillion = 0, decimal CacheReadPerMillion = 0,

@@ -1,6 +1,6 @@
-using Sub2Api.Data.Repositories;
+using ScalaAPI.Data.Repositories;
 
-namespace Sub2Api.Admin.Endpoints;
+namespace ScalaAPI.Admin.Endpoints;
 
 public static class UsageEndpoints
 {

@@ -1,7 +1,7 @@
 using SqlSugar;
-using Sub2Api.Data.Entities;
+using ScalaAPI.Data.Entities;
 
-namespace Sub2Api.Data.Repositories;
+namespace ScalaAPI.Data.Repositories;
 
 public class UsageLogRepository : IUsageLogRepository
 {

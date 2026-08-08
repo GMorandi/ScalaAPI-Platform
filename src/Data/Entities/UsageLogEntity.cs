@@ -1,6 +1,6 @@
 using SqlSugar;
 
-namespace Sub2Api.Data.Entities;
+namespace ScalaAPI.Data.Entities;
 
 [SugarTable("usage_logs")]
 public class UsageLogEntity

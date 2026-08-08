@@ -1,8 +1,8 @@
 using Microsoft.Extensions.Configuration;
-using Sub2Api.Host.Services;
+using ScalaAPI.Host.Services;
 using Xunit;
 
-namespace Sub2Api.Host.Tests;
+namespace ScalaAPI.Host.Tests;
 
 public class CredentialProtectorTests
 {

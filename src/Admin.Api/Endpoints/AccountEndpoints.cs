@@ -1,9 +1,9 @@
 using Orleans;
-using Sub2Api.Admin.Data;
-using Sub2Api.Admin.Models;
-using Sub2Api.Grains.Interfaces;
+using ScalaAPI.Admin.Data;
+using ScalaAPI.Admin.Models;
+using ScalaAPI.Grains.Interfaces;
 
-namespace Sub2Api.Admin.Endpoints;
+namespace ScalaAPI.Admin.Endpoints;
 
 public static class AccountEndpoints
 {

@@ -1,8 +1,8 @@
 using Orleans;
 using Orleans.Runtime;
-using Sub2Api.Grains.Interfaces;
+using ScalaAPI.Grains.Interfaces;
 
-namespace Sub2Api.Grains;
+namespace ScalaAPI.Grains;
 
 [GenerateSerializer]
 public class ConfigState

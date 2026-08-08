@@ -1,6 +1,6 @@
 using System.Security.Cryptography;
 
-namespace Sub2Api.Admin.Auth;
+namespace ScalaAPI.Admin.Auth;
 
 public sealed class SecretProtector
 {
