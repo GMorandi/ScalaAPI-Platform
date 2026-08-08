@@ -5,18 +5,18 @@
 | Gate | Result | Interpretation |
 | --- | --- | --- |
 | Gateway build and CTest | Clean local build; 88/88, exit 0 | Includes nested Anthropic start/final usage regression, TCP/TLS client, bounded response replay, malformed-usage/non-SSE guards, terminal usage-outbox retirement, and Garnet invalidation flush recovery |
-| Platform tests | 82/82, exit 0 | 57 grain tests, 22 PostgreSQL-connected Host tests, and 3 Admin webhook verifier tests; includes provider capability policy, deterministic rolling quota precedence/reset, usage-triggered auth invalidation, response replay, immutable price snapshots, expiry recovery, restart-safe outbox claims, and idempotent balance-effect replay |
+| Platform tests | 83/83, exit 0 | 58 grain tests, 22 PostgreSQL-connected Host tests, and 3 Admin webhook verifier tests; includes administrative balance replacement, provider capability policy, deterministic rolling quota precedence/reset, usage-triggered auth invalidation, response replay, immutable price snapshots, expiry recovery, restart-safe outbox claims, and idempotent balance-effect replay |
 | Platform Release build | Passed, 0 warnings and 0 errors | Includes Platform Host, Admin API, migrator, Provider mock, and benchmark assembly |
 | Admin Web | Typecheck and production build passed | Blocking CI gate exists; browser tests are not configured |
 | Scheduler benchmark dry run | 4/4, exit 0; no-match negative probe exits 1 | Dependency injection and child-result propagation pass; not performance evidence |
 | Contract digest | Canonical and Gateway vendor schemas match; fixed-scale pricing round-trip test passed | CI regeneration and generated-artifact comparison remain pending |
-| PostgreSQL migrator | Current image `36bed78a` contains 000-016; two explicit invocations skipped all seventeen recorded migrations, exit 0 | No source database, CDC, or compatibility tables used; a truly empty-volume replay remains a release gate |
-| Current-image Compose smoke | Platform `ce6b59c4`, Admin `6cd45533`, Gateway `cd7013f2`, and Provider mock `dafda23b` are healthy; Admin Web returned 200 on port 13000; migrator exited 0; Gateway usage backlog is 0; seeded protocol/media requests stored active price snapshots and reached terminal state | Isolated project and new volumes; full crash injection remains |
+| PostgreSQL migrator | Repository gate started a brand-new PostgreSQL volume, applied current image `36bed78a` migrations 000-016, then observed all seventeen as `skip` on an explicit second run, exit 0 | No source database, CDC, compatibility table, snapshot, or old key used |
+| Empty-volume Compose gate | `deploy/stack/smoke.sh` passed with Platform `3a21cb70`, Admin `e54d9e20`, Gateway `cd7013f2`, Provider mock `dafda23b`, and unique project/volumes; product APIs configured user/key/group/prices, Chat settlement and exact replay passed, all billing/outbox terminal assertions passed, authenticated Garnet returned PONG, and MinIO bootstrap plus 67-byte signed download passed | Source-owned Docker/Podman gate is reproducible; hosted cross-private-repository CI and full crash injection remain |
 | Garnet smoke | Auth, PING, SET/GET, PX, INCR, DEL passed | Official digest; no Redis or embedded server |
 | Garnet outage/recovery | Platform readiness 503 then 200 | Automatic TCP reconnect verified |
 | Garnet projection rebuild | `discovered=15`, `written=15`, `deleted=0`, `errors=0`; immediate `scalaapi:v1:auth:*` read succeeded; Gateway CTest covers version change and deleted-version flush/recovery | TLS and multi-client assertions remain |
 | Provider mock | Health, OpenAI Chat/Responses/models/embeddings, Anthropic Messages/count-tokens/SSE, Gemini models/generation/SSE, synchronous media, and asynchronous image/video task contracts are source-owned; three-provider seed calls are idempotent; JSON/SSE, malformed-usage `502`, fresh 500/429 exhaustion, and cancellable timeout probes pass; final Anthropic SSE settlement stored 32 input/5 output tokens and `0.00017100` cost | Disconnect coverage, bounded retry assertions for all protocols, real adapters, and golden fixtures remain |
-| Gateway dispatch smoke | Seeded OpenAI Chat, Responses, models, embeddings, synchronous image, and asynchronous image/video requests returned success; independent Anthropic and Gemini groups returned 200 and settled against their own price versions; protocol-native JSON-on-stream injection returned bounded 503, four aborted leases/released holds, zero usage/debits, and no Photon overflow | Full cross-protocol conversion/failure matrix and clean-environment automation remain |
+| Gateway dispatch smoke | Seeded OpenAI Chat, Responses, models, embeddings, synchronous image, and asynchronous image/video requests returned success; independent Anthropic and Gemini groups returned 200 and settled against their own price versions; protocol-native JSON-on-stream injection returned bounded 503, four aborted leases/released holds, zero usage/debits, and no Photon overflow | Full cross-protocol conversion/failure matrix and empty-stack automation for non-Chat protocols remain |
 | Media lifecycle smoke | Image and video create calls returned durable `med_*` IDs; Platform polling copied provider bytes to MinIO, persisted `object_status=stored`, object key/ETag/size, and returned one-hour SigV4 URLs that downloaded `image/png` or `video/mp4`; batch `delete_outputs` returned 200, removed the object (old URL 404), cleared metadata, and terminal operation delete returned 204; a signature failure remained retryable without settlement | Object-vs-database reconcile/restore, cancel/failure/restart, and batch create coverage remain |
 | Billable settlement smoke | JSON and SSE completed; durable hold committed; usage outbox processed; one NUMERIC ledger debit per lease; a restart retired five non-retryable terminal reports once and exposed backlog 0 instead of permanently blocking the Gateway outbox | Full crash/restart, disconnect, and clean-seed automation remain |
 | Request idempotency smoke | Concurrent same-key calls produced one 200 and one active-lease 409; after settlement a matching retry returned the original 200 body with `Cache-Control: no-store`; different fingerprint produced 409 conflict; one lease/usage/debit/hold per key | Crash recovery before lease expiry, streaming replay semantics, and full runtime expiry reconciliation remain |
@@ -37,9 +37,10 @@
 
 1. Generate the C# contract from the canonical schemas in CI and compare generated
    artifacts, not only schema digests.
-2. Automate the complete versioned Compose smoke from empty volumes, including
-   current image IDs, object-storage bucket/permission checks, and a second explicit
-   migrator invocation through migration 016.
+2. Run the checked-in empty-volume Compose gate in hosted CI and record current image
+   IDs and checksums. The two private repositories require a dedicated read token or
+   an independent release repository; the default per-repository `GITHUB_TOKEN`
+   cannot check out its sibling.
 3. Verify Garnet TLS, cache flush, stale-version recovery, restart, and concurrent
    Gateway/Platform clients. No Redis process, package, image, CLI, or embedded
    fallback may appear in the stack.

@@ -3,7 +3,7 @@
 | Risk | Severity | Current state | Required control |
 | --- | --- | --- | --- |
 | Lease, hold, or ledger double settlement | P0 | Partial | Lease creation persists an active hold; completion/abort/expiry and NUMERIC debit are transactionally idempotent; settlement claims recover after restart, and Gateway retires non-retryable terminal usage records while preserving retryable transport failures; Admin reconciliation detects missing/orphan debits and a clean seeded run passes; automate historical repair/backfill and add crash injection/replay tests |
-| PostgreSQL and Orleans authority split | P0 | Partial | Product `entity_registry` now owns business discovery; add full PostgreSQL aggregate repositories and accounting authority, with no Orleans storage introspection |
+| PostgreSQL and Orleans authority split | P0 | Partial | Product `entity_registry` now owns business discovery and administrative replacement correctly applies the documented balance, but funding still mutates Orleans without a matching ledger effect; move all balance changes behind idempotent PostgreSQL effects and add full aggregate repositories, with no Orleans storage introspection |
 | Redis or embedded cache reintroduced | P0 | Controlled | Official Garnet digest, external TCP probe, dependency scan, no fallback implementation |
 | Garnet outage or stale projections | P0 | Partial | Fail-closed readiness, authenticated `scalaapi:v1` rebuild, Gateway deleted-version flush recovery, and usage-triggered API-key invalidation pass; add TLS, multi-client, and deployment restart tests |
 | Credential disclosure or weak rotation | P0 | Partial | Envelope encryption, redacted logs/API responses, rotation drill, security scan |
@@ -18,5 +18,6 @@
 | Session and auth abuse | P1 | Partial | Hashed rotating sessions, self-service password/profile/delete flows, and revocation checks are implemented; add replay/concurrency tests, API-key revocation/retention assertions, TOTP hardening, Passkey controls, and distributed limits |
 | Benchmark or test false positive | P1 | Controlled | Child-report validation and non-zero propagation are implemented; retain CI failure tests |
 | Contract source or generated artifact drift | P1 | Partial | Schema digests match; add deterministic C# generation and generated-output comparison |
+| Cross-repository release gate silently skipped | P1 | Open | The source-owned empty-volume Docker/Podman gate passes locally; provision a read-only private Gateway checkout token or a dedicated release repository, then make the exact script blocking in hosted CI |
 | Observability gaps | P1 | Open | Structured audit, metrics, traces, alerts, and dashboard smoke tests |
 | Backup, restore, or rolling release regression | P1 | Open | Signed artifacts, measured RPO/RTO, rollback and recovery drills |

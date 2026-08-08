@@ -12,7 +12,7 @@ This does not close the product rewrite. The next stage is one authoritative,
 billable OpenAI Chat Completions vertical slice. Work outside that slice stays
 `partial`, `skeleton`, or `missing` in the inventory.
 
-## Progress checkpoint (2026-08-08, platform `e66ee8c`, gateway `60f99a0`)
+## Progress checkpoint (2026-08-08, platform `80cdad4`, gateway `60f99a0`)
 
 - Completed in `b266e17`: business balances, quotas, costs, limits, and routing
   multipliers use `decimal`; precision projections cover User, Group, and API key.
@@ -172,10 +172,39 @@ billable OpenAI Chat Completions vertical slice. Work outside that slice stays
   regression raises Gateway CTest to 88 cases. Current image `cd7013f2` settled
   one Anthropic SSE request with 32 input tokens, 5 output tokens, immutable price
   version `stage2-anthropic-v1`, and NUMERIC cost `0.00017100`.
+- Completed in `3493d0d`: administrative user replacement now applies the balance
+  already present in its public request contract. The new Grain scenario covers a
+  zero-balance registration followed by initial funding and routing configuration;
+  the full Platform suite is now 83/83.
+- Completed in `80cdad4`: `deploy/stack/smoke.sh` is the source-owned greenfield
+  gate for Docker and Podman. A unique empty project applied migrations 000-016,
+  skipped all seventeen on the second migrator run, configured only through new
+  product APIs, settled and replayed Chat exactly once, authenticated against
+  Garnet, initialized an empty MinIO bucket, stored an asynchronous image, and
+  downloaded 67 signed bytes before scoped cleanup.
 - Still open: PostgreSQL aggregate repositories/foreign keys, fixed-precision RPC
   schema generation, crash/restart settlement scenarios, full provider failure matrix,
-  object-store deletion/reconciliation/restore, empty-volume CI automation, and Garnet
-  flush/stale-version/TLS/multi-client evidence.
+  object-store reconciliation/restore, hosted execution of the cross-repository
+  empty-volume gate, and Garnet TLS/multi-client evidence.
+
+## Next execution order
+
+1. Add deterministic Cap'n Proto C# generation/output comparison within Platform
+   CI; this is single-repository and closes contract drift without cross-repo access.
+2. Extend the Compose gate with explicit 429, 500, timeout, malformed usage,
+   client-disconnect, Gateway restart, and Platform restart scenarios. Each must
+   assert terminal leases, released/committed holds, outbox drain, and exact debit
+   cardinality.
+3. Add protocol golden fixtures for OpenAI Chat/Responses, Anthropic Messages, and
+   Gemini JSON/SSE paths, including retry and provider-error mappings.
+4. Add a two-Gateway Garnet test with flush/stale-version recovery and authenticated
+   TLS. Garnet remains projection-only and must fail closed.
+5. Move administrative funding and all remaining balance mutations behind
+   idempotent PostgreSQL ledger effects, then add aggregate repositories and foreign
+   keys so accounting authority is no longer split across Orleans state and SQL.
+6. Execute the source-owned gate in hosted CI after provisioning a read-only sibling
+   repository credential or creating a dedicated release repository. A skipped or
+   optional cross-repository job is not an acceptable release gate.
 
 ## Stage 2 objective
 
@@ -291,8 +320,10 @@ Depends on: lease/hold/idempotency state machines and provider seed. Exit: every
 
 ### 7. Automated acceptance and operations
 
-- Run the versioned Compose stack in CI from empty volumes and capture image digests,
-  migration checksums, health results, and scenario exit codes.
+- Keep the completed source-owned empty-volume Compose gate blocking locally; run it
+  in hosted CI once the private sibling-repository checkout boundary is provisioned,
+  and capture image digests, migration checksums, health results, and scenario exit
+  codes.
 - Add structured correlation for request, lease, idempotency, account, and settlement
   IDs without logging credentials or API keys.
 - Make every scenario and benchmark report failure through the top-level process.
@@ -311,8 +342,9 @@ happy path but must pass the crash/reconciliation controls in 6 before the slice
 treated as billable. Package 5 follows repository work and runs before final
 acceptance.
 
-The stage exits only when all acceptance scenarios run against current-source images
-from an empty database. Route presence, mock-only success, or compatibility with
+The happy-path stage now runs against current-source images from an empty database.
+The stage exits only when the remaining failure/restart scenarios run through that
+same gate in hosted CI. Route presence, mock-only success, or compatibility with
 Sub2API behavior and data are not acceptance criteria.
 
 ## Later stages

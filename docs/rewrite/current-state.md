@@ -10,18 +10,18 @@ release artifacts.
 | Repository | Commit | Worktree | Responsibility |
 | --- | --- | --- | --- |
 | `gateway` | `60f99a0` | clean | C++ HTTP/WebSocket edge, protocol conversion, chunked streaming, Provider transport, versioned Garnet client, malformed-usage and non-SSE guards, Anthropic/Gemini stream usage extraction, fixed-scale Cap'n Proto client, unique failover lease IDs, bounded non-stream upstream timeout, bounded response replay, terminal usage-outbox retirement, invalidation flush recovery |
-| `platform` | `e66ee8c` | clean | C# Orleans control plane, PostgreSQL persistence, leases, NUMERIC ledger, durable holds/idempotency, usage, media lifecycle, Admin API, signed payment webhooks with pending-event recovery, versioned Admin pricing lifecycle with live Host refresh, idempotent subscription purchase/renewal/cancellation/expiry, versioned Garnet rebuild, replayable balance effects, fixed-scale RPC contract, retryable terminal idempotency leases, bounded response persistence/replay, password recovery, email verification, self-service profile/password/account deletion, idempotent multi-provider seed and deterministic Provider mock with native Anthropic/Gemini contracts, protocol-native fault injection, and pollable media tasks, S3-compatible media ownership with SigV4 presigned access and deletion, restart-safe settlement outbox recovery, immutable lease price snapshots, durable ledger reconciliation endpoint, deterministic rolling quota policy, usage-triggered auth invalidation |
+| `platform` | `80cdad4` | clean | C# Orleans control plane, PostgreSQL persistence, leases, NUMERIC ledger, durable holds/idempotency, usage, media lifecycle, Admin API, signed payment webhooks with pending-event recovery, versioned Admin pricing lifecycle with live Host refresh, idempotent subscription purchase/renewal/cancellation/expiry, versioned Garnet rebuild, replayable balance effects, fixed-scale RPC contract, retryable terminal idempotency leases, bounded response persistence/replay, password recovery, email verification, self-service profile/password/account deletion, administrative user balance replacement, idempotent multi-provider seed and deterministic Provider mock with native Anthropic/Gemini contracts, protocol-native fault injection, pollable media tasks, S3-compatible media ownership with SigV4 presigned access and deletion, restart-safe settlement outbox recovery, immutable lease price snapshots, durable ledger reconciliation endpoint, deterministic rolling quota policy, usage-triggered auth invalidation, and an isolated empty-volume Compose gate |
 | `sub2api` | `43ec48d` | read-only clean reference | Functional requirements catalogue only |
 
 The current source inventory is 50 tracked Gateway source files, 88 CTest cases,
 69 hand-written Platform production C# files plus 3 generated Cap'n Proto files,
-19 tracked Platform test/benchmark C# source files, 82 Platform test cases, 112 direct
+19 tracked Platform test/benchmark C# source files, 83 Platform test cases, 112 direct
 Admin API route declarations, 34 product tables, 20 SQLSugar entity types, and 24
 Admin Web application source files with 11 page views. Admin Web has no browser test
 runner yet.
 
-The active 58-domain product inventory contains 1 `implemented`, 37 `partial`,
-10 `skeleton`, and 10 `missing` rows. Mock/runtime evidence advances acceptance
+The active 58-domain product inventory contains 2 `implemented`, 37 `partial`,
+10 `skeleton`, and 9 `missing` rows. Mock/runtime evidence advances acceptance
 criteria but does not promote a domain without its full contract and automated gates.
 
 The reference inventory is 612 route registration calls, 39 concrete Ent schemas,
@@ -48,6 +48,10 @@ not implementation parity or a migration target.
 - New user registration and OAuth identity creation read back the PostgreSQL
   identity before creating the Orleans aggregate and registry entry; new users
   no longer alias to id 0.
+- Administrative user replacement applies its documented non-negative balance as
+  well as role, concurrency, RPM, and allowed-group configuration. A Grain test and
+  the empty-volume vertical cover a newly registered zero-balance user receiving
+  its initial balance before dispatch.
 - Password recovery uses a product-owned single-use token table. Only SHA-256
   token hashes are stored, outstanding tokens are invalidated per user, tokens
   expire after 15 minutes, and successful confirmation revokes all active sessions.
@@ -155,6 +159,12 @@ not implementation parity or a migration target.
   schema digests.
 - `deploy/stack` is the versioned empty-environment launcher. PostgreSQL, Garnet,
   MinIO, and the health helper are pinned by image digest.
+- `deploy/stack/smoke.sh` owns the greenfield acceptance entry point. It creates a
+  unique Compose project and empty volumes, configures only new-product APIs, checks
+  all seventeen migrations plus a second idempotent run, authenticates Garnet,
+  proves Chat settlement/replay and every terminal billing invariant, bootstraps the
+  object bucket through an asynchronous image, verifies the signed download, and
+  removes only its project on exit.
 
 ## Known gaps
 
@@ -167,9 +177,11 @@ not implementation parity or a migration target.
 - The fixed-scale Cap'n Proto schema and checked-in C# artifacts are current, but
   CI must still regenerate the C# output from the canonical schema and compare it
   before declaring contract generation complete.
-- Full empty-environment migration replay from an actually empty volume is still a
-  release gate; the current isolated database has migrations 000-016 and a second
-  migrator invocation skipped all seventeen recorded migrations.
+- The source-owned empty-volume replay now passes locally with migrations 000-016,
+  a second migrator invocation skipping all seventeen records, product-API setup,
+  and object-bucket bootstrap. Running the same cross-repository gate in hosted CI
+  still requires a read credential for the private sibling Gateway repository or a
+  dedicated release repository.
 - Session concurrent-rotation HTTP tests, crash injection, and API-key policy tests
   remain pending even though replay/logout, rotation, and revoke paths have runtime
   evidence.
@@ -192,6 +204,22 @@ not implementation parity or a migration target.
 - Admin Web typecheck/build is now a blocking CI step, but browser coverage is absent.
 
 ## Current runtime evidence
+
+The repository-owned gate ran on 2026-08-08 as isolated project
+`scalaapi-smoke-local2` from brand-new PostgreSQL, Garnet, object, socket, and
+Gateway volumes. Current source built Platform image `3a21cb706f51`, Admin API
+`e54d9e20aa98`, Gateway `cd7013f26f4e`, Provider mock `dafda23b69cc`, migrator
+`36bed78a5fc9`, and Admin Web `c9b504b5b323`. All seventeen migrations applied and
+the explicit second migrator run skipped all seventeen. Product APIs registered a
+new user, applied its initial decimal balance and routing configuration, created an
+API key, seeded three provider groups, and published active Chat and media prices.
+The Chat request completed with the smoke price version, one committed hold, one
+usage event/log, one exactly matching NUMERIC debit, zero active leases/holds, and
+both Platform and Gateway outboxes at zero. An exact idempotency replay returned the
+same normalized response without a second idempotency row or charge. An asynchronous
+image then initialized the empty MinIO bucket, reached `object_status=stored`, and
+its presigned URL downloaded 67 bytes. Authenticated raw RESP returned `PONG`. The
+script exited zero and removed only the isolated project and its volumes.
 
 On 2026-08-08 the isolated `scalaapi-stage2` project used current-source images:
 Platform `ce6b59c4c5049410f00d9551baa62d7a3d5b7066cd1a097f084b8f05ce568c5c`,
@@ -354,5 +382,5 @@ database, the current images, and the external Garnet service.
 A feature is `implemented` only when its API or state-machine contract, automated
 tests, and current-source runtime evidence all exist. Route registration, a table,
 or a placeholder response alone is not implementation evidence. The current Chat
-slice remains `partial` until golden fixtures, failure scenarios, and clean-
-environment automation are checked in.
+slice remains `partial` until golden fixtures and the full failure/restart matrix
+run through the checked-in empty-environment gate.
