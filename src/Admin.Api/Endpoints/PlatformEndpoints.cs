@@ -14,6 +14,9 @@ using ScalaAPI.Grains.Interfaces;
 
 namespace ScalaAPI.Admin.Endpoints;
 
+public record SubscriptionPurchaseRequest(long PlanId, string? ExternalReference, bool AutoRenew = true);
+public record SubscriptionRenewRequest(bool AutoRenew = true);
+
 public static class PlatformEndpoints
 {
     public static void MapPlatformEndpoints(this WebApplication app)
@@ -305,6 +308,7 @@ public static class PlatformEndpoints
     private static void MapSubscriptions(WebApplication app)
     {
         var admin = app.MapGroup("/admin/subscriptions").RequireAuthorization("AdminOnly");
+        var user = app.MapGroup("/user/subscriptions").RequireAuthorization("UserOnly");
 
         admin.MapGet("/plans", async (ISqlSugarClient db) =>
         {
@@ -314,7 +318,13 @@ public static class PlatformEndpoints
 
         admin.MapPost("/plans", async (SubscriptionPlanEntity req, ISqlSugarClient db) =>
         {
+            if (string.IsNullOrWhiteSpace(req.Name) || req.PriceMonthly < 0 || req.QuotaUsd < 0)
+                return Results.BadRequest(new { error = "Invalid subscription plan" });
             await db.Insertable(req).ExecuteCommandAsync();
+            req.Id = Convert.ToInt64(await db.Ado.GetScalarAsync(
+                "SELECT id FROM subscription_plans WHERE name = @name AND price_monthly = @price ORDER BY id DESC LIMIT 1",
+                new SugarParameter("@name", req.Name),
+                new SugarParameter("@price", req.PriceMonthly)));
             return Results.Ok(new { id = req.Id });
         });
 
@@ -326,6 +336,236 @@ public static class PlatformEndpoints
                 .Skip((page - 1) * size).Take(size).ToListAsync();
             return Results.Ok(new { items });
         });
+
+        user.MapGet("/", async (ClaimsPrincipal principal, NpgsqlDataSource dataSource,
+            CancellationToken ct) =>
+        {
+            await using var connection = await dataSource.OpenConnectionAsync(ct);
+            var userId = await FindUserIdAsync(connection, principal.Identity?.Name, ct);
+            if (userId is null) return Results.Unauthorized();
+            await ExpireSubscriptionsAsync(connection, userId.Value, ct);
+            var items = await ReadSubscriptionsAsync(connection, userId.Value, ct);
+            return Results.Ok(new { items });
+        });
+
+        user.MapPost("/", async (ClaimsPrincipal principal, SubscriptionPurchaseRequest req,
+            NpgsqlDataSource dataSource, HttpRequest http, CancellationToken ct) =>
+        {
+            if (req.PlanId <= 0) return Results.BadRequest(new { error = "PlanId is required" });
+            var idempotencyKey = http.Headers["Idempotency-Key"].FirstOrDefault();
+            if (string.IsNullOrWhiteSpace(idempotencyKey) || idempotencyKey.Length > 200)
+                return Results.BadRequest(new { error = "Idempotency-Key is required" });
+
+            await using var connection = await dataSource.OpenConnectionAsync(ct);
+            var userId = await FindUserIdAsync(connection, principal.Identity?.Name, ct);
+            if (userId is null) return Results.Unauthorized();
+            await using var transaction = await connection.BeginTransactionAsync(ct);
+            await ExpireSubscriptionsAsync(connection, userId.Value, ct, transaction);
+
+            var existingId = await ScalarLongAsync(connection, transaction,
+                "SELECT id FROM user_subscriptions WHERE user_id = $1 AND idempotency_key = $2 FOR UPDATE",
+                ct, userId.Value, idempotencyKey);
+            if (existingId is not null)
+            {
+                await transaction.CommitAsync(ct);
+                return Results.Ok(new { id = existingId.Value, duplicate = true, status = "active" });
+            }
+
+            var activeId = await ScalarLongAsync(connection, transaction,
+                "SELECT id FROM user_subscriptions WHERE user_id = $1 AND status = 'active' FOR UPDATE",
+                ct, userId.Value);
+            if (activeId is not null)
+                return Results.Conflict(new { error = "An active subscription already exists", id = activeId.Value });
+
+            await using var plan = connection.CreateCommand();
+            plan.Transaction = transaction;
+            plan.CommandText = "SELECT quota_usd FROM subscription_plans WHERE id = $1 AND status = 'active' FOR SHARE";
+            plan.Parameters.AddWithValue(req.PlanId);
+            var quota = await plan.ExecuteScalarAsync(ct);
+            if (quota is null || quota is DBNull)
+                return Results.NotFound(new { error = "Subscription plan not found" });
+
+            await using var insert = connection.CreateCommand();
+            insert.Transaction = transaction;
+            insert.CommandText = """
+                INSERT INTO user_subscriptions
+                    (user_id, plan_id, status, started_at, expires_at, renewal_at,
+                     provider, external_reference, idempotency_key, quota_granted_usd)
+                VALUES ($1, $2, 'active', now(), now() + interval '30 days',
+                        CASE WHEN $3 THEN now() + interval '30 days' ELSE NULL END,
+                        'internal', $4, $5, $6)
+                RETURNING id
+                """;
+            insert.Parameters.AddWithValue(userId.Value);
+            insert.Parameters.AddWithValue(req.PlanId);
+            insert.Parameters.AddWithValue(req.AutoRenew);
+            insert.Parameters.AddWithValue((object?)req.ExternalReference ?? DBNull.Value);
+            insert.Parameters.AddWithValue(idempotencyKey);
+            insert.Parameters.AddWithValue((decimal)quota);
+            var subscriptionId = Convert.ToInt64(await insert.ExecuteScalarAsync(ct));
+            await InsertSubscriptionEventAsync(connection, transaction, subscriptionId, userId.Value,
+                "purchased", idempotencyKey, ct);
+            await transaction.CommitAsync(ct);
+            return Results.Created($"/user/subscriptions/{subscriptionId}",
+                new { id = subscriptionId, status = "active", duplicate = false });
+        });
+
+        user.MapPost("/{id:long}/renew", async (long id, ClaimsPrincipal principal,
+            SubscriptionRenewRequest req, NpgsqlDataSource dataSource, HttpRequest http,
+            CancellationToken ct) =>
+        {
+            var idempotencyKey = http.Headers["Idempotency-Key"].FirstOrDefault();
+            if (string.IsNullOrWhiteSpace(idempotencyKey) || idempotencyKey.Length > 200)
+                return Results.BadRequest(new { error = "Idempotency-Key is required" });
+            await using var connection = await dataSource.OpenConnectionAsync(ct);
+            var userId = await FindUserIdAsync(connection, principal.Identity?.Name, ct);
+            if (userId is null) return Results.Unauthorized();
+            await using var transaction = await connection.BeginTransactionAsync(ct);
+            var eventExists = await ScalarLongAsync(connection, transaction,
+                "SELECT id FROM subscription_events WHERE user_id = $1 AND event_type = 'renewed' AND idempotency_key = $2 FOR UPDATE",
+                ct, userId.Value, idempotencyKey);
+            if (eventExists is not null)
+            {
+                await transaction.CommitAsync(ct);
+                return Results.Ok(new { id, duplicate = true, status = "active" });
+            }
+            await using var update = connection.CreateCommand();
+            update.Transaction = transaction;
+            update.CommandText = """
+                UPDATE user_subscriptions
+                SET status = 'active', cancelled_at = NULL,
+                    expires_at = GREATEST(COALESCE(expires_at, now()), now()) + interval '30 days',
+                    renewal_at = CASE WHEN $1 THEN GREATEST(COALESCE(expires_at, now()), now()) + interval '30 days' ELSE NULL END
+                WHERE id = $2 AND user_id = $3 AND status IN ('active', 'cancelled', 'expired', 'past_due')
+                RETURNING id
+                """;
+            update.Parameters.AddWithValue(req.AutoRenew);
+            update.Parameters.AddWithValue(id);
+            update.Parameters.AddWithValue(userId.Value);
+            var renewedId = await update.ExecuteScalarAsync(ct);
+            if (renewedId is null)
+                return Results.NotFound(new { error = "Subscription not found" });
+            await InsertSubscriptionEventAsync(connection, transaction, id, userId.Value,
+                "renewed", idempotencyKey, ct);
+            await transaction.CommitAsync(ct);
+            return Results.Ok(new { id, status = "active", duplicate = false });
+        });
+
+        user.MapPost("/{id:long}/cancel", async (long id, ClaimsPrincipal principal,
+            NpgsqlDataSource dataSource, HttpRequest http, CancellationToken ct) =>
+        {
+            var idempotencyKey = http.Headers["Idempotency-Key"].FirstOrDefault();
+            if (string.IsNullOrWhiteSpace(idempotencyKey) || idempotencyKey.Length > 200)
+                return Results.BadRequest(new { error = "Idempotency-Key is required" });
+            await using var connection = await dataSource.OpenConnectionAsync(ct);
+            var userId = await FindUserIdAsync(connection, principal.Identity?.Name, ct);
+            if (userId is null) return Results.Unauthorized();
+            await using var transaction = await connection.BeginTransactionAsync(ct);
+            var eventExists = await ScalarLongAsync(connection, transaction,
+                "SELECT id FROM subscription_events WHERE user_id = $1 AND event_type = 'cancelled' AND idempotency_key = $2 FOR UPDATE",
+                ct, userId.Value, idempotencyKey);
+            if (eventExists is not null)
+            {
+                await transaction.CommitAsync(ct);
+                return Results.Ok(new { id, duplicate = true, status = "cancelled" });
+            }
+            await using var update = connection.CreateCommand();
+            update.Transaction = transaction;
+            update.CommandText = """
+                UPDATE user_subscriptions SET status = 'cancelled', cancelled_at = now(), renewal_at = NULL
+                WHERE id = $1 AND user_id = $2 AND status = 'active' RETURNING id
+                """;
+            update.Parameters.AddWithValue(id);
+            update.Parameters.AddWithValue(userId.Value);
+            var cancelledId = await update.ExecuteScalarAsync(ct);
+            if (cancelledId is null)
+                return Results.NotFound(new { error = "Active subscription not found" });
+            await InsertSubscriptionEventAsync(connection, transaction, id, userId.Value,
+                "cancelled", idempotencyKey, ct);
+            await transaction.CommitAsync(ct);
+            return Results.Ok(new { id, status = "cancelled", duplicate = false });
+        });
+    }
+
+    private static async Task<long?> FindUserIdAsync(NpgsqlConnection connection, string? email,
+        CancellationToken ct, NpgsqlTransaction? transaction = null)
+    {
+        if (string.IsNullOrWhiteSpace(email)) return null;
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = "SELECT id FROM user_accounts WHERE email = $1 AND status = 'active'";
+        command.Parameters.AddWithValue(email.Trim().ToLowerInvariant());
+        var value = await command.ExecuteScalarAsync(ct);
+        return value is null or DBNull ? null : Convert.ToInt64(value);
+    }
+
+    private static async Task ExpireSubscriptionsAsync(NpgsqlConnection connection, long userId,
+        CancellationToken ct, NpgsqlTransaction? transaction = null)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = "UPDATE user_subscriptions SET status = 'expired' WHERE user_id = $1 AND status = 'active' AND expires_at IS NOT NULL AND expires_at <= now()";
+        command.Parameters.AddWithValue(userId);
+        await command.ExecuteNonQueryAsync(ct);
+    }
+
+    private static async Task<long?> ScalarLongAsync(NpgsqlConnection connection,
+        NpgsqlTransaction transaction, string sql, CancellationToken ct, params object[] values)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = sql;
+        foreach (var value in values) command.Parameters.AddWithValue(value);
+        var result = await command.ExecuteScalarAsync(ct);
+        return result is null or DBNull ? null : Convert.ToInt64(result);
+    }
+
+    private static async Task InsertSubscriptionEventAsync(NpgsqlConnection connection,
+        NpgsqlTransaction transaction, long subscriptionId, long userId, string eventType,
+        string idempotencyKey, CancellationToken ct)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            INSERT INTO subscription_events(subscription_id, user_id, event_type, idempotency_key)
+            VALUES ($1, $2, $3, $4)
+            ON CONFLICT (user_id, event_type, idempotency_key) DO NOTHING
+            """;
+        command.Parameters.AddWithValue(subscriptionId);
+        command.Parameters.AddWithValue(userId);
+        command.Parameters.AddWithValue(eventType);
+        command.Parameters.AddWithValue(idempotencyKey);
+        await command.ExecuteNonQueryAsync(ct);
+    }
+
+    private static async Task<List<object>> ReadSubscriptionsAsync(NpgsqlConnection connection,
+        long userId, CancellationToken ct)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT s.id, s.plan_id, p.name, p.price_monthly, p.quota_usd, s.status,
+                   s.started_at, s.expires_at, s.renewal_at, s.cancelled_at,
+                   s.quota_granted_usd, s.quota_used_usd
+            FROM user_subscriptions s JOIN subscription_plans p ON p.id = s.plan_id
+            WHERE s.user_id = $1 ORDER BY s.started_at DESC
+            """;
+        command.Parameters.AddWithValue(userId);
+        await using var reader = await command.ExecuteReaderAsync(ct);
+        var items = new List<object>();
+        while (await reader.ReadAsync(ct))
+        {
+            items.Add(new
+            {
+                id = reader.GetInt64(0), planId = reader.GetInt64(1), name = reader.GetString(2),
+                priceMonthly = reader.GetDecimal(3), quotaUsd = reader.GetDecimal(4),
+                status = reader.GetString(5), startedAt = reader.GetFieldValue<DateTime>(6),
+                expiresAt = reader.IsDBNull(7) ? (DateTime?)null : reader.GetFieldValue<DateTime>(7),
+                renewalAt = reader.IsDBNull(8) ? (DateTime?)null : reader.GetFieldValue<DateTime>(8),
+                cancelledAt = reader.IsDBNull(9) ? (DateTime?)null : reader.GetFieldValue<DateTime>(9),
+                quotaGrantedUsd = reader.GetDecimal(10), quotaUsedUsd = reader.GetDecimal(11),
+            });
+        }
+        return items;
     }
 
     private static void MapRedeemCodes(WebApplication app)
