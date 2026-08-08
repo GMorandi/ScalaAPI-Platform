@@ -431,7 +431,7 @@ public static class PlatformEndpoints
                 ledger.CommandText = """
                     INSERT INTO balance_ledger(user_id, reference, amount, entry_type)
                     VALUES ($1, $2, $3, 'redeem_bonus')
-                    ON CONFLICT (reference, entry_type) DO NOTHING
+                    ON CONFLICT (reference, entry_type) WHERE reference IS NOT NULL DO NOTHING
                     """;
                 ledger.Parameters.AddWithValue(user.Id);
                 ledger.Parameters.AddWithValue($"redeem:{codeId}:{user.Id}");
