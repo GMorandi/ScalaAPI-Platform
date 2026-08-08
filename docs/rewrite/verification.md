@@ -4,21 +4,21 @@
 
 | Gate | Result | Interpretation |
 | --- | --- | --- |
-| Gateway build and CTest | Clean local build; 87/87, exit 0 | Current TCP/TLS client, bounded response replay, malformed-usage guard, and Garnet invalidation flush recovery included |
+| Gateway build and CTest | Clean local build; 88/88, exit 0 | Includes nested Anthropic start/final usage regression, TCP/TLS client, bounded response replay, malformed-usage/non-SSE guards, terminal usage-outbox retirement, and Garnet invalidation flush recovery |
 | Platform tests | 82/82, exit 0 | 57 grain tests, 22 PostgreSQL-connected Host tests, and 3 Admin webhook verifier tests; includes provider capability policy, deterministic rolling quota precedence/reset, usage-triggered auth invalidation, response replay, immutable price snapshots, expiry recovery, restart-safe outbox claims, and idempotent balance-effect replay |
 | Platform Release build | Passed, 0 warnings and 0 errors | Includes Platform Host, Admin API, migrator, Provider mock, and benchmark assembly |
 | Admin Web | Typecheck and production build passed | Blocking CI gate exists; browser tests are not configured |
 | Scheduler benchmark dry run | 4/4, exit 0; no-match negative probe exits 1 | Dependency injection and child-result propagation pass; not performance evidence |
 | Contract digest | Canonical and Gateway vendor schemas match; fixed-scale pricing round-trip test passed | CI regeneration and generated-artifact comparison remain pending |
-| PostgreSQL migrator | Current image contains 000-016; repeated invocation skipped all seventeen recorded migrations, exit 0 | No source database, CDC, or compatibility tables used; a truly empty-volume replay remains a release gate |
-| Current-image Compose smoke | All long-running services healthy; migrator exit 0; Platform Silo image `a2bb71d5` and Gateway image `4099c8aa` returned readiness 200, and PostgreSQL showed zero pending/dead-lettered outbox rows and zero active holds; seeded protocol/media requests stored active price snapshots and reached terminal state | Isolated project and new volumes; full crash injection remains |
+| PostgreSQL migrator | Current image `36bed78a` contains 000-016; two explicit invocations skipped all seventeen recorded migrations, exit 0 | No source database, CDC, or compatibility tables used; a truly empty-volume replay remains a release gate |
+| Current-image Compose smoke | Platform `ce6b59c4`, Admin `6cd45533`, Gateway `cd7013f2`, and Provider mock `dafda23b` are healthy; Admin Web returned 200 on port 13000; migrator exited 0; Gateway usage backlog is 0; seeded protocol/media requests stored active price snapshots and reached terminal state | Isolated project and new volumes; full crash injection remains |
 | Garnet smoke | Auth, PING, SET/GET, PX, INCR, DEL passed | Official digest; no Redis or embedded server |
 | Garnet outage/recovery | Platform readiness 503 then 200 | Automatic TCP reconnect verified |
 | Garnet projection rebuild | `discovered=15`, `written=15`, `deleted=0`, `errors=0`; immediate `scalaapi:v1:auth:*` read succeeded; Gateway CTest covers version change and deleted-version flush/recovery | TLS and multi-client assertions remain |
-| Provider mock | Health, OpenAI Chat/Responses/models/embeddings, Anthropic Messages/count-tokens, Gemini models/generation, synchronous media, and asynchronous image/video task contracts are source-owned; JSON/SSE, malformed-usage `502`, fresh 500/429 exhaustion, and cancellable timeout probes pass | Independent Anthropic/Gemini provider-group E2E, disconnect coverage, bounded retry assertions for both protocols, and adapter golden scenarios remain |
-| Gateway dispatch smoke | Current Gateway image `4099c8aa` readiness 200; seeded OpenAI Chat, Responses, models, embeddings, synchronous image, and asynchronous image/video requests returned success through Provider mock | Cross-protocol provider groups, failure/retry matrix, and clean-environment automation remain |
+| Provider mock | Health, OpenAI Chat/Responses/models/embeddings, Anthropic Messages/count-tokens/SSE, Gemini models/generation/SSE, synchronous media, and asynchronous image/video task contracts are source-owned; three-provider seed calls are idempotent; JSON/SSE, malformed-usage `502`, fresh 500/429 exhaustion, and cancellable timeout probes pass; final Anthropic SSE settlement stored 32 input/5 output tokens and `0.00017100` cost | Disconnect coverage, bounded retry assertions for all protocols, real adapters, and golden fixtures remain |
+| Gateway dispatch smoke | Seeded OpenAI Chat, Responses, models, embeddings, synchronous image, and asynchronous image/video requests returned success; independent Anthropic and Gemini groups returned 200 and settled against their own price versions; protocol-native JSON-on-stream injection returned bounded 503, four aborted leases/released holds, zero usage/debits, and no Photon overflow | Full cross-protocol conversion/failure matrix and clean-environment automation remain |
 | Media lifecycle smoke | Image and video create calls returned durable `med_*` IDs; Platform polling copied provider bytes to MinIO, persisted `object_status=stored`, object key/ETag/size, and returned one-hour SigV4 URLs that downloaded `image/png` or `video/mp4`; batch `delete_outputs` returned 200, removed the object (old URL 404), cleared metadata, and terminal operation delete returned 204; a signature failure remained retryable without settlement | Object-vs-database reconcile/restore, cancel/failure/restart, and batch create coverage remain |
-| Billable settlement smoke | JSON and SSE completed; durable hold committed; usage outbox processed; one NUMERIC ledger debit per lease | Full crash/restart, disconnect, and clean-seed automation remain |
+| Billable settlement smoke | JSON and SSE completed; durable hold committed; usage outbox processed; one NUMERIC ledger debit per lease; a restart retired five non-retryable terminal reports once and exposed backlog 0 instead of permanently blocking the Gateway outbox | Full crash/restart, disconnect, and clean-seed automation remain |
 | Request idempotency smoke | Concurrent same-key calls produced one 200 and one active-lease 409; after settlement a matching retry returned the original 200 body with `Cache-Control: no-store`; different fingerprint produced 409 conflict; one lease/usage/debit/hold per key | Crash recovery before lease expiry, streaming replay semantics, and full runtime expiry reconciliation remain |
 | Price snapshot smoke | Lease persisted `runtime-v1` and NUMERIC input/output rates; changing the in-memory price to `runtime-v2` before completion left the original cost unchanged; Admin published/closed a version, rebuilt Platform loaded `stage2-live-1786199990`, and mock embedding/image/video leases stored their active database versions and NUMERIC rates | Media-unit pricing, historical backfill, and provider price adapters remain |
 | Quota projection coherence | A low-quota key completed one current-image request; after settlement and projection rebuild, the next request returned `401 authentication_error` with `Quota exhausted` instead of using a stale Gateway auth cache | Subscription entitlements, grant lifecycle, and distributed concurrent reservation remain |
@@ -48,9 +48,10 @@
    process restart, durable hold reconciliation, and settlement. The host-level
    outbox test now proves stale claims and old dead-letter rows are recoverable;
    deployment evidence must still exercise the same path through a restarted Silo.
-5. Run separate Anthropic and Gemini provider-group scenarios, then extend the
-   S3-compatible media path with cancellation, deletion, restart, restore, and
-   metadata/object reconciliation assertions.
+5. Automate the passing Anthropic and Gemini provider-group scenarios in the empty
+   stack, add protocol-specific error/disconnect/golden fixtures, then extend the
+   S3-compatible media path with cancellation, restart, restore, and metadata/object
+   reconciliation assertions.
 6. Run auth-session integration scenarios: refresh-token replay, concurrent rotation,
    logout revocation, expired-session rejection, and multi-device session listing.
 7. Run unit, integration, UI, load/soak, failure-recovery, backup/restore, and

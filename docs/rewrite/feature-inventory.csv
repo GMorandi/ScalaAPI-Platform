@@ -1,37 +1,37 @@
 id,domain,capability,priority,status,owner,acceptance
-GW-01,Gateway / protocol,Anthropic Messages HTTP and SSE,P0,partial,Gateway,API and streaming golden fixtures plus provider mock E2E
-GW-02,Gateway / protocol,OpenAI Chat Completions HTTP and SSE,P0,partial,Gateway,JSON/SSE current-image path, bounded non-stream response replay, malformed-usage fail-closed, and timeout probes pass; add golden fixtures and disconnect/full failure matrix
+GW-01,Gateway / protocol,Anthropic Messages HTTP and SSE,P0,partial,Gateway,Independent provider-group JSON/SSE scheduling and settlement plus nested start/final usage regression pass; add golden error timeout disconnect and retry fixtures
+GW-02,Gateway / protocol,OpenAI Chat Completions HTTP and SSE,P0,partial,Gateway,"JSON/SSE current-image path, bounded non-stream response replay, malformed-usage fail-closed, and timeout probes pass; add golden fixtures and disconnect/full failure matrix"
 GW-03,Gateway / protocol,OpenAI Responses API and subresources,P0,partial,Gateway,Response event and subresource contract tests
-GW-04,Gateway / protocol,Gemini generateContent and streamGenerateContent,P0,partial,Gateway,Request response and error contract tests
+GW-04,Gateway / protocol,Gemini generateContent and streamGenerateContent,P0,partial,Gateway,Independent provider-group JSON/SSE scheduling and settlement pass; add golden error timeout disconnect and retry fixtures
 GW-05,Gateway / protocol,Cross-protocol request response and stream conversion,P0,partial,Gateway,Pairwise conversion fixtures and malformed input tests
 GW-06,Gateway / protocol,Models catalog and token counting,P1,partial,Gateway,Deterministic OpenAI/Gemini model metadata and Anthropic token-count mock contracts exist; add versioned catalog authority tokenizer tests and provider-group E2E
 GW-07,Gateway / protocol,Embeddings,P0,partial,Gateway,Dimensions encoding and provider error tests
 GW-08,Gateway / protocol,Image generation sync async and batch,P0,partial,Gateway,Sync and durable async Provider mock paths copy bytes to MinIO with one-attempt polling image/png metadata SigV4 access and batch output deletion; add cancellation restart restore and reconciliation E2E
 GW-09,Gateway / protocol,Video generation lifecycle,P1,partial,Gateway,OpenAI video scheduling and durable Provider mock polling copy bytes with video/mp4 metadata and SigV4 access; add cancellation media-unit pricing restart restore deletion and reconciliation tests
 GW-10,Gateway / protocol,Realtime WebSocket and calls,P0,partial,Gateway,Backpressure disconnect and settlement soak
-GW-11,Gateway / protocol,API-key auth dispatch failover and durable usage lease,P0,partial,Gateway + Platform,Exactly-once lease and usage E2E including settled non-stream idempotency replay
+GW-11,Gateway / protocol,API-key auth dispatch failover and durable usage lease,P0,partial,Gateway + Platform,Exactly-once lease and usage E2E including settled non-stream idempotency replay terminal outbox retirement and crash recovery
 GW-12,Gateway / protocol,Provider fidelity methods headers status proxy and TLS fingerprint,P0,partial,Gateway,Header status proxy and TLS contract fixtures
 AUTH-01,Authentication / identity,Email registration and login,P0,partial,Platform,Validation throttling and E2E tests
 AUTH-02,Authentication / identity,Refresh logout and session revocation lifecycle,P0,partial,Platform,Rotating sessions replay and revoke tests
 AUTH-03,Authentication / identity,TOTP lifecycle,P1,partial,Platform,Enrollment recovery and brute-force controls
 AUTH-04,Authentication / identity,Passkeys / WebAuthn,P1,missing,Platform,Registration authentication and browser tests
-AUTH-05,Authentication / identity,Email verification password reset and notification email,P1,partial,Platform,Password reset and email-verification token state machines pass; add mail-provider, notification, and browser tests
+AUTH-05,Authentication / identity,Email verification password reset and notification email,P1,partial,Platform,"Password reset and email-verification token state machines pass; add mail-provider, notification, and browser tests"
 AUTH-06,Authentication / identity,OAuth login providers and account binding,P1,skeleton,Platform,PKCE state binding and callback tests
-AUTH-07,Authentication / identity,Profile password identity binding and deletion,P1,partial,Platform,Profile read/update, password change with other-session revocation, and password-confirmed soft deletion pass current-image runtime; add concurrent session, API-key revocation, retention, and browser tests
+AUTH-07,Authentication / identity,Profile password identity binding and deletion,P1,partial,Platform,"Profile read/update, password change with other-session revocation, and password-confirmed soft deletion pass current-image runtime; add concurrent session, API-key revocation, retention, and browser tests"
 CORE-01,Core control plane,User administration and self-service,P0,partial,Platform,Role lifecycle authorization and API tests
-CORE-02,Core control plane,API-key lifecycle and policy,P0,partial,Platform,Create/list/rotate/revoke runtime paths pass; add policy, expiry, and audit tests
+CORE-02,Core control plane,API-key lifecycle and policy,P0,partial,Platform,"Create/list/rotate/revoke runtime paths pass; add policy, expiry, and audit tests"
 CORE-03,Core control plane,Groups routing rates and fallback,P0,partial,Platform,Routing policy and fallback state-machine tests
 CORE-04,Core control plane,Upstream accounts credentials and provider refresh,P0,partial,Platform,Encrypted lifecycle refresh and health tests
 CORE-05,Core control plane,Scheduler concurrency rate limits sticky routing and fallback,P0,partial,Platform,Multi-silo lease and fault tests
 CORE-06,Core control plane,Runtime configuration public settings and feature flags,P1,skeleton,Platform,Validated dynamic reload and audit tests
-BILL-01,Usage / billing,Durable request lease usage capture outbox and settlement,P0,partial,Platform,Lease/hold/usage/outbox happy path, bounded response replay, expiry recovery, provider timeout abort, restart-safe stale-claim recovery, and durable reconciliation endpoint pass; automate clean-seed crash/reconciliation and historical repair
+BILL-01,Usage / billing,Durable request lease usage capture outbox and settlement,P0,partial,Platform,Lease hold usage outbox happy path bounded response replay expiry recovery provider timeout abort restart-safe stale-claim recovery terminal Gateway record retirement and durable reconciliation pass; automate clean-seed crash/reconciliation and historical repair
 BILL-02,Usage / billing,Model pricing cache-token and provider pricing rules,P0,partial,Platform,Lease snapshots and NUMERIC unit-rate history pass; Admin publishes/lists/closes validated pricing_versions and Platform refreshes active versions into new dispatches; add provider pricing adapters and historical backfill tests
-BILL-03,Usage / billing,Quota subscription and rolling-window limits,P0,partial,Platform,API-key absolute quota and 5h/1d/7d rolling-window precedence, independent reset tests, and usage-triggered auth invalidation pass; add subscription entitlements, quota grants, and distributed concurrent reservation
-BILL-04,Usage / billing,Money precision transactional integrity and idempotency,P0,partial,Platform,Fixed-scale RPC and NUMERIC lease debit plus unique response replay effect, retry-safe settlement outbox, mismatch persistence, and clean seeded reconciliation pass; automate historical repair before release
+BILL-03,Usage / billing,Quota subscription and rolling-window limits,P0,partial,Platform,"API-key absolute quota and 5h/1d/7d rolling-window precedence, independent reset tests, and usage-triggered auth invalidation pass; add subscription entitlements, quota grants, and distributed concurrent reservation"
+BILL-04,Usage / billing,Money precision transactional integrity and idempotency,P0,partial,Platform,"Fixed-scale RPC and NUMERIC lease debit plus unique response replay effect, retry-safe settlement outbox, mismatch persistence, and clean seeded reconciliation pass; automate historical repair before release"
 BILL-05,Usage / billing,Usage query dashboards exports and cleanup,P1,partial,Platform,Aggregates exports retention and UI tests
-COM-01,Commercial,Payment providers orders webhooks refunds and reconciliation,P0,partial,Platform,Signed HMAC webhook state machine, event deduplication, amount/currency validation, paid/refunded transitions, unique ledger effects, and pending-event recovery pass current-image runtime; add provider adapters, reconciliation UI, and exact-boundary crash injection
-COM-02,Commercial,Subscription purchase renewal expiry and quota reset,P1,partial,Platform,Native plan purchase/list/cancel/renew/expiry state machine with one-active enforcement and idempotent event records passes current-image runtime; add payment-provider coupling, quota consumption/grant application, renewal worker, and browser tests
-COM-03,Commercial,Redeem and promotion codes,P1,partial,Platform,Transactional redemption, replayable balance effect, concurrent HTTP contention, and audit tests
+COM-01,Commercial,Payment providers orders webhooks refunds and reconciliation,P0,partial,Platform,"Signed HMAC webhook state machine, event deduplication, amount/currency validation, paid/refunded transitions, unique ledger effects, and pending-event recovery pass current-image runtime; add provider adapters, reconciliation UI, and exact-boundary crash injection"
+COM-02,Commercial,Subscription purchase renewal expiry and quota reset,P1,partial,Platform,"Native plan purchase/list/cancel/renew/expiry state machine with one-active enforcement and idempotent event records passes current-image runtime; add payment-provider coupling, quota consumption/grant application, renewal worker, and browser tests"
+COM-03,Commercial,Redeem and promotion codes,P1,partial,Platform,"Transactional redemption, replayable balance effect, concurrent HTTP contention, and audit tests"
 COM-04,Commercial,Affiliate referral rebate and transfer lifecycle,P2,skeleton,Platform,Attribution anti-abuse and ledger tests
 COM-05,Commercial,Announcements and read tracking,P2,partial,Platform,Targeting scheduling and read-state tests
 OPS-01,Administration / operations,Core admin CRUD dashboard and config,P0,partial,Platform + Admin Web,Authorization bulk filters and UI tests
@@ -52,7 +52,7 @@ UI-05,Frontend,Operations risk audit monitor and backup UI,P1,missing,Admin Web,
 UI-06,Frontend,Public model setup status and legal pages,P2,missing,Admin Web + Gateway,Public route and accessibility tests
 DEP-01,Deployment / reliability,Fresh target schema and idempotent migrator,P0,partial,Platform,Current 000-016 checksum replay passes; add truly empty-volume smoke with object bucket bootstrap and no compatibility or Redis dependency
 DEP-02,Deployment / reliability,Independent bootstrap without source data or CDC,P0,implemented,Platform,No source dependency and clean-schema assertion
-DEP-03,Deployment / reliability,Container stack health readiness and metrics,P0,partial,Platform + Gateway,Current-source Compose health, Garnet outage/recovery, and projection rebuild pass; add failure and metrics assertions
+DEP-03,Deployment / reliability,Container stack health readiness and metrics,P0,partial,Platform + Gateway,"Current-source Compose health, Garnet outage/recovery, and projection rebuild pass; add failure and metrics assertions"
 DEP-04,Deployment / reliability,Orleans HA rolling deployment and failure recovery,P0,skeleton,Platform,Multi-silo outage and rolling test
 DEP-05,Deployment / reliability,Ingress TLS backup restore and disaster recovery,P0,missing,Platform,Measured RPO/RTO restore drill
 DEP-06,Deployment / reliability,CI build unit contract migration and formal gates,P1,partial,All,Blocking CI artifact and exit-code tests

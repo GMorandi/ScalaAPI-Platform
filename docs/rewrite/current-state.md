@@ -9,15 +9,20 @@ release artifacts.
 
 | Repository | Commit | Worktree | Responsibility |
 | --- | --- | --- | --- |
-| `gateway` | `c807dc8` | clean | C++ HTTP/WebSocket edge, protocol conversion, chunked streaming, Provider transport, versioned Garnet client, malformed-usage guard, fixed-scale Cap'n Proto client, unique failover lease IDs, bounded non-stream upstream timeout, bounded response replay, invalidation flush recovery |
-| `platform` | `0d5284f` | clean | C# Orleans control plane, PostgreSQL persistence, leases, NUMERIC ledger, durable holds/idempotency, usage, media lifecycle, Admin API, signed payment webhooks with pending-event recovery, versioned Admin pricing lifecycle with live Host refresh, idempotent subscription purchase/renewal/cancellation/expiry, versioned Garnet rebuild, replayable balance effects, fixed-scale RPC contract, retryable terminal idempotency leases, bounded response persistence/replay, password recovery, email verification, self-service profile/password/account deletion, deterministic multi-protocol Provider mock with pollable media tasks, S3-compatible media ownership with SigV4 presigned access and deletion, restart-safe settlement outbox recovery, immutable lease price snapshots, durable ledger reconciliation endpoint, deterministic rolling quota policy, usage-triggered auth invalidation |
+| `gateway` | `60f99a0` | clean | C++ HTTP/WebSocket edge, protocol conversion, chunked streaming, Provider transport, versioned Garnet client, malformed-usage and non-SSE guards, Anthropic/Gemini stream usage extraction, fixed-scale Cap'n Proto client, unique failover lease IDs, bounded non-stream upstream timeout, bounded response replay, terminal usage-outbox retirement, invalidation flush recovery |
+| `platform` | `e66ee8c` | clean | C# Orleans control plane, PostgreSQL persistence, leases, NUMERIC ledger, durable holds/idempotency, usage, media lifecycle, Admin API, signed payment webhooks with pending-event recovery, versioned Admin pricing lifecycle with live Host refresh, idempotent subscription purchase/renewal/cancellation/expiry, versioned Garnet rebuild, replayable balance effects, fixed-scale RPC contract, retryable terminal idempotency leases, bounded response persistence/replay, password recovery, email verification, self-service profile/password/account deletion, idempotent multi-provider seed and deterministic Provider mock with native Anthropic/Gemini contracts, protocol-native fault injection, and pollable media tasks, S3-compatible media ownership with SigV4 presigned access and deletion, restart-safe settlement outbox recovery, immutable lease price snapshots, durable ledger reconciliation endpoint, deterministic rolling quota policy, usage-triggered auth invalidation |
 | `sub2api` | `43ec48d` | read-only clean reference | Functional requirements catalogue only |
 
-The current source inventory is 50 tracked Gateway source files, 87 CTest cases,
-68 hand-written Platform production C# files plus 3 generated Cap'n Proto files,
-19 tracked Platform test/benchmark C# source files, 82 Platform test cases, 138 mapped
-Admin API route declarations, 34 product tables, 20 SQLSugar entity types, and 31 Admin Web
-source files with 11 page views. Admin Web has no browser test runner yet.
+The current source inventory is 50 tracked Gateway source files, 88 CTest cases,
+69 hand-written Platform production C# files plus 3 generated Cap'n Proto files,
+19 tracked Platform test/benchmark C# source files, 82 Platform test cases, 112 direct
+Admin API route declarations, 34 product tables, 20 SQLSugar entity types, and 24
+Admin Web application source files with 11 page views. Admin Web has no browser test
+runner yet.
+
+The active 58-domain product inventory contains 1 `implemented`, 37 `partial`,
+10 `skeleton`, and 10 `missing` rows. Mock/runtime evidence advances acceptance
+criteria but does not promote a domain without its full contract and automated gates.
 
 The reference inventory is 612 route registration calls, 39 concrete Ent schemas,
 82 Vue view/component files, and 240 SQL migrations. These numbers describe scope,
@@ -100,9 +105,9 @@ not implementation parity or a migration target.
   conflict; an active lease remains a deterministic 409 until its completion report
   is durable. The create transaction remains the race-safe fallback. Media
   operations retain their own lifecycle table and idempotency contract.
-- OpenAI Chat JSON and SSE pass the current Gateway -> Cap'n Proto -> Platform ->
-  Provider mock path. Photon streaming responses use explicit chunked framing and
-  provider usage is captured for settlement.
+- OpenAI Chat, Anthropic Messages, and Gemini generation pass the current Gateway ->
+  Cap'n Proto -> Platform -> Provider mock path. Photon streaming responses use
+  explicit chunked framing and provider usage is captured for settlement.
 - Non-streaming upstream calls have a 30-second hard timeout, while streaming calls
   retain their separate long-lived budget. Once the request retry budget is spent,
   Gateway aborts the lease and returns a deterministic provider error instead of
@@ -113,6 +118,15 @@ not implementation parity or a migration target.
   the public idempotency key stable while assigning each internal retry a unique
   lease request ID; 500/429 exhaustion now ends as `503 provider_unavailable`
   instead of incorrectly replaying a terminal 409.
+- Streaming settlement extracts OpenAI usage, Gemini `usageMetadata`, and Anthropic
+  start/final usage fields. Anthropic input tokens are read from nested
+  `message_start.message.usage`, so a stream cannot settle output tokens while
+  silently omitting its input charge.
+- A successful streaming upstream response must use `text/event-stream`. A provider
+  that returns ordinary JSON for a streaming request is converted to a bounded
+  retryable protocol failure before any client body is written. Gateway removes a
+  durable usage transport record after Platform returns a non-retryable terminal
+  lease result; only retryable RPC failures remain queued.
 - Redeem-code redemption locks the PostgreSQL code row, records one user redemption,
   increments usage, and appends one `redeem_bonus` ledger effect transactionally. A
   unique `(code_id, user_id)` redemption and partial `(reference, entry_type)` ledger
@@ -131,9 +145,11 @@ not implementation parity or a migration target.
   contents as business authority.
 - A source-owned Provider mock now supplies deterministic OpenAI Chat/Responses,
   Anthropic Messages/count-tokens, Gemini generation/model metadata, embeddings,
-  model discovery, JSON/SSE failure scenarios, and pollable image/video tasks.
-  Media polling preserves the provider-declared output content type instead of the
-  polling response's JSON content type.
+  model discovery, native Anthropic/Gemini SSE, JSON/SSE failure scenarios, and
+  pollable image/video tasks. An idempotent Admin seed creates independent OpenAI,
+  Anthropic, and Gemini accounts/groups with explicit model ownership. Media polling
+  preserves the provider-declared output content type instead of the polling
+  response's JSON content type.
 - Platform owns the revision-1 Cap'n Proto schemas under `contracts/capnp`; Gateway
   vendors byte-identical copies and both repositories enforce the recorded SHA-256
   schema digests.
@@ -178,11 +194,12 @@ not implementation parity or a migration target.
 ## Current runtime evidence
 
 On 2026-08-08 the isolated `scalaapi-stage2` project used current-source images:
-Platform `a2bb71d59804fdb94721e197cb54b78b4a3f00ca4f5d61bfb3a9008877a24cef`,
-Admin API `ea0cbe88a5b1bab8dd171b930ff5e6ec31be234b0bf4becf6ac6f4b74d38ca73`,
-migrator `8c1b3d4299fa8a2dc20abedcdaa15e2faa42f85d4c9156ca1e4d6919e146d880`,
-Gateway `4099c8aa22de23b7db13a114d40e301c0502b033545bcbbf0ed1dd0cbe7d29ca`, and
-Provider mock `bfd1a32c4f1dff5efc3d040bd488a4e13db9e8d65a671eb9de14cf3b1cebe2d7`.
+Platform `ce6b59c4c5049410f00d9551baa62d7a3d5b7066cd1a097f084b8f05ce568c5c`,
+Admin API `6cd455337209b533065af028ed625bf9d32e410b59891aa999731bf00b348d45`,
+migrator `36bed78a5fc9d6ebe2acf382da3fe3f0f1c1ff0e5a9d0a7cb9f6ceb46677f7a8`,
+Gateway `cd7013f26f4ed040b84bab595cd3ba51acbd808aa3236c9d7d448360d7bd93b3`,
+Provider mock `dafda23b69cc05445373b86dce25c4671f700ab6bbfb0620eddba3c716f0c268`,
+and Admin Web `c9b504b5b323479676f34f358c7b2802f11cdb1dd01419d744c3d05abe4d86bf`.
 The migrator applied the complete 000-016 sequence and a second run skipped all
 seventeen migrations. Registration
 returned user id 7 and registry id 7. Provider seed was idempotent (same account
@@ -195,7 +212,7 @@ Platform restart the completed request settled once at the same price snapshot.
 The Platform
 Silo was then force-recreated from the restart-safe outbox image; Gateway readiness
 returned `200`, PostgreSQL showed zero unprocessed/dead-lettered outbox rows and
-zero active holds, and all 38 seeded leases remained terminal.
+zero active holds, and all observed leases remained terminal.
 
 For request idempotency, an immediate second call with the same key produced an
 active-lease 409; after the usage report settled, a matching retry returned
@@ -264,6 +281,23 @@ image and video creation returned durable `med_*` operation IDs, then Platform
 polling transitioned both rows to `succeeded` in one attempt with `image/png` and
 `video/mp4` output types. The initial provider-only output URL behavior is now
 superseded by the object-storage stage below.
+
+The native multi-provider seed then returned the same OpenAI account/group `2/2`,
+Anthropic `3/3`, and Gemini `4/4` on two consecutive calls. Independent non-stream
+Anthropic Messages and Gemini generateContent requests returned 200 and completed
+with price versions `stage2-anthropic-v1` and `stage2-gemini-v1`. Native Anthropic
+and Gemini SSE requests also returned 200; the first Anthropic probe exposed a
+missing nested input-token counter, which is fixed and regression-covered in
+Gateway `60f99a0`. A JSON-on-stream fault probe produced four terminal aborted
+leases and a bounded `503 provider_unavailable` without Photon body overflow. The
+final protocol-native probe `14ad3845d7f52f2d` left all four holds released with
+zero usage and ledger rows.
+After Gateway restart, five old terminal usage reports were discarded once as
+non-retryable and `gateway_usage_outbox_backlog` reached zero instead of retrying
+them every second. The final Gateway and Provider images then processed request
+`dad73b2dfe7c167e`: Anthropic SSE returned 200, settlement stored 32 input and 5
+output tokens, price version `stage2-anthropic-v1`, NUMERIC cost `0.00017100`, and
+Gateway usage backlog zero.
 
 Object-storage runtime evidence then applied migration 016 and rebuilt the Silo with
 the SigV4 client. A retried image operation copied 67 bytes to

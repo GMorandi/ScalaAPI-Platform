@@ -12,7 +12,7 @@ This does not close the product rewrite. The next stage is one authoritative,
 billable OpenAI Chat Completions vertical slice. Work outside that slice stays
 `partial`, `skeleton`, or `missing` in the inventory.
 
-## Progress checkpoint (2026-08-08, platform `0d5284f`, gateway `c807dc8`)
+## Progress checkpoint (2026-08-08, platform `e66ee8c`, gateway `60f99a0`)
 
 - Completed in `b266e17`: business balances, quotas, costs, limits, and routing
   multipliers use `decimal`; precision projections cover User, Group, and API key.
@@ -150,8 +150,30 @@ billable OpenAI Chat Completions vertical slice. Work outside that slice stays
   deletion returned 200, the old presigned URL returned 404, metadata was cleared,
   and terminal deletion returned 204. Object-vs-database reconciliation and
   backup/restore remain release work.
+- Completed in `c5f5923`: `/admin/seed/provider-mock-suite` idempotently creates
+  separate OpenAI, Anthropic, and Gemini accounts/groups with explicit model sets.
+  Repeated calls returned the same IDs. Anthropic and Gemini non-stream requests
+  traversed Gateway, independent scheduling groups, immutable price snapshots,
+  usage settlement, and returned 200; native SSE fixtures now exist for both.
+- Completed in `e66ee8c`: the Anthropic JSON-on-stream fault can be selected through
+  standard `metadata.user_id`, which survives Gateway model mapping and makes the
+  non-SSE protocol guard reproducible through the full stack. Final-image evidence
+  is bounded 503, four aborted leases, four released holds, zero usage/ledger rows,
+  no Photon overflow, and Gateway usage backlog zero.
+- Completed in Gateway `6d8ddee`: successful stream responses are accepted only
+  with `text/event-stream`. A deliberately JSON-on-stream upstream response now
+  fails before any client body write instead of overflowing Photon's bounded writer.
+- Completed in Gateway `7ded81d`: durable usage records receiving terminal
+  non-retryable lease results are removed with a failure audit log, while retryable
+  transport failures remain queued. This prevents one expired lease from blocking
+  all later usage reports after restart.
+- Completed in Gateway `60f99a0`: StreamPipe reads Anthropic input usage from
+  `message_start.message.usage` and merges it with final output usage. The new
+  regression raises Gateway CTest to 88 cases. Current image `cd7013f2` settled
+  one Anthropic SSE request with 32 input tokens, 5 output tokens, immutable price
+  version `stage2-anthropic-v1`, and NUMERIC cost `0.00017100`.
 - Still open: PostgreSQL aggregate repositories/foreign keys, fixed-precision RPC
-  schema generation, crash/restart settlement scenarios, provider failure matrix,
+  schema generation, crash/restart settlement scenarios, full provider failure matrix,
   object-store deletion/reconciliation/restore, empty-volume CI automation, and Garnet
   flush/stale-version/TLS/multi-client evidence.
 
@@ -187,9 +209,9 @@ with PostgreSQL, and contract drift fails CI.
 - Complete API-key create/list/rotate/revoke with one-time plaintext display and
   hash-only persistence; registry-backed list/revoke exists, rotation and policy
   tests remain.
-- Complete group and provider-account creation with encrypted credentials and a
-  deterministic Provider mock seed profile.
-- Add one idempotent seed command for local/E2E use; production starts without it.
+- Complete group and provider-account creation with encrypted credentials and real
+  provider OAuth/API-key refresh. The idempotent three-provider mock seed is complete;
+  production starts without invoking it.
 
 Depends on: authority contracts. Exit: an empty database can be configured entirely
 through product APIs and revoked sessions/keys are rejected across Gateway instances.
@@ -255,9 +277,10 @@ the remaining TLS/multi-client checks must run in the release stack.
 
 ### 6. Provider failure and recovery matrix
 
-- Drive Provider mock 429, 500, timeout, disconnect, and malformed usage through
-  both JSON and SSE, asserting bounded retries, terminal lease state, released or
-  committed hold, one usage event, and one ledger debit.
+- Drive Provider mock 429, 500, timeout, disconnect, malformed usage, and invalid
+  stream content type through every supported JSON/SSE protocol, asserting bounded
+  retries, terminal lease state, released or committed hold, one usage event, and
+  one ledger debit where settlement is valid.
 - Inject Gateway and Platform restarts at dispatch, streaming, report, and outbox
   boundaries. Reconcile active holds and idempotency rows after lease expiry without
   reopening a billable request.
