@@ -33,4 +33,26 @@ public sealed class GarnetKeyspaceTests
         Assert.DoesNotContain(keys, key => key.StartsWith("auth:", StringComparison.Ordinal));
         Assert.DoesNotContain(keys, key => key.StartsWith("invalidation:", StringComparison.Ordinal));
     }
+
+    [Fact]
+    public void AuthProjectionEvictionUsesVersionedKey()
+    {
+        var garnet = new RecordingGarnet();
+        var writer = new GarnetWriteThroughService(garnet);
+
+        writer.EvictAuthSnapshot("hash");
+
+        Assert.Equal(["scalaapi:v1:auth:hash"], garnet.Deleted);
+    }
+
+    private sealed class RecordingGarnet : IGarnetService
+    {
+        public List<string> Deleted { get; } = [];
+
+        public void Set(string key, string value, TimeSpan? ttl = null) { }
+        public string? Get(string key) => null;
+        public void Delete(string key) => Deleted.Add(key);
+        public long Increment(string key) => 1;
+        public bool Ping() => true;
+    }
 }
