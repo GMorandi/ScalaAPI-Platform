@@ -84,9 +84,6 @@ public class ApiKeyGrain : Grain, IApiKeyGrain
         var allowedGroups = user.AllowedGroups ?? [];
         if (allowedGroups.Length > 0 && !allowedGroups.Contains(s.GroupId))
             throw new InvalidOperationException("User is not allowed to use this group");
-        if (s.Quota > 0 && s.QuotaUsed >= s.Quota)
-            throw new InvalidOperationException("API key quota exhausted");
-
         return new AuthResult(
             s.ApiKeyId, s.UserId, s.GroupId, group.Platform, s.Status,
             s.Quota, s.QuotaUsed, group.RateMultiplier,
@@ -126,6 +123,7 @@ public class ApiKeyGrain : Grain, IApiKeyGrain
 
         s.Version++;
         await _state.WriteStateAsync();
+        _invalidation.NotifyChange("apiKey", this.GetPrimaryKeyString());
     }
 
     public async Task AddLeaseUsage(string leaseToken, decimal usd)

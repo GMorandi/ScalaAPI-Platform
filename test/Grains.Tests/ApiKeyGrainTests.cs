@@ -96,6 +96,20 @@ public class ApiKeyGrainTests
     }
 
     [Fact]
+    public async Task AddUsage_NotifiesAuthProjectionInvalidation()
+    {
+        ClusterFixture.InvalidationService.ClearReceivedCalls();
+        var grain = GetGrain(1030);
+        await grain.Create(DefaultUpsert());
+        ClusterFixture.InvalidationService.ClearReceivedCalls();
+
+        await grain.AddUsage(0.25m);
+
+        ClusterFixture.InvalidationService.Received(1)
+            .NotifyChange("apiKey", Arg.Any<string>());
+    }
+
+    [Fact]
     public async Task Validate_ActiveKey_ReturnsAuthResult()
     {
         var userGrain = _cluster.GrainFactory.GetGrain<IUserGrain>(2001);
