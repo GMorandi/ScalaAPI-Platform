@@ -12,7 +12,7 @@ This does not close the product rewrite. The next stage is one authoritative,
 billable OpenAI Chat Completions vertical slice. Work outside that slice stays
 `partial`, `skeleton`, or `missing` in the inventory.
 
-## Progress checkpoint (2026-08-08, platform `f068359`, gateway `f8b6761`)
+## Progress checkpoint (2026-08-08, platform `a95786d`, gateway `d066498`)
 
 - Completed in `b266e17`: business balances, quotas, costs, limits, and routing
   multipliers use `decimal`; precision projections cover User, Group, and API key.
@@ -65,6 +65,10 @@ billable OpenAI Chat Completions vertical slice. Work outside that slice stays
   with hash-only storage, twenty-four-hour expiry, durable verification timestamp,
   and replay rejection. Mail delivery and browser verification remain external
   release gates.
+- Completed in `a95786d` and `d066498`: the Provider mock exposes a cancellable
+  timeout scenario and Gateway applies a 30-second non-stream boundary plus a
+  request retry budget. Current-image evidence shows a 30.3-second `502`, an
+  aborted lease, and no usage event; disconnect and restart scenarios remain.
 - Still open: PostgreSQL aggregate repositories/foreign keys, fixed-precision RPC
   schema generation, crash/restart settlement scenarios, provider failure matrix,
   empty-volume CI automation, and Garnet flush/stale-version/TLS/multi-client evidence.

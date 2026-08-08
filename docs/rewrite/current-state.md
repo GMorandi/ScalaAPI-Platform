@@ -9,8 +9,8 @@ release artifacts.
 
 | Repository | Commit | Worktree | Responsibility |
 | --- | --- | --- | --- |
-| `gateway` | `f8b6761` | clean | C++ HTTP/WebSocket edge, protocol conversion, chunked streaming, Provider transport, versioned Garnet client, malformed-usage guard, fixed-scale Cap'n Proto client, unique failover lease IDs |
-| `platform` | `f068359` | clean | C# Orleans control plane, PostgreSQL persistence, leases, NUMERIC ledger, durable holds/idempotency, usage, media lifecycle, Admin API, versioned Garnet rebuild, replayable balance effects, fixed-scale RPC contract, retryable terminal idempotency leases, password recovery, email verification |
+| `gateway` | `d066498` | clean | C++ HTTP/WebSocket edge, protocol conversion, chunked streaming, Provider transport, versioned Garnet client, malformed-usage guard, fixed-scale Cap'n Proto client, unique failover lease IDs, bounded non-stream upstream timeout |
+| `platform` | `a95786d` | clean | C# Orleans control plane, PostgreSQL persistence, leases, NUMERIC ledger, durable holds/idempotency, usage, media lifecycle, Admin API, versioned Garnet rebuild, replayable balance effects, fixed-scale RPC contract, retryable terminal idempotency leases, password recovery, email verification, cancellable Provider mock timeout |
 | `sub2api` | `43ec48d` | read-only clean reference | Functional requirements catalogue only |
 
 The current source inventory is 50 tracked Gateway source files, 83 CTest cases,
@@ -67,6 +67,10 @@ not implementation parity or a migration target.
 - OpenAI Chat JSON and SSE pass the current Gateway -> Cap'n Proto -> Platform ->
   Provider mock path. Photon streaming responses use explicit chunked framing and
   provider usage is captured for settlement.
+- Non-streaming upstream calls have a 30-second hard timeout, while streaming calls
+  retain their separate long-lived budget. Once the request retry budget is spent,
+  Gateway aborts the lease and returns a deterministic provider error instead of
+  holding the client socket open indefinitely.
 - Provider usage counters are validated as bounded non-negative integers. A malformed
   provider usage response returns `502 provider_error`, aborts the lease, releases
   its durable hold, and suppresses usage/ledger settlement. Provider failover keeps
@@ -131,8 +135,8 @@ On 2026-08-08 the isolated `scalaapi-stage2` project used current-source images:
 Platform `ad0c3e1d229395a38b87810ef0bb58b60367721b766c91f22078b742b1cd830e`,
 Admin API `24416a1d267708f7c046dfb8fb4713a312c7f156ca5841267e0d6139d44ceaba`,
 migrator `0e97f42381e6e057d3be211cdf4f0f26c2ab34010242e3dbf54f78f4a459a2f7`,
-Gateway `7f7ef216aeb1b11edd57bd69598f997e1556b6a823f183e7fc95adfbf01feee`, and
-Provider mock `425e1430cc32f8756a688d176f1d542c9026603c37e0cb609e55b5ee49d6bcb8`.
+Gateway `46a552523c940fbf1bbdcfdac62f89cdc49764d76cf58793c5814c06b925e16d`, and
+Provider mock `95b8632dea20b787127dad9f8302afad1bffb70633283dcc61720a67a388b4a6`.
 The migrator applied 005-009 and a second run skipped them all. Registration
 returned user id 7 and registry id 7. Provider seed was idempotent (same account
 and group on two calls); API-key rotation revoked the old key; Admin-created keys
@@ -166,6 +170,11 @@ Email-verification runtime evidence on the same image returned a debug token onl
 with the explicit isolated-stack flag, accepted it once, rejected the replay with
 `400`, and persisted `email_verified=true` plus `email_verified_at`. The migrator
 applied 010 and skipped it on subsequent invocations.
+
+The cancellable Provider mock `timeout` scenario held a non-stream request until
+Gateway's 30-second boundary; the current image returned `502` at 30.3 seconds,
+the latest lease was `aborted` with `upstream_failure`, and no usage event was
+created in the following two-minute window.
 
 Redeem-code runtime evidence created a one-use `1.25` code, returned `200` on the
 first request and `409` on repeat, then recovered a committed redemption after a
