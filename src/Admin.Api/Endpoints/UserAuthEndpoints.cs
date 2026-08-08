@@ -241,9 +241,9 @@ public static class UserAuthEndpoints
 
         user.MapPost("/logout", async (ClaimsPrincipal principal, AuthSessionService sessions) =>
         {
-            var subject = principal.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value;
-            var sessionId = principal.FindFirst("sid")?.Value;
-            if (!long.TryParse(subject, out var userId) || string.IsNullOrWhiteSpace(sessionId))
+            var sessionId = AuthClaims.SessionId(principal);
+            if (!AuthClaims.TryGetUserId(principal, out var userId)
+                || string.IsNullOrWhiteSpace(sessionId))
                 return Results.Unauthorized();
             await sessions.RevokeAsync(userId, sessionId);
             return Results.NoContent();
@@ -251,16 +251,14 @@ public static class UserAuthEndpoints
 
         user.MapGet("/sessions", async (ClaimsPrincipal principal, AuthSessionService sessions) =>
         {
-            if (!long.TryParse(principal.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value,
-                    out var userId)) return Results.Unauthorized();
+            if (!AuthClaims.TryGetUserId(principal, out var userId)) return Results.Unauthorized();
             return Results.Ok(await sessions.ListAsync(userId));
         });
 
         user.MapDelete("/sessions/{sessionId}", async (string sessionId,
             ClaimsPrincipal principal, AuthSessionService sessions) =>
         {
-            if (!long.TryParse(principal.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value,
-                    out var userId)) return Results.Unauthorized();
+            if (!AuthClaims.TryGetUserId(principal, out var userId)) return Results.Unauthorized();
             return await sessions.RevokeAsync(userId, sessionId)
                 ? Results.NoContent() : Results.NotFound();
         });

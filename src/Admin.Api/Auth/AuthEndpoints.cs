@@ -34,9 +34,9 @@ public static class AuthEndpoints
         app.MapPost("/admin/auth/logout", async (ClaimsPrincipal principal,
             AuthSessionService sessions) =>
         {
-            var subject = principal.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value;
-            var sessionId = principal.FindFirst("sid")?.Value;
-            if (!long.TryParse(subject, out var userId) || string.IsNullOrWhiteSpace(sessionId))
+            var sessionId = AuthClaims.SessionId(principal);
+            if (!AuthClaims.TryGetUserId(principal, out var userId)
+                || string.IsNullOrWhiteSpace(sessionId))
                 return Results.Unauthorized();
             await sessions.RevokeAsync(userId, sessionId);
             return Results.NoContent();
