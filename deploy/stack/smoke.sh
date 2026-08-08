@@ -443,10 +443,10 @@ admin_request PUT "/admin/users/$user_id" \
         '{role:"user",concurrency:4,rpmLimit:0,allowedGroups:$groups}')" \
     "$admin_token" >/dev/null
 
-balance_body='{"delta":100,"reason":"Initial smoke-test funding"}'
+balance_body='{"delta":1000,"reason":"Initial smoke-test funding"}'
 balance_response="$(admin_request POST "/admin/users/$user_id/balance" \
     "$balance_body" "$admin_token" "$balance_idempotency_key")"
-assert_equals "true" "$(jq -er '.balance == 100' <<<"$balance_response")" \
+assert_equals "true" "$(jq -er '.balance == 1000' <<<"$balance_response")" \
     "Administrative balance result"
 assert_equals "false" "$(jq -er '.duplicate' <<<"$balance_response")" \
     "Administrative balance first-write marker"
@@ -461,17 +461,17 @@ balance_conflict_status="$(compose exec -T admin-api curl -sS -o /dev/null -w '%
     -X POST -H 'Content-Type: application/json' \
     -H "Authorization: Bearer $admin_token" \
     -H "Idempotency-Key: $balance_idempotency_key" \
-    --data '{"delta":101,"reason":"Changed smoke-test funding"}' \
+    --data '{"delta":1001,"reason":"Changed smoke-test funding"}' \
     "http://127.0.0.1:5001/admin/users/$user_id/balance")"
 assert_equals "409" "$balance_conflict_status" "Administrative balance replay conflict"
 balance_overdraft_status="$(compose exec -T admin-api curl -sS -o /dev/null -w '%{http_code}' \
     -X POST -H 'Content-Type: application/json' \
     -H "Authorization: Bearer $admin_token" \
     -H "Idempotency-Key: ${balance_idempotency_key}-overdraft" \
-    --data '{"delta":-101,"reason":"Rejected smoke-test overdraft"}' \
+    --data '{"delta":-1001,"reason":"Rejected smoke-test overdraft"}' \
     "http://127.0.0.1:5001/admin/users/$user_id/balance")"
 assert_equals "409" "$balance_overdraft_status" "Administrative balance overdraft"
-assert_equals "1|1|100.00000000" "$(db_query "
+assert_equals "1|1|1000.00000000" "$(db_query "
 SELECT
   (SELECT count(*) FROM balance_ledger WHERE user_id = $user_id AND entry_type = 'admin_adjustment') || '|' ||
   (SELECT count(*) FROM audit_logs WHERE action = 'balance.adjust' AND resource_id = '$user_id') || '|' ||
