@@ -14,9 +14,9 @@ release artifacts.
 | `sub2api` | `43ec48d` | read-only clean reference | Functional requirements catalogue only |
 
 The current source inventory is 50 tracked Gateway source files, 83 CTest cases,
-60 hand-written Platform production C# files plus 3 generated Cap'n Proto files,
+62 hand-written Platform production C# files plus 3 generated Cap'n Proto files,
 20 tracked Platform test/benchmark source files, 70 Platform test cases, 123 mapped
-Admin API routes, 33 product tables, 20 SQLSugar entity types, and 24 Admin Web
+Admin API routes, 33 product tables, 20 SQLSugar entity types, and 31 Admin Web
 source files with 11 page views. Admin Web has no browser test runner yet.
 
 The reference inventory is 612 route registration calls, 39 concrete Ent schemas,
