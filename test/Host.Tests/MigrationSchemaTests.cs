@@ -21,7 +21,7 @@ public sealed class MigrationSchemaTests
             ["usage_events"] = ["lease_token", "cost_usd", "input_tokens", "output_tokens"],
             ["usage_outbox"] = ["lease_token", "event_type", "processed_at"],
             ["balance_holds"] = ["hold_id", "amount", "status"],
-            ["balance_ledger"] = ["user_id", "amount", "created_at"],
+            ["balance_ledger"] = ["user_id", "amount", "created_at", "lease_token", "entry_type"],
             ["media_operations"] = ["operation_id", "idempotency_key", "status", "output_url"],
             ["pricing_versions"] = ["version", "model", "effective_from"],
             ["ledger_reconciliation_runs"] = ["id", "status", "mismatch_total"],

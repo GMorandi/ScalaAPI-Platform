@@ -190,6 +190,23 @@ public sealed class RequestLeaseStore(
             await log.ExecuteNonQueryAsync(ct);
         }
 
+        if (cost > 0m)
+        {
+            await using var ledger = connection.CreateCommand();
+            ledger.Transaction = transaction;
+            ledger.CommandText = """
+                INSERT INTO balance_ledger (
+                    user_id, reference, amount, lease_token, entry_type)
+                VALUES ($1, $2, $3, $4, 'usage_debit')
+                ON CONFLICT (lease_token, entry_type) DO NOTHING
+                """;
+            ledger.Parameters.AddWithValue(lease.UserId);
+            ledger.Parameters.AddWithValue($"usage:{lease.LeaseToken}");
+            ledger.Parameters.AddWithValue(-cost);
+            ledger.Parameters.AddWithValue(lease.LeaseToken);
+            await ledger.ExecuteNonQueryAsync(ct);
+        }
+
         await using (var finalize = connection.CreateCommand())
         {
             finalize.Transaction = transaction;
