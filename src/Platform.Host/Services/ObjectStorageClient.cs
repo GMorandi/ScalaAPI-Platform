@@ -62,6 +62,20 @@ public sealed class ObjectStorageClient
         return stored with { DownloadUrl = PresignGet(key, TimeSpan.FromHours(1)) };
     }
 
+    public async Task DeleteAsync(string objectKey, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(objectKey)) return;
+        await EnsureBucketAsync(ct);
+        using var response = await SendSignedAsync(HttpMethod.Delete, ObjectPath(objectKey),
+            [], null, ct);
+        if (response.IsSuccessStatusCode || response.StatusCode == HttpStatusCode.NotFound)
+            return;
+
+        var body = await response.Content.ReadAsStringAsync(ct);
+        throw new InvalidOperationException(
+            $"Object storage DELETE failed with {(int)response.StatusCode}: {body[..Math.Min(body.Length, 512)]}");
+    }
+
     public string PresignGet(string objectKey, TimeSpan lifetime)
     {
         var now = DateTimeOffset.UtcNow;

@@ -469,6 +469,7 @@ public class DispatchService
     private readonly IClusterClient _cluster;
     private readonly RequestLeaseStore _leases;
     private readonly MediaOperationStore _mediaOperations;
+    private readonly ObjectStorageClient _objectStorage;
     private readonly ModelPricingService _pricing;
     private readonly AuthProjectionCache _authCache;
     private readonly GarnetWriteThroughService _garnet;
@@ -478,6 +479,7 @@ public class DispatchService
 
     public DispatchService(IClusterClient cluster, RequestLeaseStore leases,
                            MediaOperationStore mediaOperations,
+                           ObjectStorageClient objectStorage,
                            ModelPricingService pricing,
                            AuthProjectionCache authCache, GarnetWriteThroughService garnet,
                            IConfiguration configuration,
@@ -486,6 +488,7 @@ public class DispatchService
         _cluster = cluster;
         _leases = leases;
         _mediaOperations = mediaOperations;
+        _objectStorage = objectStorage;
         _pricing = pricing;
         _authCache = authCache;
         _garnet = garnet;
@@ -814,12 +817,40 @@ public class DispatchService
                     req.Action == "fail" ? req.OutputMetadata : null);
                 break;
             case "delete":
+                operation = await _mediaOperations.GetAsync(auth.ApiKeyId, req.OperationId);
+                if (operation is null)
+                    return MediaOperationRpcResult.Error(404, "not_found_error", "Media operation not found");
+                try
+                {
+                    await _objectStorage.DeleteAsync(operation.ObjectKey);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Media object delete failed for {OperationId}",
+                        operation.OperationId);
+                    return MediaOperationRpcResult.Error(503, "object_storage_unavailable",
+                        "Media output could not be deleted");
+                }
                 return await _mediaOperations.DeleteAsync(auth.ApiKeyId, req.OperationId)
                     ? new MediaOperationRpcResult(true, 204, req.OperationId, "", "", 100,
                         "", "", "", "", "", "")
                     : MediaOperationRpcResult.Error(409, "operation_not_terminal",
                         "Only terminal media operations can be deleted");
             case "delete_outputs":
+                operation = await _mediaOperations.GetAsync(auth.ApiKeyId, req.OperationId);
+                if (operation is null)
+                    return MediaOperationRpcResult.Error(404, "not_found_error", "Media operation not found");
+                try
+                {
+                    await _objectStorage.DeleteAsync(operation.ObjectKey);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Media output delete failed for {OperationId}",
+                        operation.OperationId);
+                    return MediaOperationRpcResult.Error(503, "object_storage_unavailable",
+                        "Media output could not be deleted");
+                }
                 operation = await _mediaOperations.ClearOutputsAsync(auth.ApiKeyId, req.OperationId);
                 break;
             default:

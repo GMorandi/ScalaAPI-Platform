@@ -20,7 +20,19 @@ public sealed class MediaOperationHostedService(
             try
             {
                 foreach (var expired in await store.ExpireDueAndReturnAsync(stoppingToken))
+                {
+                    try
+                    {
+                        await objectStorage.DeleteAsync(expired.ObjectKey, stoppingToken);
+                        await store.ClearOutputsAsync(expired.ApiKeyId, expired.OperationId, stoppingToken);
+                    }
+                    catch (Exception ex) when (ex is not OperationCanceledException)
+                    {
+                        logger.LogWarning(ex, "Expired media object cleanup failed for {OperationId}",
+                            expired.OperationId);
+                    }
                     await leases.AbortAsync(expired.LeaseToken, "media_operation_expired", stoppingToken);
+                }
 
                 var due = await store.ClaimDueAsync(16, stoppingToken);
                 await Parallel.ForEachAsync(due,
