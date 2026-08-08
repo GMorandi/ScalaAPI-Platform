@@ -31,7 +31,8 @@ public sealed class MigrationSchemaTests
             ["entity_registry"] = ["entity_type", "entity_key", "entity_id", "status"],
             ["auth_sessions"] = ["session_id", "user_id", "refresh_token_hash", "expires_at", "revoked_at"],
             ["password_reset_tokens"] = ["token_hash", "user_id", "expires_at", "used_at"],
-            ["email_verification_tokens"] = ["token_hash", "user_id", "expires_at", "used_at"]
+            ["email_verification_tokens"] = ["token_hash", "user_id", "expires_at", "used_at"],
+            ["payment_webhook_events"] = ["provider", "event_id", "event_type", "payload_hash", "status"]
         };
 
         await using var connection = new NpgsqlConnection(connectionString);

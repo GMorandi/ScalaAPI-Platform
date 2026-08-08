@@ -9,6 +9,7 @@
     <Project Path="src/Provider.Mock/Provider.Mock.csproj" />
   </Folder>
   <Folder Name="/test/">
+    <Project Path="test/Admin.Tests/Admin.Tests.csproj" />
     <Project Path="test/Grains.Tests/Grains.Tests.csproj" />
     <Project Path="test/Host.Tests/Host.Tests.csproj" />
     <Project Path="test/Platform.Benchmarks/Platform.Benchmarks.csproj" />

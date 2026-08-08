@@ -18,6 +18,7 @@ public static class PlatformEndpoints
 {
     public static void MapPlatformEndpoints(this WebApplication app)
     {
+        app.MapPaymentWebhookEndpoints();
         MapApiKeySelfService(app);
         MapUsageSummary(app);
         MapAnnouncements(app);

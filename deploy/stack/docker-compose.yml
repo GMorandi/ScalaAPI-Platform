@@ -119,6 +119,7 @@ services:
       Admin__Username: ${ADMIN_USERNAME:?ADMIN_USERNAME is required}
       Admin__Password: ${ADMIN_PASSWORD:?ADMIN_PASSWORD is required}
       Security__MasterKey: ${SECURITY_MASTER_KEY:?SECURITY_MASTER_KEY is required}
+      Payments__WebhookSecrets__mock: ${PAYMENTS_WEBHOOK_SECRET_MOCK:-}
       PasswordReset__ExposeToken: ${PASSWORD_RESET_EXPOSE_TOKEN:-false}
       EmailVerification__ExposeToken: ${EMAIL_VERIFICATION_EXPOSE_TOKEN:-false}
     depends_on:
