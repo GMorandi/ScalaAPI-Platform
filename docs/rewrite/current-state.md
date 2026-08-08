@@ -10,16 +10,16 @@ read-only requirements reference and is excluded from builds and runtime.
 
 | Repository | Commit | Worktree | Role |
 | --- | --- | --- | --- |
-| `gateway` | `84634d1` | clean | C++ HTTP/WebSocket edge, protocol parsing/conversion, streaming, Provider transport/evidence, charge-aware failover, durable usage delivery, and authenticated Garnet projections |
-| `platform` | `0559659` | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, identity, scheduling, evidence-backed leases/holds/ledger, audited operator resolution, media lifecycle, Admin API/Web, Provider mock, migrations, and deployment gates |
+| `gateway` | `cec13e6` | clean | C++ HTTP/WebSocket edge, protocol parsing/conversion, streaming, Provider transport/evidence, charge-aware failover, durable usage delivery, authenticated Garnet projections, and deterministic fault boundaries |
+| `platform` | `8c3d2e0` | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, identity, scheduling, evidence-backed leases/holds/ledger, audited operator resolution, media lifecycle, Admin API/Web, Provider mock, migrations, deterministic fault boundaries, and deployment gates |
 | `sub2api` | `43ec48d` | read-only clean | Requirements catalogue only; never a runtime or compatibility dependency |
 
 The current tracked inventory is:
 
-- Gateway: 50 production C++ source/header files, 9 test source files, and 92
+- Gateway: 52 production C++ source/header files, 10 test source files, and 94
   CTest cases.
-- Platform: 82 hand-written production C# files, 3 generated Cap'n Proto C#
-  files, 25 test/benchmark C# files, and 93 tests: 57 Grain, 26 Host, 4 Admin,
+- Platform: 81 hand-written production C# files, 3 generated Cap'n Proto C#
+  files, 26 test/benchmark C# files, and 95 tests: 57 Grain, 28 Host, 4 Admin,
   and 6 Provider mock tests.
 - Product surface: 116 direct Admin API route declarations, 43 product tables,
   20 SQLSugar entity types, 23 Admin Web TypeScript/TSX files, and 11 page views.
@@ -80,6 +80,9 @@ current-source runtime evidence.
   200 response. Streaming requests reject a non-SSE success before client output.
 - Gateway's local usage outbox survives restart, replays retryable reports, and
   retires non-retryable terminal reports instead of blocking forever.
+- Gateway and Platform expose opt-in, one-shot deterministic fault hooks at
+  dispatch, Provider completion, settlement commit, and outbox acknowledgement.
+  Hooks persist a claim marker so a restarted process does not crash repeatedly.
 
 ### Identity and control plane
 
@@ -151,6 +154,11 @@ current-source runtime evidence.
 - `deploy/stack` independently starts PostgreSQL, authenticated Garnet, MinIO,
   Provider mock, Platform, Gateway, Admin API, and Admin Web. Image digests pin the
   infrastructure services.
+- The stack uses `restart: on-failure`; the Podman Compose 1.6 smoke harness also
+  explicitly starts the exited Platform container when a fault hook is enabled.
+  `Orleans:SingleSiloRecovery` is an explicit development-only mode which retires
+  stale membership rows before a replacement silo joins; multi-silo defaults remain
+  unchanged.
 - CDC consumers, Debezium configuration, migration fences/write gates, cutover
   endpoints, and CDC-only product tables are absent from active runtime code.
   `docs/migration/README.md` is only a pointer to historical material under
@@ -158,22 +166,28 @@ current-source runtime evidence.
 
 ## Current verification evidence
 
-At Platform `0559659` and Gateway `84634d1`:
+At Platform `8c3d2e0` and Gateway `cec13e6`:
 
-- Gateway built locally and passed 92/92 CTest cases.
-- Platform Release test/build passed with 0 warnings and 0 errors: 93/93 tests,
-  including 26 Host tests against a fresh real PostgreSQL schema. The new Host
-  coverage proves atomic operator settle/release, replay/conflict behavior, and
-  concurrent resolution serialization.
+- Gateway built locally and passed 94/94 CTest cases, including deterministic
+  fault-hook claim/repeat behavior.
+- Platform Release test/build passed with 0 warnings and 0 errors: 95/95 tests,
+  including 28 Host tests against a fresh real PostgreSQL schema. Host coverage
+  includes deterministic fault-hook configuration plus atomic operator
+  settle/release, replay/conflict behavior, and concurrent resolution serialization.
 - Admin Web typecheck and production build passed.
 - Scheduler benchmark integrity dry run executed all 4 selected child benchmarks
   and returned zero. It is a failure-propagation check, not performance evidence.
 - `deploy/stack/smoke.sh` built current sibling sources in the isolated Podman
-  project `scalaapi-smoke-resolution1`, created new volumes, applied all 22
-  migrations, and observed all 22 skip on the second migrator run. It resolved one
-  unknown-charge incident through the Admin API with `settle`, replayed the same
-  command as `duplicate`, and reduced open incidents from three to two before the
-  second reconciliation run.
+  project `scalaapi-smoke-platform-hook4`, created new volumes, applied all 22
+  migrations, and observed all 22 skip on the second migrator run. Source-built
+  image IDs were Platform `dd9006400e01`, Admin API `a927fa9b34ea`, Gateway
+  `a51970b3dbdd`, Provider mock `a895d522db41`, migrator `674d7ab9598d`, and
+  Admin Web `eabce3b86e2f`. The smoke intentionally crashed Platform once at
+  `platform.after_settlement_commit`; single-silo membership recovery restarted
+  the same service, replayed the durable usage outbox, and preserved one debit.
+  It also resolved one unknown-charge incident through the Admin API with
+  `settle`, replayed the same command as `duplicate`, and reduced open incidents
+  from three to two before the second reconciliation run.
 - The clean-stack Admin API funded a new zero-balance user once. Exact replay
   returned the same ledger identity, changed replay returned 409, overdraft returned
   409, and PostgreSQL contained exactly one NUMERIC adjustment and one actor audit.
@@ -214,9 +228,10 @@ Detailed gate results and residual coverage are maintained in `verification.md`.
   and protocol-wide fault semantics are not closed. A direct transport reset
   currently returns 502 while scheduler exhaustion after the same reset can return
   503; the next error-contract slice must normalize the public status and body.
-- Process replacement after clean requests passes. Crashes precisely between
-  dispatch, Provider completion, usage report, SQL commit, and outbox acknowledgement
-  still need deterministic injection and hold/idempotency reconciliation.
+- One source smoke proves the Platform post-settlement-commit crash boundary and
+  replay. The remaining dispatch, Provider-completion, pre-commit, Gateway, and
+  outbox-acknowledgement hook matrix still needs independent runtime assertions,
+  including hold/idempotency reconciliation and multi-instance recovery.
 - Garnet authentication, outage/reconnect, rebuild, and invalidation flush have
   evidence; TLS plus concurrent multi-Gateway/multi-Silo behavior is not a release
   gate yet.

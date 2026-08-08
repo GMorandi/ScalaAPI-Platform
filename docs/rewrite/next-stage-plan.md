@@ -2,7 +2,7 @@
 
 ## Checkpoint
 
-The next stage starts from Platform `0559659`, Gateway `84634d1`, and read-only
+The next stage starts from Platform `8c3d2e0`, Gateway `cec13e6`, and read-only
 reference `sub2api@43ec48d`.
 
 The greenfield baseline now starts from empty volumes, uses PostgreSQL as authority,
@@ -24,7 +24,11 @@ only provably safe repairs, persists incidents, and exposes Admin queries and
 metrics. An Admin-only, token-protected operator command now settles or releases
 one open unknown-charge incident exactly once with actor, evidence, reason, lease
 event, and audit persistence in the same transaction; subsequent reconciliation
-preserves that decision.
+preserves that decision. Gateway and Platform now expose deterministic one-shot
+fault hooks around dispatch, Provider completion, settlement commit, and outbox
+acknowledgement. The source smoke intentionally crashed Platform after settlement
+commit and recovered a single Orleans silo without a duplicate debit; the remaining
+hook matrix, cancellation, and multi-instance scenarios are still open.
 
 This stage contains no compatibility, cutover, dual-write, CDC, snapshot import,
 old-key import, ID preservation, status mapping, or business-data migration work.
@@ -50,8 +54,8 @@ failed assertion makes the top-level command non-zero.
 ## Work package 1: reconciliation and exact-boundary recovery
 
 Accounting authority completed at `c15b53b`, reconciliation foundation at
-`fddba62`, dispatch evidence at `6bfb974`/`84634d1`, and audited resolution at
-`0559659`:
+`fddba62`, dispatch evidence at `6bfb974`/`84634d1`, audited resolution at
+`0559659`, and deterministic fault boundaries at `1cad5b7`/`cec13e6`/`8c3d2e0`:
 
 - Added one per-user `accounting_accounts` authority with NUMERIC posted balance
   and monotonically increasing ledger version.
@@ -99,12 +103,23 @@ Accounting authority completed at `c15b53b`, reconciliation foundation at
   source smoke settles one incident, replays it as `duplicate`, and verifies the
   next reconciliation preserves the decision.
 
+Implemented in this package:
+
+- Added Gateway and Platform one-shot, marker-backed fault hooks before/after
+  Provider dispatch, after Provider completion, before/after settlement commit,
+  and before outbox acknowledgement. Unit tests prove exact hook matching,
+  one-shot claims, and repeat mode.
+- Added explicit `Orleans:SingleSiloRecovery` for the development smoke path and
+  a Podman-compatible harness restart. The source smoke proved a
+  `platform.after_settlement_commit` crash, durable usage replay, and exactly one
+  usage debit.
+
 Next implementation slice:
 
-- Add deterministic fault hooks before/after Provider dispatch, after Provider
-  completion, before/after settlement commit, and before outbox acknowledgement.
-- Add replay tests for duplicate completion, abort, expiry, worker reclaim,
-  projection replacement, and process restart at every fault hook.
+- Exercise every hook independently with replay assertions for duplicate
+  completion, abort, expiry, worker reclaim, projection replacement, and process
+  restart. Add Gateway crash evidence and multi-silo recovery before promoting the
+  billing slice.
 
 Remaining package deliverables:
 
@@ -232,10 +247,10 @@ idempotency state, outbox backlog, and reconciliation status:
 
 ## Sequence and commit discipline
 
-1. Finish package 1 deterministic crash hooks and recovery tests first; dispatch
-   evidence, the authoritative unknown-charge state, and the audited incident
-   decision path now exist, but cancellation cannot be release-complete without
-   deterministic recovery.
+1. Finish package 1 hook-matrix and recovery tests first; dispatch evidence, the
+   authoritative unknown-charge state, audited incident decisions, and one
+   post-commit crash replay now exist, but cancellation cannot be release-complete
+   without every deterministic boundary and multi-instance recovery.
 2. Package 2 defines transport semantics; package 3 freezes them as fixtures.
 3. Package 4 runs the state machines under concurrency and infrastructure failure.
 4. Package 5 makes the same evidence mandatory in hosted release CI.

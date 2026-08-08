@@ -83,8 +83,14 @@ through a token-protected Platform command: `settle` reuses the normal usage eff
 and price snapshot, while `release` is accepted only with explicit no-charge
 evidence. The resolution row, lease terminal transition, hold/accounting effect,
 immutable operator lease event, and actor audit are committed atomically; the
-incident remains resolved on later reconciliation runs. Exact-boundary crash
-evidence remains required before the billing slice is release-complete.
+incident remains resolved on later reconciliation runs. Gateway and Platform have
+opt-in, one-shot fault hooks around dispatch, Provider completion, settlement
+commit, and outbox acknowledgement. A claim marker prevents a restarted process
+from repeating the same injected crash. The Podman single-silo smoke enables an
+explicit Orleans membership recovery mode to retire stale active rows before the
+replacement silo joins; multi-silo deployments retain normal liveness voting.
+One post-settlement-commit crash is source-smoke proven; the full hook matrix and
+multi-instance evidence remain release gates.
 
 ## Garnet
 
