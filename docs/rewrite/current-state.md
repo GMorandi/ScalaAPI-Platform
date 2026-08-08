@@ -10,12 +10,12 @@ release artifacts.
 | Repository | Commit | Worktree | Responsibility |
 | --- | --- | --- | --- |
 | `gateway` | `c807dc8` | clean | C++ HTTP/WebSocket edge, protocol conversion, chunked streaming, Provider transport, versioned Garnet client, malformed-usage guard, fixed-scale Cap'n Proto client, unique failover lease IDs, bounded non-stream upstream timeout, bounded response replay, invalidation flush recovery |
-| `platform` | `e07e5ac` | clean | C# Orleans control plane, PostgreSQL persistence, leases, NUMERIC ledger, durable holds/idempotency, usage, media lifecycle, Admin API, versioned Garnet rebuild, replayable balance effects, fixed-scale RPC contract, retryable terminal idempotency leases, bounded response persistence/replay, password recovery, email verification, cancellable Provider mock timeout, restart-safe settlement outbox recovery, immutable lease price snapshots, durable ledger reconciliation endpoint |
+| `platform` | `3d49e57` | clean | C# Orleans control plane, PostgreSQL persistence, leases, NUMERIC ledger, durable holds/idempotency, usage, media lifecycle, Admin API, versioned Garnet rebuild, replayable balance effects, fixed-scale RPC contract, retryable terminal idempotency leases, bounded response persistence/replay, password recovery, email verification, cancellable Provider mock timeout, restart-safe settlement outbox recovery, immutable lease price snapshots, durable ledger reconciliation endpoint, deterministic rolling quota policy, usage-triggered auth invalidation |
 | `sub2api` | `43ec48d` | read-only clean reference | Functional requirements catalogue only |
 
 The current source inventory is 50 tracked Gateway source files, 87 CTest cases,
-62 hand-written Platform production C# files plus 3 generated Cap'n Proto files,
-32 tracked Platform test/benchmark C# source files, 72 Platform test cases, 137 mapped
+63 hand-written Platform production C# files plus 3 generated Cap'n Proto files,
+32 tracked Platform test/benchmark C# source files, 76 Platform test cases, 137 mapped
 Admin API route declarations, 33 product tables, 20 SQLSugar entity types, and 31 Admin Web
 source files with 11 page views. Admin Web has no browser test runner yet.
 
@@ -62,6 +62,12 @@ not implementation parity or a migration target.
 - Lease creation also persists the model price version and every NUMERIC unit rate.
   Settlement uses that immutable snapshot even if runtime configuration changes;
   a legacy lease without a snapshot fails retryably instead of being repriced.
+- API-key absolute quota and 5-hour, daily, and weekly spend windows use one
+  deterministic policy. Expired windows reset independently; absolute quota wins
+  rejection precedence, then the shortest rolling window. Zero limits remain
+  unlimited and the policy is covered by Grain tests.
+- API-key usage settlement publishes the same invalidation event as key rotation;
+  Gateway no longer serves a stale quota projection after a completed charge.
 - Settlement outbox claims expire after 30 seconds, so a process restart can
   reclaim work. Failed financial effects use bounded exponential backoff without
   automatic dead-lettering; startup requeues any unprocessed rows left by an older
@@ -150,7 +156,7 @@ not implementation parity or a migration target.
 ## Current runtime evidence
 
 On 2026-08-08 the isolated `scalaapi-stage2` project used current-source images:
-Platform `15ca7ca2ccbf47da884d078cddfcdc8f6883d746ed1c355ed137814859241aeb`,
+Platform `15bfff385320769f7669ce14c34ec8c4d29b7fcf24927bd7bafe11cd805f684b`,
 Admin API `d522f4107be506f085d4168a647cf4af9dfe62e7030526a5ff307fed56dc4cc5`,
 migrator `53824dbce4883ba1b46aa1af6385c5c1720f6a66664f472266afdee0447af289`,
 Gateway `b072b7600c8acaa0d94a9a319629ddf928a218748ce8523b76912a1f457ef350`, and
@@ -216,8 +222,11 @@ The protected cache rebuild endpoint returned `discovered=12`, `written=12`,
 `scalaapi:v1:auth:*` projection. The rebuilt current Gateway image returned 200 for
 a seeded OpenAI Chat request (`X-Request-ID: 4b54b3d53004943c`) and Platform recorded
 one completed lease, one usage event, one `0.00006750` NUMERIC debit, and one
-committed hold. Gateway readiness returned 200 and an unknown API key traversed the
-current dispatch path to a stable 401.
+committed hold. A low-quota key completed its first request, then the rebuilt
+projection caused the next request to return `401 authentication_error` with
+`Quota exhausted`; this verifies usage-triggered auth invalidation in the current
+Platform/Gateway stack. Gateway readiness returned 200 and an unknown API key
+traversed the current dispatch path to a stable 401.
 
 ## Historical runtime boundary
 

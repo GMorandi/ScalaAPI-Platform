@@ -12,7 +12,7 @@ This does not close the product rewrite. The next stage is one authoritative,
 billable OpenAI Chat Completions vertical slice. Work outside that slice stays
 `partial`, `skeleton`, or `missing` in the inventory.
 
-## Progress checkpoint (2026-08-08, platform `e07e5ac`, gateway `c807dc8`)
+## Progress checkpoint (2026-08-08, platform `3d49e57`, gateway `c807dc8`)
 
 - Completed in `b266e17`: business balances, quotas, costs, limits, and routing
   multipliers use `decimal`; precision projections cover User, Group, and API key.
@@ -96,6 +96,14 @@ billable OpenAI Chat Completions vertical slice. Work outside that slice stays
   failed on two missing debits and orphan test ledger rows; after an isolated
   usage/ledger reset, a fresh seeded request passed with zero mismatch. Automate
   clean-seed repair and historical backfill before release.
+- Completed in `21dfa2c`: API-key quota evaluation is a deterministic domain policy
+  with absolute-quota precedence, shortest-window (5h/1d/7d) precedence, independent
+  expiry reset, and explicit unlimited zero-limit behavior. Grain tests cover each
+  branch; subscription entitlement and quota-grant lifecycle remain open.
+- Completed in `3d49e57`: usage settlement now publishes API-key invalidation so
+  Gateway cannot authorize a request from a stale quota projection. A current-image
+  low-quota probe completed once and then returned `401 Quota exhausted` after the
+  projection was rebuilt; distributed concurrent reservation remains open.
 - Still open: PostgreSQL aggregate repositories/foreign keys, fixed-precision RPC
   schema generation, crash/restart settlement scenarios, provider failure matrix,
   empty-volume CI automation, and Garnet flush/stale-version/TLS/multi-client evidence.
