@@ -38,6 +38,7 @@ COPY deploy/migrations/004-auth-sessions.sql ./migrations/004-auth-sessions.sql
 COPY deploy/migrations/005-lease-ledger.sql ./migrations/005-lease-ledger.sql
 COPY deploy/migrations/006-durable-holds.sql ./migrations/006-durable-holds.sql
 COPY deploy/migrations/007-request-idempotency.sql ./migrations/007-request-idempotency.sql
+COPY deploy/migrations/008-redeem-code-atomicity.sql ./migrations/008-redeem-code-atomicity.sql
 ENTRYPOINT ["dotnet", "migrate/Db.Migrator.dll", "/app/migrations"]
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS provider-mock
