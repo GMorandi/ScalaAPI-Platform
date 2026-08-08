@@ -23,31 +23,59 @@ public static class SeedEndpoints
                 model = "gpt-4o",
             });
         });
+
+        group.MapPost("/provider-mock-suite", async (IClusterClient client,
+            ListingRepository registry) =>
+        {
+            var result = new List<object>();
+            foreach (var profile in Profiles)
+            {
+                var accountId = await EnsureAccountAsync(client, registry, profile);
+                var groupId = await EnsureGroupAsync(client, registry, profile, accountId);
+                result.Add(new
+                {
+                    provider = profile.Platform,
+                    account_id = accountId,
+                    group_id = groupId,
+                    models = profile.SupportedModels,
+                });
+            }
+            return Results.Ok(new { providers = result });
+        });
     }
 
     private static async Task<long> EnsureAccountAsync(
         IClusterClient client, ListingRepository registry)
+        => await EnsureAccountAsync(client, registry, Profiles[0]);
+
+    private static async Task<long> EnsureAccountAsync(
+        IClusterClient client, ListingRepository registry, MockProviderProfile profile)
     {
         var accountIds = await registry.GetIntegerGrainIds("account", 0, 1000);
         foreach (var accountId in accountIds)
         {
             var grain = client.GetGrain<IAccountGrain>(accountId);
             var projection = await grain.GetProjection();
-            if (string.Equals(projection.Name, ProviderName, StringComparison.Ordinal))
+            if (string.Equals(projection.Name, profile.Name, StringComparison.Ordinal))
             {
-                await grain.Update(MockAccount());
+                await grain.Update(profile.Account());
                 return accountId;
             }
         }
 
         var id = await client.GetGrain<IIdAllocatorGrain>("account").Next();
-        await client.GetGrain<IAccountGrain>(id).Create(MockAccount());
+        await client.GetGrain<IAccountGrain>(id).Create(profile.Account());
         await registry.RegisterInteger("account", id);
         return id;
     }
 
     private static async Task<long> EnsureGroupAsync(
         IClusterClient client, ListingRepository registry, long accountId)
+        => await EnsureGroupAsync(client, registry, Profiles[0], accountId);
+
+    private static async Task<long> EnsureGroupAsync(
+        IClusterClient client, ListingRepository registry, MockProviderProfile profile,
+        long accountId)
     {
         var groupIds = await registry.GetIntegerGrainIds("group", 0, 1000);
         foreach (var groupId in groupIds)
@@ -55,30 +83,42 @@ public static class SeedEndpoints
             var grain = client.GetGrain<IGroupGrain>(groupId);
             var config = await grain.GetConfig();
             var members = await grain.GetMemberAccountIds();
-            if (config.Platform == "openai" && members.Contains(accountId))
+            if (string.Equals(config.Platform, profile.Platform, StringComparison.Ordinal)
+                && members.Contains(accountId))
             {
-                await grain.Update(MockGroup(accountId));
+                await grain.Update(profile.Group(accountId));
                 return groupId;
             }
         }
 
         var id = await client.GetGrain<IIdAllocatorGrain>("group").Next();
-        await client.GetGrain<IGroupGrain>(id).Create(MockGroup(accountId));
+        await client.GetGrain<IGroupGrain>(id).Create(profile.Group(accountId));
         await registry.RegisterInteger("group", id);
         return id;
     }
 
-    private static AccountUpsert MockAccount() => new(
-        ProviderName, "openai", "api_key", "http://provider-mock:8081",
-        Priority: 1, Concurrency: 8, LoadFactor: 1, RateMultiplier: 1m,
-        Schedulable: true,
-        Credentials: new Dictionary<string, string> { ["api_key"] = "scalaapi-mock-key" },
-        ModelMapping: new Dictionary<string, string>(),
-        SupportedModels: ["gpt-4o"], ProxyUrl: null, TlsFingerprint: false);
+    private sealed record MockProviderProfile(string Name, string Platform,
+        string[] SupportedModels)
+    {
+        public AccountUpsert Account() => new(
+            Name, Platform, "api_key", "http://provider-mock:8081",
+            Priority: 1, Concurrency: 8, LoadFactor: 1, RateMultiplier: 1m,
+            Schedulable: true,
+            Credentials: new Dictionary<string, string> { ["api_key"] = "scalaapi-mock-key" },
+            ModelMapping: new Dictionary<string, string>(), SupportedModels,
+            ProxyUrl: null, TlsFingerprint: false);
 
-    private static GroupUpsert MockGroup(long accountId) => new(
-        "openai", 1m, IsExclusive: false, DailyLimitUsd: null,
-        ClaudeCodeOnly: false, FallbackGroupId: null, ModelRoutingEnabled: false,
-        ModelRouting: new Dictionary<string, long[]>(), MemberAccountIds: [accountId],
-        RpmLimit: 0, PeakMultiplier: null, PeakStartHour: null, PeakEndHour: null);
+        public GroupUpsert Group(long accountId) => new(
+            Platform, 1m, IsExclusive: false, DailyLimitUsd: null,
+            ClaudeCodeOnly: false, FallbackGroupId: null, ModelRoutingEnabled: false,
+            ModelRouting: new Dictionary<string, long[]>(), MemberAccountIds: [accountId],
+            RpmLimit: 0, PeakMultiplier: null, PeakStartHour: null, PeakEndHour: null);
+    }
+
+    private static readonly MockProviderProfile[] Profiles =
+    [
+        new(ProviderName, "openai", ["gpt-4o", "text-embedding-3-small", "mock-image-1", "mock-video-1"]),
+        new("scalaapi-provider-mock-anthropic", "anthropic", ["claude-3-5-sonnet"]),
+        new("scalaapi-provider-mock-gemini", "gemini", ["gemini-2.0-flash"]),
+    ];
 }

@@ -73,6 +73,62 @@ app.MapPost("/v1/messages", async (HttpContext context, CancellationToken cancel
     var inputTokens = MockProviderHelpers.EstimateInputTokens(root);
     var requestId = context.Request.Headers["X-Provider-Request-Id"].FirstOrDefault()
         ?? MockProviderHelpers.Id("msg");
+    var stream = root.TryGetProperty("stream", out var streamValue)
+        && streamValue.ValueKind == JsonValueKind.True;
+    var scenario = root.TryGetProperty("mock_scenario", out var scenarioValue)
+        ? scenarioValue.GetString() ?? "success"
+        : "success";
+    if (stream && !scenario.Equals("json_stream", StringComparison.OrdinalIgnoreCase))
+    {
+        context.Response.StatusCode = StatusCodes.Status200OK;
+        context.Response.ContentType = "text/event-stream";
+        context.Response.Headers.CacheControl = "no-cache";
+        var events = new (string Name, object Payload)[]
+        {
+            ("message_start", new
+            {
+                type = "message_start",
+                message = new
+                {
+                    id = requestId,
+                    type = "message",
+                    role = "assistant",
+                    model,
+                    content = Array.Empty<object>(),
+                    stop_reason = (string?)null,
+                    stop_sequence = (string?)null,
+                    usage = new { input_tokens = inputTokens, output_tokens = 0 }
+                }
+            }),
+            ("content_block_start", new
+            {
+                type = "content_block_start",
+                index = 0,
+                content_block = new { type = "text", text = "" }
+            }),
+            ("content_block_delta", new
+            {
+                type = "content_block_delta",
+                index = 0,
+                delta = new { type = "text_delta", text = "mock response" }
+            }),
+            ("content_block_stop", new { type = "content_block_stop", index = 0 }),
+            ("message_delta", new
+            {
+                type = "message_delta",
+                delta = new { stop_reason = "end_turn", stop_sequence = (string?)null },
+                usage = new { output_tokens = 5 }
+            }),
+            ("message_stop", new { type = "message_stop" }),
+        };
+        foreach (var item in events)
+        {
+            await context.Response.WriteAsync(
+                $"event: {item.Name}\ndata: {JsonSerializer.Serialize(item.Payload)}\n\n",
+                cancellationToken);
+        }
+        return Results.Empty;
+    }
     return Results.Ok(new
     {
         id = requestId,
