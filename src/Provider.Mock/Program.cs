@@ -1,10 +1,267 @@
 using System.Text.Json;
+using ScalaAPI.Provider.Mock;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.WebHost.UseUrls("http://0.0.0.0:8081");
 var app = builder.Build();
 
 app.MapGet("/health", () => Results.Ok(new { status = "ok", provider = "scalaapi-mock" }));
+
+app.MapGet("/v1/models", () => Results.Ok(new
+{
+    @object = "list",
+    data = new[]
+    {
+        new { id = "gpt-4o", @object = "model", created = 1_700_000_000L, owned_by = "scalaapi-provider-mock" },
+        new { id = "text-embedding-3-small", @object = "model", created = 1_700_000_001L, owned_by = "scalaapi-provider-mock" },
+        new { id = "mock-image-1", @object = "model", created = 1_700_000_002L, owned_by = "scalaapi-provider-mock" },
+        new { id = "mock-video-1", @object = "model", created = 1_700_000_003L, owned_by = "scalaapi-provider-mock" },
+    }
+}));
+
+app.MapGet("/v1beta/models", () => Results.Ok(new
+{
+    models = new[]
+    {
+        new
+        {
+            name = "models/gemini-2.0-flash",
+            displayName = "Gemini 2.0 Flash",
+            description = "Deterministic ScalaAPI provider fixture",
+            inputTokenLimit = 1_000_000,
+            outputTokenLimit = 8_192,
+            supportedGenerationMethods = new[] { "generateContent", "streamGenerateContent" }
+        }
+    }
+}));
+
+app.MapGet("/v1beta/models/{model}", (string model) => Results.Ok(new
+{
+    name = $"models/{model}",
+    displayName = model,
+    description = "Deterministic ScalaAPI provider fixture",
+    inputTokenLimit = 1_000_000,
+    outputTokenLimit = 8_192,
+    supportedGenerationMethods = new[] { "generateContent", "streamGenerateContent" }
+}));
+
+app.MapPost("/v1/embeddings", async (HttpContext context, CancellationToken cancellationToken) =>
+{
+    using var body = await MockProviderHelpers.ReadJsonAsync(context, cancellationToken);
+    var model = MockProviderHelpers.Model(body.RootElement, "text-embedding-3-small");
+    var inputTokens = MockProviderHelpers.EstimateInputTokens(body.RootElement);
+    return Results.Ok(new
+    {
+        @object = "list",
+        data = new[] { new { @object = "embedding", index = 0, embedding = new[] { 0.125, 0.25, 0.5, 0.75 } } },
+        model,
+        usage = new { prompt_tokens = inputTokens, total_tokens = inputTokens }
+    });
+});
+
+app.MapPost("/v1/messages/count_tokens", async (HttpContext context, CancellationToken cancellationToken) =>
+{
+    using var body = await MockProviderHelpers.ReadJsonAsync(context, cancellationToken);
+    return Results.Ok(new { input_tokens = MockProviderHelpers.EstimateInputTokens(body.RootElement) });
+});
+
+app.MapPost("/v1/messages", async (HttpContext context, CancellationToken cancellationToken) =>
+{
+    using var body = await MockProviderHelpers.ReadJsonAsync(context, cancellationToken);
+    var root = body.RootElement;
+    var model = MockProviderHelpers.Model(root, "claude-3-5-sonnet");
+    var inputTokens = MockProviderHelpers.EstimateInputTokens(root);
+    var requestId = context.Request.Headers["X-Provider-Request-Id"].FirstOrDefault()
+        ?? MockProviderHelpers.Id("msg");
+    return Results.Ok(new
+    {
+        id = requestId,
+        type = "message",
+        role = "assistant",
+        model,
+        content = new[] { new { type = "text", text = "mock response" } },
+        stop_reason = "end_turn",
+        stop_sequence = (string?)null,
+        usage = new { input_tokens = inputTokens, output_tokens = 5 }
+    });
+});
+
+app.MapPost("/v1/responses", async (HttpContext context, CancellationToken cancellationToken) =>
+{
+    using var body = await MockProviderHelpers.ReadJsonAsync(context, cancellationToken);
+    var root = body.RootElement;
+    var model = MockProviderHelpers.Model(root);
+    var inputTokens = MockProviderHelpers.EstimateInputTokens(root);
+    var requestId = context.Request.Headers["X-Provider-Request-Id"].FirstOrDefault()
+        ?? MockProviderHelpers.Id("resp");
+    return Results.Ok(new
+    {
+        id = requestId,
+        @object = "response",
+        status = "completed",
+        model,
+        output_text = "mock response",
+        output = new[]
+        {
+            new
+            {
+                type = "message",
+                role = "assistant",
+                content = new[] { new { type = "output_text", text = "mock response" } }
+            }
+        },
+        usage = new { input_tokens = inputTokens, output_tokens = 5, total_tokens = inputTokens + 5 }
+    });
+});
+
+app.MapPost("/v1beta/models/{model}:generateContent", async (
+    string model, HttpContext context, CancellationToken cancellationToken) =>
+{
+    using var body = await MockProviderHelpers.ReadJsonAsync(context, cancellationToken);
+    var inputTokens = MockProviderHelpers.EstimateInputTokens(body.RootElement);
+    return Results.Ok(new
+    {
+        candidates = new[]
+        {
+            new
+            {
+                content = new { role = "model", parts = new[] { new { text = "mock response" } } },
+                finishReason = "STOP",
+                index = 0
+            }
+        },
+        usageMetadata = new
+        {
+            promptTokenCount = inputTokens,
+            candidatesTokenCount = 5,
+            totalTokenCount = inputTokens + 5
+        },
+        modelVersion = model
+    });
+});
+
+app.MapPost("/v1beta/models/{model}:streamGenerateContent", async (
+    string model, HttpContext context, CancellationToken cancellationToken) =>
+{
+    using var body = await MockProviderHelpers.ReadJsonAsync(context, cancellationToken);
+    var inputTokens = MockProviderHelpers.EstimateInputTokens(body.RootElement);
+    context.Response.ContentType = "text/event-stream";
+    await context.Response.WriteAsync($"data: {JsonSerializer.Serialize(new
+    {
+        candidates = new[] { new { content = new { role = "model", parts = new[] { new { text = "mock response" } } }, finishReason = "STOP" } },
+        usageMetadata = new { promptTokenCount = inputTokens, candidatesTokenCount = 5, totalTokenCount = inputTokens + 5 },
+        modelVersion = model
+    })}\n\n", cancellationToken);
+});
+
+app.MapPost("/v1/images/generations", (HttpContext context) =>
+{
+    var id = MockProviderHelpers.Id("image");
+    return Results.Ok(new
+    {
+        created = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
+        data = new[] { new { url = MockProviderHelpers.OutputUrl(id), revised_prompt = "mock image" } },
+        size = "1024x1024"
+    });
+});
+
+app.MapPost("/v1/images/edits", (HttpContext context) =>
+{
+    var id = MockProviderHelpers.Id("image-edit");
+    return Results.Ok(new
+    {
+        created = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
+        data = new[] { new { url = MockProviderHelpers.OutputUrl(id), revised_prompt = "mock image edit" } },
+        size = "1024x1024"
+    });
+});
+
+app.MapPost("/v1/images/generations/async", () => Results.Accepted(value: new
+{
+    id = MockProviderHelpers.Id("image-task"),
+    status = "pending",
+    progress = 0
+}));
+
+app.MapPost("/v1/images/edits/async", () => Results.Accepted(value: new
+{
+    id = MockProviderHelpers.Id("image-edit-task"),
+    status = "pending",
+    progress = 0
+}));
+
+app.MapPost("/v1/images/batches", () => Results.Accepted(value: new
+{
+    id = MockProviderHelpers.Id("image-batch"),
+    status = "pending",
+    progress = 0
+}));
+
+app.MapGet("/v1/images/batches/models", () => Results.Ok(new
+{
+    @object = "list",
+    data = new[] { new { id = "mock-image-1", @object = "model", owned_by = "scalaapi-provider-mock" } }
+}));
+
+app.MapGet("/v1/images/tasks/{taskId}", (string taskId) => Results.Ok(new
+{
+    id = taskId,
+    status = "succeeded",
+    progress = 100,
+    output_url = MockProviderHelpers.OutputUrl(taskId),
+    content_type = "image/png",
+    data = new[] { new { url = MockProviderHelpers.OutputUrl(taskId) } },
+    size = "1024x1024"
+}));
+
+app.MapGet("/v1/images/batches/{batchId}", (string batchId) => Results.Ok(new
+{
+    id = batchId,
+    status = "succeeded",
+    progress = 100,
+    output_url = MockProviderHelpers.OutputUrl(batchId),
+    content_type = "application/json",
+    data = new[] { new { custom_id = "mock-1", url = MockProviderHelpers.OutputUrl(batchId) } }
+}));
+
+app.MapPost("/v1/videos/generations", () => Results.Accepted(value: new
+{
+    id = MockProviderHelpers.Id("video"),
+    status = "pending",
+    progress = 0
+}));
+
+app.MapPost("/v1/videos/edits", () => Results.Accepted(value: new
+{
+    id = MockProviderHelpers.Id("video-edit"),
+    status = "pending",
+    progress = 0
+}));
+
+app.MapPost("/v1/videos/extensions", () => Results.Accepted(value: new
+{
+    id = MockProviderHelpers.Id("video-extension"),
+    status = "pending",
+    progress = 0
+}));
+
+app.MapGet("/v1/videos/{videoId}", (string videoId) => Results.Ok(new
+{
+    id = videoId,
+    status = "succeeded",
+    progress = 100,
+    output_url = MockProviderHelpers.OutputUrl(videoId),
+    content_type = "video/mp4",
+    resolution = "1280x720",
+    duration = 4
+}));
+
+app.MapGet("/v1/mock-output/{outputId}", (string outputId) =>
+{
+    var bytes = System.Text.Encoding.UTF8.GetBytes($"scalaapi-provider-mock:{outputId}\n");
+    return Results.File(bytes, outputId.StartsWith("video", StringComparison.OrdinalIgnoreCase)
+        ? "video/mp4" : "image/png");
+});
 
 app.MapPost("/v1/chat/completions", async (HttpContext context, CancellationToken cancellationToken) =>
 {

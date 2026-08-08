@@ -187,7 +187,9 @@ public sealed class MediaOperationHostedService(
             }
             var count = root.TryGetProperty("data", out var data) && data.ValueKind == JsonValueKind.Array
                 ? data.GetArrayLength() : 0;
-            return new PollResult(status, progress, outputUrl, contentType,
+            var outputContentType = ReadString(root, "content_type");
+            if (string.IsNullOrWhiteSpace(outputContentType)) outputContentType = contentType;
+            return new PollResult(status, progress, outputUrl, outputContentType,
                 count, ReadString(root, "size"), ReadString(root, "resolution"),
                 ReadInt(root, "duration"), status == "failed" ? Limited(body) : "");
         }

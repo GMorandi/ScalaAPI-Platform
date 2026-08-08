@@ -23,7 +23,7 @@ public static class GatewayCapabilityPolicy
                 or "responses_subpath" or "models" or "videos" or "realtime",
             "openai" or "openai-compatible" => feature is "chat_completions" or "responses"
                 or "responses_subpath" or "models" or "embeddings" or "images_sync"
-                or "images_async" or "images_batch" or "search" or "realtime",
+                or "images_async" or "images_batch" or "videos" or "search" or "realtime",
             _ => false,
         };
     }
