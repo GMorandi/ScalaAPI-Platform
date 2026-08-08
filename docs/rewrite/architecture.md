@@ -78,9 +78,13 @@ Admin-triggered runs. Each run proves account balance/version and ledger contigu
 usage/debit equality, lease/hold terminal state, and Grain projection state. It may
 repair only terminal holds and stale projections whose expected outcome is proven;
 all other drift and unknown Provider charges become durable operator-visible
-incidents. Forwarded/output-started evidence is now durable; an audited idempotent
-operator resolution command and exact-boundary crash evidence remain required
-before the billing slice is release-complete.
+incidents. Admin operators may resolve an open `unknown_provider_charge` incident
+through a token-protected Platform command: `settle` reuses the normal usage effect
+and price snapshot, while `release` is accepted only with explicit no-charge
+evidence. The resolution row, lease terminal transition, hold/accounting effect,
+immutable operator lease event, and actor audit are committed atomically; the
+incident remains resolved on later reconciliation runs. Exact-boundary crash
+evidence remains required before the billing slice is release-complete.
 
 ## Garnet
 

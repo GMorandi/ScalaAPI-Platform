@@ -2,7 +2,7 @@
 
 ## Checkpoint
 
-The next stage starts from Platform `6bfb974`, Gateway `84634d1`, and read-only
+The next stage starts from Platform `0559659`, Gateway `84634d1`, and read-only
 reference `sub2api@43ec48d`.
 
 The greenfield baseline now starts from empty volumes, uses PostgreSQL as authority,
@@ -21,7 +21,10 @@ never-forwarded held lease may expire and release; all forwarded ambiguity becom
 completion or future operator decision. A globally serialized scheduled
 reconciler checks the full account/ledger/usage/hold/projection boundary, performs
 only provably safe repairs, persists incidents, and exposes Admin queries and
-metrics.
+metrics. An Admin-only, token-protected operator command now settles or releases
+one open unknown-charge incident exactly once with actor, evidence, reason, lease
+event, and audit persistence in the same transaction; subsequent reconciliation
+preserves that decision.
 
 This stage contains no compatibility, cutover, dual-write, CDC, snapshot import,
 old-key import, ID preservation, status mapping, or business-data migration work.
@@ -47,7 +50,8 @@ failed assertion makes the top-level command non-zero.
 ## Work package 1: reconciliation and exact-boundary recovery
 
 Accounting authority completed at `c15b53b`, reconciliation foundation at
-`fddba62`, and dispatch evidence at `6bfb974`/`84634d1`:
+`fddba62`, dispatch evidence at `6bfb974`/`84634d1`, and audited resolution at
+`0559659`:
 
 - Added one per-user `accounting_accounts` authority with NUMERIC posted balance
   and monotonically increasing ledger version.
@@ -82,15 +86,23 @@ Accounting authority completed at `c15b53b`, reconciliation foundation at
 - Proved migration 020 idempotency, safe never-forwarded expiry, retained unknown
   aborts, late exactly-once settlement, and a source-built fault matrix with three
   intentional unknown-charge incidents.
+- Added migration 021 and a native resolution contract. `settle` validates bounded
+  usage/evidence and calls the same completion transaction as normal Provider
+  usage; `release` accepts only `never_forwarded`, `provider_rejection`, or
+  `provider_confirmed_no_charge` evidence, checks the lease journal, releases the
+  hold, and records no usage. Both actions lock incident/lease/account state,
+  persist a resolution row, operator lease event, and actor audit, and use a global
+  idempotency key plus request fingerprint for replay/conflict behavior.
+- Added an Admin API endpoint and token-protected Platform internal bridge. A real
+  PostgreSQL Host test covers settle/release atomicity, one debit/hold transition,
+  invalid evidence, same-key conflict, and concurrent different-key serialization;
+  source smoke settles one incident, replays it as `duplicate`, and verifies the
+  next reconciliation preserves the decision.
 
 Next implementation slice:
 
 - Add deterministic fault hooks before/after Provider dispatch, after Provider
   completion, before/after settlement commit, and before outbox acknowledgement.
-- Add an authenticated operator decision command that requires incident identity,
-  evidence, reason, actor, and idempotency key. `settle` must append the normal usage
-  effect; `release` is legal only with explicit no-charge evidence. Both actions
-  retain an immutable audit trail.
 - Add replay tests for duplicate completion, abort, expiry, worker reclaim,
   projection replacement, and process restart at every fault hook.
 
@@ -102,13 +114,14 @@ Remaining package deliverables:
 - Add a blocking negative probe for each new fault hook so a swallowed child failure or
   missing scenario makes the top-level gate non-zero.
 
-Dependencies: migrations 018-020 accounting authority/reconciliation/evidence, versioned
-ledger effects, durable holds, response replay, settlement/projection outboxes, and
-persisted incident identity.
+Dependencies: migrations 018-021 accounting authority/reconciliation/evidence,
+versioned ledger effects, durable holds, response replay, settlement/projection
+outboxes, persisted incident identity, and the audited resolution transaction.
 
 Exit: every injected crash converges after restart to one terminal lease or one
 documented `reconciliation_needed` lease, at most one usage debit, no unaccounted
-hold, and a durable operator-visible reason when the Provider charge is unknowable.
+hold, and a durable operator-visible reason when the Provider charge is unknowable;
+an open incident can be resolved only through the audited settle/release contract.
 
 ## Work package 2: cancellation and streaming failure semantics
 
@@ -219,10 +232,10 @@ idempotency state, outbox backlog, and reconciliation status:
 
 ## Sequence and commit discipline
 
-1. Finish package 1 operator resolution and crash hooks first; dispatch evidence,
-   the authoritative unknown-charge state, and the incident store now exist, but
-   cancellation cannot be release-complete without deterministic recovery and an
-   audited terminal decision path.
+1. Finish package 1 deterministic crash hooks and recovery tests first; dispatch
+   evidence, the authoritative unknown-charge state, and the audited incident
+   decision path now exist, but cancellation cannot be release-complete without
+   deterministic recovery.
 2. Package 2 defines transport semantics; package 3 freezes them as fixtures.
 3. Package 4 runs the state machines under concurrency and infrastructure failure.
 4. Package 5 makes the same evidence mandatory in hosted release CI.

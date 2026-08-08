@@ -11,17 +11,17 @@ read-only requirements reference and is excluded from builds and runtime.
 | Repository | Commit | Worktree | Role |
 | --- | --- | --- | --- |
 | `gateway` | `84634d1` | clean | C++ HTTP/WebSocket edge, protocol parsing/conversion, streaming, Provider transport/evidence, charge-aware failover, durable usage delivery, and authenticated Garnet projections |
-| `platform` | `6bfb974` | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, identity, scheduling, evidence-backed leases/holds/ledger, media lifecycle, Admin API/Web, Provider mock, migrations, and deployment gates |
+| `platform` | `0559659` | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, identity, scheduling, evidence-backed leases/holds/ledger, audited operator resolution, media lifecycle, Admin API/Web, Provider mock, migrations, and deployment gates |
 | `sub2api` | `43ec48d` | read-only clean | Requirements catalogue only; never a runtime or compatibility dependency |
 
 The current tracked inventory is:
 
 - Gateway: 50 production C++ source/header files, 9 test source files, and 92
   CTest cases.
-- Platform: 79 hand-written production C# files, 3 generated Cap'n Proto C#
-  files, 24 test/benchmark C# files, and 92 tests: 57 Grain, 25 Host, 4 Admin,
+- Platform: 82 hand-written production C# files, 3 generated Cap'n Proto C#
+  files, 25 test/benchmark C# files, and 93 tests: 57 Grain, 26 Host, 4 Admin,
   and 6 Provider mock tests.
-- Product surface: 115 direct Admin API route declarations, 42 product tables,
+- Product surface: 116 direct Admin API route declarations, 43 product tables,
   20 SQLSugar entity types, 23 Admin Web TypeScript/TSX files, and 11 page views.
 - Reference scope: approximately 612 Sub2API route registrations, 39 concrete
   Ent schemas, 82 Vue view/component files, and 240 migrations. These are scope
@@ -144,8 +144,8 @@ current-source runtime evidence.
 
 ### Bootstrap and deployment
 
-- The active migrator applies Orleans support plus migrations 001-020 to an empty
-  PostgreSQL database and rejects checksum drift. A second execution skips all 21
+- The active migrator applies Orleans support plus migrations 001-021 to an empty
+  PostgreSQL database and rejects checksum drift. A second execution skips all 22
   files. No source database, snapshot, old key, CDC table, or compatibility mapping
   is required.
 - `deploy/stack` independently starts PostgreSQL, authenticated Garnet, MinIO,
@@ -158,17 +158,22 @@ current-source runtime evidence.
 
 ## Current verification evidence
 
-At Platform `6bfb974` and Gateway `84634d1`:
+At Platform `0559659` and Gateway `84634d1`:
 
 - Gateway built locally and passed 92/92 CTest cases.
-- Platform Release test/build passed with 0 warnings and 0 errors: 92/92 tests,
-  including 25 Host tests against a fresh real PostgreSQL schema.
+- Platform Release test/build passed with 0 warnings and 0 errors: 93/93 tests,
+  including 26 Host tests against a fresh real PostgreSQL schema. The new Host
+  coverage proves atomic operator settle/release, replay/conflict behavior, and
+  concurrent resolution serialization.
 - Admin Web typecheck and production build passed.
 - Scheduler benchmark integrity dry run executed all 4 selected child benchmarks
   and returned zero. It is a failure-propagation check, not performance evidence.
 - `deploy/stack/smoke.sh` built current sibling sources in the isolated Podman
-  project `scalaapi-smoke-evidence1`, created new volumes, applied all 21
-  migrations, and observed all 21 skip on the second migrator run.
+  project `scalaapi-smoke-resolution1`, created new volumes, applied all 22
+  migrations, and observed all 22 skip on the second migrator run. It resolved one
+  unknown-charge incident through the Admin API with `settle`, replayed the same
+  command as `duplicate`, and reduced open incidents from three to two before the
+  second reconciliation run.
 - The clean-stack Admin API funded a new zero-balance user once. Exact replay
   returned the same ledger identity, changed replay returned 409, overdraft returned
   409, and PostgreSQL contained exactly one NUMERIC adjustment and one actor audit.
@@ -201,8 +206,8 @@ Detailed gate results and residual coverage are maintained in `verification.md`.
 
 - PostgreSQL is the only monetary authority and periodic reconciliation now uses
   persisted held/forwarded/output-started evidence to classify expiry and aborts.
-  Operators can inspect incidents but cannot yet resolve one through an audited
-  idempotent settle/release command. Subscription
+  Admin operators can resolve an open unknown-charge incident exactly once through
+  an audited, idempotent `settle` or evidence-gated `release` command; subscription
   quota grants and future affiliate effects still need explicit authority contracts.
 - Upstream disconnect is now covered for non-stream OpenAI Chat, but actual client
   cancellation, partial SSE output, unknown Provider billing after cancellation,
