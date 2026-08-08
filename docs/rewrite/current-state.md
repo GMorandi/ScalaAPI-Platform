@@ -10,18 +10,18 @@ read-only requirements reference and is excluded from builds and runtime.
 
 | Repository | Commit | Worktree | Role |
 | --- | --- | --- | --- |
-| `gateway` | `dc69269` | clean | C++ HTTP/WebSocket edge, protocol parsing/conversion, streaming, Provider transport, failover, durable usage delivery, and authenticated Garnet projections |
-| `platform` | `fddba62` | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, identity, scheduling, leases/holds/ledger, media lifecycle, Admin API/Web, Provider mock, migrations, and deployment gates |
+| `gateway` | `84634d1` | clean | C++ HTTP/WebSocket edge, protocol parsing/conversion, streaming, Provider transport/evidence, charge-aware failover, durable usage delivery, and authenticated Garnet projections |
+| `platform` | `6bfb974` | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, identity, scheduling, evidence-backed leases/holds/ledger, media lifecycle, Admin API/Web, Provider mock, migrations, and deployment gates |
 | `sub2api` | `43ec48d` | read-only clean | Requirements catalogue only; never a runtime or compatibility dependency |
 
 The current tracked inventory is:
 
-- Gateway: 50 production C++ source/header files, 9 test source files, and 91
+- Gateway: 50 production C++ source/header files, 9 test source files, and 92
   CTest cases.
 - Platform: 79 hand-written production C# files, 3 generated Cap'n Proto C#
-  files, 24 test/benchmark C# files, and 91 tests: 57 Grain, 24 Host, 4 Admin,
+  files, 24 test/benchmark C# files, and 92 tests: 57 Grain, 25 Host, 4 Admin,
   and 6 Provider mock tests.
-- Product surface: 115 direct Admin API route declarations, 41 product tables,
+- Product surface: 115 direct Admin API route declarations, 42 product tables,
   20 SQLSugar entity types, 23 Admin Web TypeScript/TSX files, and 11 page views.
 - Reference scope: approximately 612 Sub2API route registrations, 39 concrete
   Ent schemas, 82 Vue view/component files, and 240 migrations. These are scope
@@ -34,7 +34,7 @@ current-source runtime evidence.
 
 ## Architecture now implemented
 
-- Gateway and Platform are independent repositories joined by one revision-1
+- Gateway and Platform are independent repositories joined by one revision-3
   Cap'n Proto contract. Platform owns the canonical schema; Gateway vendors an
   identical copy. Digest and deterministic C# generation gates reject drift.
 - PostgreSQL is authoritative for product and accounting state. Orleans
@@ -66,6 +66,14 @@ current-source runtime evidence.
 - Non-stream Provider requests have a 30-second boundary and bounded retries.
   Failover retains the public idempotency key while allocating a unique internal
   request/lease ID per attempt.
+- Gateway durably changes a lease from `held` to `forwarded` before opening HTTP or
+  realtime Provider transport. The first response bytes successfully written to a
+  streaming client record `output_started`. If evidence persistence fails before
+  transport, Gateway fails closed without contacting the Provider.
+- Only an actual Provider response with a 4xx/5xx status proves an explicit
+  no-charge rejection and permits release/failover. Transport loss, a synthesized
+  502, malformed usage, conversion failure, and media persistence failure are
+  unknown-charge outcomes and do not fail over.
 - Successful payload-bearing 2xx responses are checked before usage extraction.
   Body read failure, an empty 2xx payload, or malformed JSON becomes a retryable
   protocol error; an upstream disconnect can no longer escape as a zero-token
@@ -90,12 +98,15 @@ current-source runtime evidence.
 ### Billing and idempotency
 
 - Lease creation checks the SQL-authoritative posted balance minus active holds,
-  then transactionally creates an `active` durable balance hold and a
-  request-idempotency record. Completion transactionally records usage, a unique
-  versioned `usage_debit`, terminal lease/hold state, and outbox records. Abort
-  releases its hold idempotently. TTL is not treated as proof of no Provider work:
-  it moves the lease/idempotency record to `reconciliation_needed`, preserves the
-  hold, blocks redispatch, and still accepts one late usage completion.
+  then transactionally creates a `held` lease, durable balance hold, idempotency
+  record, and immutable lease event. Its strict state machine is `held -> forwarded
+  -> output_started -> completed`, with terminal `aborted`, `expired`, or
+  `reconciliation_needed` branches. Completion transactionally records usage, a
+  unique versioned `usage_debit`, terminal lease/hold state, and outbox records.
+  Explicit no-charge abort releases idempotently; unknown abort preserves the hold,
+  blocks redispatch, and emits reconciliation evidence. TTL releases only a
+  never-forwarded `held` lease. Expired `forwarded` or `output_started` work enters
+  `reconciliation_needed` and still accepts one late usage completion.
 - Completed non-stream requests persist a bounded response for exact replay.
   Matching settled requests return the stored response without a second lease or
   debit; active duplicates and fingerprint conflicts are deterministic.
@@ -133,8 +144,8 @@ current-source runtime evidence.
 
 ### Bootstrap and deployment
 
-- The active migrator applies Orleans support plus migrations 001-019 to an empty
-  PostgreSQL database and rejects checksum drift. A second execution skips all 20
+- The active migrator applies Orleans support plus migrations 001-020 to an empty
+  PostgreSQL database and rejects checksum drift. A second execution skips all 21
   files. No source database, snapshot, old key, CDC table, or compatibility mapping
   is required.
 - `deploy/stack` independently starts PostgreSQL, authenticated Garnet, MinIO,
@@ -147,17 +158,17 @@ current-source runtime evidence.
 
 ## Current verification evidence
 
-At Platform `fddba62` and Gateway `dc69269`:
+At Platform `6bfb974` and Gateway `84634d1`:
 
-- Gateway built locally and passed 91/91 CTest cases.
-- Platform Release test/build passed with 0 warnings and 0 errors: 91/91 tests,
-  including 24 Host tests against a fresh real PostgreSQL schema.
+- Gateway built locally and passed 92/92 CTest cases.
+- Platform Release test/build passed with 0 warnings and 0 errors: 92/92 tests,
+  including 25 Host tests against a fresh real PostgreSQL schema.
 - Admin Web typecheck and production build passed.
 - Scheduler benchmark integrity dry run executed all 4 selected child benchmarks
   and returned zero. It is a failure-propagation check, not performance evidence.
 - `deploy/stack/smoke.sh` built current sibling sources in the isolated Podman
-  project `scalaapi-smoke-reconcile1`, created new volumes, applied all 20
-  migrations, and observed all 20 skip on the second migrator run.
+  project `scalaapi-smoke-evidence1`, created new volumes, applied all 21
+  migrations, and observed all 21 skip on the second migrator run.
 - The clean-stack Admin API funded a new zero-balance user once. Exact replay
   returned the same ledger identity, changed replay returned 409, overdraft returned
   409, and PostgreSQL contained exactly one NUMERIC adjustment and one actor audit.
@@ -166,18 +177,19 @@ At Platform `fddba62` and Gateway `dc69269`:
   accounting-projection, and Gateway outboxes. Exact response replay produced no
   second charge. SQL assertions proved posted balance equals ledger sum and every
   user ledger version is contiguous and unique.
-- The Admin-triggered comprehensive reconciliation completed `passed` with zero
-  open incidents after checking account, ledger, hold, usage, and Grain projection
-  state. The real-database integration test separately corrupted an account and a
-  terminal hold, repaired only the safe hold/projection drift, preserved an unknown
-  charge and active hold, accepted late settlement, and resolved both incidents on
-  the following run.
+- The real-database reconciliation test corrupted an account and terminal hold,
+  repaired only safe hold/projection drift, preserved an unknown charge and active
+  hold, accepted late settlement, and resolved both incidents on the next run. The
+  stack gate intentionally ended with three open unknown-charge incidents, so the
+  comprehensive reconciliation result was `failed` rather than falsely reporting a
+  clean account boundary.
 - Platform and Gateway were independently replaced; a fresh billable request after
   each replacement settled once.
-- Independent 500, 429, malformed-usage, upstream-disconnect, and timeout scenarios
-  all passed. Every attempted lease ended `aborted`, every hold was `released`, and
-  each scenario produced zero usage events, usage logs, request logs, and ledger
-  entries plus one aborted idempotency record.
+- Independent 500 and 429 scenarios produced explicit Provider rejections: four 500
+  attempts and one 429 attempt ended `aborted` with released holds and no debit.
+  Malformed-success, upstream-disconnect, and timeout each made one attempt, did not
+  fail over, ended `reconciliation_needed`, retained the hold/idempotency key, and
+  created one operator-visible incident without a usage debit.
 - Garnet authentication returned `PONG`; asynchronous media bootstrapped the empty
   MinIO bucket and a signed URL downloaded the expected 67-byte object.
 - The smoke command exited zero and its cleanup trap removed only its containers and
@@ -187,10 +199,10 @@ Detailed gate results and residual coverage are maintained in `verification.md`.
 
 ## Known gaps
 
-- PostgreSQL is the only monetary authority and periodic reconciliation now
-  classifies drift and unknown Provider charges, but the lease does not yet persist
-  held/forwarded/output-started evidence. Operators can inspect incidents but cannot
-  yet resolve one through an audited idempotent settle/release command. Subscription
+- PostgreSQL is the only monetary authority and periodic reconciliation now uses
+  persisted held/forwarded/output-started evidence to classify expiry and aborts.
+  Operators can inspect incidents but cannot yet resolve one through an audited
+  idempotent settle/release command. Subscription
   quota grants and future affiliate effects still need explicit authority contracts.
 - Upstream disconnect is now covered for non-stream OpenAI Chat, but actual client
   cancellation, partial SSE output, unknown Provider billing after cancellation,

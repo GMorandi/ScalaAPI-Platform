@@ -51,10 +51,14 @@ is a separate protocol concern. Each lease also stores an immutable price versio
 and NUMERIC unit-rate snapshot; settlement never reprices from mutable process
 configuration.
 
-A request TTL is not proof that a Provider did no work. An expired active lease
-therefore enters `reconciliation_needed`, keeps its hold active, blocks the same
-idempotency key from dispatching again, and may still accept one late durable usage
-completion. It is never converted to a free abort by elapsed wall-clock time alone.
+A request begins `held`. Gateway must persist `forwarded` before contacting a
+Provider and records `output_started` after its first successful client write. The
+immutable `request_lease_events` journal records these facts and abort disposition.
+A TTL may safely expire and release only a lease that remained `held`. A timed-out
+`forwarded` or `output_started` lease enters `reconciliation_needed`, keeps its hold
+active, blocks the same idempotency key, and may still accept one late durable usage
+completion. Elapsed wall-clock time, connection loss, or a synthesized Gateway
+error is never evidence of no Provider charge.
 
 User creation and configuration never carry a balance. Administrative funding,
 payment credit/refund, redeem bonus, and usage debit use stable effect IDs and one
@@ -74,8 +78,9 @@ Admin-triggered runs. Each run proves account balance/version and ledger contigu
 usage/debit equality, lease/hold terminal state, and Grain projection state. It may
 repair only terminal holds and stale projections whose expected outcome is proven;
 all other drift and unknown Provider charges become durable operator-visible
-incidents. Precise forwarded/output-started evidence and an operator resolution
-command remain required before the billing slice is release-complete.
+incidents. Forwarded/output-started evidence is now durable; an audited idempotent
+operator resolution command and exact-boundary crash evidence remain required
+before the billing slice is release-complete.
 
 ## Garnet
 
@@ -111,4 +116,6 @@ both repositories check the same schema digest. Platform CI restores the pinned
 `capnpc-csharp` 1.3.118 local tool, builds the official Cap'n Proto 1.0.2 compiler at
 commit `1a0e12c0a3ba1f0dbbad45ddfef555166e0a14fc`, regenerates all C# artifacts in a
 temporary directory, and byte-compares them with the checked-in output. The contract
-starts at revision 1 and contains no compatibility branches or deprecated fields.
+is currently revision 3 and contains no compatibility branches or deprecated
+fields. Revisions replace the single greenfield contract; they do not preserve old
+wire behavior.

@@ -2,20 +2,23 @@
 
 ## Checkpoint
 
-The next stage starts from Platform `fddba62`, Gateway `dc69269`, and read-only
+The next stage starts from Platform `6bfb974`, Gateway `84634d1`, and read-only
 reference `sub2api@43ec48d`.
 
 The greenfield baseline now starts from empty volumes, uses PostgreSQL as authority,
 Garnet as the only distributed projection/cache, S3-compatible object storage for
 media, and a source-owned Provider mock. The checked-in gate proves idempotent
 migrations, Chat settlement/replay, clean requests after Platform/Gateway
-replacement, and no-charge outcomes for non-stream OpenAI Chat 429, 500, malformed
-usage, upstream disconnect, and timeout. PostgreSQL now owns one ordered account per
+replacement, and evidence-based failure outcomes for non-stream OpenAI Chat. An
+actual 429/500 Provider rejection releases; malformed success, upstream disconnect,
+and timeout make no second attempt and retain their holds for reconciliation.
+PostgreSQL now owns one ordered account per
 user; administrative, payment/refund, redeem, and usage effects share one append
 rule, SQL holds authorize dispatch, and Orleans is a retryable versioned projection.
-Timed-out active leases now preserve unknown Provider cost as
-`reconciliation_needed`; their holds and idempotency keys remain reserved until a
-late completion or future operator decision. A globally serialized scheduled
+Leases persist immutable `held`, `forwarded`, and `output_started` evidence. Only a
+never-forwarded held lease may expire and release; all forwarded ambiguity becomes
+`reconciliation_needed`, with its hold and idempotency key reserved until a late
+completion or future operator decision. A globally serialized scheduled
 reconciler checks the full account/ledger/usage/hold/projection boundary, performs
 only provably safe repairs, persists incidents, and exposes Admin queries and
 metrics.
@@ -43,8 +46,8 @@ failed assertion makes the top-level command non-zero.
 
 ## Work package 1: reconciliation and exact-boundary recovery
 
-Accounting authority completed at `c15b53b` and reconciliation foundation completed
-at `fddba62`:
+Accounting authority completed at `c15b53b`, reconciliation foundation at
+`fddba62`, and dispatch evidence at `6bfb974`/`84634d1`:
 
 - Added one per-user `accounting_accounts` authority with NUMERIC posted balance
   and monotonically increasing ledger version.
@@ -56,10 +59,10 @@ at `fddba62`:
   backlog/retry metrics. Stale snapshots cannot regress a newer balance.
 - Proved 20 concurrent versions, replay/conflict, hold oversubscription, protected
   debit, account/ledger equality, projection drain, migration idempotency, service
-  replacement, and zero-charge Provider faults.
-- Replaced unsafe TTL release with `reconciliation_needed`, an active hold, blocked
-  matching redispatch, a reconciliation outbox event, and exactly-once late usage
-  completion.
+  replacement, and isolated Provider fault accounting.
+- Replaced unsafe ambiguous TTL release with `reconciliation_needed`, an active
+  hold, blocked matching redispatch, a reconciliation outbox event, and exactly-once
+  late usage completion; dispatch evidence now narrows safe expiry to `held` only.
 - Added globally serialized scheduled/manual reconciliation of account balance and
   version, ledger contiguity, usage/debit equality, lease/hold state, and Grain
   projection. Safe terminal-hold and stale-projection drift is repaired; every
@@ -67,21 +70,27 @@ at `fddba62`:
 - Added protected run/incident APIs and metrics for open count, unknown-charge count,
   oldest age, and last successful run. Real PostgreSQL tests prove repair,
   persistence, late settlement, and later incident resolution.
+- Added the strict `held -> forwarded -> output_started -> completed` state machine,
+  terminal `aborted`/`expired`/`reconciliation_needed` branches, and an immutable
+  transition-event journal. Evidence writes and terminal writes are idempotent.
+- Gateway persists `forwarded` before HTTP/realtime transport and reports the first
+  successful streaming client write. Failure to persist forwarding evidence fails
+  closed before Provider contact.
+- Restricted no-charge release and failover to actual Provider 4xx/5xx responses.
+  Transport loss, synthesized errors, malformed success, conversion failure, and
+  media persistence ambiguity retain the hold and do not fail over.
+- Proved migration 020 idempotency, safe never-forwarded expiry, retained unknown
+  aborts, late exactly-once settlement, and a source-built fault matrix with three
+  intentional unknown-charge incidents.
 
 Next implementation slice:
 
-- Define and migrate one lease state machine covering held, forwarded,
-  output-started, completed, aborted, expired, and reconciliation-needed. Store the
-  Provider/transport evidence needed to distinguish safe release from unknown cost.
 - Add deterministic fault hooks before/after Provider dispatch, after Provider
   completion, before/after settlement commit, and before outbox acknowledgement.
 - Add an authenticated operator decision command that requires incident identity,
   evidence, reason, actor, and idempotency key. `settle` must append the normal usage
   effect; `release` is legal only with explicit no-charge evidence. Both actions
   retain an immutable audit trail.
-- Use persisted dispatch evidence so the reconciler may release expired
-  pre-dispatch holds, while forwarded/output-started ambiguity remains open. Never
-  infer no charge from TTL, connection loss, or process death.
 - Add replay tests for duplicate completion, abort, expiry, worker reclaim,
   projection replacement, and process restart at every fault hook.
 
@@ -93,13 +102,13 @@ Remaining package deliverables:
 - Add a blocking negative probe for each new fault hook so a swallowed child failure or
   missing scenario makes the top-level gate non-zero.
 
-Dependencies: migrations 018-019 accounting authority/reconciliation, versioned
+Dependencies: migrations 018-020 accounting authority/reconciliation/evidence, versioned
 ledger effects, durable holds, response replay, settlement/projection outboxes, and
 persisted incident identity.
 
-Exit: every injected crash converges after restart to zero orphan active holds, one
-terminal lease, at most one usage debit, and a durable operator-visible reason when
-the Provider charge is unknowable.
+Exit: every injected crash converges after restart to one terminal lease or one
+documented `reconciliation_needed` lease, at most one usage debit, no unaccounted
+hold, and a durable operator-visible reason when the Provider charge is unknowable.
 
 ## Work package 2: cancellation and streaming failure semantics
 
@@ -110,11 +119,10 @@ Deliverables:
   before adding protocol fixtures.
 - Propagate client cancellation through the HTTP/SSE transport and stop retrying as
   soon as any response bytes have reached the client.
-- Before Provider output starts, cancellation must abort the lease, release the hold,
-  and produce no usage/debit.
-- After Provider output starts, do not assume zero cost. Continue collecting a final
-  usage record when possible; otherwise terminate as reconciliation-needed with the
-  hold and operator state defined by package 1.
+- Cancellation before `forwarded` evidence may expire/abort and release without a
+  usage debit. Once Provider transport has been authorized, absence of client output
+  does not prove no charge: continue collecting final usage when possible or enter
+  `reconciliation_needed`. After `output_started`, retries are always forbidden.
 - Extend the isolated fault accounts to SSE: 429, 500, timeout before first event,
   disconnect before first event, disconnect after partial output, malformed usage,
   invalid content type, and client disconnect.
@@ -135,7 +143,7 @@ Deliverables:
 - Cover same-protocol and cross-protocol normalization at the Gateway boundary.
 - Validate request IDs, idempotency fingerprints, Provider status mapping, proxy/TLS
   headers, response limits, and malformed payload rejection.
-- Keep the revision-1 Cap'n Proto schema greenfield. Contract changes update the
+- Keep the revision-3 Cap'n Proto schema greenfield. Contract changes update the
   canonical Platform source, generated C#, Gateway vendor copy, and both digest
   gates as one coordinated release change; no deprecated compatibility fields are
   added.
@@ -211,9 +219,10 @@ idempotency state, outbox backlog, and reconciliation status:
 
 ## Sequence and commit discipline
 
-1. Finish package 1 dispatch evidence, operator resolution, and crash hooks first;
-   the authoritative unknown-charge state and incident store already exist, but
-   cancellation cannot safely classify outcomes without those remaining facts.
+1. Finish package 1 operator resolution and crash hooks first; dispatch evidence,
+   the authoritative unknown-charge state, and the incident store now exist, but
+   cancellation cannot be release-complete without deterministic recovery and an
+   audited terminal decision path.
 2. Package 2 defines transport semantics; package 3 freezes them as fixtures.
 3. Package 4 runs the state machines under concurrency and infrastructure failure.
 4. Package 5 makes the same evidence mandatory in hosted release CI.
