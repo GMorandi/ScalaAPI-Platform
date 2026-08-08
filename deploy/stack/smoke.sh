@@ -290,6 +290,9 @@ run_chat_stream_fault() {
     # the original 200 status even though the lease is deliberately unknown.
     assert_one_of "000|200|499|502|503" "$response_status" \
         "Provider streaming $scenario response status"
+    if [[ "$scenario" == "timeout" || "$scenario" == "invalid_content_type" ]]; then
+        jq -e '.error.type == "provider_protocol_error"' <<<"$response_body" >/dev/null
+    fi
 
     fault_state="$(db_query "
 WITH target_leases AS (
@@ -578,6 +581,7 @@ run_chat_stream_fault "disconnect_before_output" "$fault_disconnect_api_key"
 run_chat_stream_fault "client_disconnect" "$fault_client_disconnect_api_key" "2"
 run_chat_stream_fault "malformed_usage" "$fault_malformed_api_key"
 run_chat_stream_fault "invalid_content_type" "$fault_invalid_content_type_api_key"
+run_chat_stream_fault "timeout" "$fault_timeout_api_key" "70"
 
 media_response="$(curl -fsS "$gateway_url/v1/images/generations/async" \
     -H "Authorization: Bearer $api_key" -H "Content-Type: application/json" \
@@ -614,7 +618,7 @@ SELECT
   (SELECT count(*) FROM usage_events WHERE request_id = '$chat_request_id') || '|' ||
   (SELECT count(*) FROM usage_logs WHERE request_id = '$chat_request_id') || '|' ||
   (SELECT count(*) FROM balance_ledger l JOIN request_leases r ON r.lease_token = l.lease_token WHERE r.request_id = '$chat_request_id' AND l.entry_type = 'usage_debit' AND l.amount = -r.final_cost_usd);")"
-assert_equals "0|8|8|0|0|1|1|1|1" "$terminal_state" "Terminal billing invariants"
+assert_equals "0|9|9|0|0|1|1|1|1" "$terminal_state" "Terminal billing invariants"
 
 accounting_projection_drained() {
     [[ "$(db_query "SELECT count(*) FROM accounting_projection_outbox WHERE user_id = $user_id;")" == "0" ]]
@@ -638,11 +642,11 @@ assert_equals "true|true|0" "$accounting_state" \
 reconciliation_response="$(admin_request POST /admin/reconciliation/run '{}' "$admin_token")"
 assert_equals "true" "$(jq -er '.started' <<<"$reconciliation_response")" \
     "Accounting reconciliation started"
-assert_equals "failed|8" \
+assert_equals "failed|9" \
     "$(jq -r '.status + "|" + (.openIncidents | tostring)' <<<"$reconciliation_response")" \
     "Accounting reconciliation result"
 open_incidents="$(admin_request GET '/admin/reconciliation/incidents?status=open' '' "$admin_token")"
-assert_equals "8" "$(jq -er '.total' <<<"$open_incidents")" \
+assert_equals "9" "$(jq -er '.total' <<<"$open_incidents")" \
     "Accounting reconciliation open incident count"
 
 operator_incident_id="$(jq -er '[.items[] | select(.kind == "unknown_provider_charge")][0].id' \
@@ -666,11 +670,11 @@ assert_equals "duplicate" "$(jq -er '.status' <<<"$operator_replay")" \
 assert_equals "1" "$(db_query "SELECT count(*) FROM accounting_reconciliation_resolutions WHERE incident_id = ${operator_incident_id};")" \
     "Operator resolution audit row"
 open_after_resolution="$(admin_request GET '/admin/reconciliation/incidents?status=open' '' "$admin_token")"
-assert_equals "7" "$(jq -er '.total' <<<"$open_after_resolution")" \
+assert_equals "8" "$(jq -er '.total' <<<"$open_after_resolution")" \
     "Remaining unknown-charge incidents after operator settlement"
 
 reconciliation_after_resolution="$(admin_request POST /admin/reconciliation/run '{}' "$admin_token")"
-assert_equals "failed|7" \
+assert_equals "failed|8" \
     "$(jq -r '.status + "|" + (.openIncidents | tostring)' <<<"$reconciliation_after_resolution")" \
     "Reconciliation after operator settlement"
 
