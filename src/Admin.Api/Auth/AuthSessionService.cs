@@ -168,6 +168,28 @@ public sealed class AuthSessionService(
         return await command.ExecuteNonQueryAsync(ct) == 1;
     }
 
+    public async Task<int> RevokeOtherSessionsAsync(long userId, string currentSessionId,
+        CancellationToken ct = default)
+    {
+        await using var command = dataSource.CreateCommand("""
+            UPDATE auth_sessions SET revoked_at = now()
+            WHERE user_id = $1 AND session_id <> $2 AND revoked_at IS NULL
+            """);
+        command.Parameters.AddWithValue(userId);
+        command.Parameters.AddWithValue(currentSessionId);
+        return await command.ExecuteNonQueryAsync(ct);
+    }
+
+    public async Task<int> RevokeAllAsync(long userId, CancellationToken ct = default)
+    {
+        await using var command = dataSource.CreateCommand("""
+            UPDATE auth_sessions SET revoked_at = now()
+            WHERE user_id = $1 AND revoked_at IS NULL
+            """);
+        command.Parameters.AddWithValue(userId);
+        return await command.ExecuteNonQueryAsync(ct);
+    }
+
     public async Task<long?> GetUserIdAsync(string sessionId, CancellationToken ct = default)
     {
         await using var command = dataSource.CreateCommand(

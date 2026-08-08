@@ -20,6 +20,9 @@ public record PasswordResetRequest(string Email);
 public record PasswordResetConfirmRequest(string Token, string NewPassword);
 public record EmailVerificationRequest(string Email);
 public record EmailVerificationConfirmRequest(string Token);
+public record ProfileUpdateRequest(string? DisplayName);
+public record PasswordChangeRequest(string CurrentPassword, string NewPassword);
+public record AccountDeletionRequest(string Password, bool Confirm);
 
 public static class UserAuthEndpoints
 {
@@ -27,6 +30,121 @@ public static class UserAuthEndpoints
     {
         var auth = app.MapGroup("/auth").AllowAnonymous();
         var user = app.MapGroup("/user").RequireAuthorization("UserOnly");
+
+        user.MapGet("/profile", async (ClaimsPrincipal principal, ISqlSugarClient db) =>
+        {
+            var email = principal.Identity?.Name?.Trim().ToLowerInvariant();
+            if (string.IsNullOrWhiteSpace(email)) return Results.Unauthorized();
+            var account = await db.Queryable<UserAccountEntity>()
+                .Where(x => x.Email == email).FirstAsync();
+            return account is null
+                ? Results.NotFound()
+                : Results.Ok(new
+                {
+                    account.Id, account.Email, account.DisplayName, account.Role,
+                    account.Status, account.EmailVerified, account.EmailVerifiedAt,
+                    account.TotpEnabled, account.CreatedAt,
+                });
+        });
+
+        user.MapPut("/profile", async (ClaimsPrincipal principal, ProfileUpdateRequest req,
+            ISqlSugarClient db) =>
+        {
+            var email = principal.Identity?.Name?.Trim().ToLowerInvariant();
+            if (string.IsNullOrWhiteSpace(email)) return Results.Unauthorized();
+            var displayName = string.IsNullOrWhiteSpace(req.DisplayName)
+                ? null : req.DisplayName.Trim();
+            if (displayName?.Length > 200)
+                return Results.BadRequest(new { error = "Display name is too long" });
+            var changed = await db.Updateable<UserAccountEntity>()
+                .SetColumns(x => x.DisplayName == displayName)
+                .Where(x => x.Email == email && x.Status == "active")
+                .ExecuteCommandAsync();
+            return changed == 1 ? Results.NoContent() : Results.NotFound();
+        });
+
+        user.MapPost("/password", async (ClaimsPrincipal principal,
+            PasswordChangeRequest req, ISqlSugarClient db,
+            AuthSessionService sessions, HttpContext http) =>
+        {
+            var email = principal.Identity?.Name?.Trim().ToLowerInvariant();
+            if (string.IsNullOrWhiteSpace(email)) return Results.Unauthorized();
+            if (string.IsNullOrWhiteSpace(req.NewPassword) || req.NewPassword.Length < 12)
+                return Results.BadRequest(new { error = "Password must be at least 12 characters" });
+            var account = await db.Queryable<UserAccountEntity>()
+                .Where(x => x.Email == email && x.Status == "active").FirstAsync();
+            if (account is null || account.PasswordHash is null
+                || !BCrypt.Net.BCrypt.Verify(req.CurrentPassword, account.PasswordHash))
+                return Results.Unauthorized();
+
+            account.PasswordHash = BCrypt.Net.BCrypt.HashPassword(req.NewPassword);
+            await db.Updateable(account).UpdateColumns(x => x.PasswordHash).ExecuteCommandAsync();
+            var sessionId = AuthClaims.SessionId(principal)
+                ?? AuthSessionService.SessionIdFromAuthorization(
+                    http.Request.Headers.Authorization.ToString());
+            if (!string.IsNullOrWhiteSpace(sessionId))
+                await sessions.RevokeOtherSessionsAsync(account.Id, sessionId);
+            return Results.NoContent();
+        });
+
+        user.MapDelete("/account", async (ClaimsPrincipal principal,
+            AccountDeletionRequest req, ISqlSugarClient db, IClusterClient client,
+            ListingRepository registry, AuthSessionService sessions, HttpContext http) =>
+        {
+            if (!req.Confirm) return Results.BadRequest(new { error = "Confirmation required" });
+            if (string.Equals(principal.FindFirst(ClaimTypes.Role)?.Value, "admin",
+                    StringComparison.OrdinalIgnoreCase))
+                return Results.Forbid();
+            var email = principal.Identity?.Name?.Trim().ToLowerInvariant();
+            if (string.IsNullOrWhiteSpace(email)) return Results.Unauthorized();
+            var account = await db.Queryable<UserAccountEntity>()
+                .Where(x => x.Email == email && x.Status == "active").FirstAsync();
+            if (account is null || account.PasswordHash is null
+                || !BCrypt.Net.BCrypt.Verify(req.Password, account.PasswordHash))
+                return Results.Unauthorized();
+
+            var keyHashes = await db.Queryable<UserApiKeyEntity>()
+                .Where(x => x.UserEmail == email && x.Status == "active")
+                .Select(x => x.KeyHash).ToListAsync();
+            db.Ado.BeginTran();
+            try
+            {
+                await db.Updateable<UserAccountEntity>()
+                    .SetColumns(x => new UserAccountEntity
+                    {
+                        Status = "deleted",
+                        DisplayName = null,
+                        PasswordHash = null,
+                        EmailVerified = false,
+                        EmailVerifiedAt = null,
+                        TotpEnabled = false,
+                        TotpSecret = null,
+                        TotpBackupCodes = null,
+                    })
+                    .Where(x => x.Id == account.Id && x.Status == "active")
+                    .ExecuteCommandAsync();
+                await db.Updateable<UserApiKeyEntity>()
+                    .SetColumns(x => x.Status == "revoked")
+                    .Where(x => x.UserEmail == email && x.Status == "active")
+                    .ExecuteCommandAsync();
+                db.Ado.CommitTran();
+            }
+            catch
+            {
+                db.Ado.RollbackTran();
+                throw;
+            }
+
+            foreach (var hash in keyHashes)
+            {
+                await client.GetGrain<IApiKeyGrain>(hash).Revoke();
+                await registry.Unregister("apiKey", hash);
+            }
+            await client.GetGrain<IUserGrain>(account.Id).SetStatus("deleted");
+            await registry.Unregister("user", account.Id.ToString());
+            await sessions.RevokeAllAsync(account.Id);
+            return Results.NoContent();
+        });
 
         auth.MapPost("/register", async (RegisterRequest req, ISqlSugarClient db, IClusterClient client, ListingRepository registry) =>
         {
