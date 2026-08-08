@@ -78,6 +78,12 @@ app.MapPost("/v1/messages", async (HttpContext context, CancellationToken cancel
     var scenario = root.TryGetProperty("mock_scenario", out var scenarioValue)
         ? scenarioValue.GetString() ?? "success"
         : "success";
+    if (scenario == "success"
+        && root.TryGetProperty("metadata", out var metadata)
+        && metadata.ValueKind == JsonValueKind.Object
+        && metadata.TryGetProperty("user_id", out var userId)
+        && userId.GetString() == "scalaapi-json-stream")
+        scenario = "json_stream";
     if (stream && !scenario.Equals("json_stream", StringComparison.OrdinalIgnoreCase))
     {
         context.Response.StatusCode = StatusCodes.Status200OK;
