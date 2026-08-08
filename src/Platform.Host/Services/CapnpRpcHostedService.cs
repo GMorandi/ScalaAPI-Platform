@@ -513,6 +513,21 @@ public class DispatchService
             return DispatchResult.Rejected("invalidKey", ex.Message);
         }
 
+        var isMediaOperation = req.Operation is "images_generations_async" or "images_edits_async"
+            or "images_batch_create" or "videos_generations" or "videos_edits"
+            or "videos_extensions";
+        if (!isMediaOperation && !string.IsNullOrWhiteSpace(req.IdempotencyKey))
+        {
+            var idempotency = await _leases.CheckIdempotencyAsync(
+                auth.ApiKeyId, req.IdempotencyKey, req.RequestFingerprint);
+            if (idempotency.Conflict)
+                return DispatchResult.Rejected("idempotencyConflict",
+                    "Idempotency key was already used for a different request");
+            if (idempotency.Found)
+                return DispatchResult.Rejected("idempotencyReplay",
+                    "Request has already been dispatched");
+        }
+
         if (!string.IsNullOrWhiteSpace(req.RequestedModel)
             && !_pricing.TryGetPrice(req.RequestedModel, out _))
         {
@@ -623,9 +638,6 @@ public class DispatchService
                 req.RequestedModel, req.RequestedModel);
             var upstreamPath = ResolveUpstreamPath(
                 creds.Platform, req, mappedModel);
-            var isMediaOperation = req.Operation is "images_generations_async" or "images_edits_async"
-                or "images_batch_create" or "videos_generations" or "videos_edits"
-                or "videos_extensions";
             var created = await _leases.CreateDetailedAsync(new LeaseCreateRequest(
                 selection.LeaseToken!, req.RequestId, req.ApiKeyHash, auth.ApiKeyId,
                 auth.UserId, accountId, selectedGroupId, req.RequestedModel, mappedModel,

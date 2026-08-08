@@ -46,6 +46,13 @@ public sealed record LeaseCreateResult(bool Created, bool Replay, bool Conflict)
     public static LeaseCreateResult IdempotencyConflict() => new(false, false, true);
 }
 
+public sealed record IdempotencyLookup(bool Found, bool Conflict)
+{
+    public static IdempotencyLookup Missing() => new(false, false);
+    public static IdempotencyLookup Replay() => new(true, false);
+    public static IdempotencyLookup FingerprintConflict() => new(true, true);
+}
+
 public sealed record LeaseCompletion(
     string LeaseToken,
     int InputTokens,
@@ -188,6 +195,24 @@ public sealed class RequestLeaseStore(
 
         await transaction.CommitAsync(ct);
         return LeaseCreateResult.New();
+    }
+
+    public async Task<IdempotencyLookup> CheckIdempotencyAsync(long apiKeyId,
+        string? idempotencyKey, string? requestFingerprint, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(idempotencyKey)) return IdempotencyLookup.Missing();
+        await using var command = dataSource.CreateCommand("""
+            SELECT request_fingerprint
+            FROM request_idempotency
+            WHERE api_key_id = $1 AND idempotency_key = $2
+            """);
+        command.Parameters.AddWithValue(apiKeyId);
+        command.Parameters.AddWithValue(idempotencyKey.Trim());
+        var existing = (string?)await command.ExecuteScalarAsync(ct);
+        if (existing is null) return IdempotencyLookup.Missing();
+        return string.Equals(existing, requestFingerprint ?? "", StringComparison.Ordinal)
+            ? IdempotencyLookup.Replay()
+            : IdempotencyLookup.FingerprintConflict();
     }
 
     public async Task<WriteAck> CompleteAsync(LeaseCompletion completion, CancellationToken ct = default)
