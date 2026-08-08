@@ -177,7 +177,7 @@ not implementation parity or a migration target.
 On 2026-08-08 the isolated `scalaapi-stage2` project used current-source images:
 Platform `078858c851c5b3b046a992bdba41d9b1231e0a7ab181448eeeffe4cc6b30b017`,
 Admin API `be3d79f84896064e8f21a1bba31223225e0531cf67ce5b5c4a6ff307764719af`,
-migrator `13f5d76642c91c66c7443dcc3b0556f31c9f72d62a7fd86740e76462622cd9b4`,
+migrator `ff1ea8d89a319384e23cbe496ecc38a886a77c35adb5bd0adb36a0b9347fc605`,
 Gateway `b072b7600c8acaa0d94a9a319629ddf928a218748ce8523b76912a1f457ef350`, and
 Provider mock `95b8632dea20b787127dad9f8302afad1bffb70633283dcc61720a67a388b4a6`.
 The migrator applied the complete 000-015 sequence and a second run skipped all
