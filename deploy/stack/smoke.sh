@@ -319,6 +319,60 @@ SELECT
     : "$response_body"
 }
 
+run_chat_stream_rejection() {
+    local scenario=$1
+    local scenario_api_key=$2
+    local request_id="${fault_request_prefix}-stream-${scenario}"
+    local idempotency_key="${request_id}-idem"
+    local request_body
+    local response
+    local response_body
+    local response_status
+    local fault_state
+    local lease_count
+
+    request_body="$(jq -cn --arg scenario "$scenario" \
+        '{model:"gpt-4o",messages:[{role:"user",content:"greenfield streaming rejection matrix"}],stream:true,user:("scalaapi-mock:" + $scenario)}')"
+    response="$(curl -sS --max-time 40 --write-out $'\n%{http_code}' \
+        "$gateway_url/v1/chat/completions" \
+        -H "Authorization: Bearer $scenario_api_key" \
+        -H "Content-Type: application/json" \
+        -H "X-Request-ID: $request_id" \
+        -H "Idempotency-Key: $idempotency_key" \
+        --data "$request_body")"
+    response_status="${response##*$'\n'}"
+    response_body="${response%$'\n'*}"
+    assert_equals "503" "$response_status" \
+        "Provider streaming $scenario rejection response status"
+    jq -e '.error.type == "provider_unavailable"' <<<"$response_body" >/dev/null
+
+    fault_state="$(db_query "
+WITH target_leases AS (
+  SELECT lease_token, request_id, status
+  FROM request_leases
+  WHERE request_id = '$request_id' OR request_id LIKE '$request_id:retry:%'
+)
+SELECT
+  (SELECT count(*) FROM target_leases) || '|' ||
+  (SELECT count(*) FROM target_leases WHERE status = 'aborted') || '|' ||
+  (SELECT count(*) FROM target_leases WHERE status = 'reconciliation_needed') || '|' ||
+  (SELECT count(*) FROM balance_holds h JOIN target_leases l USING (lease_token)) || '|' ||
+  (SELECT count(*) FROM balance_holds h JOIN target_leases l USING (lease_token) WHERE h.status = 'released') || '|' ||
+  (SELECT count(*) FROM balance_holds h JOIN target_leases l USING (lease_token) WHERE h.status = 'active') || '|' ||
+  (SELECT count(*) FROM usage_events u JOIN target_leases l ON l.request_id = u.request_id) || '|' ||
+  (SELECT count(*) FROM usage_logs u JOIN target_leases l ON l.request_id = u.request_id) || '|' ||
+  (SELECT count(*) FROM balance_ledger b JOIN target_leases l USING (lease_token)) || '|' ||
+  (SELECT count(*) FROM request_idempotency WHERE idempotency_key = '$idempotency_key' AND status = 'aborted');")"
+    lease_count="${fault_state%%|*}"
+    if (( lease_count < 1 )); then
+        echo "Provider streaming $scenario did not create a lease" >&2
+        return 1
+    fi
+    assert_equals "$lease_count|$lease_count|0|$lease_count|$lease_count|0|0|0|0|1" \
+        "$fault_state" "Provider streaming $scenario no-charge billing invariants"
+    echo "PASS: Provider streaming $scenario -> HTTP $response_status ($lease_count rejected leases, holds released)"
+}
+
 echo "Starting isolated Compose project '$project'"
 up_arguments=(up -d)
 if [[ "${SMOKE_SKIP_BUILD:-0}" != "1" ]]; then
@@ -513,6 +567,8 @@ run_chat_fault "malformed_usage" "$fault_malformed_api_key" "502" "provider_erro
 # exhausts dispatch waiting (503). Both outcomes retain the hold for reconciliation.
 run_chat_fault "disconnect" "$fault_disconnect_api_key" "502|503" "-" "40" "reconciliation_needed"
 run_chat_fault "timeout" "$fault_timeout_api_key" "502" "-" "40" "reconciliation_needed"
+run_chat_stream_rejection "500" "$fault_500_api_key"
+run_chat_stream_rejection "429" "$fault_429_api_key"
 run_chat_stream_fault "disconnect" "$fault_disconnect_api_key"
 run_chat_stream_fault "disconnect_before_output" "$fault_disconnect_api_key"
 run_chat_stream_fault "client_disconnect" "$fault_client_disconnect_api_key" "2"
