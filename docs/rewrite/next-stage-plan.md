@@ -12,7 +12,7 @@ This does not close the product rewrite. The next stage is one authoritative,
 billable OpenAI Chat Completions vertical slice. Work outside that slice stays
 `partial`, `skeleton`, or `missing` in the inventory.
 
-## Progress checkpoint (2026-08-08, platform `3d49e57`, gateway `c807dc8`)
+## Progress checkpoint (2026-08-08, platform `08cf00c`, gateway `c807dc8`)
 
 - Completed in `b266e17`: business balances, quotas, costs, limits, and routing
   multipliers use `decimal`; precision projections cover User, Group, and API key.
@@ -37,7 +37,7 @@ billable OpenAI Chat Completions vertical slice. Work outside that slice stays
 - Completed in `7f755f3`, `5a3de2a`, and `76452e0`: Garnet uses the versioned
   `scalaapi:v1` keyspace, bounded projection TTLs, authenticated TCP clients, and
   a protected Platform projection rebuild. Current-image rebuild evidence is
-  `12/12` projections written with zero errors.
+  `15/15` projections written with zero errors.
 - Completed in `1ec32e3`: malformed provider usage is rejected before settlement;
   the live mock probe returned `502`, an aborted lease, a released hold, and zero
   ledger rows.
@@ -104,6 +104,12 @@ billable OpenAI Chat Completions vertical slice. Work outside that slice stays
   Gateway cannot authorize a request from a stale quota projection. A current-image
   low-quota probe completed once and then returned `401 Quota exhausted` after the
   projection was rebuilt; distributed concurrent reservation remains open.
+- Completed in `5ec2efe` and `08cf00c`: payment providers now have a native signed
+  webhook boundary. HMAC verification, provider/event deduplication, exact amount
+  and currency checks, `payment.succeeded`/`payment.refunded` state transitions,
+  unique NUMERIC credit/refund ledger effects, retryable balance projection, and
+  stable order identity are covered by tests and current-image runtime probes.
+  Provider-specific adapters, reconciliation UI, and crash recovery remain open.
 - Still open: PostgreSQL aggregate repositories/foreign keys, fixed-precision RPC
   schema generation, crash/restart settlement scenarios, provider failure matrix,
   empty-volume CI automation, and Garnet flush/stale-version/TLS/multi-client evidence.

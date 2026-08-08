@@ -10,6 +10,7 @@
 | Provider response and usage differences | P0 | Partial | Deterministic mock JSON/SSE and malformed-usage fail-closed settlement pass; add adapter contract, golden fixtures, retry/timeout/disconnect reconciliation |
 | Request idempotency replay or fingerprint drift | P0 | Partial | Durable key/fingerprint rows reject duplicate charge and conflict before scheduling; bounded non-stream response replay is implemented; add restart-before-expiry and streaming semantics tests |
 | Pricing version or decimal precision error | P0 | Partial | Decimal-only business DTOs, fixed-scale Cap'n Proto fields, and immutable NUMERIC lease price snapshots pass; add authoritative price-version administration and historical backfill tests |
+| Payment webhook replay or forged settlement | P0 | Partial | Raw-body HMAC verification, provider/event deduplication, exact order amount/currency checks, paid/refunded transitions, and unique credit/refund ledger effects pass; add provider secrets rotation, adapter reconciliation, and crash recovery |
 | Scheduler split-brain or stale sticky route | P0 | Open | Orleans lease ownership, Garnet rebuild, multi-silo failure drills |
 | Media bytes lost or unauthorized | P0 | Open | S3 lifecycle, signed access, metadata/object reconciliation, restore test |
 | Long connection leaks or backpressure | P1 | Open | Streaming/WebSocket soak, bounded buffers, cancellation and disconnect assertions |

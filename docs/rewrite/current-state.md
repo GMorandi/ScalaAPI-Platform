@@ -10,12 +10,12 @@ release artifacts.
 | Repository | Commit | Worktree | Responsibility |
 | --- | --- | --- | --- |
 | `gateway` | `c807dc8` | clean | C++ HTTP/WebSocket edge, protocol conversion, chunked streaming, Provider transport, versioned Garnet client, malformed-usage guard, fixed-scale Cap'n Proto client, unique failover lease IDs, bounded non-stream upstream timeout, bounded response replay, invalidation flush recovery |
-| `platform` | `3d49e57` | clean | C# Orleans control plane, PostgreSQL persistence, leases, NUMERIC ledger, durable holds/idempotency, usage, media lifecycle, Admin API, versioned Garnet rebuild, replayable balance effects, fixed-scale RPC contract, retryable terminal idempotency leases, bounded response persistence/replay, password recovery, email verification, cancellable Provider mock timeout, restart-safe settlement outbox recovery, immutable lease price snapshots, durable ledger reconciliation endpoint, deterministic rolling quota policy, usage-triggered auth invalidation |
+| `platform` | `08cf00c` | clean | C# Orleans control plane, PostgreSQL persistence, leases, NUMERIC ledger, durable holds/idempotency, usage, media lifecycle, Admin API, signed payment webhooks, versioned Garnet rebuild, replayable balance effects, fixed-scale RPC contract, retryable terminal idempotency leases, bounded response persistence/replay, password recovery, email verification, cancellable Provider mock timeout, restart-safe settlement outbox recovery, immutable lease price snapshots, durable ledger reconciliation endpoint, deterministic rolling quota policy, usage-triggered auth invalidation |
 | `sub2api` | `43ec48d` | read-only clean reference | Functional requirements catalogue only |
 
 The current source inventory is 50 tracked Gateway source files, 87 CTest cases,
-63 hand-written Platform production C# files plus 3 generated Cap'n Proto files,
-32 tracked Platform test/benchmark C# source files, 76 Platform test cases, 137 mapped
+65 hand-written Platform production C# files plus 3 generated Cap'n Proto files,
+18 tracked Platform test/benchmark C# source files, 80 Platform test cases, 127 mapped
 Admin API route declarations, 33 product tables, 20 SQLSugar entity types, and 31 Admin Web
 source files with 11 page views. Admin Web has no browser test runner yet.
 
@@ -68,6 +68,10 @@ not implementation parity or a migration target.
   unlimited and the policy is covered by Grain tests.
 - API-key usage settlement publishes the same invalidation event as key rotation;
   Gateway no longer serves a stale quota projection after a completed charge.
+- Payment webhooks verify provider HMAC signatures over the raw body, deduplicate
+  `(provider, event_id)`, validate exact order amount/currency, and apply paid or
+  refunded transitions with unique NUMERIC ledger effects. Balance projection
+  retries use stable effect IDs after the SQL transaction commits.
 - Settlement outbox claims expire after 30 seconds, so a process restart can
   reclaim work. Failed financial effects use bounded exponential backoff without
   automatic dead-lettering; startup requeues any unprocessed rows left by an older
@@ -130,8 +134,8 @@ not implementation parity or a migration target.
   CI must still regenerate the C# output from the canonical schema and compare it
   before declaring contract generation complete.
 - Full empty-environment migration replay from an actually empty volume is still a
-  release gate; the current isolated database has migrations 000-012 and a second
-  migrator invocation skipped all thirteen recorded migrations.
+  release gate; the current isolated database has migrations 000-013 and a second
+  migrator invocation skipped all fourteen recorded migrations.
 - Session concurrent-rotation HTTP tests, crash injection, and API-key policy tests
   remain pending even though replay/logout, rotation, and revoke paths have runtime
   evidence.
@@ -157,12 +161,12 @@ not implementation parity or a migration target.
 
 On 2026-08-08 the isolated `scalaapi-stage2` project used current-source images:
 Platform `15bfff385320769f7669ce14c34ec8c4d29b7fcf24927bd7bafe11cd805f684b`,
-Admin API `d522f4107be506f085d4168a647cf4af9dfe62e7030526a5ff307fed56dc4cc5`,
-migrator `53824dbce4883ba1b46aa1af6385c5c1720f6a66664f472266afdee0447af289`,
+Admin API `b3d539b7e5ed006978214606c5443332452ae474cef228e96f3cb1f3550ae575`,
+migrator `8b692a87c2a2b2dddb9ca8754659f4241f81cd4b50dd431421e05e0a30f9417c`,
 Gateway `b072b7600c8acaa0d94a9a319629ddf928a218748ce8523b76912a1f457ef350`, and
 Provider mock `95b8632dea20b787127dad9f8302afad1bffb70633283dcc61720a67a388b4a6`.
-The migrator applied the complete 000-012 sequence and a second run skipped all
-thirteen migrations. Registration
+The migrator applied the complete 000-013 sequence and a second run skipped all
+fourteen migrations. Registration
 returned user id 7 and registry id 7. Provider seed was idempotent (same account
 and group on two calls); API-key rotation revoked the old key; Admin-created keys
 were projected into `user_api_keys`. Seeded JSON and SSE requests both returned
@@ -217,7 +221,7 @@ balance. Grain tests cover duplicate balance-effect application.
 
 Authenticated Garnet `PING`, `SET/GET`, PX expiry, `INCR`, and `DEL` passed. Stopping
 Garnet changed Platform readiness to 503; restarting it restored readiness to 200.
-The protected cache rebuild endpoint returned `discovered=12`, `written=12`,
+The protected cache rebuild endpoint returned `discovered=15`, `written=15`,
 `deleted=0`, `errors=0`; an immediate authenticated RESP read returned a
 `scalaapi:v1:auth:*` projection. The rebuilt current Gateway image returned 200 for
 a seeded OpenAI Chat request (`X-Request-ID: 4b54b3d53004943c`) and Platform recorded
@@ -225,8 +229,15 @@ one completed lease, one usage event, one `0.00006750` NUMERIC debit, and one
 committed hold. A low-quota key completed its first request, then the rebuilt
 projection caused the next request to return `401 authentication_error` with
 `Quota exhausted`; this verifies usage-triggered auth invalidation in the current
-Platform/Gateway stack. Gateway readiness returned 200 and an unknown API key
-traversed the current dispatch path to a stable 401.
+Platform/Gateway stack.
+
+Payment runtime evidence on the current Admin image created order `id=2` with
+`7.25 USD`, accepted a signed `payment.succeeded` webhook once, returned
+`duplicate=true` for the exact replay, and accepted a signed `payment.refunded`
+webhook. PostgreSQL shows order `refunded`, three `applied` webhook events, one
+`payment_credit` ledger row, and one `payment_refund` row for `-7.25`. Gateway
+readiness returned 200 and an unknown API key traversed the current dispatch path
+to a stable 401.
 
 ## Historical runtime boundary
 
