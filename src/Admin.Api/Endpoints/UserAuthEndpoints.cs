@@ -88,9 +88,11 @@ public static class UserAuthEndpoints
         });
 
         user.MapDelete("/account", async (ClaimsPrincipal principal,
-            AccountDeletionRequest req, ISqlSugarClient db, IClusterClient client,
+            HttpRequest request, ISqlSugarClient db, IClusterClient client,
             ListingRepository registry, AuthSessionService sessions, HttpContext http) =>
         {
+            var req = await request.ReadFromJsonAsync<AccountDeletionRequest>();
+            if (req is null) return Results.BadRequest(new { error = "Request body is required" });
             if (!req.Confirm) return Results.BadRequest(new { error = "Confirmation required" });
             if (string.Equals(principal.FindFirst(ClaimTypes.Role)?.Value, "admin",
                     StringComparison.OrdinalIgnoreCase))
