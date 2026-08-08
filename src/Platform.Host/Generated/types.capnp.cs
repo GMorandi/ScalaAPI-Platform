@@ -252,13 +252,13 @@ namespace CapnpGen
             public long Quota
             {
                 get => this.ReadDataLong(192UL, 0L);
-                set => this.WriteData(192UL, value, 0);
+                set => this.WriteData(192UL, value, 0L);
             }
 
             public long QuotaUsed
             {
                 get => this.ReadDataLong(256UL, 0L);
-                set => this.WriteData(256UL, value, 0);
+                set => this.WriteData(256UL, value, 0L);
             }
 
             public long ExpiresAt
@@ -270,19 +270,19 @@ namespace CapnpGen
             public long RateLimit5h
             {
                 get => this.ReadDataLong(384UL, 0L);
-                set => this.WriteData(384UL, value, 0);
+                set => this.WriteData(384UL, value, 0L);
             }
 
             public long RateLimit1d
             {
                 get => this.ReadDataLong(448UL, 0L);
-                set => this.WriteData(448UL, value, 0);
+                set => this.WriteData(448UL, value, 0L);
             }
 
             public long RateLimit7d
             {
                 get => this.ReadDataLong(512UL, 0L);
-                set => this.WriteData(512UL, value, 0);
+                set => this.WriteData(512UL, value, 0L);
             }
 
             public long Version
@@ -420,7 +420,7 @@ namespace CapnpGen
             public long Balance
             {
                 get => this.ReadDataLong(64UL, 0L);
-                set => this.WriteData(64UL, value, 0);
+                set => this.WriteData(64UL, value, 0L);
             }
 
             public int Concurrency
@@ -594,13 +594,13 @@ namespace CapnpGen
             public long RateMultiplier
             {
                 get => this.ReadDataLong(128UL, 0L);
-                set => this.WriteData(128UL, value, 0);
+                set => this.WriteData(128UL, value, 0L);
             }
 
             public long DailyLimitUsd
             {
                 get => this.ReadDataLong(192UL, 0L);
-                set => this.WriteData(192UL, value, 0);
+                set => this.WriteData(192UL, value, 0L);
             }
 
             public bool ClaudeCodeOnly
@@ -1293,13 +1293,13 @@ namespace CapnpGen
             public long RateMultiplier
             {
                 get => this.ReadDataLong(0UL, 0L);
-                set => this.WriteData(0UL, value, 0);
+                set => this.WriteData(0UL, value, 0L);
             }
 
             public long HoldAmount
             {
                 get => this.ReadDataLong(64UL, 0L);
-                set => this.WriteData(64UL, value, 0);
+                set => this.WriteData(64UL, value, 0L);
             }
 
             public string HoldHandle
@@ -1551,7 +1551,7 @@ namespace CapnpGen
             public long RateMultiplier
             {
                 get => this.ReadDataLong(192UL, 0L);
-                set => this.WriteData(192UL, value, 0);
+                set => this.WriteData(192UL, value, 0L);
             }
 
             public int LoadFactor
@@ -2550,7 +2550,7 @@ namespace CapnpGen
             public long RateMultiplier
             {
                 get => this.ReadDataLong(64UL, 0L);
-                set => this.WriteData(64UL, value, 0);
+                set => this.WriteData(64UL, value, 0L);
             }
 
             public bool ModelRoutingEnabled
@@ -2586,7 +2586,7 @@ namespace CapnpGen
             public long PeakMultiplier
             {
                 get => this.ReadDataLong(256UL, 0L);
-                set => this.WriteData(256UL, value, 0);
+                set => this.WriteData(256UL, value, 0L);
             }
 
             public int PeakStartHour
