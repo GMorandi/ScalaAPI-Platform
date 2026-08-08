@@ -31,7 +31,7 @@ public sealed class MediaOperationHostedService(
                         logger.LogWarning(ex, "Expired media object cleanup failed for {OperationId}",
                             expired.OperationId);
                     }
-                    await leases.AbortAsync(expired.LeaseToken, "media_operation_expired", stoppingToken);
+                    await AbortUnknownAsync(expired.LeaseToken, "media_operation_expired", stoppingToken);
                 }
 
                 var due = await store.ClaimDueAsync(16, stoppingToken);
@@ -88,7 +88,7 @@ public sealed class MediaOperationHostedService(
                         message = body.Length > 4096 ? body[..4096] : body
                     }), ct);
                 if (updated?.Status == "failed")
-                    await leases.AbortAsync(operation.LeaseToken, "media_poll_exhausted", ct);
+                    await AbortUnknownAsync(operation.LeaseToken, "media_poll_exhausted", ct);
                 return;
             }
 
@@ -157,7 +157,7 @@ public sealed class MediaOperationHostedService(
                     operation.OperationId, parsed.Status, parsed.Progress,
                     operation.UpstreamTaskId, Limited(body), parsed.OutputUrl,
                     parsed.ContentType, parsed.Error, ct: ct);
-                await leases.AbortAsync(operation.LeaseToken,
+                await AbortUnknownAsync(operation.LeaseToken,
                     $"media_operation_{parsed.Status}", ct);
             }
             else
@@ -174,7 +174,7 @@ public sealed class MediaOperationHostedService(
             var updated = await store.RecordPollFailureAsync(operation,
                 JsonSerializer.Serialize(new { type = "poll_exception", message = ex.Message }), ct);
             if (updated?.Status == "failed")
-                await leases.AbortAsync(operation.LeaseToken, "media_poll_exhausted", ct);
+                await AbortUnknownAsync(operation.LeaseToken, "media_poll_exhausted", ct);
         }
     }
 
@@ -183,8 +183,12 @@ public sealed class MediaOperationHostedService(
     {
         await store.UpdateAsync(operation.ApiKeyId, operation.OperationId, "failed", 100,
             error: JsonSerializer.Serialize(new { type, message }), ct: ct);
-        await leases.AbortAsync(operation.LeaseToken, type, ct);
+        await AbortUnknownAsync(operation.LeaseToken, type, ct);
     }
+
+    private Task<WriteAck> AbortUnknownAsync(string leaseToken, string reason,
+        CancellationToken ct) =>
+        leases.AbortAsync(leaseToken, reason, LeaseAbortDisposition.Unknown, null, ct);
 
     private static string PollPath(MediaOperation operation)
     {

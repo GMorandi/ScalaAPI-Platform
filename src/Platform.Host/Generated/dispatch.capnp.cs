@@ -13,9 +13,10 @@ namespace CapnpGen
     {
         Task<CapnpGen.DispatchResponse> Dispatch(CapnpGen.DispatchRequest request, CancellationToken cancellationToken_ = default);
         Task<CapnpGen.WriteAck> ReportUsage(CapnpGen.UsageReport report, CancellationToken cancellationToken_ = default);
-        Task<CapnpGen.WriteAck> Abort(string leaseToken, string reason, CancellationToken cancellationToken_ = default);
+        Task<CapnpGen.WriteAck> Abort(CapnpGen.AbortRequest request, CancellationToken cancellationToken_ = default);
         Task<CapnpGen.WriteAck> ReportUpstreamError(CapnpGen.ErrorReport report, CancellationToken cancellationToken_ = default);
         Task<CapnpGen.MediaOperationResponse> MediaOperation(CapnpGen.MediaOperationRequest request, CancellationToken cancellationToken_ = default);
+        Task<CapnpGen.WriteAck> RecordLeaseEvidence(CapnpGen.LeaseEvidence evidence, CancellationToken cancellationToken_ = default);
     }
 
     [System.CodeDom.Compiler.GeneratedCode("capnpc-csharp", "1.3.0.0"), TypeId(0xf48b621dd5cd54e3UL)]
@@ -47,11 +48,11 @@ namespace CapnpGen
             }
         }
 
-        public async Task<CapnpGen.WriteAck> Abort(string leaseToken, string reason, CancellationToken cancellationToken_ = default)
+        public async Task<CapnpGen.WriteAck> Abort(CapnpGen.AbortRequest request, CancellationToken cancellationToken_ = default)
         {
             var in_ = SerializerState.CreateForRpc<CapnpGen.GatewayDispatch.Params_Abort.WRITER>();
             var arg_ = new CapnpGen.GatewayDispatch.Params_Abort()
-            {LeaseToken = leaseToken, Reason = reason};
+            {Request = request};
             arg_?.serialize(in_);
             using (var d_ = await Call(17621285847297774819UL, 2, in_.Rewrap<DynamicSerializerState>(), false, cancellationToken_).WhenReturned)
             {
@@ -85,6 +86,19 @@ namespace CapnpGen
                 return (r_.Response);
             }
         }
+
+        public async Task<CapnpGen.WriteAck> RecordLeaseEvidence(CapnpGen.LeaseEvidence evidence, CancellationToken cancellationToken_ = default)
+        {
+            var in_ = SerializerState.CreateForRpc<CapnpGen.GatewayDispatch.Params_RecordLeaseEvidence.WRITER>();
+            var arg_ = new CapnpGen.GatewayDispatch.Params_RecordLeaseEvidence()
+            {Evidence = evidence};
+            arg_?.serialize(in_);
+            using (var d_ = await Call(17621285847297774819UL, 5, in_.Rewrap<DynamicSerializerState>(), false, cancellationToken_).WhenReturned)
+            {
+                var r_ = CapnpSerializable.Create<CapnpGen.GatewayDispatch.Result_RecordLeaseEvidence>(d_);
+                return (r_.Ack);
+            }
+        }
     }
 
     [System.CodeDom.Compiler.GeneratedCode("capnpc-csharp", "1.3.0.0"), TypeId(0xf48b621dd5cd54e3UL)]
@@ -92,7 +106,7 @@ namespace CapnpGen
     {
         public GatewayDispatch_Skeleton()
         {
-            SetMethodTable(Dispatch, ReportUsage, Abort, ReportUpstreamError, MediaOperation);
+            SetMethodTable(Dispatch, ReportUsage, Abort, ReportUpstreamError, MediaOperation, RecordLeaseEvidence);
         }
 
         public override ulong InterfaceId => 17621285847297774819UL;
@@ -135,7 +149,7 @@ namespace CapnpGen
             using (d_)
             {
                 var in_ = CapnpSerializable.Create<CapnpGen.GatewayDispatch.Params_Abort>(d_);
-                return Impatient.MaybeTailCall(Impl.Abort(in_.LeaseToken, in_.Reason, cancellationToken_), ack =>
+                return Impatient.MaybeTailCall(Impl.Abort(in_.Request, cancellationToken_), ack =>
                 {
                     var s_ = SerializerState.CreateForRpc<CapnpGen.GatewayDispatch.Result_Abort.WRITER>();
                     var r_ = new CapnpGen.GatewayDispatch.Result_Abort{Ack = ack};
@@ -173,6 +187,23 @@ namespace CapnpGen
                 {
                     var s_ = SerializerState.CreateForRpc<CapnpGen.GatewayDispatch.Result_MediaOperation.WRITER>();
                     var r_ = new CapnpGen.GatewayDispatch.Result_MediaOperation{Response = response};
+                    r_.serialize(s_);
+                    return s_;
+                }
+
+                );
+            }
+        }
+
+        Task<AnswerOrCounterquestion> RecordLeaseEvidence(DeserializerState d_, CancellationToken cancellationToken_)
+        {
+            using (d_)
+            {
+                var in_ = CapnpSerializable.Create<CapnpGen.GatewayDispatch.Params_RecordLeaseEvidence>(d_);
+                return Impatient.MaybeTailCall(Impl.RecordLeaseEvidence(in_.Evidence, cancellationToken_), ack =>
+                {
+                    var s_ = SerializerState.CreateForRpc<CapnpGen.GatewayDispatch.Result_RecordLeaseEvidence.WRITER>();
+                    var r_ = new CapnpGen.GatewayDispatch.Result_RecordLeaseEvidence{Ack = ack};
                     r_.serialize(s_);
                     return s_;
                 }
@@ -431,15 +462,13 @@ namespace CapnpGen
             void ICapnpSerializable.Deserialize(DeserializerState arg_)
             {
                 var reader = READER.create(arg_);
-                LeaseToken = reader.LeaseToken;
-                Reason = reader.Reason;
+                Request = CapnpSerializable.Create<CapnpGen.AbortRequest>(reader.Request);
                 applyDefaults();
             }
 
             public void serialize(WRITER writer)
             {
-                writer.LeaseToken = LeaseToken;
-                writer.Reason = Reason;
+                Request?.serialize(writer.Request);
             }
 
             void ICapnpSerializable.Serialize(SerializerState arg_)
@@ -451,13 +480,7 @@ namespace CapnpGen
             {
             }
 
-            public string LeaseToken
-            {
-                get;
-                set;
-            }
-
-            public string Reason
+            public CapnpGen.AbortRequest Request
             {
                 get;
                 set;
@@ -474,27 +497,20 @@ namespace CapnpGen
                 public static READER create(DeserializerState ctx) => new READER(ctx);
                 public static implicit operator DeserializerState(READER reader) => reader.ctx;
                 public static implicit operator READER(DeserializerState ctx) => new READER(ctx);
-                public string LeaseToken => ctx.ReadText(0, null);
-                public string Reason => ctx.ReadText(1, null);
+                public CapnpGen.AbortRequest.READER Request => ctx.ReadStruct(0, CapnpGen.AbortRequest.READER.create);
             }
 
             public class WRITER : SerializerState
             {
                 public WRITER()
                 {
-                    this.SetStruct(0, 2);
+                    this.SetStruct(0, 1);
                 }
 
-                public string LeaseToken
+                public CapnpGen.AbortRequest.WRITER Request
                 {
-                    get => this.ReadText(0, null);
-                    set => this.WriteText(0, value, null);
-                }
-
-                public string Reason
-                {
-                    get => this.ReadText(1, null);
-                    set => this.WriteText(1, value, null);
+                    get => BuildPointer<CapnpGen.AbortRequest.WRITER>(0);
+                    set => Link(0, value);
                 }
             }
         }
@@ -794,6 +810,126 @@ namespace CapnpGen
                 public CapnpGen.MediaOperationResponse.WRITER Response
                 {
                     get => BuildPointer<CapnpGen.MediaOperationResponse.WRITER>(0);
+                    set => Link(0, value);
+                }
+            }
+        }
+
+        [System.CodeDom.Compiler.GeneratedCode("capnpc-csharp", "1.3.0.0"), TypeId(0xa103e9f075555d34UL)]
+        public class Params_RecordLeaseEvidence : ICapnpSerializable
+        {
+            public const UInt64 typeId = 0xa103e9f075555d34UL;
+            void ICapnpSerializable.Deserialize(DeserializerState arg_)
+            {
+                var reader = READER.create(arg_);
+                Evidence = CapnpSerializable.Create<CapnpGen.LeaseEvidence>(reader.Evidence);
+                applyDefaults();
+            }
+
+            public void serialize(WRITER writer)
+            {
+                Evidence?.serialize(writer.Evidence);
+            }
+
+            void ICapnpSerializable.Serialize(SerializerState arg_)
+            {
+                serialize(arg_.Rewrap<WRITER>());
+            }
+
+            public void applyDefaults()
+            {
+            }
+
+            public CapnpGen.LeaseEvidence Evidence
+            {
+                get;
+                set;
+            }
+
+            public struct READER
+            {
+                readonly DeserializerState ctx;
+                public READER(DeserializerState ctx)
+                {
+                    this.ctx = ctx;
+                }
+
+                public static READER create(DeserializerState ctx) => new READER(ctx);
+                public static implicit operator DeserializerState(READER reader) => reader.ctx;
+                public static implicit operator READER(DeserializerState ctx) => new READER(ctx);
+                public CapnpGen.LeaseEvidence.READER Evidence => ctx.ReadStruct(0, CapnpGen.LeaseEvidence.READER.create);
+            }
+
+            public class WRITER : SerializerState
+            {
+                public WRITER()
+                {
+                    this.SetStruct(0, 1);
+                }
+
+                public CapnpGen.LeaseEvidence.WRITER Evidence
+                {
+                    get => BuildPointer<CapnpGen.LeaseEvidence.WRITER>(0);
+                    set => Link(0, value);
+                }
+            }
+        }
+
+        [System.CodeDom.Compiler.GeneratedCode("capnpc-csharp", "1.3.0.0"), TypeId(0xf3b1a38b21d83723UL)]
+        public class Result_RecordLeaseEvidence : ICapnpSerializable
+        {
+            public const UInt64 typeId = 0xf3b1a38b21d83723UL;
+            void ICapnpSerializable.Deserialize(DeserializerState arg_)
+            {
+                var reader = READER.create(arg_);
+                Ack = CapnpSerializable.Create<CapnpGen.WriteAck>(reader.Ack);
+                applyDefaults();
+            }
+
+            public void serialize(WRITER writer)
+            {
+                Ack?.serialize(writer.Ack);
+            }
+
+            void ICapnpSerializable.Serialize(SerializerState arg_)
+            {
+                serialize(arg_.Rewrap<WRITER>());
+            }
+
+            public void applyDefaults()
+            {
+            }
+
+            public CapnpGen.WriteAck Ack
+            {
+                get;
+                set;
+            }
+
+            public struct READER
+            {
+                readonly DeserializerState ctx;
+                public READER(DeserializerState ctx)
+                {
+                    this.ctx = ctx;
+                }
+
+                public static READER create(DeserializerState ctx) => new READER(ctx);
+                public static implicit operator DeserializerState(READER reader) => reader.ctx;
+                public static implicit operator READER(DeserializerState ctx) => new READER(ctx);
+                public CapnpGen.WriteAck.READER Ack => ctx.ReadStruct(0, CapnpGen.WriteAck.READER.create);
+            }
+
+            public class WRITER : SerializerState
+            {
+                public WRITER()
+                {
+                    this.SetStruct(0, 1);
+                }
+
+                public CapnpGen.WriteAck.WRITER Ack
+                {
+                    get => BuildPointer<CapnpGen.WriteAck.WRITER>(0);
                     set => Link(0, value);
                 }
             }
@@ -1737,6 +1873,8 @@ namespace CapnpGen
             var reader = READER.create(arg_);
             LeaseToken = reader.LeaseToken;
             Reason = reader.Reason;
+            TheDisposition = reader.TheDisposition;
+            ProviderStatusCode = reader.ProviderStatusCode;
             applyDefaults();
         }
 
@@ -1744,6 +1882,8 @@ namespace CapnpGen
         {
             writer.LeaseToken = LeaseToken;
             writer.Reason = Reason;
+            writer.TheDisposition = TheDisposition;
+            writer.ProviderStatusCode = ProviderStatusCode;
         }
 
         void ICapnpSerializable.Serialize(SerializerState arg_)
@@ -1767,6 +1907,18 @@ namespace CapnpGen
             set;
         }
 
+        public CapnpGen.AbortRequest.Disposition TheDisposition
+        {
+            get;
+            set;
+        }
+
+        public int ProviderStatusCode
+        {
+            get;
+            set;
+        }
+
         public struct READER
         {
             readonly DeserializerState ctx;
@@ -1780,13 +1932,15 @@ namespace CapnpGen
             public static implicit operator READER(DeserializerState ctx) => new READER(ctx);
             public string LeaseToken => ctx.ReadText(0, null);
             public string Reason => ctx.ReadText(1, null);
+            public CapnpGen.AbortRequest.Disposition TheDisposition => (CapnpGen.AbortRequest.Disposition)ctx.ReadDataUShort(0UL, (ushort)0);
+            public int ProviderStatusCode => ctx.ReadDataInt(32UL, 0);
         }
 
         public class WRITER : SerializerState
         {
             public WRITER()
             {
-                this.SetStruct(0, 2);
+                this.SetStruct(1, 2);
             }
 
             public string LeaseToken
@@ -1800,6 +1954,137 @@ namespace CapnpGen
                 get => this.ReadText(1, null);
                 set => this.WriteText(1, value, null);
             }
+
+            public CapnpGen.AbortRequest.Disposition TheDisposition
+            {
+                get => (CapnpGen.AbortRequest.Disposition)this.ReadDataUShort(0UL, (ushort)0);
+                set => this.WriteData(0UL, (ushort)value, (ushort)0);
+            }
+
+            public int ProviderStatusCode
+            {
+                get => this.ReadDataInt(32UL, 0);
+                set => this.WriteData(32UL, value, 0);
+            }
+        }
+
+        [System.CodeDom.Compiler.GeneratedCode("capnpc-csharp", "1.3.0.0"), TypeId(0xed8ff4026bab7f21UL)]
+        public enum Disposition : ushort
+        {
+            noCharge,
+            unknown
+        }
+    }
+
+    [System.CodeDom.Compiler.GeneratedCode("capnpc-csharp", "1.3.0.0"), TypeId(0xfd0f3d9416f0db00UL)]
+    public class LeaseEvidence : ICapnpSerializable
+    {
+        public const UInt64 typeId = 0xfd0f3d9416f0db00UL;
+        void ICapnpSerializable.Deserialize(DeserializerState arg_)
+        {
+            var reader = READER.create(arg_);
+            LeaseToken = reader.LeaseToken;
+            TheStage = reader.TheStage;
+            Source = reader.Source;
+            Detail = reader.Detail;
+            applyDefaults();
+        }
+
+        public void serialize(WRITER writer)
+        {
+            writer.LeaseToken = LeaseToken;
+            writer.TheStage = TheStage;
+            writer.Source = Source;
+            writer.Detail = Detail;
+        }
+
+        void ICapnpSerializable.Serialize(SerializerState arg_)
+        {
+            serialize(arg_.Rewrap<WRITER>());
+        }
+
+        public void applyDefaults()
+        {
+        }
+
+        public string LeaseToken
+        {
+            get;
+            set;
+        }
+
+        public CapnpGen.LeaseEvidence.Stage TheStage
+        {
+            get;
+            set;
+        }
+
+        public string Source
+        {
+            get;
+            set;
+        }
+
+        public string Detail
+        {
+            get;
+            set;
+        }
+
+        public struct READER
+        {
+            readonly DeserializerState ctx;
+            public READER(DeserializerState ctx)
+            {
+                this.ctx = ctx;
+            }
+
+            public static READER create(DeserializerState ctx) => new READER(ctx);
+            public static implicit operator DeserializerState(READER reader) => reader.ctx;
+            public static implicit operator READER(DeserializerState ctx) => new READER(ctx);
+            public string LeaseToken => ctx.ReadText(0, null);
+            public CapnpGen.LeaseEvidence.Stage TheStage => (CapnpGen.LeaseEvidence.Stage)ctx.ReadDataUShort(0UL, (ushort)0);
+            public string Source => ctx.ReadText(1, null);
+            public string Detail => ctx.ReadText(2, null);
+        }
+
+        public class WRITER : SerializerState
+        {
+            public WRITER()
+            {
+                this.SetStruct(1, 3);
+            }
+
+            public string LeaseToken
+            {
+                get => this.ReadText(0, null);
+                set => this.WriteText(0, value, null);
+            }
+
+            public CapnpGen.LeaseEvidence.Stage TheStage
+            {
+                get => (CapnpGen.LeaseEvidence.Stage)this.ReadDataUShort(0UL, (ushort)0);
+                set => this.WriteData(0UL, (ushort)value, (ushort)0);
+            }
+
+            public string Source
+            {
+                get => this.ReadText(1, null);
+                set => this.WriteText(1, value, null);
+            }
+
+            public string Detail
+            {
+                get => this.ReadText(2, null);
+                set => this.WriteText(2, value, null);
+            }
+        }
+
+        [System.CodeDom.Compiler.GeneratedCode("capnpc-csharp", "1.3.0.0"), TypeId(0xa982b0a1164d7ff7UL)]
+        public enum Stage : ushort
+        {
+            forwarded,
+            outputStarted
         }
     }
 

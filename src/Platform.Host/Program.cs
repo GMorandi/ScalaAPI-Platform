@@ -124,7 +124,8 @@ app.MapGet("/metrics", async (NpgsqlDataSource db, CancellationToken ct) =>
 {
     await using var command = db.CreateCommand("""
         SELECT
-          (SELECT count(*) FROM request_leases WHERE status = 'active'),
+          (SELECT count(*) FROM request_leases
+             WHERE status IN ('held', 'forwarded', 'output_started')),
           (SELECT count(*) FROM usage_outbox WHERE processed_at IS NULL),
           (SELECT count(*) FROM usage_outbox WHERE processed_at IS NULL AND attempts > 0),
           (SELECT count(*) FROM media_operations WHERE status IN ('pending', 'running')),

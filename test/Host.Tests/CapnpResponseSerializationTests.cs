@@ -15,7 +15,7 @@ public class CapnpResponseSerializationTests
 
         Assert.Equal((byte)0x81, response[0]);
         var decoded = Deserialize(response);
-        Assert.Equal((ushort)2, decoded.ProtocolVersion);
+        Assert.Equal((ushort)3, decoded.ProtocolVersion);
         Assert.Equal(DispatchResponse.Outcome.rejected, decoded.TheOutcome);
         Assert.Equal("invalid", decoded.Reject.Message);
     }
@@ -64,14 +64,14 @@ public class CapnpResponseSerializationTests
     }
 
     [Fact]
-    public void V1ResponseKeepsTheCallersProtocolVersion()
+    public void ResponseCarriesTheCurrentProtocolVersion()
     {
         var response = Serialize(DispatchResult.Rejected("invalidKey", "invalid") with
         {
-            ProtocolVersion = 1
+            ProtocolVersion = 3
         });
 
-        Assert.Equal((ushort)1, Deserialize(response).ProtocolVersion);
+        Assert.Equal((ushort)3, Deserialize(response).ProtocolVersion);
     }
 
     [Fact]

@@ -128,6 +128,18 @@ public sealed record WriteAck(bool Accepted, bool Duplicate, bool Retryable, str
         new(false, false, retryable, code);
 }
 
+public enum LeaseEvidenceStage
+{
+    Forwarded,
+    OutputStarted,
+}
+
+public enum LeaseAbortDisposition
+{
+    NoCharge,
+    Unknown,
+}
+
 public sealed record OutboxItem(long Id, string LeaseToken, string EventType, int Attempts);
 
 public sealed record ClaimedOutboxItem(OutboxItem Item, RequestLease Lease);
@@ -160,7 +172,7 @@ public sealed class RequestLeaseStore(
                 price_cache_create_per_million, price_cache_read_per_million,
                 price_image_input_per_unit, price_image_output_per_unit,
                 price_video_per_second, price_realtime_per_minute)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 'active', $14,
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 'held', $14,
                     $15, $16, $17, $18, $19, $20, $21, $22, $23)
             ON CONFLICT (request_id) DO NOTHING
             RETURNING lease_token
@@ -273,6 +285,9 @@ public sealed class RequestLeaseStore(
             return LeaseCreateResult.NoFunds();
         }
 
+        await AppendLeaseEventAsync(connection, transaction, request.LeaseToken,
+            "held", "platform", "balance hold reserved", null, ct);
+
         await transaction.CommitAsync(ct);
         return LeaseCreateResult.New();
     }
@@ -313,7 +328,8 @@ public sealed class RequestLeaseStore(
             return WriteAck.Error("lease_not_found");
         if (lease.Status == "completed")
             return WriteAck.DuplicateWrite();
-        if (lease.Status is not ("active" or "reconciliation_needed"))
+        if (lease.Status is not ("held" or "forwarded" or "output_started"
+            or "reconciliation_needed"))
             return WriteAck.Error($"lease_{lease.Status}");
 
         var normalized = completion with
@@ -422,12 +438,55 @@ public sealed class RequestLeaseStore(
             normalized.ResponseStatusCode, normalized.ResponseContentType,
             normalized.ResponseBody, ct);
         await EnqueueAsync(connection, transaction, lease.LeaseToken, "complete", ct);
+        await AppendLeaseEventAsync(connection, transaction, lease.LeaseToken,
+            "completed", "platform", "usage settled",
+            normalized.StatusCode is >= 100 and <= 999 ? normalized.StatusCode : null, ct);
+        await transaction.CommitAsync(ct);
+        return WriteAck.Ok();
+    }
+
+    public async Task<WriteAck> RecordEvidenceAsync(string leaseToken, LeaseEvidenceStage stage,
+        string source = "gateway", string detail = "", CancellationToken ct = default)
+    {
+        await using var connection = await dataSource.OpenConnectionAsync(ct);
+        await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.ReadCommitted, ct);
+        var lease = await GetForUpdateAsync(connection, transaction, leaseToken, ct);
+        if (lease is null) return WriteAck.Error("lease_not_found");
+
+        var target = stage == LeaseEvidenceStage.Forwarded ? "forwarded" : "output_started";
+        if (lease.Status == target
+            || (stage == LeaseEvidenceStage.Forwarded && lease.Status == "output_started"))
+        {
+            await transaction.CommitAsync(ct);
+            return WriteAck.DuplicateWrite();
+        }
+        if (lease.Status is "completed" or "aborted" or "expired" or "reconciliation_needed")
+            return WriteAck.Error($"lease_{lease.Status}");
+        if (stage == LeaseEvidenceStage.Forwarded && lease.Status != "held")
+            return WriteAck.Error($"invalid_evidence_transition_{lease.Status}_to_forwarded");
+        if (stage == LeaseEvidenceStage.OutputStarted && lease.Status != "forwarded")
+            return WriteAck.Error($"invalid_evidence_transition_{lease.Status}_to_output_started");
+
+        await using (var command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText = stage == LeaseEvidenceStage.Forwarded
+                ? "UPDATE request_leases SET status = 'forwarded', forwarded_at = now() WHERE lease_token = $1"
+                : "UPDATE request_leases SET status = 'output_started', output_started_at = now() WHERE lease_token = $1";
+            command.Parameters.AddWithValue(leaseToken);
+            await command.ExecuteNonQueryAsync(ct);
+        }
+        await AppendLeaseEventAsync(connection, transaction, leaseToken, target,
+            source, detail, null, ct);
         await transaction.CommitAsync(ct);
         return WriteAck.Ok();
     }
 
     public async Task<WriteAck> AbortAsync(string leaseToken, string reason,
-        CancellationToken ct = default)
+        LeaseAbortDisposition disposition = LeaseAbortDisposition.NoCharge,
+        int? providerStatusCode = null,
+        CancellationToken ct = default,
+        string source = "platform")
     {
         await using var connection = await dataSource.OpenConnectionAsync(ct);
         await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.ReadCommitted, ct);
@@ -437,53 +496,102 @@ public sealed class RequestLeaseStore(
         if (lease.Status is "aborted" or "expired")
             return WriteAck.DuplicateWrite();
         if (lease.Status == "reconciliation_needed")
-            return WriteAck.Error("lease_reconciliation_needed");
+            return disposition == LeaseAbortDisposition.Unknown
+                ? WriteAck.DuplicateWrite() : WriteAck.Error("lease_reconciliation_needed");
         if (lease.Status == "completed")
             return WriteAck.Error("lease_completed");
 
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
-        command.CommandText = """
-            UPDATE request_leases
-            SET status = 'aborted', abort_reason = $2, finalized_at = now()
-            WHERE lease_token = $1
-            """;
+        var unknown = disposition == LeaseAbortDisposition.Unknown;
+        command.CommandText = unknown
+            ? """
+                UPDATE request_leases
+                SET status = 'reconciliation_needed', abort_reason = $2,
+                    provider_status_code = $3, reconciliation_needed_at = now()
+                WHERE lease_token = $1
+                """
+            : """
+                UPDATE request_leases
+                SET status = 'aborted', abort_reason = $2,
+                    provider_status_code = $3, finalized_at = now()
+                WHERE lease_token = $1
+                """;
         command.Parameters.AddWithValue(leaseToken);
         command.Parameters.AddWithValue(reason.Length > 500 ? reason[..500] : reason);
+        command.Parameters.AddWithValue((object?)providerStatusCode ?? DBNull.Value);
         await command.ExecuteNonQueryAsync(ct);
-        await accounting.FinalizeHoldAsync(connection, transaction,
-            lease.UserId, lease.HoldHandle, "released", ct);
-        await FinalizeIdempotencyAsync(connection, transaction, lease.LeaseToken, "aborted", ct);
-        await EnqueueAsync(connection, transaction, leaseToken, "abort", ct);
+        if (!unknown)
+            await accounting.FinalizeHoldAsync(connection, transaction,
+                lease.UserId, lease.HoldHandle, "released", ct);
+        await FinalizeIdempotencyAsync(connection, transaction, lease.LeaseToken,
+            unknown ? "reconciliation_needed" : "aborted", ct);
+        await EnqueueAsync(connection, transaction, leaseToken, unknown ? "reconcile" : "abort", ct);
+        await AppendLeaseEventAsync(connection, transaction, leaseToken,
+            unknown ? "aborted_unknown" : "aborted_no_charge", source, reason,
+            providerStatusCode, ct);
+        if (unknown)
+            await AppendLeaseEventAsync(connection, transaction, leaseToken,
+                "reconciliation_needed", "platform", "Provider charge outcome is unknown",
+                providerStatusCode, ct);
         await transaction.CommitAsync(ct);
         return WriteAck.Ok();
     }
+
+    public Task<WriteAck> AbortAsync(string leaseToken, string reason, CancellationToken ct) =>
+        AbortAsync(leaseToken, reason, LeaseAbortDisposition.NoCharge, null, ct);
 
     public async Task<int> ExpireActiveAsync(CancellationToken ct = default)
     {
         await using var connection = await dataSource.OpenConnectionAsync(ct);
         await using var transaction = await connection.BeginTransactionAsync(ct);
-        var expired = new List<string>();
+        var expired = new List<(string Token, string Status, long UserId, string? HoldHandle)>();
         await using (var command = connection.CreateCommand())
         {
             command.Transaction = transaction;
             command.CommandText = """
-                UPDATE request_leases
-                SET status = 'reconciliation_needed',
-                    abort_reason = 'lease_ttl_unknown_provider_charge',
-                    reconciliation_needed_at = now()
-                WHERE status = 'active' AND expires_at <= now()
-                RETURNING lease_token
+                SELECT lease_token, status, user_id, hold_handle
+                FROM request_leases
+                WHERE status IN ('held', 'forwarded', 'output_started')
+                  AND expires_at <= now()
+                ORDER BY user_id, lease_token
+                LIMIT 500
+                FOR UPDATE SKIP LOCKED
                 """;
             await using var reader = await command.ExecuteReaderAsync(ct);
             while (await reader.ReadAsync(ct))
-                expired.Add(reader.GetString(0));
+                expired.Add((reader.GetString(0), reader.GetString(1), reader.GetInt64(2),
+                    reader.IsDBNull(3) ? null : reader.GetString(3)));
         }
-        foreach (var token in expired)
+        foreach (var item in expired)
         {
+            var safe = item.Status == "held";
+            await using var update = connection.CreateCommand();
+            update.Transaction = transaction;
+            update.CommandText = safe
+                ? """
+                    UPDATE request_leases
+                    SET status = 'expired', abort_reason = 'lease_ttl_before_forward', finalized_at = now()
+                    WHERE lease_token = $1
+                    """
+                : """
+                    UPDATE request_leases
+                    SET status = 'reconciliation_needed',
+                        abort_reason = 'lease_ttl_unknown_provider_charge',
+                        reconciliation_needed_at = now()
+                    WHERE lease_token = $1
+                    """;
+            update.Parameters.AddWithValue(item.Token);
+            await update.ExecuteNonQueryAsync(ct);
+            if (safe)
+                await accounting.FinalizeHoldAsync(connection, transaction,
+                    item.UserId, item.HoldHandle, "released", ct);
             await FinalizeIdempotencyAsync(connection, transaction,
-                token, "reconciliation_needed", ct);
-            await EnqueueAsync(connection, transaction, token, "reconcile", ct);
+                item.Token, safe ? "expired" : "reconciliation_needed", ct);
+            await EnqueueAsync(connection, transaction, item.Token, safe ? "expire" : "reconcile", ct);
+            await AppendLeaseEventAsync(connection, transaction, item.Token,
+                safe ? "expired" : "reconciliation_needed", "lease-expiry",
+                safe ? "request was never forwarded" : $"expired after {item.Status}", null, ct);
         }
         await transaction.CommitAsync(ct);
         return expired.Count;
@@ -709,6 +817,34 @@ public sealed class RequestLeaseStore(
             """;
         command.Parameters.AddWithValue(leaseToken);
         command.Parameters.AddWithValue(eventType);
+        await command.ExecuteNonQueryAsync(ct);
+    }
+
+    private static async Task AppendLeaseEventAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        string leaseToken,
+        string eventType,
+        string source,
+        string detail,
+        int? providerStatusCode,
+        CancellationToken ct)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            INSERT INTO request_lease_events(
+                lease_token, event_type, source, detail, provider_status_code)
+            VALUES ($1, $2, $3, $4, $5)
+            ON CONFLICT (lease_token, event_type) DO NOTHING
+            """;
+        command.Parameters.AddWithValue(leaseToken);
+        command.Parameters.AddWithValue(eventType);
+        var normalizedSource = string.IsNullOrWhiteSpace(source) ? "unknown" : source;
+        command.Parameters.AddWithValue(normalizedSource.Length > 100
+            ? normalizedSource[..100] : normalizedSource);
+        command.Parameters.AddWithValue(detail.Length > 500 ? detail[..500] : detail);
+        command.Parameters.AddWithValue((object?)providerStatusCode ?? DBNull.Value);
         await command.ExecuteNonQueryAsync(ct);
     }
 

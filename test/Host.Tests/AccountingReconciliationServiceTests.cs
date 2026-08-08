@@ -62,6 +62,8 @@ public sealed class AccountingReconciliationServiceTests
             Assert.True(await leases.CreateAsync(NewLease(
                 unknownLease, projectionUserId, unknownHold,
                 DateTime.UtcNow.AddMinutes(-1), suffix)));
+            Assert.True((await leases.RecordEvidenceAsync(
+                unknownLease, LeaseEvidenceStage.Forwarded)).Accepted);
             Assert.Equal(1, await leases.ExpireActiveAsync());
 
             await using (var corruptAccount = dataSource.CreateCommand("""

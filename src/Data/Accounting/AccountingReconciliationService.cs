@@ -395,7 +395,8 @@ public sealed class AccountingReconciliationService(
                        lease.hold_amount, lease.status
                 FROM request_leases lease
                 LEFT JOIN balance_holds hold ON hold.hold_id = lease.hold_handle
-                WHERE lease.status = 'active' AND lease.hold_amount > 0
+                WHERE lease.status IN ('held', 'forwarded', 'output_started')
+                  AND lease.hold_amount > 0
                   AND (hold.hold_id IS NULL OR hold.status <> 'active')
                 UNION ALL
                 SELECT 'terminal_hold_mismatch', lease.lease_token, lease.user_id,
@@ -416,12 +417,12 @@ public sealed class AccountingReconciliationService(
                 LEFT JOIN balance_holds hold ON hold.hold_id = lease.hold_handle
                 WHERE lease.status = 'reconciliation_needed'
                 UNION ALL
-                SELECT 'expired_active_lease', lease.lease_token, lease.user_id,
+                SELECT 'expired_open_lease', lease.lease_token, lease.user_id,
                        lease.lease_token, COALESCE(hold.status, 'missing'),
                        lease.hold_amount, lease.status
                 FROM request_leases lease
                 LEFT JOIN balance_holds hold ON hold.hold_id = lease.hold_handle
-                WHERE lease.status = 'active'
+                WHERE lease.status IN ('held', 'forwarded', 'output_started')
                   AND lease.expires_at < now() - interval '30 seconds'
                 ORDER BY 1, 2
                 """;

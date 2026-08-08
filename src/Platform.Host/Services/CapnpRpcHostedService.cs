@@ -140,13 +140,14 @@ public class CapnpRpcHostedService : IHostedService
                 3 => await HandleAbortAsync(dispatchService, capnpData),
                 4 => await HandleUpstreamErrorAsync(dispatchService, capnpData),
                 5 => await HandleMediaOperationAsync(dispatchService, capnpData),
+                6 => await HandleLeaseEvidenceAsync(dispatchService, capnpData),
                 _ => SerializeRejectResponse("unknown method"),
             };
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "RPC processing error");
-            return method is 2 or 3 or 4
+            return method is 2 or 3 or 4 or 6
                 ? SerializeWriteAck((byte)(0x80 + method), WriteAck.Error("platform_error", retryable: true))
                 : method is 5
                     ? SerializeMediaOperationResponse(MediaOperationRpcResult.Error(
@@ -178,7 +179,7 @@ public class CapnpRpcHostedService : IHostedService
         var state = DeserializeRoot(capnpData);
         var capnpReq = CapnpSerializable.Create<CapnpGen.DispatchRequest>(state)
             ?? throw new InvalidDataException("Missing dispatch request root");
-        if (capnpReq.ProtocolVersion != 2)
+        if (capnpReq.ProtocolVersion != 3)
             return BuildDispatchResponse(DispatchResult.Rejected(
                 "invalidKey", "Unsupported dispatch protocol version"));
 
@@ -386,9 +387,25 @@ public class CapnpRpcHostedService : IHostedService
         var reader = CapnpGen.AbortRequest.READER.create(state);
         var leaseToken = reader.LeaseToken ?? "";
         var reason = reader.Reason ?? "";
+        var disposition = reader.TheDisposition == CapnpGen.AbortRequest.Disposition.unknown
+            ? LeaseAbortDisposition.Unknown : LeaseAbortDisposition.NoCharge;
+        var providerStatusCode = reader.ProviderStatusCode is >= 100 and <= 999
+            ? reader.ProviderStatusCode : (int?)null;
 
-        var ack = await svc.HandleAbort(leaseToken, reason);
+        var ack = await svc.HandleAbort(leaseToken, reason, disposition, providerStatusCode);
         return SerializeWriteAck(0x83, ack);
+    }
+
+    private static async Task<byte[]> HandleLeaseEvidenceAsync(
+        DispatchService svc, ReadOnlyMemory<byte> capnpData)
+    {
+        var state = DeserializeRoot(capnpData);
+        var reader = CapnpGen.LeaseEvidence.READER.create(state);
+        var stage = reader.TheStage == CapnpGen.LeaseEvidence.Stage.outputStarted
+            ? LeaseEvidenceStage.OutputStarted : LeaseEvidenceStage.Forwarded;
+        var ack = await svc.HandleLeaseEvidence(reader.LeaseToken ?? "", stage,
+            reader.Source ?? "gateway", reader.Detail ?? "");
+        return SerializeWriteAck(0x86, ack);
     }
 
     private static async Task<byte[]> HandleUpstreamErrorAsync(DispatchService svc, ReadOnlyMemory<byte> capnpData)
@@ -459,7 +476,7 @@ public class CapnpRpcHostedService : IHostedService
         writer.TheOutcome = CapnpGen.DispatchResponse.Outcome.rejected;
         writer.Reject.Message = message;
         writer.Reject.Code = CapnpGen.RejectInfo.RejectCode.invalidKey;
-        writer.ProtocolVersion = 2;
+        writer.ProtocolVersion = 3;
         return SerializeToFrame(0x81, response.Frame);
     }
 }
@@ -825,7 +842,8 @@ public class DispatchService
             case "cancel":
                 operation = await _mediaOperations.CancelAsync(auth.ApiKeyId, req.OperationId);
                 if (operation is not null)
-                    await _leases.AbortAsync(operation.LeaseToken, "media_operation_canceled");
+                    await _leases.AbortAsync(operation.LeaseToken, "media_operation_canceled",
+                        LeaseAbortDisposition.Unknown);
                 break;
             case "attach":
             case "complete":
@@ -886,9 +904,17 @@ public class DispatchService
         return MediaOperationRpcResult.From(operation);
     }
 
-    public async Task<WriteAck> HandleAbort(string leaseToken, string reason)
+    public async Task<WriteAck> HandleAbort(string leaseToken, string reason,
+        LeaseAbortDisposition disposition, int? providerStatusCode)
     {
-        return await _leases.AbortAsync(leaseToken, reason);
+        return await _leases.AbortAsync(leaseToken, reason, disposition, providerStatusCode,
+            source: "gateway");
+    }
+
+    public async Task<WriteAck> HandleLeaseEvidence(string leaseToken,
+        LeaseEvidenceStage stage, string source, string detail)
+    {
+        return await _leases.RecordEvidenceAsync(leaseToken, stage, source, detail);
     }
 
     public async Task HandleUpstreamError(long accountId, int statusCode, int? retryAfterMs)
@@ -1092,7 +1118,7 @@ public record DispatchResult
     public string? RejectMessage { get; init; }
     public int WaitTimeoutMs { get; init; }
     public long AuthVersion { get; init; }
-    public ushort ProtocolVersion { get; init; } = 2;
+    public ushort ProtocolVersion { get; init; } = 3;
     public int ReplayStatusCode { get; init; }
     public string ReplayContentType { get; init; } = "";
     public string ReplayBody { get; init; } = "";

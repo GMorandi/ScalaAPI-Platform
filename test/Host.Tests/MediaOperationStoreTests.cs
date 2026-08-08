@@ -30,6 +30,8 @@ public sealed class MediaOperationStoreTests
         var retryLeaseToken2 = $"lease-retry-hold-2-{suffix}";
         var retryRequestId2 = $"request-retry-hold-2-{suffix}";
         var retryHoldId2 = $"hold-retry-2-{suffix}";
+        var unknownLeaseToken = $"lease-unknown-hold-{suffix}";
+        var unknownHoldId = $"hold-unknown-{suffix}";
         var configuration = new ConfigurationBuilder().AddInMemoryCollection(
             new Dictionary<string, string?>
             {
@@ -48,6 +50,7 @@ public sealed class MediaOperationStoreTests
                 "gpt-4o", "gpt-4o", "chat_completions", 1m, holdId, 10m,
                 DateTime.UtcNow.AddMinutes(10), "idem-hold-" + suffix, "fingerprint-a");
             Assert.True(await store.CreateAsync(request));
+            Assert.Equal("held", await ReadLeaseStatus(dataSource, leaseToken));
 
             await using (var snapshot = dataSource.CreateCommand("""
                 SELECT pricing_version, price_input_per_million, price_output_per_million
@@ -142,22 +145,41 @@ public sealed class MediaOperationStoreTests
             Assert.Equal("active", await ReadHoldStatus(dataSource, retryHoldId2));
             Assert.Equal("lease-retry-hold-2-" + suffix,
                 await ReadIdempotencyLease(dataSource, 94001, "idem-retry-" + suffix));
+
+            Assert.True(await store.CreateAsync(new LeaseCreateRequest(
+                unknownLeaseToken, $"request-unknown-hold-{suffix}", "hash-hold",
+                94001, 95001, 96001, 97001, "gpt-4o", "gpt-4o",
+                "chat_completions", 1m, unknownHoldId, 10m,
+                DateTime.UtcNow.AddMinutes(10))));
+            Assert.True((await store.RecordEvidenceAsync(
+                unknownLeaseToken, LeaseEvidenceStage.Forwarded)).Accepted);
+            var unknownAbort = await store.AbortAsync(
+                unknownLeaseToken, "provider_transport_lost",
+                LeaseAbortDisposition.Unknown, 200);
+            Assert.True(unknownAbort.Accepted);
+            Assert.Equal("reconciliation_needed",
+                await ReadLeaseStatus(dataSource, unknownLeaseToken));
+            Assert.Equal("active", await ReadHoldStatus(dataSource, unknownHoldId));
+            Assert.True((await store.AbortAsync(
+                unknownLeaseToken, "provider_transport_lost",
+                LeaseAbortDisposition.Unknown, 200)).Duplicate);
         }
         finally
         {
             foreach (var table in new[] { "usage_outbox", "usage_logs", "usage_events", "balance_ledger" })
             {
                 await using var cleanupUsage = dataSource.CreateCommand(
-                    $"DELETE FROM {table} WHERE lease_token IN ($1, $2, $3, $4, $5)");
+                    $"DELETE FROM {table} WHERE lease_token IN ($1, $2, $3, $4, $5, $6)");
                 cleanupUsage.Parameters.AddWithValue(leaseToken);
                 cleanupUsage.Parameters.AddWithValue(abortLeaseToken);
                 cleanupUsage.Parameters.AddWithValue(duplicateLeaseToken);
                 cleanupUsage.Parameters.AddWithValue(retryLeaseToken);
                 cleanupUsage.Parameters.AddWithValue(retryLeaseToken2);
+                cleanupUsage.Parameters.AddWithValue(unknownLeaseToken);
                 await cleanupUsage.ExecuteNonQueryAsync();
             }
             await using (var cleanupHolds = dataSource.CreateCommand(
-                "DELETE FROM balance_holds WHERE hold_id IN ($1, $2, $3, $4, $5, $6)"))
+                "DELETE FROM balance_holds WHERE hold_id IN ($1, $2, $3, $4, $5, $6, $7)"))
             {
                 cleanupHolds.Parameters.AddWithValue(holdId);
                 cleanupHolds.Parameters.AddWithValue(abortHoldId);
@@ -165,15 +187,17 @@ public sealed class MediaOperationStoreTests
                 cleanupHolds.Parameters.AddWithValue(holdId + "-conflict");
                 cleanupHolds.Parameters.AddWithValue(retryHoldId);
                 cleanupHolds.Parameters.AddWithValue(retryHoldId2);
+                cleanupHolds.Parameters.AddWithValue(unknownHoldId);
                 await cleanupHolds.ExecuteNonQueryAsync();
             }
             await using var cleanupLeases = dataSource.CreateCommand(
-                "DELETE FROM request_leases WHERE lease_token IN ($1, $2, $3, $4, $5)");
+                "DELETE FROM request_leases WHERE lease_token IN ($1, $2, $3, $4, $5, $6)");
             cleanupLeases.Parameters.AddWithValue(leaseToken);
             cleanupLeases.Parameters.AddWithValue(duplicateLeaseToken);
             cleanupLeases.Parameters.AddWithValue(abortLeaseToken);
             cleanupLeases.Parameters.AddWithValue(retryLeaseToken);
             cleanupLeases.Parameters.AddWithValue(retryLeaseToken2);
+            cleanupLeases.Parameters.AddWithValue(unknownLeaseToken);
             await cleanupLeases.ExecuteNonQueryAsync();
 
             await using var cleanupIdempotency = dataSource.CreateCommand(
@@ -337,6 +361,14 @@ public sealed class MediaOperationStoreTests
                 "gpt-4o", "gpt-4o", "chat_completions", 1m, holdId, 3m,
                 DateTime.UtcNow.AddMinutes(-1), idempotencyKey, "expiry-fingerprint");
             Assert.True(await store.CreateAsync(request));
+            Assert.True((await store.RecordEvidenceAsync(
+                leaseToken, LeaseEvidenceStage.Forwarded)).Accepted);
+            Assert.True((await store.RecordEvidenceAsync(
+                leaseToken, LeaseEvidenceStage.Forwarded)).Duplicate);
+            Assert.True((await store.RecordEvidenceAsync(
+                leaseToken, LeaseEvidenceStage.OutputStarted)).Accepted);
+            Assert.True((await store.RecordEvidenceAsync(
+                leaseToken, LeaseEvidenceStage.OutputStarted)).Duplicate);
             Assert.Equal(1, await store.ExpireActiveAsync());
             Assert.Equal("reconciliation_needed", await ReadLeaseStatus(dataSource, leaseToken));
             Assert.Equal("active", await ReadHoldStatus(dataSource, holdId));
@@ -360,6 +392,7 @@ public sealed class MediaOperationStoreTests
             Assert.Equal("completed",
                 await ReadIdempotencyStatus(dataSource, apiKeyId, idempotencyKey));
             Assert.Equal(0.0001m, await ReadUsageCost(dataSource, leaseToken));
+            Assert.Equal(5, await ReadLeaseEventCount(dataSource, leaseToken));
         }
         finally
         {
@@ -395,6 +428,86 @@ public sealed class MediaOperationStoreTests
     }
 
     [Fact]
+    public async Task HeldExpiryReleasesReservationAndAllowsIdempotentRetry()
+    {
+        var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
+        if (string.IsNullOrWhiteSpace(connectionString)) return;
+
+        await using var dataSource = NpgsqlDataSource.Create(connectionString);
+        var suffix = Guid.NewGuid().ToString("N");
+        var leaseToken = $"lease-held-expiry-{suffix}";
+        var retryToken = $"lease-held-retry-{suffix}";
+        var holdId = $"hold-held-expiry-{suffix}";
+        var retryHoldId = $"hold-held-retry-{suffix}";
+        var idempotencyKey = $"idem-held-expiry-{suffix}";
+        const long apiKeyId = 98201;
+        const long userId = 98202;
+        var accounting = new AccountingStore(dataSource);
+        await accounting.AppendEffectAsync(new AccountingEffect(
+            userId, $"test-funding:{suffix}", "test_credit", 100m));
+        var store = new RequestLeaseStore(dataSource, accounting,
+            new ModelPricingService(new ConfigurationBuilder().Build()),
+            NullLogger<RequestLeaseStore>.Instance);
+        var request = new LeaseCreateRequest(
+            leaseToken, $"request-held-expiry-{suffix}", "hash-held-expiry",
+            apiKeyId, userId, 98203, 98204, "gpt-4o", "gpt-4o",
+            "chat_completions", 1m, holdId, 3m, DateTime.UtcNow.AddMinutes(-1),
+            idempotencyKey, "held-expiry-fingerprint");
+        try
+        {
+            Assert.True(await store.CreateAsync(request));
+            Assert.Equal(1, await store.ExpireActiveAsync());
+            Assert.Equal("expired", await ReadLeaseStatus(dataSource, leaseToken));
+            Assert.Equal("released", await ReadHoldStatus(dataSource, holdId));
+            Assert.Equal("expired", await ReadIdempotencyStatus(
+                dataSource, apiKeyId, idempotencyKey));
+
+            var retry = await store.CreateDetailedAsync(request with
+            {
+                LeaseToken = retryToken,
+                RequestId = $"request-held-retry-{suffix}",
+                HoldHandle = retryHoldId,
+                ExpiresAt = DateTime.UtcNow.AddMinutes(10),
+            });
+            Assert.True(retry.Created);
+            Assert.Equal("held", await ReadLeaseStatus(dataSource, retryToken));
+            Assert.Equal("active", await ReadHoldStatus(dataSource, retryHoldId));
+        }
+        finally
+        {
+            await using (var cleanupOutbox = dataSource.CreateCommand(
+                "DELETE FROM usage_outbox WHERE lease_token IN ($1, $2)"))
+            {
+                cleanupOutbox.Parameters.AddWithValue(leaseToken);
+                cleanupOutbox.Parameters.AddWithValue(retryToken);
+                await cleanupOutbox.ExecuteNonQueryAsync();
+            }
+            await using (var cleanupHolds = dataSource.CreateCommand(
+                "DELETE FROM balance_holds WHERE hold_id IN ($1, $2)"))
+            {
+                cleanupHolds.Parameters.AddWithValue(holdId);
+                cleanupHolds.Parameters.AddWithValue(retryHoldId);
+                await cleanupHolds.ExecuteNonQueryAsync();
+            }
+            await using (var cleanupIdempotency = dataSource.CreateCommand(
+                "DELETE FROM request_idempotency WHERE api_key_id = $1 AND idempotency_key = $2"))
+            {
+                cleanupIdempotency.Parameters.AddWithValue(apiKeyId);
+                cleanupIdempotency.Parameters.AddWithValue(idempotencyKey);
+                await cleanupIdempotency.ExecuteNonQueryAsync();
+            }
+            await using (var cleanupLeases = dataSource.CreateCommand(
+                "DELETE FROM request_leases WHERE lease_token IN ($1, $2)"))
+            {
+                cleanupLeases.Parameters.AddWithValue(leaseToken);
+                cleanupLeases.Parameters.AddWithValue(retryToken);
+                await cleanupLeases.ExecuteNonQueryAsync();
+            }
+            await CleanupAccount(dataSource, userId);
+        }
+    }
+
+    [Fact]
     public async Task ExpiredSettlementOutboxSurvivesRestartClaimsAndRetryExhaustion()
     {
         var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
@@ -417,6 +530,8 @@ public sealed class MediaOperationStoreTests
                 leaseToken, requestId, "hash-outbox-recovery", 98101, 98102, 98103, 98104,
                 "gpt-4o", "gpt-4o", "chat_completions", 1m, holdId, 3m,
                 DateTime.UtcNow.AddMinutes(-1))));
+            Assert.True((await store.RecordEvidenceAsync(
+                leaseToken, LeaseEvidenceStage.Forwarded)).Accepted);
             Assert.Equal(1, await store.ExpireActiveAsync());
 
             // Simulate a process dying after claiming the durable event.
@@ -507,7 +622,7 @@ public sealed class MediaOperationStoreTests
                 price_image_input_per_unit, price_image_output_per_unit,
                 price_video_per_second, price_realtime_per_minute)
             VALUES ($1, $2, 'hash', 91001, 93001, 92001, 94001,
-                'gpt-4o', 'gpt-4o', 'images', 1, NULL, 10, 'active', now() + interval '1 hour',
+                'gpt-4o', 'gpt-4o', 'images', 1, NULL, 10, 'held', now() + interval '1 hour',
                 'v1', 0, 0, 0, 0, 0, 0.08, 0, 0)
             """);
         command.Parameters.AddWithValue(leaseToken);
@@ -545,6 +660,15 @@ public sealed class MediaOperationStoreTests
             "SELECT cost_usd FROM usage_events WHERE lease_token = $1");
         command.Parameters.AddWithValue(leaseToken);
         return (decimal)(await command.ExecuteScalarAsync())!;
+    }
+
+    private static async Task<int> ReadLeaseEventCount(
+        NpgsqlDataSource dataSource, string leaseToken)
+    {
+        await using var command = dataSource.CreateCommand(
+            "SELECT count(*)::integer FROM request_lease_events WHERE lease_token = $1");
+        command.Parameters.AddWithValue(leaseToken);
+        return (int)(await command.ExecuteScalarAsync())!;
     }
 
     private static async Task<string> ReadIdempotencyStatus(NpgsqlDataSource dataSource,
