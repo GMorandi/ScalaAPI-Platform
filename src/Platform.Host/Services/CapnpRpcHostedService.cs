@@ -13,6 +13,8 @@ namespace ScalaAPI.Host.Services;
 
 public class CapnpRpcHostedService : IHostedService
 {
+    private const decimal WireDecimalScale = 100_000_000m;
+
     private readonly ILogger<CapnpRpcHostedService> _logger;
     private readonly IServiceProvider _services;
     private readonly string _socketPath;
@@ -287,9 +289,8 @@ public class CapnpRpcHostedService : IHostedService
             }
 
             var billing = up.Billing;
-            // Cap'n Proto v2 currently stores this boundary field as Float64;
-            // business contracts remain decimal until the fixed-scale schema lands.
-            billing.RateMultiplier = (double)result.Upstream.RateMultiplier;
+            billing.RateMultiplier = ToWireDecimal(result.Upstream.RateMultiplier);
+            billing.HoldAmount = ToWireDecimal(result.Upstream.HoldAmount);
             billing.HoldHandle = result.Upstream.HoldHandle ?? "";
 
             if (result.Upstream.AuthHeaders.Count > 0)
@@ -313,6 +314,10 @@ public class CapnpRpcHostedService : IHostedService
         writer.ProtocolVersion = result.ProtocolVersion;
         return SerializeToFrame(0x81, message.Frame);
     }
+
+    private static long ToWireDecimal(decimal value) =>
+        checked(decimal.ToInt64(decimal.Round(value * WireDecimalScale, 0,
+            MidpointRounding.AwayFromZero)));
 
     private static CapnpGen.RejectInfo.RejectCode MapRejectCode(string? code) => code switch
     {
@@ -704,6 +709,7 @@ public class DispatchService
                 UserId = auth.UserId,
                 GroupId = selectedGroupId,
                 RateMultiplier = selectedRateMultiplier,
+                HoldAmount = hold.Amount,
                 HoldHandle = hold.Id,
                 LeaseToken = selection.LeaseToken!,
                 AuthVersion = auth.Version,
@@ -996,6 +1002,7 @@ public record UpstreamTargetResult
     public long UserId { get; init; }
     public long GroupId { get; init; }
     public decimal RateMultiplier { get; init; }
+    public decimal HoldAmount { get; init; }
     public string? HoldHandle { get; init; }
     public string LeaseToken { get; init; } = "";
     public long AuthVersion { get; init; }

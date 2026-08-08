@@ -117,13 +117,13 @@ namespace CapnpGen
             set;
         }
 
-        public double Quota
+        public long Quota
         {
             get;
             set;
         }
 
-        public double QuotaUsed
+        public long QuotaUsed
         {
             get;
             set;
@@ -135,19 +135,19 @@ namespace CapnpGen
             set;
         }
 
-        public double RateLimit5h
+        public long RateLimit5h
         {
             get;
             set;
         }
 
-        public double RateLimit1d
+        public long RateLimit1d
         {
             get;
             set;
         }
 
-        public double RateLimit7d
+        public long RateLimit7d
         {
             get;
             set;
@@ -179,12 +179,12 @@ namespace CapnpGen
             public IReadOnlyList<string> IpBlacklist => ctx.ReadList(3).CastText2();
             public CapnpGen.UserSnapshot.READER User => ctx.ReadStruct(4, CapnpGen.UserSnapshot.READER.create);
             public CapnpGen.GroupSnapshot.READER Group => ctx.ReadStruct(5, CapnpGen.GroupSnapshot.READER.create);
-            public double Quota => ctx.ReadDataDouble(192UL, 0);
-            public double QuotaUsed => ctx.ReadDataDouble(256UL, 0);
+            public long Quota => ctx.ReadDataLong(192UL, 0L);
+            public long QuotaUsed => ctx.ReadDataLong(256UL, 0L);
             public long ExpiresAt => ctx.ReadDataLong(320UL, 0L);
-            public double RateLimit5h => ctx.ReadDataDouble(384UL, 0);
-            public double RateLimit1d => ctx.ReadDataDouble(448UL, 0);
-            public double RateLimit7d => ctx.ReadDataDouble(512UL, 0);
+            public long RateLimit5h => ctx.ReadDataLong(384UL, 0L);
+            public long RateLimit1d => ctx.ReadDataLong(448UL, 0L);
+            public long RateLimit7d => ctx.ReadDataLong(512UL, 0L);
             public long Version => ctx.ReadDataLong(576UL, 0L);
         }
 
@@ -249,15 +249,15 @@ namespace CapnpGen
                 set => Link(5, value);
             }
 
-            public double Quota
+            public long Quota
             {
-                get => this.ReadDataDouble(192UL, 0);
+                get => this.ReadDataLong(192UL, 0L);
                 set => this.WriteData(192UL, value, 0);
             }
 
-            public double QuotaUsed
+            public long QuotaUsed
             {
-                get => this.ReadDataDouble(256UL, 0);
+                get => this.ReadDataLong(256UL, 0L);
                 set => this.WriteData(256UL, value, 0);
             }
 
@@ -267,21 +267,21 @@ namespace CapnpGen
                 set => this.WriteData(320UL, value, 0L);
             }
 
-            public double RateLimit5h
+            public long RateLimit5h
             {
-                get => this.ReadDataDouble(384UL, 0);
+                get => this.ReadDataLong(384UL, 0L);
                 set => this.WriteData(384UL, value, 0);
             }
 
-            public double RateLimit1d
+            public long RateLimit1d
             {
-                get => this.ReadDataDouble(448UL, 0);
+                get => this.ReadDataLong(448UL, 0L);
                 set => this.WriteData(448UL, value, 0);
             }
 
-            public double RateLimit7d
+            public long RateLimit7d
             {
-                get => this.ReadDataDouble(512UL, 0);
+                get => this.ReadDataLong(512UL, 0L);
                 set => this.WriteData(512UL, value, 0);
             }
 
@@ -348,7 +348,7 @@ namespace CapnpGen
             set;
         }
 
-        public double Balance
+        public long Balance
         {
             get;
             set;
@@ -386,7 +386,7 @@ namespace CapnpGen
             public long Id => ctx.ReadDataLong(0UL, 0L);
             public string Status => ctx.ReadText(0, null);
             public string Role => ctx.ReadText(1, null);
-            public double Balance => ctx.ReadDataDouble(64UL, 0);
+            public long Balance => ctx.ReadDataLong(64UL, 0L);
             public int Concurrency => ctx.ReadDataInt(128UL, 0);
             public IReadOnlyList<long> AllowedGroups => ctx.ReadList(2).CastLong();
             public int RpmLimit => ctx.ReadDataInt(160UL, 0);
@@ -417,9 +417,9 @@ namespace CapnpGen
                 set => this.WriteText(1, value, null);
             }
 
-            public double Balance
+            public long Balance
             {
-                get => this.ReadDataDouble(64UL, 0);
+                get => this.ReadDataLong(64UL, 0L);
                 set => this.WriteData(64UL, value, 0);
             }
 
@@ -508,13 +508,13 @@ namespace CapnpGen
             set;
         }
 
-        public double RateMultiplier
+        public long RateMultiplier
         {
             get;
             set;
         }
 
-        public double DailyLimitUsd
+        public long DailyLimitUsd
         {
             get;
             set;
@@ -553,8 +553,8 @@ namespace CapnpGen
             public string Platform => ctx.ReadText(0, null);
             public bool IsExclusive => ctx.ReadDataBool(64UL, false);
             public string Status => ctx.ReadText(1, null);
-            public double RateMultiplier => ctx.ReadDataDouble(128UL, 0);
-            public double DailyLimitUsd => ctx.ReadDataDouble(192UL, 0);
+            public long RateMultiplier => ctx.ReadDataLong(128UL, 0L);
+            public long DailyLimitUsd => ctx.ReadDataLong(192UL, 0L);
             public bool ClaudeCodeOnly => ctx.ReadDataBool(65UL, false);
             public long FallbackGroupId => ctx.ReadDataLong(256UL, 0L);
             public bool ModelRoutingEnabled => ctx.ReadDataBool(66UL, false);
@@ -591,15 +591,15 @@ namespace CapnpGen
                 set => this.WriteText(1, value, null);
             }
 
-            public double RateMultiplier
+            public long RateMultiplier
             {
-                get => this.ReadDataDouble(128UL, 0);
+                get => this.ReadDataLong(128UL, 0L);
                 set => this.WriteData(128UL, value, 0);
             }
 
-            public double DailyLimitUsd
+            public long DailyLimitUsd
             {
-                get => this.ReadDataDouble(192UL, 0);
+                get => this.ReadDataLong(192UL, 0L);
                 set => this.WriteData(192UL, value, 0);
             }
 
@@ -1228,13 +1228,13 @@ namespace CapnpGen
         {
         }
 
-        public double RateMultiplier
+        public long RateMultiplier
         {
             get;
             set;
         }
 
-        public double HoldAmount
+        public long HoldAmount
         {
             get;
             set;
@@ -1275,8 +1275,8 @@ namespace CapnpGen
             public static READER create(DeserializerState ctx) => new READER(ctx);
             public static implicit operator DeserializerState(READER reader) => reader.ctx;
             public static implicit operator READER(DeserializerState ctx) => new READER(ctx);
-            public double RateMultiplier => ctx.ReadDataDouble(0UL, 0);
-            public double HoldAmount => ctx.ReadDataDouble(64UL, 0);
+            public long RateMultiplier => ctx.ReadDataLong(0UL, 0L);
+            public long HoldAmount => ctx.ReadDataLong(64UL, 0L);
             public string HoldHandle => ctx.ReadText(0, null);
             public string Model => ctx.ReadText(1, null);
             public string UpstreamModel => ctx.ReadText(2, null);
@@ -1290,15 +1290,15 @@ namespace CapnpGen
                 this.SetStruct(2, 4);
             }
 
-            public double RateMultiplier
+            public long RateMultiplier
             {
-                get => this.ReadDataDouble(0UL, 0);
+                get => this.ReadDataLong(0UL, 0L);
                 set => this.WriteData(0UL, value, 0);
             }
 
-            public double HoldAmount
+            public long HoldAmount
             {
-                get => this.ReadDataDouble(64UL, 0);
+                get => this.ReadDataLong(64UL, 0L);
                 set => this.WriteData(64UL, value, 0);
             }
 
@@ -1423,7 +1423,7 @@ namespace CapnpGen
             set;
         }
 
-        public double RateMultiplier
+        public long RateMultiplier
         {
             get;
             set;
@@ -1489,7 +1489,7 @@ namespace CapnpGen
             public int Concurrency => ctx.ReadDataInt(96UL, 0);
             public int CurrentLoad => ctx.ReadDataInt(128UL, 0);
             public bool Schedulable => ctx.ReadDataBool(160UL, false);
-            public double RateMultiplier => ctx.ReadDataDouble(192UL, 0);
+            public long RateMultiplier => ctx.ReadDataLong(192UL, 0L);
             public int LoadFactor => ctx.ReadDataInt(256UL, 0);
             public string Status => ctx.ReadText(2, null);
             public long RateLimitResetAt => ctx.ReadDataLong(320UL, 0L);
@@ -1548,9 +1548,9 @@ namespace CapnpGen
                 set => this.WriteData(160UL, value, false);
             }
 
-            public double RateMultiplier
+            public long RateMultiplier
             {
-                get => this.ReadDataDouble(192UL, 0);
+                get => this.ReadDataLong(192UL, 0L);
                 set => this.WriteData(192UL, value, 0);
             }
 
@@ -2450,7 +2450,7 @@ namespace CapnpGen
             set;
         }
 
-        public double RateMultiplier
+        public long RateMultiplier
         {
             get;
             set;
@@ -2486,7 +2486,7 @@ namespace CapnpGen
             set;
         }
 
-        public double PeakMultiplier
+        public long PeakMultiplier
         {
             get;
             set;
@@ -2517,13 +2517,13 @@ namespace CapnpGen
             public static implicit operator READER(DeserializerState ctx) => new READER(ctx);
             public long Id => ctx.ReadDataLong(0UL, 0L);
             public string Platform => ctx.ReadText(0, null);
-            public double RateMultiplier => ctx.ReadDataDouble(64UL, 0);
+            public long RateMultiplier => ctx.ReadDataLong(64UL, 0L);
             public bool ModelRoutingEnabled => ctx.ReadDataBool(128UL, false);
             public IReadOnlyList<CapnpGen.ModelRoute.READER> ModelRoutes => ctx.ReadList(1).Cast(CapnpGen.ModelRoute.READER.create);
             public bool ClaudeCodeOnly => ctx.ReadDataBool(129UL, false);
             public long FallbackGroupId => ctx.ReadDataLong(192UL, 0L);
             public int RpmLimit => ctx.ReadDataInt(160UL, 0);
-            public double PeakMultiplier => ctx.ReadDataDouble(256UL, 0);
+            public long PeakMultiplier => ctx.ReadDataLong(256UL, 0L);
             public int PeakStartHour => ctx.ReadDataInt(320UL, 0);
             public int PeakEndHour => ctx.ReadDataInt(352UL, 0);
         }
@@ -2547,9 +2547,9 @@ namespace CapnpGen
                 set => this.WriteText(0, value, null);
             }
 
-            public double RateMultiplier
+            public long RateMultiplier
             {
-                get => this.ReadDataDouble(64UL, 0);
+                get => this.ReadDataLong(64UL, 0L);
                 set => this.WriteData(64UL, value, 0);
             }
 
@@ -2583,9 +2583,9 @@ namespace CapnpGen
                 set => this.WriteData(160UL, value, 0);
             }
 
-            public double PeakMultiplier
+            public long PeakMultiplier
             {
-                get => this.ReadDataDouble(256UL, 0);
+                get => this.ReadDataLong(256UL, 0L);
                 set => this.WriteData(256UL, value, 0);
             }
 

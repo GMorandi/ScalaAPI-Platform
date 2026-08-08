@@ -47,6 +47,23 @@ public class CapnpResponseSerializationTests
     }
 
     [Fact]
+    public void PricingUsesFixedScaleIntegerWireFields()
+    {
+        var response = Serialize(DispatchResult.Ok(new UpstreamTargetResult
+        {
+            AccountId = 11,
+            RateMultiplier = 1.23456789m,
+            HoldAmount = 2.5m,
+            HoldHandle = "hold-1",
+            LeaseToken = "lease-precision",
+        }));
+
+        var decoded = Deserialize(response);
+        Assert.Equal(123456789L, decoded.Upstream.Billing.RateMultiplier);
+        Assert.Equal(250000000L, decoded.Upstream.Billing.HoldAmount);
+    }
+
+    [Fact]
     public void V1ResponseKeepsTheCallersProtocolVersion()
     {
         var response = Serialize(DispatchResult.Rejected("invalidKey", "invalid") with
