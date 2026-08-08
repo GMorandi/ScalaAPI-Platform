@@ -2,7 +2,7 @@
 
 ## Checkpoint
 
-The next stage starts from Platform `ea83e5a`, Gateway `dc69269`, and read-only
+The next stage starts from Platform `fddba62`, Gateway `dc69269`, and read-only
 reference `sub2api@43ec48d`.
 
 The greenfield baseline now starts from empty volumes, uses PostgreSQL as authority,
@@ -13,6 +13,12 @@ replacement, and no-charge outcomes for non-stream OpenAI Chat 429, 500, malform
 usage, upstream disconnect, and timeout. PostgreSQL now owns one ordered account per
 user; administrative, payment/refund, redeem, and usage effects share one append
 rule, SQL holds authorize dispatch, and Orleans is a retryable versioned projection.
+Timed-out active leases now preserve unknown Provider cost as
+`reconciliation_needed`; their holds and idempotency keys remain reserved until a
+late completion or future operator decision. A globally serialized scheduled
+reconciler checks the full account/ledger/usage/hold/projection boundary, performs
+only provably safe repairs, persists incidents, and exposes Admin queries and
+metrics.
 
 This stage contains no compatibility, cutover, dual-write, CDC, snapshot import,
 old-key import, ID preservation, status mapping, or business-data migration work.
@@ -37,19 +43,30 @@ failed assertion makes the top-level command non-zero.
 
 ## Work package 1: reconciliation and exact-boundary recovery
 
-Completed at `c15b53b` and gated at `ea83e5a`:
+Accounting authority completed at `c15b53b` and reconciliation foundation completed
+at `fddba62`:
 
 - Added one per-user `accounting_accounts` authority with NUMERIC posted balance
   and monotonically increasing ledger version.
 - Routed administrative adjustments, payment credits/refunds, redeem bonuses, and
   usage debits through one per-user SQL serialization and stable effect contract.
-- Moved hold reservation, availability checks, completion, abort, and expiry into
-  the SQL authority; Grain no longer owns money or permits dispatch.
+- Moved hold reservation, availability checks, completion, abort, and TTL handling
+  into the SQL authority; Grain no longer owns money or permits dispatch.
 - Added versioned Grain snapshots, latest-only projection outbox, retry worker, and
   backlog/retry metrics. Stale snapshots cannot regress a newer balance.
 - Proved 20 concurrent versions, replay/conflict, hold oversubscription, protected
   debit, account/ledger equality, projection drain, migration idempotency, service
   replacement, and zero-charge Provider faults.
+- Replaced unsafe TTL release with `reconciliation_needed`, an active hold, blocked
+  matching redispatch, a reconciliation outbox event, and exactly-once late usage
+  completion.
+- Added globally serialized scheduled/manual reconciliation of account balance and
+  version, ledger contiguity, usage/debit equality, lease/hold state, and Grain
+  projection. Safe terminal-hold and stale-projection drift is repaired; every
+  unknown charge or unsafe mismatch is a durable incident.
+- Added protected run/incident APIs and metrics for open count, unknown-charge count,
+  oldest age, and last successful run. Real PostgreSQL tests prove repair,
+  persistence, late settlement, and later incident resolution.
 
 Next implementation slice:
 
@@ -58,12 +75,13 @@ Next implementation slice:
   Provider/transport evidence needed to distinguish safe release from unknown cost.
 - Add deterministic fault hooks before/after Provider dispatch, after Provider
   completion, before/after settlement commit, and before outbox acknowledgement.
-- Add a reconciliation worker that checks account balance/version against ledger
-  sum/max/contiguity, active holds against lease state, committed usage against one
-  debit, and Grain projection against the account snapshot.
-- Repair only provably safe projection drift and expired pre-dispatch holds. Persist
-  every unknown-charge or monetary mismatch as an operator-visible incident; never
-  guess or silently release it.
+- Add an authenticated operator decision command that requires incident identity,
+  evidence, reason, actor, and idempotency key. `settle` must append the normal usage
+  effect; `release` is legal only with explicit no-charge evidence. Both actions
+  retain an immutable audit trail.
+- Use persisted dispatch evidence so the reconciler may release expired
+  pre-dispatch holds, while forwarded/output-started ambiguity remains open. Never
+  infer no charge from TTL, connection loss, or process death.
 - Add replay tests for duplicate completion, abort, expiry, worker reclaim,
   projection replacement, and process restart at every fault hook.
 
@@ -72,14 +90,12 @@ Remaining package deliverables:
 - Define authority contracts before adding subscription grants, affiliate rebates,
   or any new monetary effect. They must use the same account/version API and cannot
   write `balance_ledger` directly.
-- Expose reconciliation incidents, age, retry state, account/ledger mismatch, and
-  unknown-charge counts through Admin query APIs and metrics.
-- Add a blocking negative probe for each fault hook so a swallowed child failure or
+- Add a blocking negative probe for each new fault hook so a swallowed child failure or
   missing scenario makes the top-level gate non-zero.
 
-Dependencies: migration 018 accounting authority, versioned ledger effects,
-durable holds, response replay, settlement/projection outboxes, and the existing
-reconciliation run table.
+Dependencies: migrations 018-019 accounting authority/reconciliation, versioned
+ledger effects, durable holds, response replay, settlement/projection outboxes, and
+persisted incident identity.
 
 Exit: every injected crash converges after restart to zero orphan active holds, one
 terminal lease, at most one usage debit, and a durable operator-visible reason when
@@ -162,7 +178,7 @@ Deliverables:
 - Emit structured correlation for client request, internal retry/lease,
   idempotency, account, Provider request, usage, and ledger effect IDs without
   logging secrets or raw API keys.
-- Add metrics and alerts for active/expired holds, reconciliation-needed leases,
+- Add metrics and alerts for active/aged holds, reconciliation-needed leases,
   settlement retry age, Gateway outbox backlog, Garnet readiness, Provider fault
   rate, and ledger mismatch.
 - Retain benchmark integrity checks: zero selected benchmarks or any failed child
@@ -195,8 +211,9 @@ idempotency state, outbox backlog, and reconciliation status:
 
 ## Sequence and commit discipline
 
-1. Finish package 1 reconciliation incidents and crash hooks first because
-   cancellation and cluster behavior need an authoritative unknown-charge state.
+1. Finish package 1 dispatch evidence, operator resolution, and crash hooks first;
+   the authoritative unknown-charge state and incident store already exist, but
+   cancellation cannot safely classify outcomes without those remaining facts.
 2. Package 2 defines transport semantics; package 3 freezes them as fixtures.
 3. Package 4 runs the state machines under concurrency and infrastructure failure.
 4. Package 5 makes the same evidence mandatory in hosted release CI.

@@ -51,6 +51,11 @@ is a separate protocol concern. Each lease also stores an immutable price versio
 and NUMERIC unit-rate snapshot; settlement never reprices from mutable process
 configuration.
 
+A request TTL is not proof that a Provider did no work. An expired active lease
+therefore enters `reconciliation_needed`, keeps its hold active, blocks the same
+idempotency key from dispatching again, and may still accept one late durable usage
+completion. It is never converted to a free abort by elapsed wall-clock time alone.
+
 User creation and configuration never carry a balance. Administrative funding,
 payment credit/refund, redeem bonus, and usage debit use stable effect IDs and one
 repository. An accepted effect atomically updates the account, appends the next
@@ -64,8 +69,13 @@ ledger version and balance, ignores older snapshots, and permits same-version re
 when its stored value is corrupt. Admin requests may project immediately; a Platform
 hosted worker drains `accounting_projection_outbox` with expiring claims and bounded
 backoff. A failed projection never rolls back or duplicates committed money. A
-periodic account/ledger/hold/Grain reconciler and unknown-Provider-charge state are
-still required before the billing slice is release-complete.
+PostgreSQL advisory lock serializes periodic reconciliation across all Silos and
+Admin-triggered runs. Each run proves account balance/version and ledger contiguity,
+usage/debit equality, lease/hold terminal state, and Grain projection state. It may
+repair only terminal holds and stale projections whose expected outcome is proven;
+all other drift and unknown Provider charges become durable operator-visible
+incidents. Precise forwarded/output-started evidence and an operator resolution
+command remain required before the billing slice is release-complete.
 
 ## Garnet
 
