@@ -141,7 +141,7 @@ public sealed class MediaOperationStoreTests
         }
         finally
         {
-            foreach (var table in new[] { "usage_outbox", "usage_logs", "usage_events" })
+            foreach (var table in new[] { "usage_outbox", "usage_logs", "usage_events", "balance_ledger" })
             {
                 await using var cleanupUsage = dataSource.CreateCommand(
                     $"DELETE FROM {table} WHERE lease_token IN ($1, $2, $3, $4, $5)");
@@ -281,7 +281,7 @@ public sealed class MediaOperationStoreTests
                 cleanupMedia.Parameters.AddWithValue(apiKeyId);
                 await cleanupMedia.ExecuteNonQueryAsync();
             }
-            foreach (var table in new[] { "usage_outbox", "usage_logs", "usage_events" })
+            foreach (var table in new[] { "usage_outbox", "usage_logs", "usage_events", "balance_ledger" })
             {
                 await using var cleanupUsage = dataSource.CreateCommand(
                     $"DELETE FROM {table} WHERE lease_token = $1");
@@ -340,7 +340,7 @@ public sealed class MediaOperationStoreTests
         }
         finally
         {
-            foreach (var table in new[] { "usage_outbox", "usage_logs", "usage_events" })
+            foreach (var table in new[] { "usage_outbox", "usage_logs", "usage_events", "balance_ledger" })
             {
                 await using var cleanupUsage = dataSource.CreateCommand(
                     $"DELETE FROM {table} WHERE lease_token IN ($1, $2)");
