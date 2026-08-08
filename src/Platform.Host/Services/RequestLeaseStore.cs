@@ -20,7 +20,28 @@ public sealed record RequestLease(
     decimal HoldAmount,
     string Status,
     decimal? FinalCostUsd,
-    DateTime ExpiresAt);
+    DateTime ExpiresAt,
+    string? PricingVersion,
+    decimal? PriceInputPerMillion,
+    decimal? PriceOutputPerMillion,
+    decimal? PriceCacheCreatePerMillion,
+    decimal? PriceCacheReadPerMillion,
+    decimal? PriceImageInputPerUnit,
+    decimal? PriceImageOutputPerUnit,
+    decimal? PriceVideoPerSecond,
+    decimal? PriceRealtimePerMinute)
+{
+    public ModelPrice? PriceSnapshot => PricingVersion is null
+        || PriceInputPerMillion is null || PriceOutputPerMillion is null
+        || PriceCacheCreatePerMillion is null || PriceCacheReadPerMillion is null
+        || PriceImageInputPerUnit is null || PriceImageOutputPerUnit is null
+        || PriceVideoPerSecond is null || PriceRealtimePerMinute is null
+        ? null
+        : new ModelPrice(PriceInputPerMillion.Value, PriceOutputPerMillion.Value,
+            PriceCacheCreatePerMillion.Value, PriceCacheReadPerMillion.Value,
+            PriceImageInputPerUnit.Value, PriceImageOutputPerUnit.Value,
+            PriceVideoPerSecond.Value, PriceRealtimePerMinute.Value, PricingVersion);
+}
 
 public sealed record LeaseCreateRequest(
     string LeaseToken,
@@ -38,7 +59,8 @@ public sealed record LeaseCreateRequest(
     decimal HoldAmount,
     DateTime ExpiresAt,
     string IdempotencyKey = "",
-    string RequestFingerprint = "");
+    string RequestFingerprint = "",
+    ModelPrice? Price = null);
 
 public sealed record LeaseCreateResult(bool Created, bool Replay, bool Conflict)
 {
@@ -115,6 +137,9 @@ public sealed class RequestLeaseStore(
     public async Task<LeaseCreateResult> CreateDetailedAsync(LeaseCreateRequest request,
         CancellationToken ct = default)
     {
+        if (request.Price is null && pricing.TryGetPrice(request.Model, out var currentPrice))
+            request = request with { Price = currentPrice };
+
         await using var connection = await dataSource.OpenConnectionAsync(ct);
         await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.ReadCommitted, ct);
         await using var command = connection.CreateCommand();
@@ -123,8 +148,13 @@ public sealed class RequestLeaseStore(
             INSERT INTO request_leases (
                 lease_token, request_id, api_key_hash, api_key_id, user_id,
                 account_id, group_id, model, upstream_model, inbound_endpoint,
-                rate_multiplier, hold_handle, hold_amount, status, expires_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 'active', $14)
+                rate_multiplier, hold_handle, hold_amount, status, expires_at,
+                pricing_version, price_input_per_million, price_output_per_million,
+                price_cache_create_per_million, price_cache_read_per_million,
+                price_image_input_per_unit, price_image_output_per_unit,
+                price_video_per_second, price_realtime_per_minute)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 'active', $14,
+                    $15, $16, $17, $18, $19, $20, $21, $22, $23)
             ON CONFLICT (request_id) DO NOTHING
             RETURNING lease_token
             """;
@@ -142,6 +172,15 @@ public sealed class RequestLeaseStore(
         command.Parameters.AddWithValue((object?)request.HoldHandle ?? DBNull.Value);
         command.Parameters.AddWithValue(request.HoldAmount);
         command.Parameters.AddWithValue(request.ExpiresAt);
+        command.Parameters.AddWithValue((object?)request.Price?.Version ?? DBNull.Value);
+        command.Parameters.AddWithValue((object?)request.Price?.InputPerMillion ?? DBNull.Value);
+        command.Parameters.AddWithValue((object?)request.Price?.OutputPerMillion ?? DBNull.Value);
+        command.Parameters.AddWithValue((object?)request.Price?.CacheCreatePerMillion ?? DBNull.Value);
+        command.Parameters.AddWithValue((object?)request.Price?.CacheReadPerMillion ?? DBNull.Value);
+        command.Parameters.AddWithValue((object?)request.Price?.ImageInputPerUnit ?? DBNull.Value);
+        command.Parameters.AddWithValue((object?)request.Price?.ImageOutputPerUnit ?? DBNull.Value);
+        command.Parameters.AddWithValue((object?)request.Price?.VideoPerSecond ?? DBNull.Value);
+        command.Parameters.AddWithValue((object?)request.Price?.RealtimePerMinute ?? DBNull.Value);
         var inserted = await command.ExecuteScalarAsync(ct);
         if (inserted is null || inserted is DBNull)
         {
@@ -292,16 +331,18 @@ public sealed class RequestLeaseStore(
             RealtimeDurationMs = Math.Max(0, completion.RealtimeDurationMs),
             RealtimeFrames = Math.Max(0, completion.RealtimeFrames),
             ReasoningTokens = Math.Max(0, completion.ReasoningTokens),
+            PricingVersion = lease.PricingVersion ?? completion.PricingVersion,
             ResponseStatusCode = Math.Clamp(completion.ResponseStatusCode, 0, 999),
             ResponseContentType = completion.ResponseContentType.Length > 256
                 ? completion.ResponseContentType[..256] : completion.ResponseContentType,
             ResponseBody = Encoding.UTF8.GetByteCount(completion.ResponseBody) <= 4 * 1024 * 1024
                 ? completion.ResponseBody : "",
         };
-        if (!pricing.TryGetPrice(lease.Model, out var price))
+        var price = lease.PriceSnapshot;
+        if (price is null)
         {
-            logger.LogWarning("Usage settlement deferred because pricing is missing for model {Model}", lease.Model);
-            return WriteAck.Error("pricing_unavailable", retryable: true);
+            logger.LogWarning("Usage settlement deferred because lease {LeaseToken} has no price snapshot", lease.LeaseToken);
+            return WriteAck.Error("pricing_snapshot_missing", retryable: true);
         }
         var cost = ComputeCost(lease, normalized, price);
 
@@ -475,7 +516,11 @@ public sealed class RequestLeaseStore(
                       l.request_id, l.api_key_hash, l.api_key_id, l.user_id,
                       l.account_id, l.group_id, l.model, l.upstream_model,
                       l.inbound_endpoint, l.rate_multiplier, l.hold_handle,
-                      l.hold_amount, l.status, l.final_cost_usd, l.expires_at
+                      l.hold_amount, l.status, l.final_cost_usd, l.expires_at,
+                      l.pricing_version, l.price_input_per_million, l.price_output_per_million,
+                      l.price_cache_create_per_million, l.price_cache_read_per_million,
+                      l.price_image_input_per_unit, l.price_image_output_per_unit,
+                      l.price_video_per_second, l.price_realtime_per_minute
             """;
         command.Parameters.AddWithValue(batchSize);
         command.Parameters.AddWithValue(workerId);
@@ -616,7 +661,11 @@ public sealed class RequestLeaseStore(
         command.CommandText = """
             SELECT lease_token, request_id, api_key_hash, api_key_id, user_id,
                    account_id, group_id, model, upstream_model, inbound_endpoint,
-                   rate_multiplier, hold_handle, hold_amount, status, final_cost_usd, expires_at
+                   rate_multiplier, hold_handle, hold_amount, status, final_cost_usd, expires_at,
+                   pricing_version, price_input_per_million, price_output_per_million,
+                   price_cache_create_per_million, price_cache_read_per_million,
+                   price_image_input_per_unit, price_image_output_per_unit,
+                   price_video_per_second, price_realtime_per_minute
             FROM request_leases WHERE lease_token = $1 FOR UPDATE
             """;
         command.Parameters.AddWithValue(leaseToken);
@@ -636,7 +685,16 @@ public sealed class RequestLeaseStore(
             reader.GetString(i + 7), reader.GetString(i + 8), reader.GetString(i + 9),
             reader.GetDecimal(i + 10), reader.IsDBNull(i + 11) ? null : reader.GetString(i + 11),
             reader.GetDecimal(i + 12), reader.GetString(i + 13),
-            reader.IsDBNull(i + 14) ? null : reader.GetDecimal(i + 14), reader.GetDateTime(i + 15));
+            reader.IsDBNull(i + 14) ? null : reader.GetDecimal(i + 14), reader.GetDateTime(i + 15),
+            reader.IsDBNull(i + 16) ? null : reader.GetString(i + 16),
+            reader.IsDBNull(i + 17) ? null : reader.GetDecimal(i + 17),
+            reader.IsDBNull(i + 18) ? null : reader.GetDecimal(i + 18),
+            reader.IsDBNull(i + 19) ? null : reader.GetDecimal(i + 19),
+            reader.IsDBNull(i + 20) ? null : reader.GetDecimal(i + 20),
+            reader.IsDBNull(i + 21) ? null : reader.GetDecimal(i + 21),
+            reader.IsDBNull(i + 22) ? null : reader.GetDecimal(i + 22),
+            reader.IsDBNull(i + 23) ? null : reader.GetDecimal(i + 23),
+            reader.IsDBNull(i + 24) ? null : reader.GetDecimal(i + 24));
     }
 
     private static async Task EnqueueAsync(NpgsqlConnection connection, NpgsqlTransaction transaction,

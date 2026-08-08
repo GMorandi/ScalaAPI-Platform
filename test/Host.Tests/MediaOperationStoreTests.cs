@@ -34,8 +34,9 @@ public sealed class MediaOperationStoreTests
             {
                 ["Pricing:Models:gpt-4o:InputPerMillion"] = "1"
             }).Build();
-        var store = new RequestLeaseStore(dataSource,
-            new ModelPricingService(configuration), NullLogger<RequestLeaseStore>.Instance);
+        var pricing = new ModelPricingService(configuration);
+        var store = new RequestLeaseStore(dataSource, pricing,
+            NullLogger<RequestLeaseStore>.Instance);
         try
         {
             var request = new LeaseCreateRequest(
@@ -43,6 +44,19 @@ public sealed class MediaOperationStoreTests
                 "gpt-4o", "gpt-4o", "chat_completions", 1m, holdId, 10m,
                 DateTime.UtcNow.AddMinutes(10), "idem-hold-" + suffix, "fingerprint-a");
             Assert.True(await store.CreateAsync(request));
+
+            await using (var snapshot = dataSource.CreateCommand("""
+                SELECT pricing_version, price_input_per_million, price_output_per_million
+                FROM request_leases WHERE lease_token = $1
+                """))
+            {
+                snapshot.Parameters.AddWithValue(leaseToken);
+                await using var reader = await snapshot.ExecuteReaderAsync();
+                Assert.True(await reader.ReadAsync());
+                Assert.Equal("runtime-v1", reader.GetString(0));
+                Assert.Equal(1m, reader.GetDecimal(1));
+                Assert.Equal(0m, reader.GetDecimal(2));
+            }
 
             await using (var active = dataSource.CreateCommand(
                 "SELECT status, lease_token, amount FROM balance_holds WHERE hold_id = $1"))
@@ -75,6 +89,7 @@ public sealed class MediaOperationStoreTests
             });
             Assert.True(conflict.Conflict);
 
+            pricing.SetPrice("gpt-4o", new ModelPrice(9m, 90m, Version: "runtime-v2"));
             var completed = await store.CompleteAsync(new LeaseCompletion(
                 leaseToken, 100, 0, 0, 0, 20, 0, 200, false, false,
                 ResponseStatusCode: 200, ResponseContentType: "application/json",
@@ -83,6 +98,7 @@ public sealed class MediaOperationStoreTests
             Assert.False(completed.Duplicate);
             Assert.Equal(10m, await ReadHoldAmount(dataSource, holdId));
             Assert.Equal("committed", await ReadHoldStatus(dataSource, holdId));
+            Assert.Equal(0.0001m, await ReadUsageCost(dataSource, leaseToken));
             Assert.Equal("completed", await ReadIdempotencyStatus(dataSource,
                 94001, "idem-hold-" + suffix));
             var replayLookup = await store.CheckIdempotencyAsync(
@@ -128,9 +144,12 @@ public sealed class MediaOperationStoreTests
             foreach (var table in new[] { "usage_outbox", "usage_logs", "usage_events" })
             {
                 await using var cleanupUsage = dataSource.CreateCommand(
-                    $"DELETE FROM {table} WHERE lease_token IN ($1, $2)");
+                    $"DELETE FROM {table} WHERE lease_token IN ($1, $2, $3, $4, $5)");
                 cleanupUsage.Parameters.AddWithValue(leaseToken);
                 cleanupUsage.Parameters.AddWithValue(abortLeaseToken);
+                cleanupUsage.Parameters.AddWithValue(duplicateLeaseToken);
+                cleanupUsage.Parameters.AddWithValue(retryLeaseToken);
+                cleanupUsage.Parameters.AddWithValue(retryLeaseToken2);
                 await cleanupUsage.ExecuteNonQueryAsync();
             }
             await using (var cleanupHolds = dataSource.CreateCommand(
@@ -454,9 +473,14 @@ public sealed class MediaOperationStoreTests
             INSERT INTO request_leases (
                 lease_token, request_id, api_key_hash, api_key_id, user_id,
                 account_id, group_id, model, upstream_model, inbound_endpoint,
-                rate_multiplier, hold_handle, hold_amount, status, expires_at)
+                rate_multiplier, hold_handle, hold_amount, status, expires_at,
+                pricing_version, price_input_per_million, price_output_per_million,
+                price_cache_create_per_million, price_cache_read_per_million,
+                price_image_input_per_unit, price_image_output_per_unit,
+                price_video_per_second, price_realtime_per_minute)
             VALUES ($1, $2, 'hash', 91001, 93001, 92001, 94001,
-                'gpt-4o', 'gpt-4o', 'images', 1, NULL, 10, 'active', now() + interval '1 hour')
+                'gpt-4o', 'gpt-4o', 'images', 1, NULL, 10, 'active', now() + interval '1 hour',
+                'v1', 0, 0, 0, 0, 0, 0.08, 0, 0)
             """);
         command.Parameters.AddWithValue(leaseToken);
         command.Parameters.AddWithValue(requestId);
@@ -484,6 +508,14 @@ public sealed class MediaOperationStoreTests
         await using var command = dataSource.CreateCommand(
             "SELECT amount FROM balance_holds WHERE hold_id = $1");
         command.Parameters.AddWithValue(holdId);
+        return (decimal)(await command.ExecuteScalarAsync())!;
+    }
+
+    private static async Task<decimal> ReadUsageCost(NpgsqlDataSource dataSource, string leaseToken)
+    {
+        await using var command = dataSource.CreateCommand(
+            "SELECT cost_usd FROM usage_events WHERE lease_token = $1");
+        command.Parameters.AddWithValue(leaseToken);
         return (decimal)(await command.ExecuteScalarAsync())!;
     }
 

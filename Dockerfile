@@ -42,6 +42,7 @@ COPY deploy/migrations/008-redeem-code-atomicity.sql ./migrations/008-redeem-cod
 COPY deploy/migrations/009-password-reset-tokens.sql ./migrations/009-password-reset-tokens.sql
 COPY deploy/migrations/010-email-verification.sql ./migrations/010-email-verification.sql
 COPY deploy/migrations/011-idempotency-response-replay.sql ./migrations/011-idempotency-response-replay.sql
+COPY deploy/migrations/012-lease-pricing-snapshots.sql ./migrations/012-lease-pricing-snapshots.sql
 ENTRYPOINT ["dotnet", "migrate/Db.Migrator.dll", "/app/migrations"]
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS provider-mock

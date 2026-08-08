@@ -542,8 +542,9 @@ public class DispatchService
                     "Request has already been dispatched");
         }
 
+        ModelPrice? requestPrice = null;
         if (!string.IsNullOrWhiteSpace(req.RequestedModel)
-            && !_pricing.TryGetPrice(req.RequestedModel, out _))
+            && !_pricing.TryGetPrice(req.RequestedModel, out requestPrice))
         {
             return DispatchResult.Rejected("pricingUnavailable",
                 $"Pricing is not configured for model '{req.RequestedModel}'");
@@ -658,7 +659,8 @@ public class DispatchService
                 req.Endpoint, selectedRateMultiplier, hold.Id, hold.Amount,
                 DateTime.UtcNow.Add(_leaseTtl),
                 isMediaOperation ? "" : req.IdempotencyKey,
-                isMediaOperation ? "" : req.RequestFingerprint));
+                isMediaOperation ? "" : req.RequestFingerprint,
+                requestPrice));
             if (created.Conflict)
             {
                 await userGrain.ReleaseHold(hold);

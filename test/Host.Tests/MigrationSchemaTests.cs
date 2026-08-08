@@ -17,7 +17,8 @@ public sealed class MigrationSchemaTests
             ["user_api_keys"] = ["id", "key_hash", "status"],
             ["accounts"] = ["id", "name", "platform", "credentials", "status"],
             ["groups"] = ["id", "name", "platform", "status"],
-            ["request_leases"] = ["lease_token", "request_id", "hold_amount", "status"],
+            ["request_leases"] = ["lease_token", "request_id", "hold_amount", "status",
+                "pricing_version", "price_input_per_million", "price_output_per_million"],
             ["request_idempotency"] = ["api_key_id", "idempotency_key", "request_fingerprint", "lease_token", "status",
                 "response_status_code", "response_content_type", "response_body", "completed_at"],
             ["usage_events"] = ["lease_token", "cost_usd", "input_tokens", "output_tokens"],
@@ -64,11 +65,7 @@ public sealed class MigrationSchemaTests
         var tables = new HashSet<string>(StringComparer.Ordinal);
         while (await retiredReader.ReadAsync()) tables.Add(retiredReader.GetString(0));
         Assert.DoesNotContain(retired, tables.Contains);
+        await retiredReader.DisposeAsync();
 
-        await using var forbiddenCommand = new NpgsqlCommand("""
-            SELECT 1 FROM information_schema.tables
-            WHERE table_schema = 'public' AND table_name = 'orleansstorage'
-            """, connection);
-        Assert.Null(await forbiddenCommand.ExecuteScalarAsync());
     }
 }

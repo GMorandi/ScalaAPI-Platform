@@ -5,25 +5,28 @@ namespace ScalaAPI.Host.Services;
 public record ModelPrice(decimal InputPerMillion, decimal OutputPerMillion,
     decimal CacheCreatePerMillion = 0, decimal CacheReadPerMillion = 0,
     decimal ImageInputPerUnit = 0, decimal ImageOutputPerUnit = 0,
-    decimal VideoPerSecond = 0, decimal RealtimePerMinute = 0);
+    decimal VideoPerSecond = 0, decimal RealtimePerMinute = 0,
+    string Version = "runtime-v1");
 
 public class ModelPricingService
 {
     private readonly ConcurrentDictionary<string, ModelPrice> _prices = new();
+    private readonly string _defaultVersion;
 
     public ModelPricingService(IConfiguration configuration)
     {
-        _prices["claude-sonnet-4"] = new(3m, 15m, 3.75m, 0.30m);
-        _prices["claude-opus-4"] = new(15m, 75m, 18.75m, 1.50m);
-        _prices["claude-haiku"] = new(0.80m, 4m, 1m, 0.08m);
-        _prices["gpt-4o"] = new(2.50m, 10m, 1.25m, 0);
-        _prices["gpt-4.1"] = new(2m, 8m, 0, 0);
-        _prices["gpt-4o-mini"] = new(0.15m, 0.60m, 0, 0);
-        _prices["o3"] = new(10m, 40m, 2.50m, 0);
-        _prices["o4-mini"] = new(1.10m, 4.40m, 0.275m, 0);
-        _prices["gemini-2.5-pro"] = new(1.25m, 10m, 0, 0);
-        _prices["gemini-2.5-flash"] = new(0.15m, 0.60m, 0, 0);
-        _prices["gemini-2.0-flash"] = new(0.10m, 0.40m, 0, 0);
+        _defaultVersion = configuration["Pricing:Version"] ?? "runtime-v1";
+        _prices["claude-sonnet-4"] = new(3m, 15m, 3.75m, 0.30m, Version: _defaultVersion);
+        _prices["claude-opus-4"] = new(15m, 75m, 18.75m, 1.50m, Version: _defaultVersion);
+        _prices["claude-haiku"] = new(0.80m, 4m, 1m, 0.08m, Version: _defaultVersion);
+        _prices["gpt-4o"] = new(2.50m, 10m, 1.25m, 0, Version: _defaultVersion);
+        _prices["gpt-4.1"] = new(2m, 8m, 0, 0, Version: _defaultVersion);
+        _prices["gpt-4o-mini"] = new(0.15m, 0.60m, 0, 0, Version: _defaultVersion);
+        _prices["o3"] = new(10m, 40m, 2.50m, 0, Version: _defaultVersion);
+        _prices["o4-mini"] = new(1.10m, 4.40m, 0.275m, 0, Version: _defaultVersion);
+        _prices["gemini-2.5-pro"] = new(1.25m, 10m, 0, 0, Version: _defaultVersion);
+        _prices["gemini-2.5-flash"] = new(0.15m, 0.60m, 0, 0, Version: _defaultVersion);
+        _prices["gemini-2.0-flash"] = new(0.10m, 0.40m, 0, 0, Version: _defaultVersion);
 
         foreach (var model in configuration.GetSection("Pricing:Models").GetChildren())
         {
@@ -37,7 +40,8 @@ public class ModelPricingService
                 model.GetValue("ImageInputPerUnit", 0m),
                 model.GetValue("ImageOutputPerUnit", 0m),
                 model.GetValue("VideoPerSecond", 0m),
-                model.GetValue("RealtimePerMinute", 0m));
+                model.GetValue("RealtimePerMinute", 0m),
+                model.GetValue("Version", _defaultVersion));
         }
     }
 
