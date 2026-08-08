@@ -32,9 +32,11 @@ public static class AuthEndpoints
         }).AllowAnonymous();
 
         app.MapPost("/admin/auth/logout", async (ClaimsPrincipal principal,
-            AuthSessionService sessions) =>
+            AuthSessionService sessions, HttpContext http) =>
         {
-            var sessionId = AuthClaims.SessionId(principal);
+            var sessionId = AuthClaims.SessionId(principal)
+                ?? AuthSessionService.SessionIdFromAuthorization(
+                    http.Request.Headers.Authorization.ToString());
             if (string.IsNullOrWhiteSpace(sessionId))
                 return Results.Unauthorized();
             await sessions.RevokeSessionAsync(sessionId);

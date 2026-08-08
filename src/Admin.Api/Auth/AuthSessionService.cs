@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
+using System.IdentityModel.Tokens.Jwt;
 using Npgsql;
 
 namespace ScalaAPI.Admin.Auth;
@@ -15,6 +16,22 @@ public sealed class AuthSessionService(
     NpgsqlDataSource dataSource, JwtService jwt, ILogger<AuthSessionService> logger)
 {
     private static readonly TimeSpan RefreshLifetime = TimeSpan.FromDays(30);
+
+    public static string? SessionIdFromAuthorization(string? authorization)
+    {
+        if (string.IsNullOrWhiteSpace(authorization)
+            || !authorization.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
+            return null;
+        try
+        {
+            var token = new JwtSecurityTokenHandler().ReadJwtToken(authorization[7..]);
+            return token.Claims.FirstOrDefault(c => c.Type == "sid")?.Value;
+        }
+        catch (ArgumentException)
+        {
+            return null;
+        }
+    }
 
     public async Task<SessionTokens> IssueAsync(
         long userId, string email, string role, string? ipAddress = null, string? userAgent = null,
