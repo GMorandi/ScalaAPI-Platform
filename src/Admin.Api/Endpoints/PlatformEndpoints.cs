@@ -6,6 +6,7 @@ using MailKit.Net.Smtp;
 using MimeKit;
 using SqlSugar;
 using ScalaAPI.Data.Entities;
+using ScalaAPI.Admin.Data;
 using Orleans;
 using ScalaAPI.Grains.Interfaces;
 
@@ -46,7 +47,7 @@ public static class PlatformEndpoints
         });
 
         group.MapPost("/", async (ClaimsPrincipal principal, ISqlSugarClient db,
-            IClusterClient client, ApiKeySelfServiceRequest req) =>
+            IClusterClient client, ListingRepository registry, ApiKeySelfServiceRequest req) =>
         {
             var email = principal.Identity?.Name ?? "";
             var user = await db.Queryable<UserAccountEntity>().Where(x => x.Email == email).FirstAsync();
@@ -79,12 +80,13 @@ public static class PlatformEndpoints
                 CreatedAt = DateTime.UtcNow,
             };
             await db.Insertable(entity).ExecuteCommandAsync();
+            await registry.RegisterString("apiKey", keyHash, apiKeyId);
 
             return Results.Ok(new { id = entity.Id, key = rawKey, message = "Store this key securely, it cannot be retrieved again" });
         });
 
         group.MapDelete("/{id}", async (long id, ClaimsPrincipal principal, ISqlSugarClient db,
-            IClusterClient client) =>
+            IClusterClient client, ListingRepository registry) =>
         {
             var email = principal.Identity?.Name ?? "";
             var key = await db.Queryable<UserApiKeyEntity>()
@@ -93,6 +95,7 @@ public static class PlatformEndpoints
             await client.GetGrain<IApiKeyGrain>(key.KeyHash).Revoke();
             await db.Updateable<UserApiKeyEntity>().SetColumns(x => x.Status == "revoked")
                 .Where(x => x.Id == id && x.UserEmail == email).ExecuteCommandAsync();
+            await registry.Unregister("apiKey", key.KeyHash);
             return Results.Ok(new { message = "Key revoked" });
         });
     }

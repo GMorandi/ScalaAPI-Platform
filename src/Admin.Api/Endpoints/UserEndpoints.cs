@@ -30,13 +30,14 @@ public static class UserEndpoints
             return Results.Ok(await grain.GetAuthProjection());
         });
 
-        group.MapPost("/", async (UserCreateRequest req, IClusterClient client) =>
+        group.MapPost("/", async (UserCreateRequest req, IClusterClient client, ListingRepository repo) =>
         {
             var allocator = client.GetGrain<IIdAllocatorGrain>("user");
             var id = await allocator.Next();
             var grain = client.GetGrain<IUserGrain>(id);
             await grain.Create(new UserUpsert(
                 req.Role, req.Balance, req.Concurrency, req.RpmLimit, req.AllowedGroups));
+            await repo.RegisterInteger("user", id);
             return Results.Created($"/admin/users/{id}", new { id });
         });
 
@@ -62,10 +63,11 @@ public static class UserEndpoints
             return Results.NoContent();
         });
 
-        group.MapDelete("/{id:long}", async (long id, IClusterClient client) =>
+        group.MapDelete("/{id:long}", async (long id, IClusterClient client, ListingRepository repo) =>
         {
             var grain = client.GetGrain<IUserGrain>(id);
             await grain.Delete();
+            await repo.Unregister("user", id.ToString());
             return Results.NoContent();
         });
     }

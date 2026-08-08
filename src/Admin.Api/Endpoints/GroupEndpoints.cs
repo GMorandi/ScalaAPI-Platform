@@ -30,7 +30,7 @@ public static class GroupEndpoints
             return Results.Ok(await grain.GetConfig());
         });
 
-        group.MapPost("/", async (GroupCreateRequest req, IClusterClient client) =>
+        group.MapPost("/", async (GroupCreateRequest req, IClusterClient client, ListingRepository repo) =>
         {
             var allocator = client.GetGrain<IIdAllocatorGrain>("group");
             var id = await allocator.Next();
@@ -40,6 +40,7 @@ public static class GroupEndpoints
                 req.DailyLimitUsd, req.ClaudeCodeOnly, req.FallbackGroupId,
                 req.ModelRoutingEnabled, req.ModelRouting, req.MemberAccountIds,
                 req.RpmLimit, req.PeakMultiplier, req.PeakStartHour, req.PeakEndHour));
+            await repo.RegisterInteger("group", id);
             return Results.Created($"/admin/groups/{id}", new { id });
         });
 
@@ -61,10 +62,11 @@ public static class GroupEndpoints
             return Results.NoContent();
         });
 
-        group.MapDelete("/{id:long}", async (long id, IClusterClient client) =>
+        group.MapDelete("/{id:long}", async (long id, IClusterClient client, ListingRepository repo) =>
         {
             var grain = client.GetGrain<IGroupGrain>(id);
             await grain.Delete();
+            await repo.Unregister("group", id.ToString());
             return Results.NoContent();
         });
     }

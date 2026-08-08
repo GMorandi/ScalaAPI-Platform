@@ -31,7 +31,7 @@ public static class AccountEndpoints
             return Results.Ok(projection);
         });
 
-        group.MapPost("/", async (AccountCreateRequest req, IClusterClient client) =>
+        group.MapPost("/", async (AccountCreateRequest req, IClusterClient client, ListingRepository repo) =>
         {
             var allocator = client.GetGrain<IIdAllocatorGrain>("account");
             var id = await allocator.Next();
@@ -41,6 +41,7 @@ public static class AccountEndpoints
                 req.Priority, req.Concurrency, req.LoadFactor, req.RateMultiplier,
                 req.Schedulable, req.Credentials, req.ModelMapping,
                 req.SupportedModels, req.ProxyUrl, req.TlsFingerprint));
+            await repo.RegisterInteger("account", id);
             return Results.Created($"/admin/accounts/{id}", new { id });
         });
 
@@ -62,10 +63,11 @@ public static class AccountEndpoints
             return Results.NoContent();
         });
 
-        group.MapDelete("/{id:long}", async (long id, IClusterClient client) =>
+        group.MapDelete("/{id:long}", async (long id, IClusterClient client, ListingRepository repo) =>
         {
             var grain = client.GetGrain<IAccountGrain>(id);
             await grain.Delete();
+            await repo.Unregister("account", id.ToString());
             return Results.NoContent();
         });
     }

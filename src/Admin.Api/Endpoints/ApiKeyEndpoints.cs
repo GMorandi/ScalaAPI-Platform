@@ -27,7 +27,7 @@ public static class ApiKeyEndpoints
             return Results.Ok(new PagedResponse<object>(items, total, page, size));
         });
 
-        group.MapPost("/", async (ApiKeyCreateRequest req, IClusterClient client) =>
+        group.MapPost("/", async (ApiKeyCreateRequest req, IClusterClient client, ListingRepository repo) =>
         {
             var plainKey = $"sk-{Convert.ToHexString(RandomNumberGenerator.GetBytes(24)).ToLowerInvariant()}";
             var hash = HashKey(plainKey);
@@ -39,6 +39,7 @@ public static class ApiKeyEndpoints
                 req.UserId, req.GroupId, req.Quota, req.ExpiresAt,
                 req.IpWhitelist, req.IpBlacklist,
                 req.RateLimit5h, req.RateLimit1d, req.RateLimit7d), id);
+            await repo.RegisterString("apiKey", hash, id);
 
             return Results.Created($"/admin/apikeys/{hash}", new ApiKeyCreateResponse(plainKey, id));
         });
@@ -53,10 +54,11 @@ public static class ApiKeyEndpoints
             return Results.NoContent();
         });
 
-        group.MapDelete("/{hash}", async (string hash, IClusterClient client) =>
+        group.MapDelete("/{hash}", async (string hash, IClusterClient client, ListingRepository repo) =>
         {
             var grain = client.GetGrain<IApiKeyGrain>(hash);
             await grain.Revoke();
+            await repo.Unregister("apiKey", hash);
             return Results.NoContent();
         });
     }

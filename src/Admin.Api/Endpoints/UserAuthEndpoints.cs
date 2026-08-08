@@ -4,6 +4,7 @@ using OtpNet;
 using SqlSugar;
 using Orleans;
 using ScalaAPI.Admin.Auth;
+using ScalaAPI.Admin.Data;
 using ScalaAPI.Data.Entities;
 using ScalaAPI.Grains.Interfaces;
 
@@ -22,7 +23,7 @@ public static class UserAuthEndpoints
         var auth = app.MapGroup("/auth").AllowAnonymous();
         var user = app.MapGroup("/user").RequireAuthorization("UserOnly");
 
-        auth.MapPost("/register", async (RegisterRequest req, ISqlSugarClient db, IClusterClient client) =>
+        auth.MapPost("/register", async (RegisterRequest req, ISqlSugarClient db, IClusterClient client, ListingRepository registry) =>
         {
             if (string.IsNullOrWhiteSpace(req.Email) || string.IsNullOrWhiteSpace(req.Password))
                 return Results.BadRequest(new { error = "Email and password required" });
@@ -42,6 +43,7 @@ public static class UserAuthEndpoints
             await db.Insertable(account).ExecuteCommandAsync();
             await client.GetGrain<IUserGrain>(account.Id).Create(new UserUpsert(
                 "user", 0, 1, 0, []));
+            await registry.RegisterInteger("user", account.Id);
 
             return Results.Ok(new { id = account.Id, email = account.Email });
         });
@@ -96,7 +98,8 @@ public static class UserAuthEndpoints
         });
 
         auth.MapPost("/oauth/callback", async (OAuthCallbackRequest req, ISqlSugarClient db,
-            JwtService jwt, IConfiguration config, IHttpClientFactory httpFactory) =>
+            JwtService jwt, IConfiguration config, IHttpClientFactory httpFactory,
+            ListingRepository registry) =>
         {
             var (email, oauthId) = await ExchangeOAuthCode(req, config, httpFactory);
             if (email is null)
@@ -132,6 +135,10 @@ public static class UserAuthEndpoints
 
             account.LastLoginAt = DateTime.UtcNow;
             await db.Updateable(account).UpdateColumns(x => x.LastLoginAt).ExecuteCommandAsync();
+
+            // OAuth may find an existing identity or create one; either way make
+            // sure the product-owned registry can discover the user aggregate.
+            await registry.RegisterInteger("user", account.Id);
 
             var token = jwt.GenerateToken(account.Email, account.Role, account.Id);
             return Results.Ok(new { token, email = account.Email, role = account.Role });

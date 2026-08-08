@@ -24,7 +24,8 @@ public sealed class MigrationSchemaTests
             ["balance_ledger"] = ["user_id", "amount", "created_at"],
             ["media_operations"] = ["operation_id", "idempotency_key", "status", "output_url"],
             ["pricing_versions"] = ["version", "model", "effective_from"],
-            ["ledger_reconciliation_runs"] = ["id", "status", "mismatch_total"]
+            ["ledger_reconciliation_runs"] = ["id", "status", "mismatch_total"],
+            ["entity_registry"] = ["entity_type", "entity_key", "entity_id", "status"]
         };
 
         await using var connection = new NpgsqlConnection(connectionString);
@@ -58,5 +59,11 @@ public sealed class MigrationSchemaTests
         var tables = new HashSet<string>(StringComparer.Ordinal);
         while (await retiredReader.ReadAsync()) tables.Add(retiredReader.GetString(0));
         Assert.DoesNotContain(retired, tables.Contains);
+
+        await using var forbiddenCommand = new NpgsqlCommand("""
+            SELECT 1 FROM information_schema.tables
+            WHERE table_schema = 'public' AND table_name = 'orleansstorage'
+            """, connection);
+        Assert.Null(await forbiddenCommand.ExecuteScalarAsync());
     }
 }
