@@ -11,7 +11,7 @@ read-only requirements reference and is excluded from builds and runtime.
 | Repository | Commit | Worktree | Role |
 | --- | --- | --- | --- |
 | `gateway` | `24a1c84` | clean | C++ HTTP/WebSocket edge, protocol parsing/conversion, streaming, Provider transport/evidence, charge-aware failover, durable usage delivery, authenticated Garnet projections, deterministic fault boundaries, and fail-closed cancellation/partial-SSE handling |
-| `platform` | `1a95949` | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, identity, scheduling, evidence-backed leases/holds/ledger, audited operator resolution, media lifecycle, Admin API/Web, Provider mock, migrations, deterministic fault boundaries, and deployment gates |
+| `platform` | `d4fb0cc` | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, identity, scheduling, evidence-backed leases/holds/ledger, audited operator resolution, media lifecycle, Admin API/Web, Provider mock, migrations, deterministic fault boundaries, and deployment gates |
 | `sub2api` | `43ec48d` | read-only clean | Requirements catalogue only; never a runtime or compatibility dependency |
 
 The current tracked inventory is:
@@ -173,7 +173,7 @@ current-source runtime evidence.
 
 ## Current verification evidence
 
-At Platform `1a95949` and Gateway `24a1c84`:
+At Platform `d4fb0cc` and Gateway `24a1c84`:
 
 - Gateway built locally and passed 98/98 CTest cases, including deterministic
   fault-hook claim/repeat behavior, terminal SSE detection, provider EOF
@@ -187,14 +187,15 @@ At Platform `1a95949` and Gateway `24a1c84`:
 - Scheduler benchmark integrity dry run executed all 4 selected child benchmarks
   and returned zero. It is a failure-propagation check, not performance evidence.
 - `deploy/stack/smoke.sh` built current sibling sources in the isolated Podman
-  project `scalaapi-smoke-clientcancel-0809`, created new volumes, applied all 22
+  project `scalaapi-smoke-streamreject-0809`, created new volumes, applied all 22
   migrations, and observed all 22 skip on the second migrator run. Source-built
-  image IDs were Platform `75eb81912e61`, Admin API `b29ea17919b2`, Gateway
-  `86f0384745df`, Provider mock `7bca6910d369`, migrator `68dff97859e4`, and
-  Admin Web `55f03c4df996`. The smoke intentionally crashed Platform once at
+  image IDs were Platform `30c342fbbf80`, Admin API `a1da8df5958a`, Gateway
+  `8e8aefbfe5e3`, Provider mock `ee910c20fa77`, migrator `983a8a488324`, and
+  Admin Web `78cf0f826da3`. The smoke intentionally crashed Platform once at
   `platform.after_settlement_commit`; single-silo membership recovery restarted
   the same service, replayed the durable usage outbox, and preserved one debit.
-  It separated explicit 429/500 rejections from seven unknown-charge scenarios,
+  It separated explicit non-stream and streaming 429/500 rejections from seven
+  unknown-charge scenarios,
   including Provider disconnect, disconnect-before-output, malformed usage,
   timeout, partial SSE disconnect, and a real downstream client timeout after
   the first SSE event. It resolved one incident through the Admin API with
@@ -225,7 +226,9 @@ At Platform `1a95949` and Gateway `24a1c84`:
   cancellation scenarios did the same; each retained the hold with no usage or
   debit. The client-cancellation request used a short-lived curl, received the
   first SSE event, closed before the delayed second write, and returned transport
-  status 000 while the Gateway recorded unknown charge evidence.
+  status 000 while the Gateway recorded unknown charge evidence. Streaming 500
+  exhausted four accounts and streaming 429 exhausted one account; both returned
+  public 503/provider_unavailable responses and released every no-charge hold.
 - Garnet authentication returned `PONG`; asynchronous media bootstrapped the empty
   MinIO bucket and a signed URL downloaded the expected 67-byte object.
 - The smoke command exited zero and its cleanup trap removed only its containers and
