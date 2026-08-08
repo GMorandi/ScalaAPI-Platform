@@ -6,7 +6,8 @@ namespace ScalaAPI.Host.Services;
 public sealed class LeaseOutboxHostedService(
     RequestLeaseStore store,
     IClusterClient cluster,
-    ILogger<LeaseOutboxHostedService> logger) : BackgroundService
+    ILogger<LeaseOutboxHostedService> logger,
+    FaultInjection faults) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -48,6 +49,8 @@ public sealed class LeaseOutboxHostedService(
                     try
                     {
                         await ApplyAsync(claimed.Item, claimed.Lease);
+                        faults.CrashIfConfigured(
+                            "platform.before_outbox_ack", claimed.Item.LeaseToken);
                         await store.MarkProcessedAsync(claimed.Item.Id, stoppingToken);
                     }
                     catch (Exception ex)

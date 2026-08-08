@@ -149,7 +149,8 @@ public sealed class RequestLeaseStore(
     NpgsqlDataSource dataSource,
     AccountingStore accounting,
     ModelPricingService pricing,
-    ILogger<RequestLeaseStore> logger)
+    ILogger<RequestLeaseStore> logger,
+    FaultInjection? faults = null)
 {
     public async Task<bool> CreateAsync(LeaseCreateRequest request, CancellationToken ct = default)
         => (await CreateDetailedAsync(request, ct)).Created;
@@ -327,7 +328,11 @@ public sealed class RequestLeaseStore(
         var ack = await CompleteOnTransactionAsync(connection, transaction, completion,
             "platform", ct);
         if (ack.Accepted)
+        {
+            faults?.CrashIfConfigured("platform.before_settlement_commit", completion.LeaseToken);
             await transaction.CommitAsync(ct);
+            faults?.CrashIfConfigured("platform.after_settlement_commit", completion.LeaseToken);
+        }
         return ack;
     }
 

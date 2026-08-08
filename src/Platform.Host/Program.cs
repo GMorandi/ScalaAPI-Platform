@@ -73,6 +73,7 @@ builder.Services.AddSingleton<ScalaAPI.Grains.Interfaces.IInvalidationService>(s
 builder.Services.AddSingleton<ModelPricingService>();
 builder.Services.AddHostedService<PricingRefreshHostedService>();
 builder.Services.AddSingleton(NpgsqlDataSource.Create(pgConnection));
+builder.Services.AddSingleton<FaultInjection>();
 builder.Services.AddSingleton<AccountingStore>();
 builder.Services.AddSingleton<IAccountingProjectionRepairer, OrleansAccountingProjectionRepairer>();
 builder.Services.AddSingleton<AccountingReconciliationService>();

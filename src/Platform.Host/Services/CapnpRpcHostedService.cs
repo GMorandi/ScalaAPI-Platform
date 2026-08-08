@@ -491,6 +491,7 @@ public class DispatchService
     private readonly AuthProjectionCache _authCache;
     private readonly GarnetWriteThroughService _garnet;
     private readonly ILogger<DispatchService> _logger;
+    private readonly FaultInjection _faults;
     private readonly TimeSpan _leaseTtl;
     private readonly decimal _maxReservationUsd;
 
@@ -500,7 +501,8 @@ public class DispatchService
                            ModelPricingService pricing,
                            AuthProjectionCache authCache, GarnetWriteThroughService garnet,
                            IConfiguration configuration,
-                           ILogger<DispatchService> logger)
+                           ILogger<DispatchService> logger,
+                           FaultInjection faults)
     {
         _cluster = cluster;
         _leases = leases;
@@ -510,6 +512,7 @@ public class DispatchService
         _authCache = authCache;
         _garnet = garnet;
         _logger = logger;
+        _faults = faults;
         _leaseTtl = TimeSpan.FromSeconds(
             configuration.GetValue("Dispatch:LeaseTtlSeconds", 360));
         _maxReservationUsd = Math.Max(0.01m,
@@ -690,6 +693,7 @@ public class DispatchService
                     "Request has already been dispatched");
             }
             leaseCreated = true;
+            _faults.CrashIfConfigured("platform.before_provider_dispatch", req.RequestId);
 
             var mediaOperationId = "";
             if (isMediaOperation)

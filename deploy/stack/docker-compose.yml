@@ -75,6 +75,7 @@ services:
     build:
       context: ../..
       target: platform-silo
+    restart: on-failure
     environment:
       ConnectionStrings__Postgres: "Host=postgres;Database=${POSTGRES_DB:-platform};Username=${POSTGRES_USER:-platform};Password=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}"
       CapnpRpc__SocketPath: /var/run/scalaapi/dispatch.sock
@@ -85,6 +86,9 @@ services:
       Garnet__ServerName: ${GARNET_SERVER_NAME:-garnet}
       Security__MasterKey: ${SECURITY_MASTER_KEY:?SECURITY_MASTER_KEY is required}
       ProviderMock__BaseUrl: http://provider-mock:8081
+      FaultInjection__Hook: ${PLATFORM_FAULT_HOOK:-}
+      FaultInjection__MarkerDirectory: ${PLATFORM_FAULT_MARKER_DIR:-/var/run/scalaapi/fault-hooks}
+      FaultInjection__Repeat: ${PLATFORM_FAULT_REPEAT:-false}
       Internal__CacheRebuildToken: ${INTERNAL_CACHE_REBUILD_TOKEN:-}
       Internal__ReconciliationToken: ${INTERNAL_RECONCILIATION_TOKEN:?INTERNAL_RECONCILIATION_TOKEN is required}
       ObjectStorage__Endpoint: http://object-storage:9000
@@ -138,6 +142,7 @@ services:
 
   gateway:
     build: ../../../gateway
+    restart: on-failure
     environment:
       GATEWAY_CORES: ${GATEWAY_CORES:-2}
       GATEWAY_LISTEN_PORT: 8080
@@ -150,6 +155,9 @@ services:
       CAPNP_UDS_PATH: /var/run/scalaapi/dispatch.sock
       GATEWAY_USAGE_DB: /var/lib/scalaapi/usage-outbox.db
       GATEWAY_TRUSTED_PROXY_CIDRS: ${GATEWAY_TRUSTED_PROXY_CIDRS:-}
+      GATEWAY_FAULT_HOOK: ${GATEWAY_FAULT_HOOK:-}
+      GATEWAY_FAULT_MARKER_DIR: ${GATEWAY_FAULT_MARKER_DIR:-/var/lib/scalaapi/fault-hooks}
+      GATEWAY_FAULT_REPEAT: ${GATEWAY_FAULT_REPEAT:-false}
     volumes:
       - runtime_sockets:/var/run/scalaapi
       - gateway_data:/var/lib/scalaapi
