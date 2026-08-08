@@ -15,7 +15,7 @@ AUTH-01,Authentication / identity,Email registration and login,P0,partial,Platfo
 AUTH-02,Authentication / identity,Refresh logout and session revocation lifecycle,P0,partial,Platform,Rotating sessions replay and revoke tests
 AUTH-03,Authentication / identity,TOTP lifecycle,P1,partial,Platform,Enrollment recovery and brute-force controls
 AUTH-04,Authentication / identity,Passkeys / WebAuthn,P1,missing,Platform,Registration authentication and browser tests
-AUTH-05,Authentication / identity,Email verification password reset and notification email,P1,missing,Platform,Expiring signed tokens and mail-provider tests
+AUTH-05,Authentication / identity,Email verification password reset and notification email,P1,partial,Platform,Password reset token state machine and replay tests pass; add email verification and mail-provider tests
 AUTH-06,Authentication / identity,OAuth login providers and account binding,P1,skeleton,Platform,PKCE state binding and callback tests
 AUTH-07,Authentication / identity,Profile password identity binding and deletion,P1,missing,Platform,Self-service lifecycle and retention tests
 CORE-01,Core control plane,User administration and self-service,P0,partial,Platform,Role lifecycle authorization and API tests
@@ -24,7 +24,7 @@ CORE-03,Core control plane,Groups routing rates and fallback,P0,partial,Platform
 CORE-04,Core control plane,Upstream accounts credentials and provider refresh,P0,partial,Platform,Encrypted lifecycle refresh and health tests
 CORE-05,Core control plane,Scheduler concurrency rate limits sticky routing and fallback,P0,partial,Platform,Multi-silo lease and fault tests
 CORE-06,Core control plane,Runtime configuration public settings and feature flags,P1,skeleton,Platform,Validated dynamic reload and audit tests
-BILL-01,Usage / billing,Durable request lease usage capture outbox and settlement,P0,partial,Platform,Lease/hold/usage/outbox happy path passes; add crash and reconciliation tests
+BILL-01,Usage / billing,Durable request lease usage capture outbox and settlement,P0,partial,Platform,Lease/hold/usage/outbox happy path plus expiry recovery pass; add crash and reconciliation tests
 BILL-02,Usage / billing,Model pricing cache-token and provider pricing rules,P0,partial,Platform,Immutable versions and historical settlement tests
 BILL-03,Usage / billing,Quota subscription and rolling-window limits,P0,skeleton,Platform,Precedence reset expiry and enforcement tests
 BILL-04,Usage / billing,Money precision transactional integrity and idempotency,P0,partial,Platform,Fixed-scale RPC and NUMERIC lease debit plus unique replay effect pass; add crash/reconciliation tests
@@ -50,7 +50,7 @@ UI-03,Frontend,User authentication and recovery UI,P1,missing,User Web,Auth reco
 UI-04,Frontend,Payments redeem subscriptions and affiliate UI,P1,missing,User Web + Admin Web,Commercial workflow browser tests
 UI-05,Frontend,Operations risk audit monitor and backup UI,P1,missing,Admin Web,Operator recovery workflow browser tests
 UI-06,Frontend,Public model setup status and legal pages,P2,missing,Admin Web + Gateway,Public route and accessibility tests
-DEP-01,Deployment / reliability,Fresh target schema and idempotent migrator,P0,partial,Platform,Current 001-008 checksum replay passes; add truly empty-volume smoke with no compatibility or Redis dependency
+DEP-01,Deployment / reliability,Fresh target schema and idempotent migrator,P0,partial,Platform,Current 001-009 checksum replay passes; add truly empty-volume smoke with no compatibility or Redis dependency
 DEP-02,Deployment / reliability,Independent bootstrap without source data or CDC,P0,implemented,Platform,No source dependency and clean-schema assertion
 DEP-03,Deployment / reliability,Container stack health readiness and metrics,P0,partial,Platform + Gateway,Current-source Compose health, Garnet outage/recovery, and projection rebuild pass; add failure and metrics assertions
 DEP-04,Deployment / reliability,Orleans HA rolling deployment and failure recovery,P0,skeleton,Platform,Multi-silo outage and rolling test

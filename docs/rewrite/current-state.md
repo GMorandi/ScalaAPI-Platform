@@ -10,12 +10,12 @@ release artifacts.
 | Repository | Commit | Worktree | Responsibility |
 | --- | --- | --- | --- |
 | `gateway` | `f8b6761` | clean | C++ HTTP/WebSocket edge, protocol conversion, chunked streaming, Provider transport, versioned Garnet client, malformed-usage guard, fixed-scale Cap'n Proto client, unique failover lease IDs |
-| `platform` | `df93623` | clean | C# Orleans control plane, PostgreSQL persistence, leases, NUMERIC ledger, durable holds/idempotency, usage, media lifecycle, Admin API, versioned Garnet rebuild, replayable balance effects, fixed-scale RPC contract, retryable terminal idempotency leases |
+| `platform` | `809c19b` | clean | C# Orleans control plane, PostgreSQL persistence, leases, NUMERIC ledger, durable holds/idempotency, usage, media lifecycle, Admin API, versioned Garnet rebuild, replayable balance effects, fixed-scale RPC contract, retryable terminal idempotency leases, password recovery |
 | `sub2api` | `43ec48d` | read-only clean reference | Functional requirements catalogue only |
 
 The current source inventory is 50 tracked Gateway source files, 83 CTest cases,
 60 hand-written Platform production C# files plus 3 generated Cap'n Proto files,
-20 tracked Platform test/benchmark source files, 68 Platform test cases, 123 mapped
+20 tracked Platform test/benchmark source files, 70 Platform test cases, 123 mapped
 Admin API routes, 33 product tables, 20 SQLSugar entity types, and 24 Admin Web
 source files with 11 page views. Admin Web has no browser test runner yet.
 
@@ -43,6 +43,11 @@ not implementation parity or a migration target.
 - New user registration and OAuth identity creation read back the PostgreSQL
   identity before creating the Orleans aggregate and registry entry; new users
   no longer alias to id 0.
+- Password recovery uses a product-owned single-use token table. Only SHA-256
+  token hashes are stored, outstanding tokens are invalidated per user, tokens
+  expire after 15 minutes, and successful confirmation revokes all active sessions.
+  The anonymous request response does not reveal whether an email exists; a local
+  smoke-only configuration can return the raw token for deterministic testing.
 - Lease completion writes the usage event, `balance_ledger` `usage_debit`, terminal
   lease state, and durable outbox entry in one PostgreSQL transaction. The ledger
   key `(lease_token, entry_type)` is unique and all amounts remain `NUMERIC`.
@@ -100,8 +105,8 @@ not implementation parity or a migration target.
   CI must still regenerate the C# output from the canonical schema and compare it
   before declaring contract generation complete.
 - Full empty-environment migration replay from an actually empty volume is still a
-  release gate; the current isolated database applied 005 through 008 and a
-  second migrator invocation skipped all eight recorded migrations.
+  release gate; the current isolated database applied 005 through 009 and a
+  second migrator invocation skipped all ten recorded migrations (000-009).
 - Session concurrent-rotation HTTP tests, crash injection, and API-key policy tests
   remain pending even though replay/logout, rotation, and revoke paths have runtime
   evidence.
@@ -119,11 +124,11 @@ not implementation parity or a migration target.
 
 On 2026-08-08 the isolated `scalaapi-stage2` project used current-source images:
 Platform `ad0c3e1d229395a38b87810ef0bb58b60367721b766c91f22078b742b1cd830e`,
-Admin API `ceaa5024a4af053cdad4058c53bf2fd39aee02dd9108fbffd45e409c43b0f511`,
-migrator `e23af7d134b39bd328082875a9b99a1ebd0e1358d527825bd650c34984f3ca95`,
+Admin API `ce602d5f83110f22ac4f54e4c9a89189683d8f7e15bf63f805b8dd6d513614a9`,
+migrator `d138eccafbea8cb2d1cd1e066212e6c7f055141332a71d4250cce066e0a80f96`,
 Gateway `7f7ef216aeb1b11edd57bd69598f997e1556b6a823f183e7fc95adfbf01feee`, and
 Provider mock `425e1430cc32f8756a688d176f1d542c9026603c37e0cb609e55b5ee49d6bcb8`.
-The migrator applied 005-008 and a second run skipped them all. Registration
+The migrator applied 005-009 and a second run skipped them all. Registration
 returned user id 7 and registry id 7. Provider seed was idempotent (same account
 and group on two calls); API-key rotation revoked the old key; Admin-created keys
 were projected into `user_api_keys`. Seeded JSON and SSE requests both returned
@@ -145,6 +150,12 @@ request, all with released holds and no ledger rows. Reusing a matching external
 idempotency key after an aborted lease is now retryable, while active/completed
 requests still replay or conflict. Timeout, disconnect, and restart coverage
 remain release gates.
+
+Password-reset runtime evidence on the current Admin image returned a debug token
+only with the explicit isolated-stack flag, accepted it once with `204`, rejected
+the replay with `400`, and allowed login with the new password. The database holds
+only the token hash and marks the row used; mail delivery is still an external
+adapter requirement.
 
 Redeem-code runtime evidence created a one-use `1.25` code, returned `200` on the
 first request and `409` on repeat, then recovered a committed redemption after a

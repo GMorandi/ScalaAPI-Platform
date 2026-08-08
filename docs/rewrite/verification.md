@@ -5,12 +5,12 @@
 | Gate | Result | Interpretation |
 | --- | --- | --- |
 | Gateway build and CTest | Clean local build; 83/83, exit 0 | Current TCP/TLS client and malformed-usage guard included |
-| Platform tests | 68/68, exit 0 | 50 grain and 18 host tests; includes idempotent balance-effect replay |
+| Platform tests | 70/70, exit 0 | 50 grain and 20 host tests; includes expiry recovery and idempotent balance-effect replay |
 | Platform Release build | Passed, 0 warnings and 0 errors | Includes Platform Host, Admin API, migrator, Provider mock, and benchmark assembly |
 | Admin Web | Typecheck and production build passed | Blocking CI gate exists; browser tests are not configured |
 | Scheduler benchmark dry run | 4/4, exit 0; no-match negative probe exits 1 | Dependency injection and child-result propagation pass; not performance evidence |
 | Contract digest | Canonical and Gateway vendor schemas match; fixed-scale pricing round-trip test passed | CI regeneration and generated-artifact comparison remain pending |
-| PostgreSQL migrator | Current image applied 005 through 008; repeated invocation skipped all recorded migrations, exit 0 | No source database, CDC, or compatibility tables used; a truly empty-volume replay remains a release gate |
+| PostgreSQL migrator | Current image applied 005 through 009; repeated invocation skipped all recorded migrations, exit 0 | No source database, CDC, or compatibility tables used; a truly empty-volume replay remains a release gate |
 | Current-image Compose smoke | All long-running services healthy; migrator exit 0 | Isolated project and new volumes |
 | Garnet smoke | Auth, PING, SET/GET, PX, INCR, DEL passed | Official digest; no Redis or embedded server |
 | Garnet outage/recovery | Platform readiness 503 then 200 | Automatic TCP reconnect verified |
@@ -23,6 +23,7 @@
 | Auth lifecycle smoke | Refresh replay and logout revocation returned 401 on the current image | Concurrent rotation and multi-device HTTP tests remain |
 | Redeem-code settlement smoke | First redemption returned 200; repeat returned 409; after a Silo contract restart a committed redemption remained 409 and replayed its balance effect; one redemption and one NUMERIC ledger row were observed | Concurrent HTTP contention and audit-event assertions remain |
 | Provider failover idempotency | Matching external idempotency keys reopened after aborted leases; active/completed keys retain replay/conflict semantics; Host coverage passed | Persisted response-body replay and expiry reconciliation remain |
+| Password recovery | Explicit local debug mode issued a one-time token; first confirmation returned 204, token replay returned 400, and new-password login succeeded | Real mail provider delivery, email verification, and browser recovery flow remain |
 
 ## Remaining release gates
 
