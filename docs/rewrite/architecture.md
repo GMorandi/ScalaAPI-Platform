@@ -68,8 +68,11 @@ available.
 Gateway owns the streaming Provider transport behind a common adapter contract.
 Platform owns account selection, credential protection, scheduling, and settlement.
 The source-owned Provider mock deterministically exercises JSON, SSE, 429, 500,
-delay, disconnect, and malformed usage. S3-compatible storage owns media bytes;
-PostgreSQL owns object keys, metadata, retention, and authorization.
+delay, disconnect, and malformed usage. Normalized request fields select faults,
+while separate seeded accounts isolate scheduler cooldown and retry state. Gateway
+rejects an incomplete payload-bearing 2xx before usage extraction. S3-compatible
+storage owns media bytes; PostgreSQL owns object keys, metadata, retention, and
+authorization.
 
 ## Internal contract
 
