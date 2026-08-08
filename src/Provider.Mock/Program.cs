@@ -335,6 +335,8 @@ app.MapPost("/v1/chat/completions", async (HttpContext context, CancellationToke
     var requestId = context.Request.Headers["X-Provider-Request-Id"].FirstOrDefault()
         ?? $"mock-{Guid.NewGuid():N}";
     var scenario = MockProviderHelpers.Scenario(context, root);
+    var stream = root.TryGetProperty("stream", out var streamValue)
+        && streamValue.ValueKind == JsonValueKind.True;
 
     switch (scenario.ToLowerInvariant())
     {
@@ -355,12 +357,44 @@ app.MapPost("/v1/chat/completions", async (HttpContext context, CancellationToke
             await Task.Delay(TimeSpan.FromMinutes(2), cancellationToken);
             return;
         case "disconnect":
+            if (stream)
+            {
+                context.Response.StatusCode = StatusCodes.Status200OK;
+                context.Response.ContentType = "text/event-stream";
+                await context.Response.WriteAsync(
+                    $"data: {{\"id\":\"{requestId}\",\"object\":\"chat.completion.chunk\",\"model\":\"{model}\",\"choices\":[{{\"index\":0,\"delta\":{{\"content\":\"partial\"}},\"finish_reason\":null}}]}}\n\n",
+                    cancellationToken);
+                await context.Response.Body.FlushAsync(cancellationToken);
+                context.Abort();
+                return;
+            }
             context.Response.StatusCode = StatusCodes.Status200OK;
             await context.Response.WriteAsync($"{{\"id\":\"{requestId}\",\"choices\":[", cancellationToken);
             await context.Response.Body.FlushAsync(cancellationToken);
             context.Abort();
             return;
+        case "disconnect_before_output":
+            if (stream)
+            {
+                context.Response.StatusCode = StatusCodes.Status200OK;
+                context.Response.ContentType = "text/event-stream";
+                await context.Response.Body.FlushAsync(cancellationToken);
+                context.Abort();
+                return;
+            }
+            context.Response.StatusCode = StatusCodes.Status200OK;
+            context.Abort();
+            return;
         case "malformed_usage":
+            if (stream)
+            {
+                context.Response.StatusCode = StatusCodes.Status200OK;
+                context.Response.ContentType = "text/event-stream";
+                await context.Response.WriteAsync(
+                    $"data: {{\"id\":\"{requestId}\",\"object\":\"chat.completion.chunk\",\"model\":\"{model}\",\"choices\":[{{\"index\":0,\"delta\":{{}},\"finish_reason\":\"stop\"}}],\"usage\":{{\"prompt_tokens\":-1,\"completion_tokens\":\"invalid\"}}}}\n\ndata: [DONE]\n\n",
+                    cancellationToken);
+                return;
+            }
             await context.Response.WriteAsJsonAsync(new
             {
                 id = requestId,
@@ -371,7 +405,6 @@ app.MapPost("/v1/chat/completions", async (HttpContext context, CancellationToke
             return;
     }
 
-    var stream = root.TryGetProperty("stream", out var streamValue) && streamValue.ValueKind == JsonValueKind.True;
     var usage = new { prompt_tokens = 7, completion_tokens = 5, total_tokens = 12 };
     if (stream || scenario.Equals("sse", StringComparison.OrdinalIgnoreCase))
     {
