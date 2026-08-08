@@ -16,6 +16,10 @@ namespace ScalaAPI.Admin.Endpoints;
 
 public record SubscriptionPurchaseRequest(long PlanId, string? ExternalReference, bool AutoRenew = true);
 public record SubscriptionRenewRequest(bool AutoRenew = true);
+public record PricingVersionRequest(
+    string Version, string Model, decimal InputUsdPerMillion, decimal OutputUsdPerMillion,
+    decimal CacheReadUsdPerMillion, decimal CacheWriteUsdPerMillion,
+    DateTime EffectiveFrom, DateTime? EffectiveUntil);
 
 public static class PlatformEndpoints
 {
@@ -27,6 +31,7 @@ public static class PlatformEndpoints
         MapAnnouncements(app);
         MapPayments(app);
         MapSubscriptions(app);
+        MapPricing(app);
         MapRedeemCodes(app);
         MapReferral(app);
         MapChannelMonitors(app);
@@ -484,6 +489,93 @@ public static class PlatformEndpoints
                 "cancelled", idempotencyKey, ct);
             await transaction.CommitAsync(ct);
             return Results.Ok(new { id, status = "cancelled", duplicate = false });
+        });
+    }
+
+    private static void MapPricing(WebApplication app)
+    {
+        var admin = app.MapGroup("/admin/pricing").RequireAuthorization("AdminOnly");
+
+        admin.MapGet("/versions", async (NpgsqlDataSource dataSource, string? model,
+            CancellationToken ct) =>
+        {
+            await using var command = dataSource.CreateCommand("""
+                SELECT version, model, input_usd_per_million, output_usd_per_million,
+                       cache_read_usd_per_million, cache_write_usd_per_million,
+                       effective_from, effective_until, created_at
+                FROM pricing_versions
+                WHERE ($1::text IS NULL OR model = $1)
+                ORDER BY effective_from DESC, version DESC
+                """);
+            command.Parameters.AddWithValue((object?)model ?? DBNull.Value);
+            await using var reader = await command.ExecuteReaderAsync(ct);
+            var items = new List<object>();
+            while (await reader.ReadAsync(ct))
+            {
+                items.Add(new
+                {
+                    version = reader.GetString(0), model = reader.GetString(1),
+                    inputUsdPerMillion = reader.GetDecimal(2), outputUsdPerMillion = reader.GetDecimal(3),
+                    cacheReadUsdPerMillion = reader.GetDecimal(4), cacheWriteUsdPerMillion = reader.GetDecimal(5),
+                    effectiveFrom = reader.GetFieldValue<DateTime>(6),
+                    effectiveUntil = reader.IsDBNull(7) ? (DateTime?)null : reader.GetFieldValue<DateTime>(7),
+                    createdAt = reader.GetFieldValue<DateTime>(8),
+                });
+            }
+            return Results.Ok(new { items });
+        });
+
+        admin.MapPost("/versions", async (PricingVersionRequest req,
+            NpgsqlDataSource dataSource, CancellationToken ct) =>
+        {
+            if (string.IsNullOrWhiteSpace(req.Version) || req.Version.Length > 120
+                || string.IsNullOrWhiteSpace(req.Model) || req.Model.Length > 200
+                || req.InputUsdPerMillion < 0 || req.OutputUsdPerMillion < 0
+                || req.CacheReadUsdPerMillion < 0 || req.CacheWriteUsdPerMillion < 0)
+                return Results.BadRequest(new { error = "Invalid pricing version" });
+            var effectiveFrom = req.EffectiveFrom.Kind == DateTimeKind.Utc
+                ? req.EffectiveFrom : req.EffectiveFrom.ToUniversalTime();
+            DateTime? effectiveUntil = req.EffectiveUntil is null ? null
+                : (req.EffectiveUntil.Value.Kind == DateTimeKind.Utc
+                    ? req.EffectiveUntil.Value : req.EffectiveUntil.Value.ToUniversalTime());
+            if (effectiveUntil.HasValue && effectiveUntil <= effectiveFrom)
+                return Results.BadRequest(new { error = "EffectiveUntil must be after EffectiveFrom" });
+
+            await using var command = dataSource.CreateCommand("""
+                INSERT INTO pricing_versions
+                    (version, model, input_usd_per_million, output_usd_per_million,
+                     cache_read_usd_per_million, cache_write_usd_per_million,
+                     effective_from, effective_until)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                ON CONFLICT (version) DO NOTHING
+                """);
+            command.Parameters.AddWithValue(req.Version.Trim());
+            command.Parameters.AddWithValue(req.Model.Trim());
+            command.Parameters.AddWithValue(req.InputUsdPerMillion);
+            command.Parameters.AddWithValue(req.OutputUsdPerMillion);
+            command.Parameters.AddWithValue(req.CacheReadUsdPerMillion);
+            command.Parameters.AddWithValue(req.CacheWriteUsdPerMillion);
+            command.Parameters.AddWithValue(effectiveFrom);
+            command.Parameters.AddWithValue((object?)effectiveUntil ?? DBNull.Value);
+            if (await command.ExecuteNonQueryAsync(ct) != 1)
+                return Results.Conflict(new { error = "Pricing version already exists" });
+            return Results.Created($"/admin/pricing/versions/{req.Version}",
+                new { version = req.Version.Trim(), model = req.Model.Trim(), effectiveFrom });
+        });
+
+        admin.MapPost("/versions/{version}/close", async (string version,
+            NpgsqlDataSource dataSource, CancellationToken ct) =>
+        {
+            await using var command = dataSource.CreateCommand("""
+                UPDATE pricing_versions SET effective_until = now()
+                WHERE version = $1 AND effective_until IS NULL
+                RETURNING effective_until
+                """);
+            command.Parameters.AddWithValue(version);
+            var closedAt = await command.ExecuteScalarAsync(ct);
+            return closedAt is null
+                ? Results.NotFound(new { error = "Open pricing version not found" })
+                : Results.Ok(new { version, effectiveUntil = (DateTime)closedAt });
         });
     }
 
