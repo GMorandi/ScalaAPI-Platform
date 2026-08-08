@@ -6,6 +6,7 @@ using ScalaAPI.Admin.Data;
 using ScalaAPI.Admin.Endpoints;
 using ScalaAPI.Data.Repositories;
 using Npgsql;
+using System.IdentityModel.Tokens.Jwt;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -41,9 +42,24 @@ builder.Services.AddScoped<ListingRepository>();
 builder.Services.AddScoped<IUsageLogRepository, UsageLogRepository>();
 builder.Services.AddHttpClient();
 builder.Services.AddSingleton(NpgsqlDataSource.Create(pgConnection));
+builder.Services.AddSingleton<AuthSessionService>();
 
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-    .AddJwtBearer(opts => opts.TokenValidationParameters = jwtService.GetValidationParameters());
+    .AddJwtBearer(opts =>
+    {
+        opts.TokenValidationParameters = jwtService.GetValidationParameters();
+        opts.Events = new JwtBearerEvents
+        {
+            OnTokenValidated = async context =>
+            {
+                var sessionId = context.Principal?.FindFirst("sid")?.Value;
+                var sessions = context.HttpContext.RequestServices.GetRequiredService<AuthSessionService>();
+                if (string.IsNullOrWhiteSpace(sessionId)
+                    || !await sessions.IsActiveAsync(sessionId, context.HttpContext.RequestAborted))
+                    context.Fail("session_revoked");
+            }
+        };
+    });
 builder.Services.AddAuthorization(options =>
 {
     options.AddPolicy("AdminOnly", policy => policy.RequireAuthenticatedUser().RequireRole("admin"));
@@ -106,17 +122,24 @@ static async Task BootstrapAdminAsync(IServiceProvider services, IConfiguration 
 
     await using var scope = services.CreateAsyncScope();
     var db = scope.ServiceProvider.GetRequiredService<ISqlSugarClient>();
+    var registry = scope.ServiceProvider.GetRequiredService<ListingRepository>();
     var normalized = username.Trim().ToLowerInvariant();
     var existing = await db.Queryable<ScalaAPI.Data.Entities.UserAccountEntity>()
         .Where(x => x.Email == normalized).FirstAsync();
-    if (existing is not null) return;
+    if (existing is not null)
+    {
+        await registry.RegisterInteger("user", existing.Id);
+        return;
+    }
 
-    await db.Insertable(new ScalaAPI.Data.Entities.UserAccountEntity
+    var account = new ScalaAPI.Data.Entities.UserAccountEntity
     {
         Email = normalized,
         PasswordHash = BCrypt.Net.BCrypt.HashPassword(password),
         Role = "admin",
         Status = "active",
         CreatedAt = DateTime.UtcNow,
-    }).ExecuteCommandAsync();
+    };
+    await db.Insertable(account).ExecuteCommandAsync();
+    await registry.RegisterInteger("user", account.Id);
 }

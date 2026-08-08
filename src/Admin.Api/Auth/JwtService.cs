@@ -12,7 +12,10 @@ public class JwtService(IConfiguration config)
         ?? throw new InvalidOperationException("Jwt:Issuer is required");
     private readonly int _expiryMinutes = int.Parse(config["Jwt:ExpiryMinutes"] ?? "1440");
 
-    public string GenerateToken(string username, string role = "user", long? subjectId = null)
+    public TimeSpan AccessTokenLifetime => TimeSpan.FromMinutes(_expiryMinutes);
+
+    public string GenerateToken(string username, string role = "user", long? subjectId = null,
+        string? sessionId = null)
     {
         var handler = new JwtSecurityTokenHandler();
         var claims = new List<Claim>
@@ -23,6 +26,8 @@ public class JwtService(IConfiguration config)
         };
         if (subjectId.HasValue)
             claims.Add(new Claim(JwtRegisteredClaimNames.Sub, subjectId.Value.ToString(System.Globalization.CultureInfo.InvariantCulture)));
+        if (!string.IsNullOrWhiteSpace(sessionId))
+            claims.Add(new Claim("sid", sessionId));
         var descriptor = new SecurityTokenDescriptor
         {
             Subject = new ClaimsIdentity(claims),

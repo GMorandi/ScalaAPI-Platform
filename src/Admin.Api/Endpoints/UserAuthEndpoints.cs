@@ -12,6 +12,7 @@ namespace ScalaAPI.Admin.Endpoints;
 
 public record RegisterRequest(string Email, string Password, string? DisplayName);
 public record UserLoginRequest(string Email, string Password, string? TotpCode);
+public record RefreshRequest(string RefreshToken);
 public record OAuthCallbackRequest(string Provider, string Code, string RedirectUri);
 public record TotpSetupResponse(string Secret, string QrUri);
 public record TotpVerifyRequest(string Code);
@@ -27,15 +28,18 @@ public static class UserAuthEndpoints
         {
             if (string.IsNullOrWhiteSpace(req.Email) || string.IsNullOrWhiteSpace(req.Password))
                 return Results.BadRequest(new { error = "Email and password required" });
+            if (req.Password.Length < 12)
+                return Results.BadRequest(new { error = "Password must be at least 12 characters" });
 
+            var email = req.Email.Trim().ToLowerInvariant();
             var existing = await db.Queryable<UserAccountEntity>()
-                .Where(x => x.Email == req.Email).FirstAsync();
+                .Where(x => x.Email == email).FirstAsync();
             if (existing is not null)
                 return Results.Conflict(new { error = "Email already registered" });
 
             var account = new UserAccountEntity
             {
-                Email = req.Email.ToLowerInvariant(),
+                Email = email,
                 PasswordHash = BCrypt.Net.BCrypt.HashPassword(req.Password),
                 DisplayName = req.DisplayName,
                 CreatedAt = DateTime.UtcNow,
@@ -49,11 +53,12 @@ public static class UserAuthEndpoints
         });
 
         auth.MapPost("/login", async (UserLoginRequest req, ISqlSugarClient db,
-            JwtService jwt, SecretProtector protector) =>
+            SecretProtector protector, AuthSessionService sessions, HttpContext http) =>
         {
+            var email = req.Email.Trim().ToLowerInvariant();
             var account = await db.Queryable<UserAccountEntity>()
-                .Where(x => x.Email == req.Email.ToLowerInvariant()).FirstAsync();
-            if (account is null || account.PasswordHash is null)
+                .Where(x => x.Email == email).FirstAsync();
+            if (account is null || account.Status != "active" || account.PasswordHash is null)
                 return Results.Unauthorized();
 
             if (!BCrypt.Net.BCrypt.Verify(req.Password, account.PasswordHash))
@@ -93,13 +98,34 @@ public static class UserAuthEndpoints
                     .ExecuteCommandAsync();
             }
 
-            var token = jwt.GenerateToken(account.Email, account.Role, account.Id);
-            return Results.Ok(new { token, email = account.Email, role = account.Role });
+            var tokens = await sessions.IssueAsync(account.Id, account.Email, account.Role,
+                http.Connection.RemoteIpAddress?.ToString(), http.Request.Headers.UserAgent);
+            return Results.Ok(new
+            {
+                token = tokens.Token, refresh_token = tokens.RefreshToken,
+                expires_at = tokens.ExpiresAt, session_id = tokens.SessionId,
+                email = account.Email, role = account.Role
+            });
+        });
+
+        auth.MapPost("/refresh", async (RefreshRequest req, AuthSessionService sessions,
+            HttpContext http) =>
+        {
+            var tokens = await sessions.RotateAsync(req.RefreshToken,
+                http.Connection.RemoteIpAddress?.ToString(), http.Request.Headers.UserAgent);
+            return tokens is null
+                ? Results.Unauthorized()
+                : Results.Ok(new
+                {
+                    token = tokens.Token, refresh_token = tokens.RefreshToken,
+                    expires_at = tokens.ExpiresAt, session_id = tokens.SessionId
+                });
         });
 
         auth.MapPost("/oauth/callback", async (OAuthCallbackRequest req, ISqlSugarClient db,
-            JwtService jwt, IConfiguration config, IHttpClientFactory httpFactory,
-            ListingRepository registry) =>
+            IConfiguration config, IHttpClientFactory httpFactory,
+            ListingRepository registry, AuthSessionService sessions, IClusterClient client,
+            HttpContext http) =>
         {
             var (email, oauthId) = await ExchangeOAuthCode(req, config, httpFactory);
             if (email is null)
@@ -107,6 +133,7 @@ public static class UserAuthEndpoints
 
             var account = await db.Queryable<UserAccountEntity>()
                 .Where(x => x.OAuthProvider == req.Provider && x.OAuthId == oauthId).FirstAsync();
+            var createdIdentity = false;
 
             if (account is null)
             {
@@ -123,6 +150,7 @@ public static class UserAuthEndpoints
                         CreatedAt = DateTime.UtcNow,
                     };
                     await db.Insertable(account).ExecuteCommandAsync();
+                    createdIdentity = true;
                 }
                 else
                 {
@@ -139,9 +167,18 @@ public static class UserAuthEndpoints
             // OAuth may find an existing identity or create one; either way make
             // sure the product-owned registry can discover the user aggregate.
             await registry.RegisterInteger("user", account.Id);
+            if (createdIdentity)
+                await client.GetGrain<IUserGrain>(account.Id).Create(new UserUpsert(
+                    "user", 0m, 1, 0, []));
+            var tokens = await sessions.IssueAsync(account.Id, account.Email, account.Role,
+                http.Connection.RemoteIpAddress?.ToString(), http.Request.Headers.UserAgent);
 
-            var token = jwt.GenerateToken(account.Email, account.Role, account.Id);
-            return Results.Ok(new { token, email = account.Email, role = account.Role });
+            return Results.Ok(new
+            {
+                token = tokens.Token, refresh_token = tokens.RefreshToken,
+                expires_at = tokens.ExpiresAt, session_id = tokens.SessionId,
+                email = account.Email, role = account.Role
+            });
         });
 
         user.MapPost("/totp/setup", async (ClaimsPrincipal principal, ISqlSugarClient db,
@@ -200,6 +237,32 @@ public static class UserAuthEndpoints
                 .ExecuteCommandAsync();
 
             return Results.Ok(new { message = "2FA disabled" });
+        });
+
+        user.MapPost("/logout", async (ClaimsPrincipal principal, AuthSessionService sessions) =>
+        {
+            var subject = principal.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value;
+            var sessionId = principal.FindFirst("sid")?.Value;
+            if (!long.TryParse(subject, out var userId) || string.IsNullOrWhiteSpace(sessionId))
+                return Results.Unauthorized();
+            await sessions.RevokeAsync(userId, sessionId);
+            return Results.NoContent();
+        });
+
+        user.MapGet("/sessions", async (ClaimsPrincipal principal, AuthSessionService sessions) =>
+        {
+            if (!long.TryParse(principal.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value,
+                    out var userId)) return Results.Unauthorized();
+            return Results.Ok(await sessions.ListAsync(userId));
+        });
+
+        user.MapDelete("/sessions/{sessionId}", async (string sessionId,
+            ClaimsPrincipal principal, AuthSessionService sessions) =>
+        {
+            if (!long.TryParse(principal.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value,
+                    out var userId)) return Results.Unauthorized();
+            return await sessions.RevokeAsync(userId, sessionId)
+                ? Results.NoContent() : Results.NotFound();
         });
     }
 
