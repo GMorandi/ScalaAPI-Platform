@@ -111,7 +111,7 @@ not implementation parity or a migration target.
 On 2026-08-08 the isolated `scalaapi-stage2` project used current-source images:
 Platform `1f6ec6330e73d034434796d0b0520cbde2b348e68aebd1d8a153b39b0e7b8b23`,
 migrator `8ea85be1a9ffed1885cf35fbdb54c2813c04384f7c8f6c1d2fe1fbd7ae3fddbf`,
-Gateway `2f3b6f7141054c43beb6a830003a575b0810edac07699f49f4cc5770fcbf9789`, and
+Gateway `4ae2b43b753cf97f3baf07441f91d1dda68d53970d730372b7e5278781bb9989`, and
 Provider mock `425e1430cc32f8756a688d176f1d542c9026603c37e0cb609e55b5ee49d6bcb8`.
 The migrator applied 005-007 and a second run skipped them all. Registration
 returned user id 7 and registry id 7. Provider seed was idempotent (same account
