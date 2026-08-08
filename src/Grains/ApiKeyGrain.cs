@@ -67,14 +67,10 @@ public class ApiKeyGrain : Grain, IApiKeyGrain
             throw new InvalidOperationException("IP not in whitelist");
 
         var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-        ResetWindowIfExpired(s, now);
-
-        if (s.RateLimit5h > 0 && s.Usage5h >= s.RateLimit5h)
-            throw new InvalidOperationException("Rate limit exceeded (5h)");
-        if (s.RateLimit1d > 0 && s.Usage1d >= s.RateLimit1d)
-            throw new InvalidOperationException("Rate limit exceeded (1d)");
-        if (s.RateLimit7d > 0 && s.Usage7d >= s.RateLimit7d)
-            throw new InvalidOperationException("Rate limit exceeded (7d)");
+        var quota = ApiKeyQuotaPolicy.Evaluate(ToQuotaState(s), now);
+        ApplyQuotaState(s, quota.State);
+        if (!quota.Allowed)
+            throw new InvalidOperationException(quota.RejectionReason);
 
         var userGrain = GrainFactory.GetGrain<IUserGrain>(s.UserId);
         var user = await userGrain.GetAuthProjection();
@@ -123,7 +119,7 @@ public class ApiKeyGrain : Grain, IApiKeyGrain
         s.QuotaUsed += amount;
 
         var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-        ResetWindowIfExpired(s, now);
+        ApplyQuotaState(s, ApiKeyQuotaPolicy.Normalize(ToQuotaState(s), now));
         s.Usage5h += amount;
         s.Usage1d += amount;
         s.Usage7d += amount;
@@ -151,27 +147,20 @@ public class ApiKeyGrain : Grain, IApiKeyGrain
         }
     }
 
-    private static void ResetWindowIfExpired(ApiKeyState s, long nowMs)
-    {
-        const long fiveHoursMs = 5 * 3600 * 1000L;
-        const long oneDayMs = 24 * 3600 * 1000L;
-        const long sevenDaysMs = 7 * 24 * 3600 * 1000L;
+    private static ApiKeyQuotaState ToQuotaState(ApiKeyState s) => new(
+        s.Quota, s.QuotaUsed, s.RateLimit5h, s.RateLimit1d, s.RateLimit7d,
+        s.Usage5h, s.Usage1d, s.Usage7d,
+        s.Window5hStart, s.Window1dStart, s.Window7dStart);
 
-        if (nowMs - s.Window5hStart >= fiveHoursMs)
-        {
-            s.Usage5h = 0;
-            s.Window5hStart = nowMs;
-        }
-        if (nowMs - s.Window1dStart >= oneDayMs)
-        {
-            s.Usage1d = 0;
-            s.Window1dStart = nowMs;
-        }
-        if (nowMs - s.Window7dStart >= sevenDaysMs)
-        {
-            s.Usage7d = 0;
-            s.Window7dStart = nowMs;
-        }
+    private static void ApplyQuotaState(ApiKeyState target, ApiKeyQuotaState source)
+    {
+        target.QuotaUsed = source.QuotaUsed;
+        target.Usage5h = source.Usage5h;
+        target.Usage1d = source.Usage1d;
+        target.Usage7d = source.Usage7d;
+        target.Window5hStart = source.Window5hStart;
+        target.Window1dStart = source.Window1dStart;
+        target.Window7dStart = source.Window7dStart;
     }
 
     public async Task Create(ApiKeyUpsert input, long apiKeyId = 0)

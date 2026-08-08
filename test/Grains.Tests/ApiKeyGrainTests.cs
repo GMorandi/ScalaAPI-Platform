@@ -1,6 +1,7 @@
 using NSubstitute;
 using Orleans.TestingHost;
 using ScalaAPI.Grains.Interfaces;
+using ScalaAPI.Grains;
 
 namespace ScalaAPI.Grains.Tests;
 
@@ -15,6 +16,58 @@ public class ApiKeyGrainTests
 
     private static ApiKeyUpsert DefaultUpsert(long userId = 1, long groupId = 1) => new(
         userId, groupId, 100.0m, null, [], [], 0, 0, 0);
+
+    [Fact]
+    public void QuotaPolicy_AbsoluteQuotaWinsOverRollingWindows()
+    {
+        var state = new ApiKeyQuotaState(
+            10m, 10m, 5m, 8m, 9m, 5m, 8m, 9m, 1, 1, 1);
+
+        var decision = ApiKeyQuotaPolicy.Evaluate(state, 2);
+
+        Assert.False(decision.Allowed);
+        Assert.Equal("Quota exhausted", decision.RejectionReason);
+    }
+
+    [Fact]
+    public void QuotaPolicy_UsesShortestWindowForStablePrecedence()
+    {
+        var state = new ApiKeyQuotaState(
+            100m, 1m, 5m, 8m, 9m, 5m, 8m, 9m, 1, 1, 1);
+
+        var decision = ApiKeyQuotaPolicy.Evaluate(state, 2);
+
+        Assert.False(decision.Allowed);
+        Assert.Equal("Rate limit exceeded (5h)", decision.RejectionReason);
+    }
+
+    [Fact]
+    public void QuotaPolicy_ResetsEachExpiredWindowIndependently()
+    {
+        var now = 10_000_000L;
+        var state = new ApiKeyQuotaState(
+            100m, 20m, 10m, 30m, 40m, 10m, 30m, 40m,
+            now - (5 * 3600 * 1000L), now - 1, now - (7 * 24 * 3600 * 1000L));
+
+        var normalized = ApiKeyQuotaPolicy.Normalize(state, now);
+
+        Assert.Equal(0m, normalized.Usage5h);
+        Assert.Equal(30m, normalized.Usage1d);
+        Assert.Equal(0m, normalized.Usage7d);
+        Assert.Equal(now, normalized.Window5hStart);
+        Assert.Equal(now - 1, normalized.Window1dStart);
+        Assert.Equal(now, normalized.Window7dStart);
+    }
+
+    [Fact]
+    public void QuotaPolicy_ZeroLimitsRemainUnlimited()
+    {
+        var state = new ApiKeyQuotaState(
+            0m, 1_000_000m, 0m, 0m, 0m, 1_000_000m, 1_000_000m, 1_000_000m,
+            10_000_000, 10_000_000, 10_000_000);
+
+        Assert.True(ApiKeyQuotaPolicy.Evaluate(state, 10_000_001).Allowed);
+    }
 
     [Fact]
     public async Task Create_SetsVersionToOne()
