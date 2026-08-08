@@ -31,7 +31,9 @@ current Platform and sibling Gateway sources, and removes only that project on
 exit. It applies all migrations, runs the migrator again, configures a new user,
 API key, Provider mock groups, and active price versions through product APIs,
 then verifies chat settlement, idempotent replay, Garnet authentication, and an
-asynchronous image stored in the S3-compatible object store. Use
+asynchronous image stored in the S3-compatible object store. It also restarts the
+Platform and Gateway separately, sends a new billable request after each restart,
+and checks the resulting lease, hold, usage, ledger, and outbox invariants. Use
 `CONTAINER_CLI=podman` or `CONTAINER_CLI=docker` to select the runtime. Set
 `KEEP_STACK=1` to retain a failed or successful project for inspection, and set
 the `SMOKE_*_PORT` variables documented in `smoke.sh` when the default host ports

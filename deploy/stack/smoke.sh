@@ -36,6 +36,33 @@ compose() {
     "$container_cli" compose --project-name "$project" --file "$compose_file" "$@"
 }
 
+service_container_id() {
+    local service=$1
+    local container_id
+    container_id="$($container_cli ps --all \
+        --filter "label=com.docker.compose.project=$project" \
+        --filter "label=com.docker.compose.service=$service" \
+        --format '{{.ID}}' | tr -d '\r')"
+    if [[ ! "$container_id" =~ ^[a-f0-9]{12,64}$ ]]; then
+        echo "Expected one container ID for service '$service', got '$container_id'" >&2
+        return 1
+    fi
+    printf '%s\n' "$container_id"
+}
+
+recreate_service() {
+    local service=$1
+    local container_before
+    local container_after
+    container_before="$(service_container_id "$service")"
+    compose up --detach --no-deps --force-recreate --no-build "$service" >/dev/null
+    container_after="$(service_container_id "$service")"
+    if [[ "$container_after" == "$container_before" ]]; then
+        echo "Service '$service' did not receive a replacement container" >&2
+        return 1
+    fi
+}
+
 cleanup() {
     local status=$?
     set +e
@@ -77,6 +104,10 @@ user_email="smoke-${suffix}@scalaapi.test"
 user_password="smoke-user-${suffix}-password"
 chat_request_id="smoke-chat-${suffix}"
 chat_idempotency_key="smoke-chat-idem-${suffix}"
+platform_restart_request_id="smoke-platform-restart-${suffix}"
+platform_restart_idempotency_key="smoke-platform-restart-idem-${suffix}"
+gateway_restart_request_id="smoke-gateway-restart-${suffix}"
+gateway_restart_idempotency_key="smoke-gateway-restart-idem-${suffix}"
 media_idempotency_key="smoke-media-idem-${suffix}"
 chat_price_version="smoke-chat-${suffix}-v1"
 media_price_version="smoke-media-${suffix}-v1"
@@ -205,6 +236,41 @@ assert_equals "$(jq -cS . <<<"$chat_response")" "$(jq -cS . <<<"$chat_replay")" 
 assert_equals "1" "$(db_query "SELECT count(*) FROM request_idempotency WHERE idempotency_key = '$chat_idempotency_key';")" \
     "Idempotent chat lease count"
 
+echo "Restarting Platform and verifying a new billable request"
+recreate_service platform-silo
+wait_for "Platform readiness after restart" 90 compose exec -T platform-silo \
+    curl -fsS http://127.0.0.1:5000/ready >/dev/null
+
+platform_restart_response="$(curl -fsS "$gateway_url/v1/chat/completions" \
+    -H "Authorization: Bearer $api_key" -H "Content-Type: application/json" \
+    -H "X-Request-ID: $platform_restart_request_id" \
+    -H "Idempotency-Key: $platform_restart_idempotency_key" \
+    --data "$chat_body")"
+jq -e '(.choices | length > 0) and (.usage.total_tokens > 0)' \
+    <<<"$platform_restart_response" >/dev/null
+
+platform_restart_settled() {
+    [[ "$(db_query "SELECT count(*) FROM request_leases WHERE request_id = '$platform_restart_request_id' AND status = 'completed' AND final_cost_usd > 0 AND pricing_version = '$chat_price_version';")" == "1" ]]
+}
+wait_for "post-Platform-restart settlement" 30 platform_restart_settled
+
+echo "Restarting Gateway and verifying a new billable request"
+recreate_service gateway
+wait_for "Gateway readiness after restart" 90 curl -fsS "$gateway_url/ready" >/dev/null
+
+gateway_restart_response="$(curl -fsS "$gateway_url/v1/chat/completions" \
+    -H "Authorization: Bearer $api_key" -H "Content-Type: application/json" \
+    -H "X-Request-ID: $gateway_restart_request_id" \
+    -H "Idempotency-Key: $gateway_restart_idempotency_key" \
+    --data "$chat_body")"
+jq -e '(.choices | length > 0) and (.usage.total_tokens > 0)' \
+    <<<"$gateway_restart_response" >/dev/null
+
+gateway_restart_settled() {
+    [[ "$(db_query "SELECT count(*) FROM request_leases WHERE request_id = '$gateway_restart_request_id' AND status = 'completed' AND final_cost_usd > 0 AND pricing_version = '$chat_price_version';")" == "1" ]]
+}
+wait_for "post-Gateway-restart settlement" 30 gateway_restart_settled
+
 media_response="$(curl -fsS "$gateway_url/v1/images/generations/async" \
     -H "Authorization: Bearer $api_key" -H "Content-Type: application/json" \
     -H "Idempotency-Key: $media_idempotency_key" \
@@ -241,6 +307,16 @@ SELECT
   (SELECT count(*) FROM balance_ledger l JOIN request_leases r ON r.lease_token = l.lease_token WHERE r.request_id = '$chat_request_id' AND l.entry_type = 'usage_debit' AND l.amount = -r.final_cost_usd);")"
 assert_equals "0|0|0|0|1|1|1|1" "$terminal_state" "Terminal billing invariants"
 
+restart_state="$(db_query "
+SELECT
+  (SELECT count(*) FROM request_leases WHERE request_id IN ('$platform_restart_request_id', '$gateway_restart_request_id') AND status = 'completed') || '|' ||
+  (SELECT count(*) FROM balance_holds h JOIN request_leases l ON l.lease_token = h.lease_token WHERE l.request_id IN ('$platform_restart_request_id', '$gateway_restart_request_id') AND h.status = 'committed') || '|' ||
+  (SELECT count(*) FROM usage_events WHERE request_id IN ('$platform_restart_request_id', '$gateway_restart_request_id')) || '|' ||
+  (SELECT count(*) FROM usage_logs WHERE request_id IN ('$platform_restart_request_id', '$gateway_restart_request_id')) || '|' ||
+  (SELECT count(*) FROM balance_ledger l JOIN request_leases r ON r.lease_token = l.lease_token WHERE r.request_id IN ('$platform_restart_request_id', '$gateway_restart_request_id') AND l.entry_type = 'usage_debit' AND l.amount = -r.final_cost_usd);")"
+assert_equals "2|2|2|2|2" "$restart_state" \
+    "Platform/Gateway restart billing invariants"
+
 gateway_backlog() {
     [[ "$(curl -fsS "$gateway_url/metrics" | awk '$1 == "gateway_usage_outbox_backlog" {print $2}')" == "0" ]]
 }
@@ -259,4 +335,5 @@ echo "PASS: 17 empty-volume migrations and second-run idempotency"
 echo "PASS: Garnet-authenticated Gateway -> Platform -> Provider mock request"
 echo "PASS: terminal lease, hold, usage, ledger, and outbox invariants"
 echo "PASS: idempotent response replay without duplicate billing"
+echo "PASS: new billable requests after Platform and Gateway restarts"
 echo "PASS: S3-compatible bucket bootstrap, object persistence, and signed download ($media_size bytes)"
