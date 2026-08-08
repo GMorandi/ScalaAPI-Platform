@@ -12,7 +12,7 @@ This does not close the product rewrite. The next stage is one authoritative,
 billable OpenAI Chat Completions vertical slice. Work outside that slice stays
 `partial`, `skeleton`, or `missing` in the inventory.
 
-## Progress checkpoint (2026-08-08, platform `a95786d`, gateway `d066498`)
+## Progress checkpoint (2026-08-08, platform `2c511eb`, gateway `3643ec7`)
 
 - Completed in `b266e17`: business balances, quotas, costs, limits, and routing
   multipliers use `decimal`; precision projections cover User, Group, and API key.
@@ -69,6 +69,12 @@ billable OpenAI Chat Completions vertical slice. Work outside that slice stays
   timeout scenario and Gateway applies a 30-second non-stream boundary plus a
   request retry budget. Current-image evidence shows a 30.3-second `502`, an
   aborted lease, and no usage event; disconnect and restart scenarios remain.
+- Completed in `2c511eb` and `3643ec7`: completed non-stream idempotent requests
+  persist a bounded response status, content type, and body through Platform and
+  the Gateway outbox. After settlement, a matching retry returns the original
+  response without a new lease or debit; an active lease remains a deterministic
+  409 until its usage report is durable. Runtime evidence shows one completed
+  lease, one usage event, one NUMERIC debit, and a delayed 200 replay.
 - Still open: PostgreSQL aggregate repositories/foreign keys, fixed-precision RPC
   schema generation, crash/restart settlement scenarios, provider failure matrix,
   empty-volume CI automation, and Garnet flush/stale-version/TLS/multi-client evidence.
@@ -117,9 +123,11 @@ through product APIs and revoked sessions/keys are rejected across Gateway insta
 - Specify lease states and legal transitions: `created`, `held`, `forwarded`,
   `completed`, `aborted`, `expired`, and `settled`.
 - Bind request ID, idempotency key, request fingerprint, account, price version, and
-  durable hold to one lease before upstream forwarding. The current implementation
-  rejects duplicate synchronous/streaming dispatches; it does not yet persist and
-  replay a completed response body.
+  durable hold to one lease before upstream forwarding. Completed non-stream
+  responses now persist a bounded replay payload through migration 011; matching
+  retries after settlement do not allocate another lease or debit. Active duplicate
+  requests remain 409 until the completion report is durable, and streaming replay
+  is intentionally a separate protocol design.
 - Commit hold release/debit, usage event, ledger entry, and outbox acknowledgement
   transactionally or through replay-safe unique effects. The current completion
   transaction covers usage, ledger debit, lease finalization, and outbox enqueue;
@@ -133,11 +141,12 @@ double charge, lost charge, negative available balance, or orphan hold.
 ### 4. OpenAI Chat Provider vertical
 
 - Finish JSON and SSE request/response golden fixtures at Gateway; the live current
-  image now proves both response paths and usage extraction.
+  image now proves both response paths, usage extraction, and delayed JSON replay.
 - Route only through the revision-1 RPC contract and a provider-adapter interface;
   the mock is the first adapter target.
 - Preserve request IDs, bounded streaming/backpressure, usage parsing, provider
-  status, retry limits, cancellation, and safe error mapping.
+  status, retry limits, cancellation, safe error mapping, and bounded replay
+  headers/body semantics.
 - Expose Admin request, lease, usage, hold, and ledger queries from PostgreSQL.
   The current filtered ledger/lease/hold endpoints are a first operator surface;
   add cursor pagination and export before declaring the domain complete.

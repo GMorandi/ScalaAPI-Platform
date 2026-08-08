@@ -9,13 +9,13 @@ release artifacts.
 
 | Repository | Commit | Worktree | Responsibility |
 | --- | --- | --- | --- |
-| `gateway` | `d066498` | clean | C++ HTTP/WebSocket edge, protocol conversion, chunked streaming, Provider transport, versioned Garnet client, malformed-usage guard, fixed-scale Cap'n Proto client, unique failover lease IDs, bounded non-stream upstream timeout |
-| `platform` | `a95786d` | clean | C# Orleans control plane, PostgreSQL persistence, leases, NUMERIC ledger, durable holds/idempotency, usage, media lifecycle, Admin API, versioned Garnet rebuild, replayable balance effects, fixed-scale RPC contract, retryable terminal idempotency leases, password recovery, email verification, cancellable Provider mock timeout |
+| `gateway` | `3643ec7` | clean | C++ HTTP/WebSocket edge, protocol conversion, chunked streaming, Provider transport, versioned Garnet client, malformed-usage guard, fixed-scale Cap'n Proto client, unique failover lease IDs, bounded non-stream upstream timeout, bounded response replay |
+| `platform` | `2c511eb` | clean | C# Orleans control plane, PostgreSQL persistence, leases, NUMERIC ledger, durable holds/idempotency, usage, media lifecycle, Admin API, versioned Garnet rebuild, replayable balance effects, fixed-scale RPC contract, retryable terminal idempotency leases, bounded response persistence/replay, password recovery, email verification, cancellable Provider mock timeout |
 | `sub2api` | `43ec48d` | read-only clean reference | Functional requirements catalogue only |
 
-The current source inventory is 50 tracked Gateway source files, 83 CTest cases,
+The current source inventory is 50 tracked Gateway source files, 84 CTest cases,
 62 hand-written Platform production C# files plus 3 generated Cap'n Proto files,
-20 tracked Platform test/benchmark source files, 70 Platform test cases, 123 mapped
+32 tracked Platform test/benchmark C# source files, 71 Platform test cases, 123 mapped
 Admin API routes, 33 product tables, 20 SQLSugar entity types, and 31 Admin Web
 source files with 11 page views. Admin Web has no browser test runner yet.
 
@@ -60,10 +60,13 @@ not implementation parity or a migration target.
   Completion marks it `committed`; abort and expiry mark it `released`, using
   idempotent active-only updates.
 - Non-media requests persist `(api_key_id, idempotency_key, request_fingerprint)`
-  in `request_idempotency` with the lease. Existing keys are checked before
-  scheduling and return replay or fingerprint conflict; the create transaction
-  remains the race-safe fallback. Media operations retain their own lifecycle
-  table and idempotency contract.
+  in `request_idempotency` with the lease. Completed non-stream successes store a
+  bounded status, content type, and response body in the same settlement path;
+  matching retries after settlement return that body without a new lease or charge.
+  Existing keys are checked before scheduling and return replay or fingerprint
+  conflict; an active lease remains a deterministic 409 until its completion report
+  is durable. The create transaction remains the race-safe fallback. Media
+  operations retain their own lifecycle table and idempotency contract.
 - OpenAI Chat JSON and SSE pass the current Gateway -> Cap'n Proto -> Platform ->
   Provider mock path. Photon streaming responses use explicit chunked framing and
   provider usage is captured for settlement.
@@ -114,8 +117,8 @@ not implementation parity or a migration target.
   CI must still regenerate the C# output from the canonical schema and compare it
   before declaring contract generation complete.
 - Full empty-environment migration replay from an actually empty volume is still a
-  release gate; the current isolated database applied 005 through 009 and a
-  second migrator invocation skipped all eleven recorded migrations (000-010).
+  release gate; the current isolated database has migrations 000-011 and a second
+  migrator invocation skipped all twelve recorded migrations.
 - Session concurrent-rotation HTTP tests, crash injection, and API-key policy tests
   remain pending even though replay/logout, rotation, and revoke paths have runtime
   evidence.
@@ -132,21 +135,24 @@ not implementation parity or a migration target.
 ## Current runtime evidence
 
 On 2026-08-08 the isolated `scalaapi-stage2` project used current-source images:
-Platform `ad0c3e1d229395a38b87810ef0bb58b60367721b766c91f22078b742b1cd830e`,
+Platform `328d223b0148748a5d0d90371a1bf3781c45ec0e5d0f936ff54863add789b7ed`,
 Admin API `24416a1d267708f7c046dfb8fb4713a312c7f156ca5841267e0d6139d44ceaba`,
-migrator `0e97f42381e6e057d3be211cdf4f0f26c2ab34010242e3dbf54f78f4a459a2f7`,
-Gateway `46a552523c940fbf1bbdcfdac62f89cdc49764d76cf58793c5814c06b925e16d`, and
+migrator `5e5bbf68f2463273c8c49a8b818219f290af4d633e7dfdda32b3344d7b1fd683`,
+Gateway `4af127e144518ceba532f900278cc1895d8b23ddc48cbac4d4ad49298ca79359`, and
 Provider mock `95b8632dea20b787127dad9f8302afad1bffb70633283dcc61720a67a388b4a6`.
-The migrator applied 005-009 and a second run skipped them all. Registration
+The migrator applied 011 after the existing 000-010 baseline and a second run
+skipped all twelve migrations. Registration
 returned user id 7 and registry id 7. Provider seed was idempotent (same account
 and group on two calls); API-key rotation revoked the old key; Admin-created keys
 were projected into `user_api_keys`. Seeded JSON and SSE requests both returned
 200 through Provider mock. A completed lease settled at `0.00006750` USD with one
 `-0.00006750` NUMERIC ledger row and one committed durable hold.
 
-For request idempotency, two concurrent calls with the same key produced one 200
-and one 409 replay; a different fingerprint produced 409 conflict. Each key had
-one lease, one usage debit, and one committed hold. Admin ledger, lease, and hold
+For request idempotency, an immediate second call with the same key produced an
+active-lease 409; after the usage report settled, a matching retry returned
+the original 200 body with `Cache-Control: no-store`. A different fingerprint
+produced 409 conflict. The replay key had one completed lease, one usage event, one
+`0.00006750` NUMERIC debit, and one committed hold. Admin ledger, lease, and hold
 query endpoints returned the corresponding PostgreSQL rows. Refresh-token replay
 and logout revocation also returned 401 after the first use.
 
@@ -169,7 +175,7 @@ adapter requirement.
 Email-verification runtime evidence on the same image returned a debug token only
 with the explicit isolated-stack flag, accepted it once, rejected the replay with
 `400`, and persisted `email_verified=true` plus `email_verified_at`. The migrator
-applied 010 and skipped it on subsequent invocations.
+applied 010 and 011 and skipped both on subsequent invocations.
 
 The cancellable Provider mock `timeout` scenario held a non-stream request until
 Gateway's 30-second boundary; the current image returned `502` at 30.3 seconds,

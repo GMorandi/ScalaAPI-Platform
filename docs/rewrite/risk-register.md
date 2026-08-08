@@ -8,8 +8,8 @@
 | Garnet outage or stale projections | P0 | Partial | Fail-closed readiness and authenticated `scalaapi:v1` rebuild pass; add flush, stale-version, TLS, and multi-client tests |
 | Credential disclosure or weak rotation | P0 | Partial | Envelope encryption, redacted logs/API responses, rotation drill, security scan |
 | Provider response and usage differences | P0 | Partial | Deterministic mock JSON/SSE and malformed-usage fail-closed settlement pass; add adapter contract, golden fixtures, retry/timeout/disconnect reconciliation |
-| Request idempotency replay or fingerprint drift | P0 | Partial | Durable key/fingerprint rows reject duplicate charge and conflict before scheduling; add stored-response replay and restart-before-expiry tests |
-| Pricing version or decimal precision error | P0 | Partial | Decimal-only business DTOs and projection precision tests pass; replace Cap'n Proto Float64 fields and add NUMERIC historical settlement tests |
+| Request idempotency replay or fingerprint drift | P0 | Partial | Durable key/fingerprint rows reject duplicate charge and conflict before scheduling; bounded non-stream response replay is implemented; add restart-before-expiry and streaming semantics tests |
+| Pricing version or decimal precision error | P0 | Partial | Decimal-only business DTOs and projection precision tests pass; fixed-scale Cap'n Proto fields are enforced; add immutable price-version and NUMERIC historical settlement tests |
 | Scheduler split-brain or stale sticky route | P0 | Open | Orleans lease ownership, Garnet rebuild, multi-silo failure drills |
 | Media bytes lost or unauthorized | P0 | Open | S3 lifecycle, signed access, metadata/object reconciliation, restore test |
 | Long connection leaks or backpressure | P1 | Open | Streaming/WebSocket soak, bounded buffers, cancellation and disconnect assertions |

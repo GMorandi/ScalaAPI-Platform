@@ -41,8 +41,10 @@ source of truth. Orleans storage internals are never used as a business listing 
 ledger, and the outbox form one durable billing boundary. Media operations use their
 own idempotency key and lifecycle table because asynchronous response metadata must
 survive provider polling. A repeated synchronous/streaming key is checked before
-scheduling and returns replay or fingerprint conflict; response-body replay is a
-later product increment.
+scheduling and returns replay or fingerprint conflict; completed non-stream
+responses additionally retain a bounded body for replay after settlement. Active
+duplicates remain 409 until the completion report is durable, and streaming replay
+is a separate protocol concern.
 
 ## Garnet
 
