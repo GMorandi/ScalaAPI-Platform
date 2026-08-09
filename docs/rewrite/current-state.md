@@ -11,16 +11,16 @@ read-only requirements reference and is excluded from builds and runtime.
 | Repository | Commit | Worktree | Role |
 | --- | --- | --- | --- |
 | `gateway` | `3da0d33` | clean | C++ HTTP/WebSocket edge, protocol parsing/conversion, versioned OpenAI Chat/Responses, Anthropic Messages, and Gemini request/response/SSE golden contracts, full pairwise provider request/response/error matrix assertions, fail-closed model catalog and token-count validation, bounded Embeddings and Responses validation, streaming, strict Provider media contracts, bounded transport timers, normalized Provider availability errors, shared retryable Platform transport policy, durable usage delivery, authenticated Garnet projections, bounded request/response content-policy RPC evaluation, event-boundary streaming response moderation, and fail-closed response delivery including retryable classifier outages |
-| `platform` | `e05ed40` backend + User Web `e05ed40` | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, Provider mock contracts, rotating identity/session/TOTP/OAuth state, native Passkey/WebAuthn ceremonies, encrypted email notification outbox and retry worker, API-key policy and audit, versioned runtime configuration, persistent scheduling and lease/hold/ledger state, atomic subscription quota reservation and settlement, idempotent subscription expiry/renewal worker, audited operator reconciliation, atomic audited referral rewards, authenticated and audited operational metrics, bounded redacted audit queries/exports, encrypted proxy and validated TLS profile administration, audited bounded channel monitor checks, auditable user data export, bounded authentication/ceremony cleanup, user announcement read tracking, media/object lifecycle, staged request/response content-policy evaluation with versioned Unicode normalization, bounded source-owned external classifier adapter, durable policy revision propagation through Garnet, operational alert evidence, and redacted audits |
+| `platform` | `d71fe8b` backend + User Web `d71fe8b` | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, Provider mock contracts, bounded provider pricing catalog refresh with immutable source/checksum history, rotating identity/session/TOTP/OAuth state, native Passkey/WebAuthn ceremonies, encrypted email notification outbox and retry worker, API-key policy and audit, versioned runtime configuration, persistent scheduling and lease/hold/ledger state, atomic subscription quota reservation and settlement, idempotent subscription expiry/renewal worker, audited operator reconciliation, atomic audited referral rewards, authenticated and audited operational metrics, bounded redacted audit queries/exports, encrypted proxy and validated TLS profile administration, audited bounded channel monitor checks, auditable user data export, bounded authentication/ceremony cleanup, user announcement read tracking, media/object lifecycle, staged request/response content-policy evaluation with versioned Unicode normalization, bounded source-owned external classifier adapter, durable policy revision propagation through Garnet, operational alert evidence, and redacted audits |
 | `sub2api` | `43ec48d` | read-only clean | Requirements catalogue only; never a runtime or compatibility dependency |
 
 The current tracked inventory is:
 
 - Gateway: 52 production C++ source/header files, 11 test source files, and 125
   CTest cases.
-- Platform: 107 hand-written production C# files, 3 generated Cap'n Proto C#
-  files, 51 test/benchmark C# files, and 193 tests: 69 Grain, 53 Host, 30 Admin,
-  and 41 Provider mock tests.
+- Platform: 108 hand-written production C# files, 3 generated Cap'n Proto C#
+  files, 52 test/benchmark C# files, and 197 tests: 69 Grain, 56 Host, 30 Admin,
+  and 42 Provider mock tests.
 - Product surface: 125 direct Admin API route declarations, 50 product tables,
   22 SQLSugar entity types, 23 Admin Web TypeScript/TSX files and 11 page views,
   plus 17 User Web TypeScript/TSX files and 11 user views.
@@ -244,6 +244,15 @@ current-source runtime evidence.
 - Admin can publish/close effective price versions. New leases snapshot version
   identity and every NUMERIC unit rate, so mutable configuration cannot reprice an
   existing request.
+- Platform `d71fe8b` adds migration 036 price-source metadata and a bounded provider
+  pricing catalog adapter. HTTPS is required by default, provider credentials are
+  sent only as authorization headers, malformed/duplicate/oversized/non-decimal
+  quotes are rejected, and a canonical checksum gives each model an immutable
+  source version. Changed snapshots close only the previous open version for the
+  same provider/model; identical snapshots replay without new rows. The hosted
+  refresh worker is configured for the source-owned Provider Mock in the development
+  stack. Provider-specific pricing rules, tokenizer authority, and multi-provider
+  runtime evidence remain open.
 - Runtime configuration is persisted in the `system` ConfigGrain with bounded
   keys/values, explicit rejection of secrets and connection strings, boolean-only
   `feature.*` flags, independent snapshots, and optimistic version checks. Admin
@@ -363,11 +372,11 @@ current-source runtime evidence.
 
 ### Bootstrap and deployment
 
-- The direct source migrator applied product migrations 001-035 to a temporary
-  empty PostgreSQL 17 database and skipped all 35 on replay. The migrator image
+- The direct source migrator applied product migrations 001-036 to a temporary
+  empty PostgreSQL 17 database and skipped all 36 on replay. The migrator image
   copies the complete migration directory, so new forward migrations cannot be
   silently omitted. The targeted empty-schema subscription gate applies and replays
-  36 records including Orleans support. No source database, snapshot, old key, CDC
+  37 records including Orleans support. No source database, snapshot, old key, CDC
   table, or compatibility mapping is required; the full Compose image gate still
   needs to be rebuilt against this commit.
 - `deploy/stack` independently starts PostgreSQL, authenticated Garnet, MinIO,
@@ -385,7 +394,7 @@ current-source runtime evidence.
 
 ## Current verification evidence
 
-At Platform `e05ed40` plus User Web `e05ed40`, and Gateway `3da0d33`:
+At Platform `d71fe8b` plus User Web `d71fe8b`, and Gateway `3da0d33`:
 
 - Gateway built locally and passed 125/125 CTest cases, including deterministic
   fault-hook claim/repeat behavior, terminal SSE detection, provider EOF
@@ -397,8 +406,8 @@ At Platform `e05ed40` plus User Web `e05ed40`, and Gateway `3da0d33`:
   sixteen request pairs, all sixteen response pairs, cross-protocol response
   envelope validation, and cross-protocol error normalization with standard
   status precedence.
-- Platform Release test/build passed with 0 warnings and 0 errors: 193/193 tests,
-  including 53 Host tests, 69 Grain tests, 30 Admin tests, and 41 Provider mock
+- Platform Release test/build passed with 0 warnings and 0 errors: 197/197 tests,
+  including 56 Host tests, 69 Grain tests, 30 Admin tests, and 42 Provider mock
   tests. Admin coverage
   includes PostgreSQL-backed TOTP replay, backup-code consumption, lockout,
   recovery, OAuth provider/redirect/verifier binding, one-time state consumption,
@@ -427,6 +436,14 @@ At Platform `e05ed40` plus User Web `e05ed40`, and Gateway `3da0d33`:
   coverage additionally proves auto-renew grant reset, stale-expired recovery,
   no-renew expiry, reservation deferral, deterministic events, and concurrent
   worker once-only processing.
+- BILL-02 coverage adds migration 036 source/provider/checksum columns. The
+  `ProviderPricingCatalogClient` test proves bearer-header handling, deterministic
+  checksum/version generation, decimal bounds, duplicate rejection, and bounded
+  response parsing. Against an empty PostgreSQL 17 schema, two snapshots inserted
+  four immutable model versions, replay inserted zero rows, and the changed snapshot
+  closed the two previous open rows while leaving the new versions open. The source
+  Provider Mock exposes three deterministic decimal quotes; provider-specific
+  adapters, tokenizer/golden fixtures, and multi-provider runtime E2E remain open.
 - SEC-01 now has executable request, non-stream response, and SSE event-boundary
   evidence: the canonical Cap'n Proto contract carries bounded request/response
   policy content, Platform evaluates active scoped rules before lease creation or

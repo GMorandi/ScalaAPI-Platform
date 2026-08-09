@@ -2,7 +2,7 @@
 
 ## Checkpoint
 
-The next stage starts from Platform and User Web `e05ed40`, Gateway `3da0d33`, and read-only
+The next stage starts from Platform and User Web `d71fe8b`, Gateway `3da0d33`, and read-only
 reference `sub2api@43ec48d`.
 
 The greenfield baseline now starts from empty volumes, uses PostgreSQL as authority,
@@ -152,6 +152,12 @@ after reservations drain, stale `expired` auto-renew rows recover, and held rows
 become `past_due` until terminal lease evidence exists. Deterministic subscription
 events and a concurrent PostgreSQL test make the transition replay-safe. External
 payment confirmation and quota reconciliation remain separate gates.
+Platform `d71fe8b` adds the BILL-02 source boundary: migration 036 records provider,
+source-model, and checksum metadata; the bounded catalog adapter validates fixed-scale
+decimal quotes over HTTPS by default; changed snapshots close only the prior open
+version for that provider/model; and identical snapshots replay without new rows.
+Provider Mock plus real PostgreSQL tests prove the contract and history. Provider-
+specific price rules, tokenizer/golden fixtures, and multi-provider runtime E2E remain.
 Migration `023-auth-oauth-states.sql` now adds one-time OAuth state with S256 PKCE:
 the Admin start flow returns provider-bound state/verifier/challenge material,
 PostgreSQL stores only hashes, and callback consumption binds the exact redirect URI
@@ -686,8 +692,8 @@ Then expand the remaining 58-domain work in this order:
    Anthropic Messages, Gemini generation, model catalogue/token counting, and
    runtime cross-protocol E2E; source-owned protocol fixtures are frozen in
    Gateway `8f33790`.
-2. Complete Provider-specific OAuth refresh profiles and runtime evidence, price/quota adapters, media recovery,
-   and object reconciliation/restore.
+2. Complete Provider-specific OAuth refresh profiles and runtime evidence, provider-
+   specific price/tokenizer adapters, media recovery, and object reconciliation/restore.
 3. Complete identity hardening beyond the TOTP, OAuth PKCE, Passkey, and encrypted
    mail-outbox state machines, including backup-code recovery UX, live SMTP/provider
    delivery, anti-enumeration,
