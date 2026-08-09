@@ -11,7 +11,7 @@ read-only requirements reference and is excluded from builds and runtime.
 | Repository | Commit | Worktree | Role |
 | --- | --- | --- | --- |
 | `gateway` | `cd475c7` | clean | C++ HTTP/WebSocket edge, protocol parsing/conversion, fail-closed OpenAI/Gemini model catalog and Anthropic token-count response validation, bounded Embeddings and Responses validation, streaming, strict Provider media contracts, bounded transport timers, normalized Provider availability errors, shared retryable Platform transport policy, durable usage delivery, authenticated Garnet projections, bounded request/response content-policy RPC evaluation, event-boundary streaming response moderation, and fail-closed response delivery including retryable classifier outages |
-| `platform` | `9fb449c` | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, Provider mock contracts, rotating identity/session/TOTP/OAuth state, API-key policy and audit, versioned runtime configuration, persistent scheduling and lease/hold/ledger state, audited operator reconciliation, media/object lifecycle, staged request/response content-policy evaluation with versioned Unicode normalization, classifier boundary, durable policy revision propagation through Garnet, operational alert evidence, and redacted audits |
+| `platform` | `caa719e` | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, Provider mock contracts, rotating identity/session/TOTP/OAuth state, API-key policy and audit, versioned runtime configuration, persistent scheduling and lease/hold/ledger state, audited operator reconciliation, media/object lifecycle, staged request/response content-policy evaluation with versioned Unicode normalization, classifier boundary, durable policy revision propagation through Garnet, operational alert evidence, and redacted audits |
 | `sub2api` | `43ec48d` | read-only clean | Requirements catalogue only; never a runtime or compatibility dependency |
 
 The current tracked inventory is:
@@ -299,7 +299,7 @@ current-source runtime evidence.
 
 ## Current verification evidence
 
-At Platform `9fb449c` and Gateway `cd475c7`:
+At Platform `caa719e` and Gateway `cd475c7`:
 
 - Gateway built locally and passed 118/118 CTest cases, including deterministic
   fault-hook claim/repeat behavior, terminal SSE detection, provider EOF

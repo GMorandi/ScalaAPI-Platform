@@ -2,7 +2,7 @@
 
 ## Checkpoint
 
-The next stage starts from Platform `9fb449c`, Gateway `cd475c7`, and read-only
+The next stage starts from Platform `caa719e`, Gateway `cd475c7`, and read-only
 reference `sub2api@43ec48d`.
 
 The greenfield baseline now starts from empty volumes, uses PostgreSQL as authority,
@@ -78,7 +78,8 @@ policy error on block or fail-closed evaluation, and preserves the unknown-charg
 hold and idempotency evidence. The same empty-stack run proves the first event is
 not leaked and the retained hold is reconciled later.
 
-The completed policy-operations slice is committed as Platform `9fb449c`.
+The completed policy-operations slice is committed as Platform `9fb449c`, with
+worker-order serialization finalized in `caa719e`.
 Migration 030 makes Admin rule create/update/delete mutations append an actor/IP
 audit row and a durable revision outbox atomically. A hosted worker claims the
 outbox with expiry/retry state, publishes the revision and invalidation counter to
@@ -150,7 +151,7 @@ concurrency, and idempotent group spend remain covered by the Grain suite; HTTP
 group CRUD validation, distributed rate-window contention, and multi-Silo fallback
 fault evidence remain release work.
 
-The `SEC-01` runtime slice is active at Gateway `cd475c7` and Platform `9fb449c`.
+The `SEC-01` runtime slice is active at Gateway `cd475c7` and Platform `caa719e`.
 The canonical dispatch contract carries bounded request and response content.
 Platform applies request `log`/`block` rules before scheduler/lease activity and
 response rules after Provider validation but before non-stream delivery. Both stages
@@ -176,7 +177,7 @@ are automated.
    instances. Verify ordered outbox claims, Garnet invalidation convergence,
    monotonic revisions under concurrent rule changes, and alert correlation after
    worker failure or Garnet outage. The single-instance outbox, retry, and alert
-   evidence is complete in `9fb449c`.
+   evidence is complete in `caa719e`.
 3. Add operator and browser evidence. Exercise Admin rule management with fresh
    identity, authorization, audit, redaction, and replay checks; add Admin/User Web
    browser tests for policy management and the user-visible 400/503 policy error
