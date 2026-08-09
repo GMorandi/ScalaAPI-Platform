@@ -11,7 +11,7 @@ read-only requirements reference and is excluded from builds and runtime.
 | Repository | Commit | Worktree | Role |
 | --- | --- | --- | --- |
 | `gateway` | `9c7171f` | clean | C++ HTTP/WebSocket edge, protocol parsing/conversion, streaming, strict Provider media contracts, bounded stream header/client timeouts, distinct inter-chunk/total timer tests, normalized Provider availability errors, shared retryable Platform transport policy for HTTP and realtime dispatch, Photon WebSocket URL normalization, transport/evidence, charge-aware failover, durable usage delivery, authenticated Garnet projections, deterministic fault boundaries, and late-usage settlement from truncated SSE |
-| `platform` | `b047445` | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, identity/TOTP and OAuth PKCE abuse state, scheduling, evidence-backed leases/holds/ledger, audited operator resolution, restart-safe active-lease dispatch recovery, media lifecycle, Admin API/Web/User Web, HTTP/SSE and realtime Provider mock fixtures, dependency-free realtime full-stack smoke assertions, verified Gateway image override support, migrations, deterministic Platform/Gateway fault boundaries, and Garnet deployment gates |
+| `platform` | `9491ea9` | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, identity/TOTP and OAuth PKCE abuse state, scheduling, evidence-backed leases/holds/ledger, audited operator resolution, restart-safe active-lease dispatch recovery, media lifecycle, Admin API/Web/User Web, HTTP/SSE and realtime Provider mock fixtures, dependency-free realtime full-stack smoke assertions, verified Gateway image override support, migrations, deterministic Platform/Gateway fault boundaries, and Garnet deployment gates |
 | `sub2api` | `43ec48d` | read-only clean | Requirements catalogue only; never a runtime or compatibility dependency |
 
 The current tracked inventory is:
@@ -23,7 +23,7 @@ The current tracked inventory is:
   and 6 Provider mock tests.
 - Product surface: 119 direct Admin API route declarations, 45 product tables,
   20 SQLSugar entity types, 23 Admin Web TypeScript/TSX files and 11 page views,
-  plus 13 User Web TypeScript/TSX files and 8 user views.
+  plus 15 User Web TypeScript/TSX files and 10 user views.
 - Reference scope: approximately 612 Sub2API route registrations, 39 concrete
   Ent schemas, 82 Vue view/component files, and 240 migrations. These are scope
   signals, not parity percentages or migration targets.
@@ -134,11 +134,13 @@ current-source runtime evidence.
   one-time consumption, persisted consumed state, and expiry; external provider
   adapters and account-link/browser tests remain open.
 - The User Web is a separate Solid client with registration/login, OAuth callback,
-  refresh-aware sessions, balance and recent usage overview, scoped usage history,
-  API key create/rotate/revoke, payment orders, subscriptions, profile editing,
-  and password change. It is served independently from Admin Web and uses only the
-  new `/auth` and `/user` contracts; recovery, TOTP setup UX, redeem/affiliate flows,
-  and browser automation remain open.
+  refresh-aware sessions, password-reset request/confirmation, balance and recent
+  usage overview, scoped usage history, API key create/rotate/revoke, payment
+  orders, subscriptions, profile editing, password change, and an authenticated
+  TOTP setup/verify/disable page with one-time backup-code display. It is served
+  independently from Admin Web and uses only the new `/auth` and `/user` contracts;
+  email-verification UI, backup-code sign-in UX, redeem/affiliate flows, and browser
+  automation remain open.
 - Users, groups, Provider accounts, encrypted credentials, scheduling, sticky
   routing, rate/concurrency policy, and versioned pricing are represented as
   Orleans aggregates with PostgreSQL operational records where implemented.
@@ -219,7 +221,7 @@ current-source runtime evidence.
 
 ## Current verification evidence
 
-At Platform `b047445` and Gateway `9c7171f`:
+At Platform `9491ea9` and Gateway `9c7171f`:
 
 - Gateway built locally and passed 104/104 CTest cases, including deterministic
   fault-hook claim/repeat behavior, terminal SSE detection, provider EOF
@@ -233,7 +235,8 @@ At Platform `b047445` and Gateway `9c7171f`:
   and expiry. Host coverage
   includes deterministic fault-hook configuration plus atomic operator
   settle/release, replay/conflict behavior, and concurrent resolution serialization.
-- Admin Web and User Web typecheck and production builds passed.
+- Admin Web and User Web typecheck and production builds passed; the User Web
+  build includes password recovery and authenticator security routes.
 - `deploy/stack/realtime_smoke.py` passed against a real Release `Provider.Mock`
   process and through the full Gateway -> Platform -> Provider path. The clean
   Gateway runtime image was built from the immutable Photon commit
@@ -402,7 +405,8 @@ Detailed gate results and residual coverage are maintained in `verification.md`.
   tests for auth recovery/TOTP UX, Passkeys, full commercial coupling, audit/observability,
   HA, load/soak, backup/restore, and signed rollback remain partial or missing.
 - Admin Web and User Web have blocking type/build gates but no browser runner;
-  recovery, payment, and account-management browser scenarios remain.
+  email verification, backup-code sign-in, payment, and account-management browser
+  scenarios remain.
 
 ## Historical boundary and acceptance rule
 

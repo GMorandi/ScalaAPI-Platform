@@ -2,7 +2,7 @@
 
 ## Checkpoint
 
-The next stage starts from Platform `b047445`, Gateway `9c7171f`, and read-only
+The next stage starts from Platform `9491ea9`, Gateway `9c7171f`, and read-only
 reference `sub2api@43ec48d`.
 
 The greenfield baseline now starts from empty volumes, uses PostgreSQL as authority,
@@ -62,8 +62,10 @@ boundaries, the worker/multi-silo matrix, and multi-instance scenarios are still
 open.
 The current identity slice adds migration `022-auth-totp-state.sql`: TOTP
 time-step replay, backup-code consumption, five-failure lockout, and lockout
-recovery are transactionally tested across two service instances. Endpoint/browser
-recovery UX and the remaining identity providers are still open.
+recovery are transactionally tested across two service instances. User Web now
+exposes password recovery and TOTP setup/verify/disable screens; browser evidence,
+backup-code sign-in UX, email verification, and the remaining identity providers
+are still open.
 Migration `023-auth-oauth-states.sql` now adds one-time OAuth state with S256 PKCE:
 the Admin start flow returns provider-bound state/verifier/challenge material,
 PostgreSQL stores only hashes, and callback consumption binds the exact redirect URI
@@ -73,9 +75,11 @@ remain release work.
 The first User Web slice now provides a standalone refresh-aware Solid client:
 registration/password login, PKCE callback, dashboard balance/recent usage,
 user-scoped usage history, API keys, billing/subscriptions, profile, and password
-change. The API adds user-scoped usage and balance reads and the Compose stack
-serves User Web separately from Admin Web. Browser automation, recovery-code UX,
-payment checkout, redeem/affiliate workflows, and TOTP setup UI remain open.
+change, password recovery, and TOTP setup/verification/disable with backup-code
+display. The API adds user-scoped usage and balance reads and the Compose stack
+serves User Web separately from Admin Web. Browser automation, email verification,
+backup-code sign-in UX, payment checkout, and redeem/affiliate workflows remain
+open.
 
 This stage contains no compatibility, cutover, dual-write, CDC, snapshot import,
 old-key import, ID preservation, status mapping, or business-data migration work.
@@ -104,7 +108,7 @@ Accounting authority completed at `c15b53b`, reconciliation foundation at
 `fddba62`, dispatch evidence at `6bfb974`/`84634d1`, audited resolution at
 `0559659`, and deterministic fault boundaries at `1cad5b7`/`30b8c2b`/`8c3d2e0`,
 with current streaming/empty-stack evidence in Gateway `9c7171f` and Platform
-`b047445`:
+`9491ea9`:
 
 - Added one per-user `accounting_accounts` authority with NUMERIC posted balance
   and monotonically increasing ledger version.
@@ -219,7 +223,7 @@ an open incident can be resolved only through the audited settle/release contrac
 
 ## Work package 2: cancellation and streaming failure semantics
 
-Progress in Gateway `9c7171f` and Platform `b047445`: the streaming pipe now requires a source protocol
+Progress in Gateway `9c7171f` and Platform `9491ea9`: the streaming pipe now requires a source protocol
 terminal event before treating Provider EOF as complete, classifies timeout/EOF as
 incomplete (including Photon incomplete chunked-body `-1/errno=0`), treats
 zero/error client writes as cancellation, records bounded
@@ -384,7 +388,7 @@ Then expand the remaining 58-domain work in this order:
 2. Complete Provider OAuth/credential refresh, price/quota adapters, media recovery,
    and object reconciliation/restore.
 3. Complete identity hardening beyond the TOTP and OAuth PKCE state machines, Passkeys,
-   recovery workflows, and browser tests for the new User Web/API-key/usage/order/
+   email verification and backup-code recovery UX, and browser tests for the new User Web/API-key/usage/order/
    subscription flows.
 4. Complete payment adapters/reconciliation/refunds, subscription workers, redeem,
    affiliate, notification, and commercial audit flows.
