@@ -196,6 +196,71 @@ public sealed class PasskeyStore(NpgsqlDataSource dataSource)
         await transaction.CommitAsync(ct);
     }
 
+    public async Task<bool> CompleteRegistrationAsync(
+        Guid challengeId,
+        long actorId,
+        long userId,
+        byte[] credentialId,
+        byte[] userHandle,
+        byte[] publicKey,
+        uint signatureCounter,
+        string? displayName,
+        string? clientIp,
+        CancellationToken ct = default)
+    {
+        ValidateCredential(actorId, userId, credentialId, userHandle, publicKey, displayName,
+            out displayName);
+
+        await using var connection = await dataSource.OpenConnectionAsync(ct);
+        await using var transaction = await connection.BeginTransactionAsync(ct);
+        await using var consume = connection.CreateCommand();
+        consume.Transaction = transaction;
+        consume.CommandText = """
+            UPDATE passkey_challenges
+            SET consumed_at = now()
+            WHERE challenge_id = $1 AND user_id = $2 AND flow = 'registration'
+              AND consumed_at IS NULL AND expires_at > now()
+            """;
+        consume.Parameters.AddWithValue(challengeId);
+        consume.Parameters.AddWithValue(userId);
+        if (await consume.ExecuteNonQueryAsync(ct) != 1)
+        {
+            await transaction.RollbackAsync(ct);
+            return false;
+        }
+
+        await using var insert = connection.CreateCommand();
+        insert.Transaction = transaction;
+        insert.CommandText = """
+            INSERT INTO passkey_credentials(
+                credential_id, user_id, user_handle, public_key,
+                signature_counter, display_name)
+            VALUES ($1, $2, $3, $4, $5, $6)
+            """;
+        insert.Parameters.AddWithValue(credentialId);
+        insert.Parameters.AddWithValue(userId);
+        insert.Parameters.AddWithValue(userHandle);
+        insert.Parameters.AddWithValue(publicKey);
+        insert.Parameters.AddWithValue((long)signatureCounter);
+        insert.Parameters.AddWithValue(displayName);
+        await insert.ExecuteNonQueryAsync(ct);
+
+        await using var audit = connection.CreateCommand();
+        audit.Transaction = transaction;
+        audit.CommandText = """
+            INSERT INTO audit_logs(
+                user_id, action, resource_type, resource_id, details, ip_address)
+            VALUES ($1, 'passkey.registered', 'passkey', $2, $3, $4)
+            """;
+        audit.Parameters.AddWithValue(actorId);
+        audit.Parameters.AddWithValue(Convert.ToHexString(credentialId).ToLowerInvariant());
+        audit.Parameters.AddWithValue("{\"user_id\":" + userId + "}");
+        audit.Parameters.AddWithValue((object?)clientIp ?? DBNull.Value);
+        await audit.ExecuteNonQueryAsync(ct);
+        await transaction.CommitAsync(ct);
+        return true;
+    }
+
     public async Task<bool> UpdateCounterAsync(
         byte[] credentialId,
         uint signatureCounter,
@@ -262,5 +327,22 @@ public sealed class PasskeyStore(NpgsqlDataSource dataSource)
                 reader.GetDateTime(6), reader.IsDBNull(7) ? null : reader.GetDateTime(7)));
         }
         return items;
+    }
+
+    private static void ValidateCredential(
+        long actorId,
+        long userId,
+        byte[] credentialId,
+        byte[] userHandle,
+        byte[] publicKey,
+        string? displayName,
+        out string normalizedDisplayName)
+    {
+        if (actorId <= 0 || userId <= 0 || credentialId.Length is 0 or > 1024
+            || userHandle.Length is 0 or > 128 || publicKey.Length is 0 or > 4096)
+            throw new ArgumentException("Passkey credential material is out of bounds");
+        normalizedDisplayName = string.IsNullOrWhiteSpace(displayName) ? "Passkey" : displayName.Trim();
+        if (normalizedDisplayName.Length > 200 || normalizedDisplayName.Any(char.IsControl))
+            throw new ArgumentException("Passkey display name is invalid", nameof(displayName));
     }
 }

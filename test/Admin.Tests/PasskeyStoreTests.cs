@@ -29,13 +29,12 @@ public sealed class PasskeyStoreTests
             Assert.NotNull(challenge);
             Assert.Equal("test", System.Text.Json.JsonDocument.Parse(
                 challenge!.OptionsJson).RootElement.GetProperty("challenge").GetString());
-            Assert.True(await store.TryConsumeChallengeAsync(
-                challengeId, userId, "registration"));
-            Assert.False(await store.TryConsumeChallengeAsync(
-                challengeId, userId, "registration"));
-
-            await store.AddCredentialAsync(1, userId, credentialId, userHandle,
-                publicKey, 4, "Test passkey", "127.0.0.1");
+            Assert.True(await store.CompleteRegistrationAsync(
+                challengeId, 1, userId, credentialId, userHandle,
+                publicKey, 4, "Test passkey", "127.0.0.1"));
+            Assert.False(await store.CompleteRegistrationAsync(
+                challengeId, 1, userId, credentialId, userHandle,
+                publicKey, 4, "Test passkey", "127.0.0.1"));
             var credential = await store.GetCredentialAsync(credentialId);
             Assert.NotNull(credential);
             Assert.Equal(4u, credential!.SignatureCounter);

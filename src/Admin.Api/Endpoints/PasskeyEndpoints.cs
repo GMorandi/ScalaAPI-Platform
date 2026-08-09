@@ -98,13 +98,11 @@ public static class PasskeyEndpoints
                     IsCredentialIdUniqueToUserCallback = async (args, callbackCt) =>
                         !await passkeys.CredentialExistsAsync(args.CredentialId, callbackCt),
                 }, ct);
-                if (!await passkeys.TryConsumeChallengeAsync(
-                        challengeId, userId, "registration", ct))
+                if (!await passkeys.CompleteRegistrationAsync(
+                        challengeId, userId, userId, result.Id, UserHandle(userId),
+                        result.PublicKey, result.SignCount, "Passkey",
+                        request.HttpContext.Connection.RemoteIpAddress?.ToString(), ct))
                     return Results.Conflict(new { error = "passkey_challenge_replayed" });
-                await passkeys.AddCredentialAsync(
-                    userId, userId, result.Id, UserHandle(userId), result.PublicKey,
-                    result.SignCount, "Passkey",
-                    request.HttpContext.Connection.RemoteIpAddress?.ToString(), ct);
                 return Results.Ok(new
                 {
                     id = WebEncoders.Base64UrlEncode(result.Id),
