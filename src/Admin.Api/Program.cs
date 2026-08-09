@@ -90,6 +90,7 @@ builder.Services.AddSingleton<EmailVerificationService>();
 builder.Services.AddSingleton<IEmailSender, SmtpEmailSender>();
 builder.Services.AddHostedService<EmailDeliveryWorker>();
 builder.Services.AddHostedService<PaymentWebhookRecoveryService>();
+builder.Services.AddHostedService<SubscriptionRenewalService>();
 
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(opts =>
