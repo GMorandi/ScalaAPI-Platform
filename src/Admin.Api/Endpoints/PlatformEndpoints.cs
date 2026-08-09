@@ -20,6 +20,7 @@ namespace ScalaAPI.Admin.Endpoints;
 
 public record SubscriptionPurchaseRequest(long PlanId, string? ExternalReference, bool AutoRenew = true);
 public record SubscriptionRenewRequest(bool AutoRenew = true);
+public record OpsMetricIngestRequest(string? MetricName, decimal MetricValue, string? Labels);
 public record PricingVersionRequest(
     string Version, string Model, decimal InputUsdPerMillion, decimal OutputUsdPerMillion,
     decimal CacheReadUsdPerMillion, decimal CacheWriteUsdPerMillion,
@@ -1083,22 +1084,32 @@ public static class PlatformEndpoints
     {
         var group = app.MapGroup("/admin/ops-metrics").RequireAuthorization("AdminOnly");
 
-        group.MapGet("/", async (ISqlSugarClient db, string? metricName,
-            DateTime? from, DateTime? to, int limit = 100) =>
+        group.MapGet("/", async (OpsMetricsStore metrics, string? metricName,
+            DateTime? from, DateTime? to, int limit = 100, CancellationToken ct = default) =>
         {
-            var query = db.Queryable<OpsMetricsEntity>();
-            if (!string.IsNullOrEmpty(metricName)) query = query.Where(x => x.MetricName == metricName);
-            if (from.HasValue) query = query.Where(x => x.CollectedAt >= from.Value);
-            if (to.HasValue) query = query.Where(x => x.CollectedAt <= to.Value);
-            var items = await query.OrderByDescending(x => x.CollectedAt).Take(limit).ToListAsync();
+            var items = await metrics.SummarizeAsync(metricName, from, to, limit, ct);
             return Results.Ok(new { items });
         });
 
-        group.MapPost("/ingest", async (ISqlSugarClient db, OpsMetricsEntity req) =>
+        group.MapGet("/policy-alerts", async (OpsMetricsStore metrics, string? kind,
+            string? severity, DateTime? from, int limit = 100, CancellationToken ct = default) =>
         {
-            req.CollectedAt = DateTime.UtcNow;
-            await db.Insertable(req).ExecuteCommandAsync();
-            return Results.Ok();
+            var items = await metrics.ListPolicyAlertsAsync(kind, severity, from, limit, ct);
+            return Results.Ok(new { items });
+        });
+
+        group.MapPost("/ingest", async (OpsMetricsStore metrics,
+            ClaimsPrincipal principal, HttpRequest request, OpsMetricIngestRequest req,
+            CancellationToken ct) =>
+        {
+            if (!ScalaAPI.Admin.Auth.AuthClaims.TryGetUserId(principal, out var actorId))
+                return Results.Unauthorized();
+            var result = await metrics.RecordAsync(actorId, req.MetricName,
+                req.MetricValue, req.Labels,
+                request.HttpContext.Connection.RemoteIpAddress?.ToString(), ct);
+            return result.Status == OpsMetricWriteStatus.Invalid
+                ? Results.BadRequest(new { error = result.Error })
+                : Results.Ok(new { id = result.Id });
         });
     }
 

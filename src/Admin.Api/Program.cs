@@ -57,6 +57,7 @@ builder.Services.AddHttpClient("platform-internal", client =>
 builder.Services.AddSingleton(NpgsqlDataSource.Create(pgConnection));
 builder.Services.AddSingleton<ProviderCredentialRefreshAuditStore>();
 builder.Services.AddSingleton<ApiKeyAuditStore>();
+builder.Services.AddSingleton<OpsMetricsStore>();
 builder.Services.AddSingleton<AuthSessionService>();
 builder.Services.AddSingleton<AuthAbuseService>();
 builder.Services.AddSingleton<TimeProvider>(TimeProvider.System);
