@@ -11,7 +11,7 @@ read-only requirements reference and is excluded from builds and runtime.
 | Repository | Commit | Worktree | Role |
 | --- | --- | --- | --- |
 | `gateway` | `9c7171f` | clean | C++ HTTP/WebSocket edge, protocol parsing/conversion, streaming, strict Provider media contracts, bounded stream header/client timeouts, distinct inter-chunk/total timer tests, normalized Provider availability errors, shared retryable Platform transport policy for HTTP and realtime dispatch, Photon WebSocket URL normalization, transport/evidence, charge-aware failover, durable usage delivery, authenticated Garnet projections, deterministic fault boundaries, and late-usage settlement from truncated SSE |
-| `platform` | `1ffe357` | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, identity/TOTP and OAuth PKCE abuse state, Provider OAuth credential refresh, scheduling, evidence-backed leases/holds/ledger, audited operator resolution, restart-safe active-lease dispatch recovery, media lifecycle, Admin API/Web/User Web, HTTP/SSE/realtime and OAuth Provider mock fixtures, dependency-free full-stack smoke assertions, verified Gateway image override support, migrations, deterministic Platform/Gateway fault boundaries, and Garnet deployment gates |
+| `platform` | `9320320` | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, identity/TOTP and OAuth PKCE abuse state, Provider OAuth credential refresh and secret-free audit history, scheduling, evidence-backed leases/holds/ledger, audited operator resolution, restart-safe active-lease dispatch recovery, media lifecycle, Admin API/Web/User Web, HTTP/SSE/realtime and OAuth Provider mock fixtures, dependency-free full-stack smoke assertions, verified Gateway image override support, migrations, deterministic Platform/Gateway fault boundaries, and Garnet deployment gates |
 | `sub2api` | `43ec48d` | read-only clean | Requirements catalogue only; never a runtime or compatibility dependency |
 
 The current tracked inventory is:
@@ -238,7 +238,7 @@ current-source runtime evidence.
 
 ## Current verification evidence
 
-At Platform `1ffe357` and Gateway `9c7171f`:
+At Platform `9320320` and Gateway `9c7171f`:
 
 - Gateway built locally and passed 104/104 CTest cases, including deterministic
   fault-hook claim/repeat behavior, terminal SSE detection, provider EOF
@@ -272,7 +272,7 @@ At Platform `1ffe357` and Gateway `9c7171f`:
   hold, and `usage_debit` ledger row. `GATEWAY_IMAGE` now lets Compose reuse this
   verified runtime image while the default path still builds from source.
 - The current source-built empty-volume project `scalaapi-oauth-refresh-20260809`
-  passed the complete smoke gate with Platform `1ffe357` and Gateway `9c7171f`.
+  passed the complete smoke gate with Platform `9320320` and Gateway `9c7171f`.
   The seeded OpenAI account began with encrypted expired `mock-access-v1` /
   `mock-refresh-v1`; the first billable Chat request rotated it to version 2 over
   the mock OAuth HTTP endpoint, succeeded, and settled one NUMERIC debit. The
