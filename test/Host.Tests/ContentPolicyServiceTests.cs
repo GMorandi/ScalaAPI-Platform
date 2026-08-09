@@ -248,9 +248,27 @@ public sealed class ContentPolicyServiceTests
             Assert.Equal("external", reader.GetString(3));
             Assert.Equal(ContentPolicyEvaluator.Version, reader.GetString(4));
             Assert.True(reader.GetInt64(5) > 0);
+
+            await using var alert = dataSource.CreateCommand("""
+                SELECT kind, severity, code, details::text
+                FROM content_policy_alert_events WHERE request_id = $1
+                """);
+            alert.Parameters.AddWithValue(requestId);
+            await using var alertReader = await alert.ExecuteReaderAsync();
+            Assert.True(await alertReader.ReadAsync());
+            Assert.Equal("classifier_unavailable", alertReader.GetString(0));
+            Assert.Equal("critical", alertReader.GetString(1));
+            Assert.Equal("content_policy_classifier_unavailable", alertReader.GetString(2));
+            Assert.DoesNotContain(pattern, alertReader.GetString(3));
         }
         finally
         {
+            await using (var cleanupAlerts = dataSource.CreateCommand(
+                "DELETE FROM content_policy_alert_events WHERE request_id = $1"))
+            {
+                cleanupAlerts.Parameters.AddWithValue(requestId);
+                await cleanupAlerts.ExecuteNonQueryAsync();
+            }
             await using (var cleanupLogs = dataSource.CreateCommand(
                 "DELETE FROM content_audit_logs WHERE request_id = $1"))
             {

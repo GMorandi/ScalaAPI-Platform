@@ -1090,38 +1090,104 @@ public static class PlatformEndpoints
             return Results.Ok(new { items = rules });
         });
 
-        group.MapPost("/rules", async (ContentAuditRuleRequest req, ISqlSugarClient db) =>
+        group.MapPost("/rules", async (ContentAuditRuleRequest req, ISqlSugarClient db,
+            ClaimsPrincipal principal, HttpRequest request) =>
         {
             if (!TryNormalizeContentRule(req, out var rule, out var error))
                 return Results.BadRequest(new { error });
-            var id = await db.Insertable(rule).ExecuteReturnBigIdentityAsync();
-            await BumpContentPolicyRevisionAsync(db);
-            return Results.Ok(new { id });
+            if (!ScalaAPI.Admin.Auth.AuthClaims.TryGetUserId(principal, out var actorId))
+                return Results.Unauthorized();
+            db.Ado.BeginTran();
+            try
+            {
+                var id = await db.Insertable(rule).ExecuteReturnBigIdentityAsync();
+                var revision = await RecordContentPolicyChangeAsync(db, "created", id, id,
+                    actorId, request.HttpContext.Connection.RemoteIpAddress?.ToString());
+                db.Ado.CommitTran();
+                return Results.Ok(new { id, revision });
+            }
+            catch
+            {
+                db.Ado.RollbackTran();
+                throw;
+            }
         });
 
-        group.MapPut("/rules/{id}", async (long id, ContentAuditRuleRequest req, ISqlSugarClient db) =>
+        group.MapPut("/rules/{id}", async (long id, ContentAuditRuleRequest req,
+            ISqlSugarClient db, ClaimsPrincipal principal, HttpRequest request) =>
         {
             if (!TryNormalizeContentRule(req, out var rule, out var error))
                 return Results.BadRequest(new { error });
+            if (!ScalaAPI.Admin.Auth.AuthClaims.TryGetUserId(principal, out var actorId))
+                return Results.Unauthorized();
             rule.Id = id;
-            var updated = await db.Updateable(rule)
-                .UpdateColumns(x => new
+            db.Ado.BeginTran();
+            try
+            {
+                var updated = await db.Updateable(rule)
+                    .UpdateColumns(x => new
+                    {
+                        x.Pattern, x.ActionType, x.Scope, x.Status, x.Stage,
+                        x.EvaluatorVersion, x.Classifier, x.RedactContent
+                    })
+                    .ExecuteCommandAsync();
+                if (updated == 0)
                 {
-                    x.Pattern, x.ActionType, x.Scope, x.Status, x.Stage,
-                    x.EvaluatorVersion, x.Classifier, x.RedactContent
-                })
-                .ExecuteCommandAsync();
-            if (updated == 0) return Results.NotFound();
-            await BumpContentPolicyRevisionAsync(db);
-            return Results.Ok();
+                    db.Ado.RollbackTran();
+                    return Results.NotFound();
+                }
+                var revision = await RecordContentPolicyChangeAsync(db, "updated", id, id,
+                    actorId, request.HttpContext.Connection.RemoteIpAddress?.ToString());
+                db.Ado.CommitTran();
+                return Results.Ok(new { revision });
+            }
+            catch
+            {
+                db.Ado.RollbackTran();
+                throw;
+            }
         });
 
-        group.MapDelete("/rules/{id}", async (long id, ISqlSugarClient db) =>
+        group.MapDelete("/rules/{id}", async (long id, ISqlSugarClient db,
+            ClaimsPrincipal principal, HttpRequest request) =>
         {
-            var deleted = await db.Deleteable<ContentAuditRuleEntity>()
-                .Where(x => x.Id == id).ExecuteCommandAsync();
-            if (deleted > 0) await BumpContentPolicyRevisionAsync(db);
-            return Results.Ok();
+            if (!ScalaAPI.Admin.Auth.AuthClaims.TryGetUserId(principal, out var actorId))
+                return Results.Unauthorized();
+            db.Ado.BeginTran();
+            try
+            {
+                var deleted = await db.Deleteable<ContentAuditRuleEntity>()
+                    .Where(x => x.Id == id).ExecuteCommandAsync();
+                if (deleted == 0)
+                {
+                    db.Ado.RollbackTran();
+                    return Results.NotFound();
+                }
+                var revision = await RecordContentPolicyChangeAsync(db, "deleted", null,
+                    id,
+                    actorId, request.HttpContext.Connection.RemoteIpAddress?.ToString());
+                db.Ado.CommitTran();
+                return Results.Ok(new { revision });
+            }
+            catch
+            {
+                db.Ado.RollbackTran();
+                throw;
+            }
+        });
+
+        group.MapGet("/changes", async (ISqlSugarClient db, string? action,
+            bool? pending, int page = 1, int size = 50) =>
+        {
+            page = Math.Max(1, page);
+            size = Math.Clamp(size, 1, 200);
+            var query = db.Queryable<ContentPolicyChangeEventEntity>();
+            if (!string.IsNullOrWhiteSpace(action)) query = query.Where(x => x.Action == action);
+            if (pending == true) query = query.Where(x => x.PropagatedAt == null);
+            var total = await query.CountAsync();
+            var items = await query.OrderByDescending(x => x.Id)
+                .Skip((page - 1) * size).Take(size).ToListAsync();
+            return Results.Ok(new { items, total, page, size });
         });
 
         group.MapGet("/logs", async (ISqlSugarClient db, long? userId, string? action,
@@ -1132,6 +1198,23 @@ public static class PlatformEndpoints
             if (!string.IsNullOrEmpty(action)) query = query.Where(x => x.Action == action);
             if (from.HasValue) query = query.Where(x => x.CreatedAt >= from.Value);
             if (to.HasValue) query = query.Where(x => x.CreatedAt <= to.Value);
+            var total = await query.CountAsync();
+            var items = await query.OrderByDescending(x => x.CreatedAt)
+                .Skip((page - 1) * size).Take(size).ToListAsync();
+            return Results.Ok(new { items, total, page, size });
+        });
+
+        group.MapGet("/alerts", async (ISqlSugarClient db, string? kind,
+            string? severity, long? userId, string? requestId,
+            int page = 1, int size = 50) =>
+        {
+            page = Math.Max(1, page);
+            size = Math.Clamp(size, 1, 200);
+            var query = db.Queryable<ContentPolicyAlertEventEntity>();
+            if (!string.IsNullOrWhiteSpace(kind)) query = query.Where(x => x.Kind == kind);
+            if (!string.IsNullOrWhiteSpace(severity)) query = query.Where(x => x.Severity == severity);
+            if (userId.HasValue) query = query.Where(x => x.UserId == userId.Value);
+            if (!string.IsNullOrWhiteSpace(requestId)) query = query.Where(x => x.RequestId == requestId);
             var total = await query.CountAsync();
             var items = await query.OrderByDescending(x => x.CreatedAt)
                 .Skip((page - 1) * size).Take(size).ToListAsync();
@@ -1261,13 +1344,41 @@ public static class PlatformEndpoints
         return true;
     }
 
-    private static async Task BumpContentPolicyRevisionAsync(ISqlSugarClient db)
+    private static async Task<long> RecordContentPolicyChangeAsync(ISqlSugarClient db,
+        string action, long? ruleId, long auditRuleId, long actorId, string? ipAddress)
     {
-        await db.Ado.ExecuteCommandAsync("""
+        var value = await db.Ado.GetScalarAsync("""
             UPDATE content_policy_state
             SET revision = revision + 1, updated_at = now()
             WHERE id = 1
+            RETURNING revision
             """);
+        var revision = Convert.ToInt64(value);
+        var details = JsonSerializer.Serialize(new { action, rule_id = auditRuleId, revision });
+        await db.Ado.ExecuteCommandAsync("""
+            INSERT INTO content_policy_change_events(
+                revision, action, rule_id, actor_id, ip_address, details, created_at)
+            VALUES (@revision, @action, CAST(@ruleId AS bigint), @actorId, @ipAddress,
+                    CAST(@details AS jsonb), @createdAt)
+            """,
+            new SugarParameter("@revision", revision),
+            new SugarParameter("@action", action),
+            new SugarParameter("@ruleId", (object?)ruleId ?? DBNull.Value),
+            new SugarParameter("@actorId", actorId),
+            new SugarParameter("@ipAddress", (object?)ipAddress ?? DBNull.Value),
+            new SugarParameter("@details", details),
+            new SugarParameter("@createdAt", DateTime.UtcNow));
+        await db.Insertable(new AuditLogEntity
+        {
+            UserId = actorId,
+            Action = $"content_policy.rule.{action}",
+            ResourceType = "content_policy_rule",
+            ResourceId = auditRuleId.ToString(),
+            Details = details,
+            IpAddress = ipAddress,
+            CreatedAt = DateTime.UtcNow,
+        }).ExecuteCommandAsync();
+        return revision;
     }
 
     private static async Task<long> ReadContentPolicyRevisionAsync(ISqlSugarClient db)

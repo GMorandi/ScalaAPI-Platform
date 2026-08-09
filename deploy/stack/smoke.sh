@@ -494,10 +494,10 @@ wait_for "Admin API readiness" 60 compose exec -T admin-api \
 wait_for "User Web readiness" 60 curl -fsS "$user_web_url/" >/dev/null
 
 migration_count="$(db_query "SELECT count(*) FROM schema_migrations;")"
-assert_equals "30" "$migration_count" "Applied migration count"
+assert_equals "31" "$migration_count" "Applied migration count"
 second_migration_output="$(compose run --rm migrate 2>&1)"
 second_skip_count="$(grep -cE 'skip .+\.sql' <<<"$second_migration_output" || true)"
-assert_equals "30" "$second_skip_count" "Idempotent migrator skip count"
+assert_equals "31" "$second_skip_count" "Idempotent migrator skip count"
 
 login_response="$(admin_request POST /admin/auth/login \
     "$(jq -cn --arg username "$ADMIN_USERNAME" --arg password "$ADMIN_PASSWORD" \
@@ -694,6 +694,10 @@ content_policy_rule="$(admin_request POST /admin/content-audit/rules \
         '{pattern:$pattern,actionType:"block",scope:"chat_completions",status:"active",stage:"request"}')" \
     "$admin_token")"
 content_policy_rule_id="$(jq -er '.id' <<<"$content_policy_rule")"
+content_policy_change_propagated() {
+    [[ "$(db_query "SELECT count(*) FROM content_policy_change_events WHERE rule_id = $content_policy_rule_id AND action = 'created' AND propagated_at IS NOT NULL;")" == "1" ]]
+}
+wait_for "content policy change propagation" 30 content_policy_change_propagated
 content_policy_response="$(curl -sS --max-time 20 --write-out $'\n%{http_code}' \
     "$gateway_url/v1/chat/completions" \
     -H "Authorization: Bearer $api_key" \
@@ -712,6 +716,10 @@ SELECT
   (SELECT count(*) FROM request_leases WHERE request_id = '$content_policy_request_id') || '|' ||
   (SELECT count(*) FROM content_audit_logs WHERE request_id = '$content_policy_request_id' AND action = 'block');")" \
     "Content policy audit and no-lease invariant"
+content_policy_alerts="$(admin_request GET "/admin/content-audit/alerts?requestId=$content_policy_request_id" '' "$admin_token")"
+assert_equals "1|policy_block|warning|content_policy_blocked" \
+    "$(jq -r '[.total, .items[0].kind, .items[0].severity, .items[0].code] | @tsv' <<<"$content_policy_alerts" | tr '\t' '|')" \
+    "Content policy operational alert evidence"
 admin_request DELETE "/admin/content-audit/rules/$content_policy_rule_id" "" "$admin_token" >/dev/null
 echo "PASS: pre-dispatch content policy block, audit, and no-lease invariant"
 scoped_key_response="$(admin_request POST /admin/apikeys/ \
@@ -844,6 +852,10 @@ unicode_policy_rule="$(admin_request POST /admin/content-audit/rules \
     '{"pattern":"sensitive","actionType":"block","scope":"chat_completions","status":"active","stage":"request","redactContent":true}' \
     "$admin_token")"
 unicode_policy_rule_id="$(jq -er '.id' <<<"$unicode_policy_rule")"
+unicode_policy_change_propagated() {
+    [[ "$(db_query "SELECT count(*) FROM content_policy_change_events WHERE rule_id = $unicode_policy_rule_id AND action = 'created' AND propagated_at IS NOT NULL;")" == "1" ]]
+}
+wait_for "Unicode policy change propagation" 30 unicode_policy_change_propagated
 unicode_policy_body="$(jq -cn \
     '{model:"gpt-4o",messages:[{role:"user",content:"ＳｅＮѕіtіνｅ request"}],stream:false}')"
 unicode_policy_response="$(curl -sS --max-time 20 --write-out $'\n%{http_code}' \
@@ -865,6 +877,10 @@ SELECT
   (SELECT coalesce(bool_or(content_redacted), false) FROM content_audit_logs WHERE request_id = '$unicode_policy_request_id') || '|' ||
   (SELECT count(*) FROM request_leases WHERE request_id = '$unicode_policy_request_id');")" \
   "Unicode normalization, redaction, and request no-lease invariants"
+unicode_policy_alerts="$(admin_request GET "/admin/content-audit/alerts?requestId=$unicode_policy_request_id" '' "$admin_token")"
+assert_equals "1|policy_block|warning|content_policy_blocked" \
+    "$(jq -r '[.total, .items[0].kind, .items[0].severity, .items[0].code] | @tsv' <<<"$unicode_policy_alerts" | tr '\t' '|')" \
+    "Unicode policy operational alert evidence"
 admin_request DELETE "/admin/content-audit/rules/$unicode_policy_rule_id" "" "$admin_token" >/dev/null
 echo "PASS: versioned Unicode normalization and redacted request audit"
 response_policy_pattern="mock response"
@@ -928,6 +944,10 @@ external_policy_rule="$(admin_request POST /admin/content-audit/rules \
     '{"pattern":"external-classifier-marker","actionType":"block","scope":"chat_completions","status":"active","stage":"response","classifier":"external","redactContent":true}' \
     "$admin_token")"
 external_policy_rule_id="$(jq -er '.id' <<<"$external_policy_rule")"
+external_policy_change_propagated() {
+    [[ "$(db_query "SELECT count(*) FROM content_policy_change_events WHERE rule_id = $external_policy_rule_id AND action = 'created' AND propagated_at IS NOT NULL;")" == "1" ]]
+}
+wait_for "external classifier policy change propagation" 30 external_policy_change_propagated
 external_policy_body="$(jq -cn --arg marker "$suffix" \
     '{model:"gpt-4o",messages:[{role:"user",content:("external classifier " + $marker)}],stream:false}')"
 external_policy_response="$(curl -sS --max-time 20 --write-out $'\n%{http_code}' \
@@ -956,6 +976,10 @@ SELECT
 done
 assert_equals "1|[REDACTED]|1|1|1|1" "$external_policy_state" \
     "External classifier fail-closed audit and normal settlement invariants"
+external_policy_alerts="$(admin_request GET "/admin/content-audit/alerts?requestId=$external_policy_request_id&kind=classifier_unavailable" '' "$admin_token")"
+assert_equals "1|classifier_unavailable|critical|content_policy_classifier_unavailable" \
+    "$(jq -r '[.total, .items[0].kind, .items[0].severity, .items[0].code] | @tsv' <<<"$external_policy_alerts" | tr '\t' '|')" \
+    "External classifier operational alert evidence"
 admin_request DELETE "/admin/content-audit/rules/$external_policy_rule_id" "" "$admin_token" >/dev/null
 echo "PASS: unavailable external classifier failed closed with redacted audit"
 
@@ -1544,7 +1568,7 @@ if [[ "$garnet_probe" != *PONG* ]]; then
     exit 1
 fi
 
-echo "PASS: 30 empty-volume migrations and second-run idempotency"
+echo "PASS: 31 empty-volume migrations and second-run idempotency"
 echo "PASS: idempotent administrative funding, audit, conflict, and overdraft guards"
 echo "PASS: Garnet-authenticated Gateway -> Platform -> Provider mock request"
 echo "PASS: terminal lease, hold, usage, ledger, and outbox invariants"

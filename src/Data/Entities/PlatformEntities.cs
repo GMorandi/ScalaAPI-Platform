@@ -459,6 +459,83 @@ public class ContentAuditLogEntity
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }
 
+[SugarTable("content_policy_change_events")]
+public class ContentPolicyChangeEventEntity
+{
+    [SugarColumn(IsPrimaryKey = true, IsIdentity = true, ColumnName = "id")]
+    public long Id { get; set; }
+
+    [SugarColumn(ColumnName = "revision")]
+    public long Revision { get; set; }
+
+    [SugarColumn(ColumnName = "action")]
+    public string Action { get; set; } = "";
+
+    [SugarColumn(ColumnName = "rule_id", IsNullable = true)]
+    public long? RuleId { get; set; }
+
+    [SugarColumn(ColumnName = "actor_id", IsNullable = true)]
+    public long? ActorId { get; set; }
+
+    [SugarColumn(ColumnName = "ip_address", IsNullable = true)]
+    public string? IpAddress { get; set; }
+
+    [SugarColumn(ColumnName = "details", IsNullable = false, ColumnDataType = "jsonb")]
+    public string Details { get; set; } = "{}";
+
+    [SugarColumn(ColumnName = "created_at")]
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+
+    [SugarColumn(ColumnName = "propagated_at", IsNullable = true)]
+    public DateTime? PropagatedAt { get; set; }
+
+    [SugarColumn(ColumnName = "attempts")]
+    public int Attempts { get; set; }
+
+    [SugarColumn(ColumnName = "last_error", IsNullable = true)]
+    public string? LastError { get; set; }
+}
+
+[SugarTable("content_policy_alert_events")]
+public class ContentPolicyAlertEventEntity
+{
+    [SugarColumn(IsPrimaryKey = true, IsIdentity = true, ColumnName = "id")]
+    public long Id { get; set; }
+
+    [SugarColumn(ColumnName = "event_key")]
+    public string EventKey { get; set; } = "";
+
+    [SugarColumn(ColumnName = "kind")]
+    public string Kind { get; set; } = "";
+
+    [SugarColumn(ColumnName = "severity")]
+    public string Severity { get; set; } = "warning";
+
+    [SugarColumn(ColumnName = "rule_id", IsNullable = true)]
+    public long? RuleId { get; set; }
+
+    [SugarColumn(ColumnName = "user_id", IsNullable = true)]
+    public long? UserId { get; set; }
+
+    [SugarColumn(ColumnName = "request_id", IsNullable = true)]
+    public string? RequestId { get; set; }
+
+    [SugarColumn(ColumnName = "stage")]
+    public string Stage { get; set; } = "request";
+
+    [SugarColumn(ColumnName = "code")]
+    public string Code { get; set; } = "";
+
+    [SugarColumn(ColumnName = "policy_revision")]
+    public long PolicyRevision { get; set; } = 1;
+
+    [SugarColumn(ColumnName = "details", IsNullable = false, ColumnDataType = "jsonb")]
+    public string Details { get; set; } = "{}";
+
+    [SugarColumn(ColumnName = "created_at")]
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+}
+
 [SugarTable("proxies")]
 public class ProxyEntity
 {

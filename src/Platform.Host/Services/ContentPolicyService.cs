@@ -1,4 +1,6 @@
+using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using ScalaAPI.Data.Content;
 using Npgsql;
 
@@ -12,7 +14,7 @@ public enum ContentPolicyStage
 
 public sealed record ContentPolicyMatch(long RuleId, string Pattern, string Action,
     string? Scope, ContentPolicyStage Stage, string EvaluatorVersion,
-    string Classifier, bool RedactContent);
+    string Classifier, bool RedactContent, string? FailureCode = null);
 
 public sealed record ContentPolicyDecision(bool Allowed, string Code,
     IReadOnlyList<ContentPolicyMatch> Matches, long PolicyRevision = 1,
@@ -97,7 +99,7 @@ public sealed class ContentPolicyService(
                     retryable = true;
                     matches.Add(new ContentPolicyMatch(
                         reader.GetInt64(0), pattern, "block", scope, stage,
-                        evaluatorVersion, classifierName, redactContent));
+                        evaluatorVersion, classifierName, redactContent, failureCode));
                     continue;
                 }
 
@@ -110,7 +112,7 @@ public sealed class ContentPolicyService(
                     retryable = true;
                     matches.Add(new ContentPolicyMatch(
                         reader.GetInt64(0), pattern, "block", scope, stage,
-                        evaluatorVersion, classifierName, redactContent));
+                        evaluatorVersion, classifierName, redactContent, failureCode));
                     continue;
                 }
 
@@ -150,6 +152,42 @@ public sealed class ContentPolicyService(
             logCommand.Parameters.AddWithValue(match.RedactContent);
             logCommand.Parameters.AddWithValue(policyRevision);
             await logCommand.ExecuteNonQueryAsync(ct);
+
+            if (match.Action != "block")
+                continue;
+
+            var code = match.FailureCode ?? "content_policy_blocked";
+            var kind = code switch
+            {
+                "content_policy_classifier_unavailable" => "classifier_unavailable",
+                "content_policy_evaluator_unsupported" => "evaluator_unsupported",
+                _ => "policy_block",
+            };
+            var severity = match.FailureCode is null ? "warning" : "critical";
+            await using var alertCommand = new NpgsqlCommand("""
+                INSERT INTO content_policy_alert_events(
+                    event_key, kind, severity, rule_id, user_id, request_id, stage,
+                    code, policy_revision, details)
+                VALUES ($1, $2, $3, $4, $5, NULLIF($6, ''), $7, $8, $9, $10::jsonb)
+                ON CONFLICT (event_key) DO NOTHING
+                """, connection, transaction);
+            alertCommand.Parameters.AddWithValue(BuildAlertKey(
+                requestId ?? "", match.RuleId, StageValue(stage), code));
+            alertCommand.Parameters.AddWithValue(kind);
+            alertCommand.Parameters.AddWithValue(severity);
+            alertCommand.Parameters.AddWithValue(match.RuleId);
+            alertCommand.Parameters.AddWithValue(userId);
+            alertCommand.Parameters.AddWithValue(requestId ?? "");
+            alertCommand.Parameters.AddWithValue(StageValue(stage));
+            alertCommand.Parameters.AddWithValue(code);
+            alertCommand.Parameters.AddWithValue(policyRevision);
+            alertCommand.Parameters.AddWithValue(JsonSerializer.Serialize(new
+            {
+                evaluator_version = match.EvaluatorVersion,
+                classifier = match.Classifier,
+                rule_id = match.RuleId,
+            }));
+            await alertCommand.ExecuteNonQueryAsync(ct);
         }
 
         await transaction.CommitAsync(ct);
@@ -189,4 +227,11 @@ public sealed class ContentPolicyService(
 
     private static string StageValue(ContentPolicyStage stage) =>
         stage == ContentPolicyStage.Response ? "response" : "request";
+
+    private static string BuildAlertKey(string requestId, long ruleId,
+        string stage, string code)
+    {
+        var input = Encoding.UTF8.GetBytes($"{requestId}\n{ruleId}\n{stage}\n{code}");
+        return Convert.ToHexString(SHA256.HashData(input)).ToLowerInvariant();
+    }
 }

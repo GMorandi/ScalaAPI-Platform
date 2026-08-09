@@ -126,11 +126,13 @@ builder.Services.AddSingleton<RequestLeaseStore>();
 builder.Services.AddSingleton<MediaOperationStore>();
 builder.Services.AddSingleton<IContentClassifier, DefaultContentClassifier>();
 builder.Services.AddSingleton<ContentPolicyService>();
+builder.Services.AddSingleton<ContentPolicyPropagationService>();
 builder.Services.AddSingleton<DispatchService>();
 builder.Services.AddHostedService<LeaseOutboxHostedService>();
 builder.Services.AddHostedService<AccountingProjectionHostedService>();
 builder.Services.AddHostedService<AccountingReconciliationHostedService>();
 builder.Services.AddHostedService<MediaOperationHostedService>();
+builder.Services.AddHostedService<ContentPolicyPropagationHostedService>();
 
 var app = builder.Build();
 
