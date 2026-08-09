@@ -2,7 +2,7 @@
 
 ## Checkpoint
 
-The next stage starts from Platform `c8dd39d`, Gateway `9c7171f`, and read-only
+The next stage starts from Platform `1ffe357`, Gateway `9c7171f`, and read-only
 reference `sub2api@43ec48d`.
 
 The greenfield baseline now starts from empty volumes, uses PostgreSQL as authority,
@@ -65,9 +65,11 @@ refresh lease, compare-and-set completion, bounded error evidence, and scheduler
 backoff. Regular dispatch recovery and media polling share one HTTPS-by-default,
 bounded refresh-token adapter before Provider contact. Admin can create static or
 OAuth accounts and inspect refresh health without reading stored secrets. Grain and
-Host tests prove rotation, concurrency exclusion, failure state, strict form
-exchange, and error redaction; Provider mock runtime refresh, provider-specific
-parameters, audit history, and multi-Silo contention remain open.
+Host and Provider Mock HTTP contract tests prove rotation, concurrency exclusion,
+failure state, strict form exchange, revoked/malformed/oversized response handling,
+and error redaction; the empty-stack gate proves an expired credential rotates
+before a billable dispatch. Provider-specific parameters, refresh audit history,
+and multi-Silo contention remain open.
 The current identity slice adds migration `022-auth-totp-state.sql`: TOTP
 time-step replay, backup-code consumption, five-failure lockout, and lockout
 recovery are transactionally tested across two service instances. User Web now
@@ -118,7 +120,7 @@ Accounting authority completed at `c15b53b`, reconciliation foundation at
 `fddba62`, dispatch evidence at `6bfb974`/`84634d1`, audited resolution at
 `0559659`, and deterministic fault boundaries at `1cad5b7`/`30b8c2b`/`8c3d2e0`,
 with current streaming/empty-stack evidence in Gateway `9c7171f` and Platform
-`c8dd39d`:
+`1ffe357`:
 
 - Added one per-user `accounting_accounts` authority with NUMERIC posted balance
   and monotonically increasing ledger version.
@@ -233,7 +235,7 @@ an open incident can be resolved only through the audited settle/release contrac
 
 ## Work package 2: cancellation and streaming failure semantics
 
-Progress in Gateway `9c7171f` and Platform `c8dd39d`: the streaming pipe now requires a source protocol
+Progress in Gateway `9c7171f` and Platform `1ffe357`: the streaming pipe now requires a source protocol
 terminal event before treating Provider EOF as complete, classifies timeout/EOF as
 incomplete (including Photon incomplete chunked-body `-1/errno=0`), treats
 zero/error client writes as cancellation, records bounded
@@ -287,16 +289,21 @@ state, terminal lease, hold, usage, debit, idempotency, and reconciliation outco
 
 ## Work package 3: Provider and protocol contract fixtures
 
+The generic Provider OAuth runtime slice is complete at Platform `1ffe357`:
+the source-owned mock endpoint, real HTTP Platform-client contract tests, and
+`scalaapi-oauth-refresh-20260809` empty-stack assertion prove an expired encrypted
+credential rotates to version 2 before dispatch, settles once, and remains secret
+free in Admin reads. The remaining work below is provider fidelity and release
+evidence, not a compatibility layer.
+
 Deliverables:
 
-- Add a deterministic Provider mock OAuth token endpoint and prove an expired
-  account refreshes once before dispatch, concurrent requests reuse the rotated
-  version, failed refresh creates no lease/hold/debit, and media polling uses the
-  same credential state. Add provider-specific token parameters only as explicit
-  OpenAI/Anthropic/Gemini profiles, never as legacy credential-map conventions.
+- Add explicit OpenAI/Anthropic/Gemini token parameter profiles and provider
+  revocation/rotation behavior; never introduce legacy credential-map conventions.
 - Persist secret-free refresh attempt/audit evidence and test multi-Silo lease
-  contention, token rotation, endpoint timeout, malformed/oversized response, and
-  provider revocation.
+  contention, refresh failure recovery, and provider-specific revocation. The
+  generic timeout, malformed/oversized response, and revoked-grant profiles are
+  already covered by the mock HTTP contract tests.
 - Version golden fixtures for OpenAI Chat request/response, tools, streaming events,
   usage, finish reasons, status codes, headers, and safe error bodies.
 - Cover same-protocol and cross-protocol normalization at the Gateway boundary.
@@ -307,10 +314,13 @@ Deliverables:
   gates as one coordinated release change; no deprecated compatibility fields are
   added.
 
-Dependencies: package 2 defines terminal streaming behavior.
+Dependencies: package 2 defines terminal streaming behavior; the generic OAuth
+  transport and mock fixture are now available.
 
-Exit: fixtures are deterministic, run without external Providers, and cover every
-Chat success/failure branch used by the deployment gate.
+Exit: fixtures are deterministic, run without external Providers, cover every
+Chat success/failure branch used by the deployment gate, and each supported
+provider profile has a versioned golden request/response/error fixture with
+refresh audit and multi-Silo evidence.
 
 ## Work package 4: Garnet and cluster resilience
 

@@ -11,16 +11,16 @@ read-only requirements reference and is excluded from builds and runtime.
 | Repository | Commit | Worktree | Role |
 | --- | --- | --- | --- |
 | `gateway` | `9c7171f` | clean | C++ HTTP/WebSocket edge, protocol parsing/conversion, streaming, strict Provider media contracts, bounded stream header/client timeouts, distinct inter-chunk/total timer tests, normalized Provider availability errors, shared retryable Platform transport policy for HTTP and realtime dispatch, Photon WebSocket URL normalization, transport/evidence, charge-aware failover, durable usage delivery, authenticated Garnet projections, deterministic fault boundaries, and late-usage settlement from truncated SSE |
-| `platform` | `c8dd39d` | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, identity/TOTP and OAuth PKCE abuse state, Provider OAuth credential refresh, scheduling, evidence-backed leases/holds/ledger, audited operator resolution, restart-safe active-lease dispatch recovery, media lifecycle, Admin API/Web/User Web, HTTP/SSE and realtime Provider mock fixtures, dependency-free realtime full-stack smoke assertions, verified Gateway image override support, migrations, deterministic Platform/Gateway fault boundaries, and Garnet deployment gates |
+| `platform` | `1ffe357` | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, identity/TOTP and OAuth PKCE abuse state, Provider OAuth credential refresh, scheduling, evidence-backed leases/holds/ledger, audited operator resolution, restart-safe active-lease dispatch recovery, media lifecycle, Admin API/Web/User Web, HTTP/SSE/realtime and OAuth Provider mock fixtures, dependency-free full-stack smoke assertions, verified Gateway image override support, migrations, deterministic Platform/Gateway fault boundaries, and Garnet deployment gates |
 | `sub2api` | `43ec48d` | read-only clean | Requirements catalogue only; never a runtime or compatibility dependency |
 
 The current tracked inventory is:
 
 - Gateway: 52 production C++ source/header files, 10 test source files, and 104
   CTest cases.
-- Platform: 84 hand-written production C# files, 3 generated Cap'n Proto C#
-  files, 30 test/benchmark C# files, and 107 tests: 59 Grain, 33 Host, 9 Admin,
-  and 6 Provider mock tests.
+- Platform: 85 hand-written production C# files, 3 generated Cap'n Proto C#
+  files, 32 test/benchmark C# files, and 124 tests: 59 Grain, 33 Host, 9 Admin,
+  and 23 Provider mock tests.
 - Product surface: 119 direct Admin API route declarations, 45 product tables,
   20 SQLSugar entity types, 23 Admin Web TypeScript/TSX files and 11 page views,
   plus 16 User Web TypeScript/TSX files and 11 user views.
@@ -28,7 +28,7 @@ The current tracked inventory is:
   Ent schemas, 82 Vue view/component files, and 240 migrations. These are scope
   signals, not parity percentages or migration targets.
 
-The 58-domain inventory remains 2 `implemented`, 40 `partial`, 10 `skeleton`,
+The 58-domain inventory remains 2 `implemented`, 41 `partial`, 9 `skeleton`,
 and 6 `missing`. A route, table, mock response, or manual probe does not promote a
 domain; promotion requires a defined contract/state machine, automated tests, and
 current-source runtime evidence.
@@ -198,7 +198,10 @@ current-source runtime evidence.
   invalid stream content, downstream client cancellation, and a truncated stream
   that emits usage before EOF. Its Responses endpoint also accepts a WebSocket
   realtime session, emits deterministic `session.created` and `response.done`
-  usage frames, and waits for the Gateway to close the session.
+  usage frames, and waits for the Gateway to close the session. The mock also
+  exposes a deterministic form-based OAuth refresh endpoint with versioned token
+  rotation, revoked/timeout/malformed/oversized profiles, and stale access-token
+  rejection so credential refresh is tested over real HTTP.
 - Normalized OpenAI Chat input can select a fault without private headers. A
   protected seed endpoint creates nine independent fault accounts/groups so one
   scheduler cooldown cannot mask another scenario; account credentials also pin
@@ -232,14 +235,14 @@ current-source runtime evidence.
 
 ## Current verification evidence
 
-At Platform `c8dd39d` and Gateway `9c7171f`:
+At Platform `1ffe357` and Gateway `9c7171f`:
 
 - Gateway built locally and passed 104/104 CTest cases, including deterministic
   fault-hook claim/repeat behavior, terminal SSE detection, provider EOF
   classification, incomplete chunked-body disconnect classification, zero-length
   client-write cancellation, and bounded Provider pre-header stream timeout
   handling plus independent inter-chunk and total-stream timeout scenarios.
-- Platform Release test/build passed with 0 warnings and 0 errors: 107/107 tests,
+- Platform Release test/build passed with 0 warnings and 0 errors: 124/124 tests,
   including 33 Host tests and 59 Grain tests. Admin coverage
   includes PostgreSQL-backed TOTP replay, backup-code consumption, lockout,
   recovery, OAuth provider/redirect/verifier binding, one-time state consumption,
@@ -247,7 +250,10 @@ At Platform `c8dd39d` and Gateway `9c7171f`:
   includes deterministic fault-hook configuration plus atomic operator
   settle/release, replay/conflict behavior, concurrent resolution serialization,
   OAuth credential refresh leases, atomic token rotation, failure backoff, strict
-  token endpoint form/HTTPS handling, and sensitive-error redaction.
+  token endpoint form/HTTPS handling, and sensitive-error redaction. Provider mock
+  coverage additionally includes real ASP.NET HTTP contract tests through the
+  Platform token client for rotation, revoked grants, malformed JSON, and bounded
+  oversized responses.
 - Admin Web and User Web typecheck and production builds passed; Admin Web now
   manages static/OAuth Provider credentials without reading stored secrets. The User Web
   build includes password recovery, email verification, authenticator security,
@@ -262,6 +268,16 @@ At Platform `c8dd39d` and Gateway `9c7171f`:
   usage frames, and settled exactly one lease, usage event, usage log, committed
   hold, and `usage_debit` ledger row. `GATEWAY_IMAGE` now lets Compose reuse this
   verified runtime image while the default path still builds from source.
+- The current source-built empty-volume project `scalaapi-oauth-refresh-20260809`
+  passed the complete smoke gate with Platform `1ffe357` and Gateway `9c7171f`.
+  The seeded OpenAI account began with encrypted expired `mock-access-v1` /
+  `mock-refresh-v1`; the first billable Chat request rotated it to version 2 over
+  the mock OAuth HTTP endpoint, succeeded, and settled one NUMERIC debit. The
+  Admin account-details response reported version 2 and a future expiry without
+  exposing access, refresh, or client-secret material. The same run passed the
+  Garnet-authenticated stack, 24-migration double run, restart/recovery, Provider
+  failure matrix, reconciliation, and MinIO assertions; its cleanup trap removed
+  all project containers, volumes, network, and stack image tags.
 - The current-source empty-stack project `scalaapi-gateway-recovery-0907` ran with
   `GATEWAY_FAULT_HOOK=gateway.after_provider_completion` and a 15-second lease TTL.
   Gateway returned an empty transport reply, persisted its one-shot marker,
