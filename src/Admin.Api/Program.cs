@@ -10,6 +10,7 @@ using ScalaAPI.Data.Accounting;
 using ScalaAPI.Data.Provider;
 using Npgsql;
 using System.IdentityModel.Tokens.Jwt;
+using Fido2NetLib;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -61,6 +62,22 @@ builder.Services.AddSingleton<OpsMetricsStore>();
 builder.Services.AddSingleton<AuditLogStore>();
 builder.Services.AddSingleton<NetworkProfileStore>();
 builder.Services.AddSingleton<ChannelMonitorStore>();
+builder.Services.AddSingleton<PasskeyStore>();
+builder.Services.AddSingleton<IMetadataService, EmptyPasskeyMetadataService>();
+builder.Services.AddSingleton<Fido2>(sp =>
+{
+    var origins = (builder.Configuration["Passkeys:Origins"]
+            ?? "http://localhost:3000,http://localhost:3001,http://localhost:5173,http://localhost:5174")
+        .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+        .ToHashSet(StringComparer.OrdinalIgnoreCase);
+    var configuration = new Fido2Configuration
+    {
+        ServerDomain = builder.Configuration["Passkeys:ServerDomain"] ?? "localhost",
+        ServerName = builder.Configuration["Passkeys:ServerName"] ?? "ScalaAPI",
+        Origins = origins,
+    };
+    return new Fido2(configuration, sp.GetRequiredService<IMetadataService>());
+});
 builder.Services.AddSingleton<AuthSessionService>();
 builder.Services.AddSingleton<AuthAbuseService>();
 builder.Services.AddSingleton<TimeProvider>(TimeProvider.System);
@@ -120,6 +137,7 @@ app.MapUsageEndpoints();
 app.MapAccountingReconciliationEndpoints();
 app.MapSeedEndpoints();
 app.MapUserAuthEndpoints();
+app.MapPasskeyEndpoints();
 app.MapPlatformEndpoints();
 
 app.MapGet("/live", () => Results.Ok(new { status = "live" })).AllowAnonymous();
