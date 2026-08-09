@@ -2,7 +2,7 @@
 
 ## Checkpoint
 
-The next stage starts from Platform `f06cccc`, Gateway `3da0d33`, and read-only
+The next stage starts from Platform `f06cccc`, Gateway `3da0d33`, User Web `45b75f8`, and read-only
 reference `sub2api@43ec48d`.
 
 The greenfield baseline now starts from empty volumes, uses PostgreSQL as authority,
@@ -141,9 +141,10 @@ flow-scoped challenges with atomic consumption plus credential public keys,
 user handles, signature counters, display names, and last-use timestamps; actor/IP
 registration and revocation audits commit with credential mutations. The targeted
 empty-schema test proves challenge replay rejection, credential deletion, and
-monotonic counter updates. Browser WebAuthn ceremony, User Web passkey management,
-public-endpoint anti-enumeration, and distributed abuse limits are the next identity
-exit conditions, so AUTH-04 remains `partial`.
+monotonic counter updates. User Web `45b75f8` now converts browser creation/assertion
+payloads and exposes passkey registration, revocation, and sign-in. Browser WebAuthn
+ceremony, public-endpoint anti-enumeration, and distributed abuse limits are the next
+identity exit conditions, so AUTH-04 remains `partial`.
 The first User Web slice now provides a standalone refresh-aware Solid client:
 registration/password login, PKCE callback, dashboard balance/recent usage,
 user-scoped usage history, API keys, billing/subscriptions, profile, and password
