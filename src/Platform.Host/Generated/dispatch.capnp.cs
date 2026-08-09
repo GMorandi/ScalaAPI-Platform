@@ -1860,7 +1860,8 @@ namespace CapnpGen
             idempotencyConflict,
             unsupportedCapability,
             idempotencyReplay,
-            pricingUnavailable
+            pricingUnavailable,
+            platformUnavailable
         }
     }
 

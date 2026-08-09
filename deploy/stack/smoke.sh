@@ -121,6 +121,8 @@ gateway_fault_request_id="smoke-gateway-fault-${suffix}"
 gateway_fault_idempotency_key="smoke-gateway-fault-idem-${suffix}"
 platform_dispatch_fault_request_id="smoke-platform-dispatch-fault-${suffix}"
 platform_dispatch_fault_idempotency_key="smoke-platform-dispatch-fault-idem-${suffix}"
+platform_dispatch_retry_request_id="smoke-platform-dispatch-retry-${suffix}"
+platform_dispatch_retry_idempotency_key="smoke-platform-dispatch-retry-idem-${suffix}"
 fault_request_prefix="smoke-fault-${suffix}"
 media_idempotency_key="smoke-media-idem-${suffix}"
 chat_price_version="smoke-chat-${suffix}-v1"
@@ -129,6 +131,7 @@ balance_idempotency_key="smoke-balance-${suffix}"
 gateway_hook_unknown_incidents=0
 gateway_hook_safe_expiry=0
 platform_dispatch_fault_safe_expiry=0
+platform_dispatch_retry=0
 platform_worker_reclaim=0
 
 wait_for() {
@@ -603,8 +606,12 @@ start_platform_after_fault() {
 }
 
 platform_dispatch_fault_claimed() {
+    local marker_name=platform-before-provider-dispatch.claimed
+    if [[ "${PLATFORM_FAULT_HOOK:-}" == "platform.before_provider_dispatch_retry" ]]; then
+        marker_name=platform-before-provider-dispatch-retry.claimed
+    fi
     compose exec -T platform-silo test -f \
-        /var/run/scalaapi/fault-hooks/platform-before-provider-dispatch.claimed
+        "/var/run/scalaapi/fault-hooks/$marker_name"
 }
 
 platform_dispatch_fault_lease_safely_expired() {
@@ -656,6 +663,37 @@ if [[ "${PLATFORM_FAULT_HOOK:-}" == "platform.before_provider_dispatch" ]]; then
         platform_dispatch_fault_lease_safely_expired
     platform_dispatch_fault_safe_expiry=1
     echo "PASS: Platform before-provider-dispatch crash safely expired one held lease"
+fi
+
+if [[ "${PLATFORM_FAULT_HOOK:-}" == "platform.before_provider_dispatch_retry" ]]; then
+    platform_retry_recovery_pid=""
+    (
+        wait_for "Platform dispatch retry marker" 30 platform_dispatch_fault_claimed
+        start_platform_after_fault
+    ) &
+    platform_retry_recovery_pid=$!
+    retry_response="$(curl -fsS --max-time 45 "$gateway_url/v1/chat/completions" \
+        -H "Authorization: Bearer $api_key" -H "Content-Type: application/json" \
+        -H "X-Request-ID: $platform_dispatch_retry_request_id" \
+        -H "Idempotency-Key: $platform_dispatch_retry_idempotency_key" \
+        --data "$chat_body")"
+    wait "$platform_retry_recovery_pid"
+    jq -e '(.choices | length > 0) and (.usage.total_tokens > 0)' \
+        <<<"$retry_response" >/dev/null
+    platform_dispatch_retry_settled() {
+        [[ "$(db_query "SELECT count(*) FROM request_leases WHERE request_id = '$platform_dispatch_retry_request_id' AND status = 'completed' AND final_cost_usd > 0;")" == "1" ]]
+    }
+    wait_for "Platform dispatch retry settlement" 30 platform_dispatch_retry_settled
+    assert_equals "1|1|1|1" "$(db_query "
+SELECT
+  (SELECT count(*) FROM request_leases WHERE request_id = '$platform_dispatch_retry_request_id') || '|' ||
+  (SELECT count(*) FROM usage_events WHERE request_id = '$platform_dispatch_retry_request_id') || '|' ||
+  (SELECT count(*) FROM usage_logs WHERE request_id = '$platform_dispatch_retry_request_id') || '|' ||
+  (SELECT count(*) FROM balance_ledger l JOIN request_leases r ON r.lease_token = l.lease_token
+   WHERE r.request_id = '$platform_dispatch_retry_request_id' AND l.entry_type = 'usage_debit');")" \
+        "Platform dispatch retry uses one lease and one settlement"
+    platform_dispatch_retry=1
+    echo "PASS: Platform dispatch retry recovered an active lease after process loss"
 fi
 
 start_gateway_after_fault() {
@@ -768,7 +806,8 @@ wait_for "chat settlement" 30 chat_settled
 
 if [[ -n "${PLATFORM_FAULT_HOOK:-}" && \
       "${PLATFORM_FAULT_HOOK}" != "platform.before_settlement_commit" && \
-      "${PLATFORM_FAULT_HOOK}" != "platform.before_provider_dispatch" ]]; then
+      "${PLATFORM_FAULT_HOOK}" != "platform.before_provider_dispatch" && \
+      "${PLATFORM_FAULT_HOOK}" != "platform.before_provider_dispatch_retry" ]]; then
     start_platform_after_fault
     if [[ "${PLATFORM_FAULT_HOOK}" == "platform.after_outbox_claim" ]]; then
         wait_for "Platform after-outbox-claim marker" 30 platform_worker_fault_claimed
@@ -986,6 +1025,9 @@ if (( gateway_hook_safe_expiry > 0 )); then
 fi
 if (( platform_dispatch_fault_safe_expiry > 0 )); then
     echo "PASS: Platform fault hook recovery and safe held-lease expiry"
+fi
+if (( platform_dispatch_retry > 0 )); then
+    echo "PASS: Platform dispatch retry recovery without duplicate lease or billing"
 fi
 if (( platform_worker_reclaim > 0 )); then
     echo "PASS: Platform worker claim recovery without duplicate settlement"

@@ -84,6 +84,15 @@ public class CapnpResponseSerializationTests
     }
 
     [Fact]
+    public void PlatformUnavailableHasDedicatedRetryableRejectCode()
+    {
+        var decoded = Deserialize(Serialize(DispatchResult.Rejected(
+            "platformUnavailable", "retry may be safe")));
+
+        Assert.Equal(RejectInfo.RejectCode.platformUnavailable, decoded.Reject.Code);
+    }
+
+    [Fact]
     public void IdempotentReplayPreservesResponsePayload()
     {
         var decoded = Deserialize(Serialize(DispatchResult.Replay(

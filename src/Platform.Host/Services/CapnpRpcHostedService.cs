@@ -152,7 +152,10 @@ public class CapnpRpcHostedService : IHostedService
                 : method is 5
                     ? SerializeMediaOperationResponse(MediaOperationRpcResult.Error(
                         500, "platform_error", "Platform media operation failed"))
-                : SerializeRejectResponse("Platform dispatch failed");
+                : method == 1
+                    ? SerializeRejectResponse("Platform dispatch failed; retry may be safe",
+                        CapnpGen.RejectInfo.RejectCode.platformUnavailable)
+                    : SerializeRejectResponse("Platform dispatch failed");
         }
     }
 
@@ -337,6 +340,7 @@ public class CapnpRpcHostedService : IHostedService
         "unsupportedCapability" => CapnpGen.RejectInfo.RejectCode.unsupportedCapability,
         "idempotencyReplay" => CapnpGen.RejectInfo.RejectCode.idempotencyReplay,
         "pricingUnavailable" => CapnpGen.RejectInfo.RejectCode.pricingUnavailable,
+        "platformUnavailable" => CapnpGen.RejectInfo.RejectCode.platformUnavailable,
         _ => CapnpGen.RejectInfo.RejectCode.invalidKey,
     };
 
@@ -469,13 +473,14 @@ public class CapnpRpcHostedService : IHostedService
         return SerializeToFrame(method, message.Frame);
     }
 
-    private static byte[] SerializeRejectResponse(string message)
+    private static byte[] SerializeRejectResponse(string message,
+        CapnpGen.RejectInfo.RejectCode code = CapnpGen.RejectInfo.RejectCode.invalidKey)
     {
         var response = MessageBuilder.Create();
         var writer = response.BuildRoot<CapnpGen.DispatchResponse.WRITER>();
         writer.TheOutcome = CapnpGen.DispatchResponse.Outcome.rejected;
         writer.Reject.Message = message;
-        writer.Reject.Code = CapnpGen.RejectInfo.RejectCode.invalidKey;
+        writer.Reject.Code = code;
         writer.ProtocolVersion = 3;
         return SerializeToFrame(0x81, response.Frame);
     }
@@ -561,6 +566,25 @@ public class DispatchService
                 return DispatchResult.Replay(idempotency.ResponseStatusCode,
                     idempotency.ResponseContentType, idempotency.ResponseBody);
             if (idempotency.Found)
+            {
+                var existingLease = await _leases.GetByLeaseTokenAsync(idempotency.LeaseToken)
+                    ?? await _leases.GetByRequestIdAsync(idempotency.RequestId);
+                var recovered = await RecoverExistingDispatchAsync(req, auth, existingLease);
+                if (recovered is not null) return recovered;
+                return DispatchResult.Rejected("idempotencyReplay",
+                    "Request has already been dispatched");
+            }
+        }
+
+        // A transport retry can arrive without an external idempotency key.
+        // request_id is still unique in the durable lease table, so recover an
+        // active lease instead of allocating a second hold.
+        if (string.IsNullOrWhiteSpace(req.IdempotencyKey))
+        {
+            var existingLease = await _leases.GetByRequestIdAsync(req.RequestId);
+            var recovered = await RecoverExistingDispatchAsync(req, auth, existingLease);
+            if (recovered is not null) return recovered;
+            if (existingLease is not null)
                 return DispatchResult.Rejected("idempotencyReplay",
                     "Request has already been dispatched");
         }
@@ -694,6 +718,7 @@ public class DispatchService
             }
             leaseCreated = true;
             _faults.CrashIfConfigured("platform.before_provider_dispatch", req.RequestId);
+            _faults.CrashIfConfigured("platform.before_provider_dispatch_retry", req.RequestId);
 
             var mediaOperationId = "";
             if (isMediaOperation)
@@ -790,7 +815,67 @@ public class DispatchService
                 _logger.LogError(compensationError,
                     "Failed to release user slot for lease {LeaseToken}", selection.LeaseToken);
             }
-            return DispatchResult.Rejected("noAccount", "Unable to create request lease");
+            return DispatchResult.Rejected("platformUnavailable",
+                "Platform dispatch failed; retry may be safe");
+        }
+    }
+
+    private async Task<DispatchResult?> RecoverExistingDispatchAsync(
+        DispatchRequest req, AuthResult auth, RequestLease? lease)
+    {
+        if (lease is null
+            || lease.ApiKeyId != auth.ApiKeyId
+            || !string.Equals(lease.ApiKeyHash, req.ApiKeyHash, StringComparison.Ordinal)
+            || lease.Status is not ("held" or "forwarded" or "output_started"
+                or "reconciliation_needed"))
+            return null;
+
+        try
+        {
+            var accountGrain = _cluster.GetGrain<IAccountGrain>(lease.AccountId);
+            var creds = await accountGrain.Hydrate();
+            var capability = string.IsNullOrWhiteSpace(req.Capability) ? req.Endpoint : req.Capability;
+            var mappedModel = string.IsNullOrWhiteSpace(lease.UpstreamModel)
+                ? req.RequestedModel : lease.UpstreamModel;
+            return DispatchResult.Ok(new UpstreamTargetResult
+            {
+                AccountId = lease.AccountId,
+                Platform = creds.Platform,
+                BaseUrl = creds.BaseUrl,
+                UpstreamPath = ResolveUpstreamPath(creds.Platform, req, mappedModel),
+                AuthHeaders = creds.AuthHeaders,
+                MappedModel = mappedModel,
+                ProxyUrl = creds.ProxyUrl,
+                TlsFingerprint = creds.TlsFingerprint,
+                ApiKeyId = lease.ApiKeyId,
+                UserId = lease.UserId,
+                GroupId = lease.GroupId,
+                RateMultiplier = lease.RateMultiplier,
+                HoldAmount = lease.HoldAmount,
+                HoldHandle = lease.HoldHandle,
+                LeaseToken = lease.LeaseToken,
+                AuthVersion = auth.Version,
+                HttpMethod = ResolveUpstreamMethod(req),
+                UpstreamFormat = ResolveUpstreamFormat(creds.Platform, req),
+                AllowedResponseHeaders = [
+                    "Content-Type", "Retry-After", "X-Request-ID", "OpenAI-Request-ID",
+                    "X-RateLimit-Limit", "X-RateLimit-Remaining", "X-RateLimit-Reset"],
+                WebsocketUrl = req.RealtimeSession
+                    ? ToWebsocketUrl(creds.BaseUrl, ResolveUpstreamPath(creds.Platform, req, mappedModel))
+                    : "",
+                CapabilityFlags = [capability],
+                PollingSupported = req.Operation.Contains("get", StringComparison.OrdinalIgnoreCase)
+                    || capability is "images_async" or "videos",
+                ContentDownloadSupported = capability is "images_async" or "images_batch" or "videos",
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex,
+                "Unable to recover active dispatch lease {LeaseToken} for request {RequestId}",
+                lease.LeaseToken, req.RequestId);
+            return DispatchResult.Rejected("platformUnavailable",
+                "Platform dispatch recovery is temporarily unavailable");
         }
     }
 

@@ -81,7 +81,9 @@ public sealed record IdempotencyLookup(
     bool Conflict,
     int ResponseStatusCode,
     string ResponseContentType,
-    string ResponseBody)
+    string ResponseBody,
+    string RequestId = "",
+    string LeaseToken = "")
 {
     public static IdempotencyLookup Missing() => new(false, false, 0, "", "");
     public static IdempotencyLookup Replay(int statusCode = 0, string contentType = "", string body = "") =>
@@ -300,6 +302,7 @@ public sealed class RequestLeaseStore(
         if (string.IsNullOrWhiteSpace(idempotencyKey)) return IdempotencyLookup.Missing();
         await using var command = dataSource.CreateCommand("""
             SELECT request_fingerprint, status,
+                   COALESCE(request_id, ''), COALESCE(lease_token, ''),
                    COALESCE(response_status_code, 0),
                    COALESCE(response_content_type, ''),
                    COALESCE(response_body, '')
@@ -313,12 +316,53 @@ public sealed class RequestLeaseStore(
         var existing = reader.GetString(0);
         var status = reader.GetString(1);
         if (status is "aborted" or "expired") return IdempotencyLookup.Missing();
-        var responseStatusCode = reader.GetInt32(2);
-        var responseContentType = reader.GetString(3);
-        var responseBody = reader.GetString(4);
+        var requestId = reader.GetString(2);
+        var leaseToken = reader.GetString(3);
+        var responseStatusCode = reader.GetInt32(4);
+        var responseContentType = reader.GetString(5);
+        var responseBody = reader.GetString(6);
         return string.Equals(existing, requestFingerprint ?? "", StringComparison.Ordinal)
             ? IdempotencyLookup.Replay(responseStatusCode, responseContentType, responseBody)
+                with { RequestId = requestId, LeaseToken = leaseToken }
             : IdempotencyLookup.FingerprintConflict();
+    }
+
+    public async Task<RequestLease?> GetByRequestIdAsync(string requestId,
+        CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(requestId)) return null;
+        await using var command = dataSource.CreateCommand("""
+            SELECT lease_token, request_id, api_key_hash, api_key_id, user_id,
+                   account_id, group_id, model, upstream_model, inbound_endpoint,
+                   rate_multiplier, hold_handle, hold_amount, status, final_cost_usd, expires_at,
+                   pricing_version, price_input_per_million, price_output_per_million,
+                   price_cache_create_per_million, price_cache_read_per_million,
+                   price_image_input_per_unit, price_image_output_per_unit,
+                   price_video_per_second, price_realtime_per_minute
+            FROM request_leases WHERE request_id = $1
+            """);
+        command.Parameters.AddWithValue(requestId);
+        await using var reader = await command.ExecuteReaderAsync(ct);
+        return await reader.ReadAsync(ct) ? ReadLease(reader) : null;
+    }
+
+    public async Task<RequestLease?> GetByLeaseTokenAsync(string leaseToken,
+        CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(leaseToken)) return null;
+        await using var command = dataSource.CreateCommand("""
+            SELECT lease_token, request_id, api_key_hash, api_key_id, user_id,
+                   account_id, group_id, model, upstream_model, inbound_endpoint,
+                   rate_multiplier, hold_handle, hold_amount, status, final_cost_usd, expires_at,
+                   pricing_version, price_input_per_million, price_output_per_million,
+                   price_cache_create_per_million, price_cache_read_per_million,
+                   price_image_input_per_unit, price_image_output_per_unit,
+                   price_video_per_second, price_realtime_per_minute
+            FROM request_leases WHERE lease_token = $1
+            """);
+        command.Parameters.AddWithValue(leaseToken);
+        await using var reader = await command.ExecuteReaderAsync(ct);
+        return await reader.ReadAsync(ct) ? ReadLease(reader) : null;
     }
 
     public async Task<WriteAck> CompleteAsync(LeaseCompletion completion, CancellationToken ct = default)
