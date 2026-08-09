@@ -2,7 +2,7 @@
 
 ## Checkpoint
 
-The next stage starts from Platform `8368d77`, Gateway `297b131`, and read-only
+The next stage starts from Platform `bb7f2c0`, Gateway `297b131`, and read-only
 reference `sub2api@43ec48d`.
 
 The greenfield baseline now starts from empty volumes, uses PostgreSQL as authority,
@@ -27,8 +27,9 @@ metrics. An Admin-only, token-protected operator command now settles or releases
 one open unknown-charge incident exactly once with actor, evidence, reason, lease
 event, and audit persistence in the same transaction; subsequent reconciliation
 preserves that decision. Gateway and Platform now expose deterministic one-shot
-fault hooks around dispatch, Provider completion, settlement commit, and outbox
-acknowledgement. The source smoke intentionally crashed Platform before settlement
+fault hooks around dispatch, Provider completion, settlement commit, outbox claim,
+and outbox acknowledgement. The source smoke also exercises the outbox-claim boundary and
+intentionally crashed Platform before settlement
 commit, after settlement commit, and before outbox acknowledgement, explicitly
 restarted the same container, and recovered a single Orleans silo without a
 duplicate debit; Gateway reconnect/backoff recovery drained the durable usage
@@ -47,9 +48,10 @@ the durable outbox. The latest source smoke also crashes Gateway after Provider
 completion, restarts the same container, and retains the forwarded lease/hold as
 one reconciliation incident without a debit. Gateway before Provider dispatch and
 Platform before Provider dispatch now safely expire their unforwarded held leases
-after the same container is restarted; the worker reclaim path, remaining
-boundaries, the worker/multi-silo matrix, and multi-instance scenarios are still
-open.
+after the same container is restarted. A Platform worker crash immediately after
+claiming a completed outbox event is also reclaimed and applied once; dispatch retry
+semantics, remaining boundaries, the worker/multi-silo matrix, and multi-instance
+scenarios are still open.
 
 This stage contains no compatibility, cutover, dual-write, CDC, snapshot import,
 old-key import, ID preservation, status mapping, or business-data migration work.
@@ -78,7 +80,7 @@ Accounting authority completed at `c15b53b`, reconciliation foundation at
 `fddba62`, dispatch evidence at `6bfb974`/`84634d1`, audited resolution at
 `0559659`, and deterministic fault boundaries at `1cad5b7`/`30b8c2b`/`8c3d2e0`,
 with current streaming/empty-stack evidence in Gateway `297b131` and Platform
-`8368d77`:
+`bb7f2c0`:
 
 - Added one per-user `accounting_accounts` authority with NUMERIC posted balance
   and monotonically increasing ledger version.
@@ -130,9 +132,9 @@ Implemented in this package:
 
 - Added Gateway and Platform one-shot, marker-backed fault hooks before/after
   Provider dispatch, after Provider completion, before/after settlement commit,
-  and before outbox acknowledgement. Unit tests prove exact hook matching,
-  one-shot claims, and repeat mode; the empty-stack recovery harness now waits
-  for post-commit and pre-ack process termination, restarts the same container,
+  after outbox claim, and before outbox acknowledgement. Unit tests prove exact
+  hook matching, one-shot claims, and repeat mode; the empty-stack recovery harness now waits
+  for post-commit, after-claim, and pre-ack process termination, restarts the same container,
   and proves the durable outbox produces one terminal debit. The
   `scalaapi-gateway-recovery-0907` source smoke additionally terminates Gateway
   after Provider completion, explicitly starts the same container, and proves the
@@ -145,6 +147,10 @@ Implemented in this package:
   explicitly starts the same container, and proves the same safe `held -> expired`
   cleanup with released hold/idempotency and no incident. Its failure probe uses
   `curl -f` so a Gateway-wrapped HTTP error cannot be mistaken for success.
+- The `scalaapi-platform-worker-recovery-0913` source smoke terminates Platform
+  after claiming the completed settlement outbox but before any Grain side effect,
+  explicitly starts the same container, and proves the expired claim is reclaimed
+  and applied once with no duplicate financial effect.
 - Added explicit `Orleans:SingleSiloRecovery` for the development smoke path and
   a Podman-compatible harness restart. The source smoke proved
   `platform.before_settlement_commit`, `platform.after_settlement_commit`, and
@@ -155,10 +161,10 @@ Implemented in this package:
 Next implementation slice:
 
 - Exercise every remaining hook independently with replay assertions for duplicate
-  completion, abort, expiry, worker reclaim, projection replacement, and process
-  restart. Platform and Gateway before-provider-dispatch plus Gateway
-  after-provider-completion recovery are now proven; next cover Platform worker
-  reclaim/dispatch retries, remaining Gateway hooks, and multi-silo recovery before
+  completion, abort, expiry, projection replacement, and process restart. Platform
+  and Gateway before-provider-dispatch, Platform outbox-claim reclaim, and Gateway
+  after-provider-completion recovery are now proven; next cover Platform dispatch
+  retry semantics, remaining Gateway hooks, and multi-silo recovery before
   promoting the billing slice.
 
 Remaining package deliverables:
@@ -180,7 +186,7 @@ an open incident can be resolved only through the audited settle/release contrac
 
 ## Work package 2: cancellation and streaming failure semantics
 
-Progress in Gateway `297b131` and Platform `8368d77`: the streaming pipe now requires a source protocol
+Progress in Gateway `297b131` and Platform `bb7f2c0`: the streaming pipe now requires a source protocol
 terminal event before treating Provider EOF as complete, classifies timeout/EOF as
 incomplete (including Photon incomplete chunked-body `-1/errno=0`), treats
 zero/error client writes as cancellation, records bounded

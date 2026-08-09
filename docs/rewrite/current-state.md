@@ -11,7 +11,7 @@ read-only requirements reference and is excluded from builds and runtime.
 | Repository | Commit | Worktree | Role |
 | --- | --- | --- | --- |
 | `gateway` | `297b131` | clean | C++ HTTP/WebSocket edge, protocol parsing/conversion, streaming, strict Provider media contracts, bounded stream header/client timeouts, distinct inter-chunk/total timer tests, normalized Provider availability errors, transport/evidence, charge-aware failover, durable usage delivery, authenticated Garnet projections, deterministic fault boundaries, and late-usage settlement from truncated SSE |
-| `platform` | `8368d77` | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, identity, scheduling, evidence-backed leases/holds/ledger, audited operator resolution, media lifecycle, Admin API/Web, Provider mock, migrations, deterministic Platform/Gateway fault boundaries, and Garnet deployment gates |
+| `platform` | `bb7f2c0` | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, identity, scheduling, evidence-backed leases/holds/ledger, audited operator resolution, media lifecycle, Admin API/Web, Provider mock, migrations, deterministic Platform/Gateway fault boundaries, and Garnet deployment gates |
 | `sub2api` | `43ec48d` | read-only clean | Requirements catalogue only; never a runtime or compatibility dependency |
 
 The current tracked inventory is:
@@ -95,12 +95,14 @@ current-source runtime evidence.
 - Gateway's local usage outbox survives restart, replays retryable reports, and
   retires non-retryable terminal reports instead of blocking forever.
 - Gateway and Platform expose opt-in, one-shot deterministic fault hooks at
-  dispatch, Provider completion, settlement commit, and outbox acknowledgement.
-  Hooks persist a claim marker so a restarted process does not crash repeatedly;
-  the smoke harness proves Platform termination after creating an unforwarded
-  lease (safe held-lease expiry), Platform pre-commit/post-commit/pre-ack recovery,
-  and Gateway termination before Provider dispatch (safe expiry) or after Provider
-  completion (ambiguous lease retained for reconciliation).
+  dispatch, Provider completion, settlement commit, outbox claim, and outbox
+  acknowledgement. Hooks persist a claim marker so a restarted process does not
+  crash repeatedly; the smoke harness proves Platform termination after creating
+  an unforwarded lease (safe held-lease expiry), Platform termination after an
+  outbox claim (claim reclaim with exactly-once Grain effects), Platform
+  pre-commit/post-commit/pre-ack recovery, and Gateway termination before Provider
+  dispatch (safe expiry) or after Provider completion (ambiguous lease retained
+  for reconciliation).
 
 ### Identity and control plane
 
@@ -187,7 +189,7 @@ current-source runtime evidence.
 
 ## Current verification evidence
 
-At Platform `8368d77` and Gateway `297b131`:
+At Platform `bb7f2c0` and Gateway `297b131`:
 
 - Gateway built locally and passed 102/102 CTest cases, including deterministic
   fault-hook claim/repeat behavior, terminal SSE detection, provider EOF
@@ -225,6 +227,15 @@ At Platform `8368d77` and Gateway `297b131`:
   ledger debit, or reconciliation incident. The full matrix then passed with nine
   unknown-charge incidents, one audited operator settlement, and eight remaining
   open incidents. The cleanup trap removed the temporary project and image tags.
+- The current-source project `scalaapi-platform-worker-recovery-0913` ran with
+  `PLATFORM_FAULT_HOOK=platform.after_outbox_claim`. Platform completed the SQL
+  settlement, claimed the durable `complete` outbox item, then terminated before
+  invoking any Grain side effect. The same container was explicitly started; the
+  expired claim was reclaimed and the outbox completed with no duplicate lease,
+  usage event, ledger debit, or hold transition. The full matrix passed with nine
+  unknown-charge incidents, one audited operator settlement, and eight remaining
+  open incidents; temporary containers, volumes, networks, and image tags were
+  removed after evidence capture.
 - Scheduler benchmark integrity dry run executed all 4 selected child benchmarks
   and returned zero. It is a failure-propagation check, not performance evidence.
 - `deploy/stack/smoke.sh` built current sibling sources in isolated Podman
@@ -311,12 +322,13 @@ Detailed gate results and residual coverage are maintained in `verification.md`.
   timeout and malformed protocol cases remain `502/provider_protocol_error`; the
   timer distinctions are pinned by Gateway `18083f9`.
 - Source smoke now proves Platform before-provider-dispatch termination after lease
-  creation with safe held expiry, Platform pre-settlement-commit/post-commit/
-  pre-outbox-acknowledgement crash boundaries, Gateway reconnect/backoff recovery,
-  durable usage replay, and exactly-once settlement. The current source gate also
-  proves Gateway termination before dispatch with safe held expiry and after Provider
-  completion with retention of its forwarded lease/hold for reconciliation; Platform
-  worker reclaim, other Gateway boundaries, and multi-instance hook assertions remain.
+  creation with safe held expiry, Platform after-outbox-claim reclaim,
+  pre-settlement-commit/post-commit/pre-outbox-acknowledgement crash boundaries,
+  Gateway reconnect/backoff recovery, durable usage replay, and exactly-once
+  settlement. The current source gate also proves Gateway termination before
+  dispatch with safe held expiry and after Provider completion with retention of its
+  forwarded lease/hold for reconciliation; Platform dispatch retry semantics,
+  other Gateway boundaries, and multi-instance hook assertions remain.
 - Garnet authentication, outage/reconnect, rebuild, and invalidation flush have
   evidence; TLS plus concurrent multi-Gateway/multi-Silo behavior is not a release
   gate yet.
