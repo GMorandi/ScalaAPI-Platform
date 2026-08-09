@@ -51,6 +51,14 @@ monotonic, and credential registration/revocation audits are written with the st
 mutation. The public login endpoint issues the same rotating session contract as
 password/OAuth login; browser ceremony and anti-abuse policy remain release gates.
 
+Password-reset and email-verification notifications use a separate Platform-owned
+outbox. Token hashes remain the authentication lookup authority; only AES-GCM
+protected token material is stored for delivery. A bounded worker claims rows with
+PostgreSQL leases, sends through the configured SMTP adapter (or an explicit local
+filesystem capture provider), retries with backoff, and records sent/failed evidence.
+Superseded tokens cancel pending notifications in the same issuance transaction.
+Live provider delivery, metrics, and abuse limits remain release gates.
+
 Maintenance is a Platform-owned data boundary. `/user/export` uses a repeatable-read
 snapshot and returns only bounded non-secret account, usage, session, and Passkey
 metadata. Admin cleanup is a separate idempotent command with explicit retention and

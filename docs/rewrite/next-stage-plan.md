@@ -2,7 +2,7 @@
 
 ## Checkpoint
 
-The next stage starts from Platform and User Web `acb1c66`, Gateway `3da0d33`, and read-only
+The next stage starts from Platform and User Web `857ef3b`, Gateway `3da0d33`, and read-only
 reference `sub2api@43ec48d`.
 
 The greenfield baseline now starts from empty volumes, uses PostgreSQL as authority,
@@ -126,6 +126,14 @@ clears the relevant counters, and 429 responses include `Retry-After`. Migration
 and the `scalaapi-auth-abuse-verified3` empty-stack assertions (400, five 401s,
 then 429) are complete. The domain remains `partial` until browser/email
 notification, anti-enumeration, and broader public-endpoint limits are covered.
+AUTH-05 now adds migration `034-email-delivery-outbox.sql`: password-reset and
+email-verification requests persist only AES-GCM protected token material, cancel
+superseded pending notifications, and are delivered by a bounded SMTP/filesystem
+worker with retry/backoff and terminal status. User Web consumes the action links
+directly. Three real PostgreSQL tests cover ciphertext redaction, one-shot delivery,
+stale-token suppression, and retry recovery. Live SMTP/provider delivery, browser
+receipt, delivery metrics, and broader abuse limits remain, so AUTH-05 is still
+`partial`.
 Migration `023-auth-oauth-states.sql` now adds one-time OAuth state with S256 PKCE:
 the Admin start flow returns provider-bound state/verifier/challenge material,
 PostgreSQL stores only hashes, and callback consumption binds the exact redirect URI
@@ -655,8 +663,9 @@ Then expand the remaining 58-domain work in this order:
    Gateway `8f33790`.
 2. Complete Provider-specific OAuth refresh profiles and runtime evidence, price/quota adapters, media recovery,
    and object reconciliation/restore.
-3. Complete identity hardening beyond the TOTP, OAuth PKCE, and Passkey state
-   machines, including backup-code recovery UX, mail delivery, anti-enumeration,
+3. Complete identity hardening beyond the TOTP, OAuth PKCE, Passkey, and encrypted
+   mail-outbox state machines, including backup-code recovery UX, live SMTP/provider
+   delivery, anti-enumeration,
    and browser tests for the new User Web/API-key/usage/order/
    subscription flows.
 4. Complete payment adapters/reconciliation/refunds, subscription workers, redeem,

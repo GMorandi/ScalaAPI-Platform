@@ -11,17 +11,17 @@ read-only requirements reference and is excluded from builds and runtime.
 | Repository | Commit | Worktree | Role |
 | --- | --- | --- | --- |
 | `gateway` | `3da0d33` | clean | C++ HTTP/WebSocket edge, protocol parsing/conversion, versioned OpenAI Chat/Responses, Anthropic Messages, and Gemini request/response/SSE golden contracts, full pairwise provider request/response/error matrix assertions, fail-closed model catalog and token-count validation, bounded Embeddings and Responses validation, streaming, strict Provider media contracts, bounded transport timers, normalized Provider availability errors, shared retryable Platform transport policy, durable usage delivery, authenticated Garnet projections, bounded request/response content-policy RPC evaluation, event-boundary streaming response moderation, and fail-closed response delivery including retryable classifier outages |
-| `platform` | `acb1c66` backend + User Web `acb1c66` | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, Provider mock contracts, rotating identity/session/TOTP/OAuth state, native Passkey/WebAuthn ceremonies, API-key policy and audit, versioned runtime configuration, persistent scheduling and lease/hold/ledger state, audited operator reconciliation, atomic audited referral rewards, authenticated and audited operational metrics, bounded redacted audit queries/exports, encrypted proxy and validated TLS profile administration, audited bounded channel monitor checks, auditable user data export, bounded authentication/ceremony cleanup, user announcement read tracking, media/object lifecycle, staged request/response content-policy evaluation with versioned Unicode normalization, bounded source-owned external classifier adapter, durable policy revision propagation through Garnet, operational alert evidence, and redacted audits |
+| `platform` | `857ef3b` backend + User Web `857ef3b` | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, Provider mock contracts, rotating identity/session/TOTP/OAuth state, native Passkey/WebAuthn ceremonies, encrypted email notification outbox and retry worker, API-key policy and audit, versioned runtime configuration, persistent scheduling and lease/hold/ledger state, audited operator reconciliation, atomic audited referral rewards, authenticated and audited operational metrics, bounded redacted audit queries/exports, encrypted proxy and validated TLS profile administration, audited bounded channel monitor checks, auditable user data export, bounded authentication/ceremony cleanup, user announcement read tracking, media/object lifecycle, staged request/response content-policy evaluation with versioned Unicode normalization, bounded source-owned external classifier adapter, durable policy revision propagation through Garnet, operational alert evidence, and redacted audits |
 | `sub2api` | `43ec48d` | read-only clean | Requirements catalogue only; never a runtime or compatibility dependency |
 
 The current tracked inventory is:
 
 - Gateway: 52 production C++ source/header files, 11 test source files, and 125
   CTest cases.
-- Platform: 105 hand-written production C# files, 3 generated Cap'n Proto C#
-  files, 48 test/benchmark C# files, and 188 tests: 69 Grain, 52 Host, 26 Admin,
+- Platform: 106 hand-written production C# files, 3 generated Cap'n Proto C#
+  files, 49 test/benchmark C# files, and 191 tests: 69 Grain, 52 Host, 29 Admin,
   and 41 Provider mock tests.
-- Product surface: 125 direct Admin API route declarations, 49 product tables,
+- Product surface: 125 direct Admin API route declarations, 50 product tables,
   22 SQLSugar entity types, 23 Admin Web TypeScript/TSX files and 11 page views,
   plus 17 User Web TypeScript/TSX files and 11 user views.
 - Reference scope: approximately 612 Sub2API route registrations, 39 concrete
@@ -160,6 +160,14 @@ current-source runtime evidence.
   429 responses include `Retry-After`. Real PostgreSQL Admin tests and the
   current empty-stack smoke prove the policy; browser, notification, and broader
   public-endpoint limits remain open.
+- Password-reset and email-verification requests now enqueue only AES-GCM protected
+  token material in `email_delivery_outbox` migration 034. A bounded hosted worker
+  claims messages, delivers through configurable SMTP or an explicit filesystem
+  capture provider, retries transient failures with backoff, marks terminal results,
+  and cancels pending messages superseded by a newer token. User Web action links
+  hydrate the confirmation forms. Real PostgreSQL tests prove ciphertext redaction,
+  one-shot delivery, retry recovery, and stale-token suppression; live SMTP/provider,
+  browser mail flow, delivery metrics, and broader abuse limits remain open.
 - API keys support create, list, rotate, revoke, hash-only persistence, registry
   projection, absolute quota, and independent 5-hour/day/week spend windows.
 - TOTP setup, verification, login backup-code use, and disable flows now share a
@@ -341,11 +349,11 @@ current-source runtime evidence.
 
 ### Bootstrap and deployment
 
-- The direct source migrator applied product migrations 001-033 to a temporary
-  empty PostgreSQL 17 database and skipped all 33 on replay. The migrator image
+- The direct source migrator applied product migrations 001-034 to a temporary
+  empty PostgreSQL 17 database and skipped all 34 on replay. The migrator image
   copies the complete migration directory, so new forward migrations cannot be
   silently omitted. The targeted empty-schema maintenance gate applies and replays
-  34 records including Orleans support. No source database, snapshot, old key, CDC
+  35 records including Orleans support. No source database, snapshot, old key, CDC
   table, or compatibility mapping is required; the full Compose image gate still
   needs to be rebuilt against this commit.
 - `deploy/stack` independently starts PostgreSQL, authenticated Garnet, MinIO,
@@ -363,7 +371,7 @@ current-source runtime evidence.
 
 ## Current verification evidence
 
-At Platform `acb1c66` plus User Web `acb1c66`, and Gateway `3da0d33`:
+At Platform `857ef3b` plus User Web `857ef3b`, and Gateway `3da0d33`:
 
 - Gateway built locally and passed 125/125 CTest cases, including deterministic
   fault-hook claim/repeat behavior, terminal SSE detection, provider EOF
@@ -375,8 +383,8 @@ At Platform `acb1c66` plus User Web `acb1c66`, and Gateway `3da0d33`:
   sixteen request pairs, all sixteen response pairs, cross-protocol response
   envelope validation, and cross-protocol error normalization with standard
   status precedence.
-- Platform Release test/build passed with 0 warnings and 0 errors: 188/188 tests,
-  including 52 Host tests, 69 Grain tests, 26 Admin tests, and 41 Provider mock
+- Platform Release test/build passed with 0 warnings and 0 errors: 191/191 tests,
+  including 52 Host tests, 69 Grain tests, 29 Admin tests, and 41 Provider mock
   tests. Admin coverage
   includes PostgreSQL-backed TOTP replay, backup-code consumption, lockout,
   recovery, OAuth provider/redirect/verifier binding, one-time state consumption,
@@ -394,6 +402,9 @@ At Platform `acb1c66` plus User Web `acb1c66`, and Gateway `3da0d33`:
 - Announcement coverage adds published/expiry filtering, read-state listing,
   duplicate-read replay, and exactly one `announcement.read` audit row through a
   real PostgreSQL test; User Web builds with the Dashboard read action.
+- Email delivery coverage adds encrypted password-reset and verification outbox
+  rows, one-shot SMTP-worker delivery, superseded-token cancellation, retry/backoff
+  recovery, and action-link hydration through three real PostgreSQL Admin tests.
 - SEC-01 now has executable request, non-stream response, and SSE event-boundary
   evidence: the canonical Cap'n Proto contract carries bounded request/response
   policy content, Platform evaluates active scoped rules before lease creation or
