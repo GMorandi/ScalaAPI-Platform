@@ -11,15 +11,15 @@ read-only requirements reference and is excluded from builds and runtime.
 | Repository | Commit | Worktree | Role |
 | --- | --- | --- | --- |
 | `gateway` | `3da0d33` | clean | C++ HTTP/WebSocket edge, protocol parsing/conversion, versioned OpenAI Chat/Responses, Anthropic Messages, and Gemini request/response/SSE golden contracts, full pairwise provider request/response/error matrix assertions, fail-closed model catalog and token-count validation, bounded Embeddings and Responses validation, streaming, strict Provider media contracts, bounded transport timers, normalized Provider availability errors, shared retryable Platform transport policy, durable usage delivery, authenticated Garnet projections, bounded request/response content-policy RPC evaluation, event-boundary streaming response moderation, and fail-closed response delivery including retryable classifier outages |
-| `platform` | `ad6ac20` backend + User Web `ad6ac20` | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, Provider mock contracts, rotating identity/session/TOTP/OAuth state, native Passkey/WebAuthn ceremonies, encrypted email notification outbox and retry worker, API-key policy and audit, versioned runtime configuration, persistent scheduling and lease/hold/ledger state, atomic subscription quota reservation and settlement, audited operator reconciliation, atomic audited referral rewards, authenticated and audited operational metrics, bounded redacted audit queries/exports, encrypted proxy and validated TLS profile administration, audited bounded channel monitor checks, auditable user data export, bounded authentication/ceremony cleanup, user announcement read tracking, media/object lifecycle, staged request/response content-policy evaluation with versioned Unicode normalization, bounded source-owned external classifier adapter, durable policy revision propagation through Garnet, operational alert evidence, and redacted audits |
+| `platform` | `e05ed40` backend + User Web `e05ed40` | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, Provider mock contracts, rotating identity/session/TOTP/OAuth state, native Passkey/WebAuthn ceremonies, encrypted email notification outbox and retry worker, API-key policy and audit, versioned runtime configuration, persistent scheduling and lease/hold/ledger state, atomic subscription quota reservation and settlement, idempotent subscription expiry/renewal worker, audited operator reconciliation, atomic audited referral rewards, authenticated and audited operational metrics, bounded redacted audit queries/exports, encrypted proxy and validated TLS profile administration, audited bounded channel monitor checks, auditable user data export, bounded authentication/ceremony cleanup, user announcement read tracking, media/object lifecycle, staged request/response content-policy evaluation with versioned Unicode normalization, bounded source-owned external classifier adapter, durable policy revision propagation through Garnet, operational alert evidence, and redacted audits |
 | `sub2api` | `43ec48d` | read-only clean | Requirements catalogue only; never a runtime or compatibility dependency |
 
 The current tracked inventory is:
 
 - Gateway: 52 production C++ source/header files, 11 test source files, and 125
   CTest cases.
-- Platform: 106 hand-written production C# files, 3 generated Cap'n Proto C#
-  files, 50 test/benchmark C# files, and 192 tests: 69 Grain, 53 Host, 29 Admin,
+- Platform: 107 hand-written production C# files, 3 generated Cap'n Proto C#
+  files, 51 test/benchmark C# files, and 193 tests: 69 Grain, 53 Host, 30 Admin,
   and 41 Provider mock tests.
 - Product surface: 125 direct Admin API route declarations, 50 product tables,
   22 SQLSugar entity types, 23 Admin Web TypeScript/TSX files and 11 page views,
@@ -178,8 +178,12 @@ current-source runtime evidence.
   abort, safe expiry, and operator release. User subscription responses and Billing/
   Dashboard expose reserved and remaining quota. A zero quota grant is finite (it
   rejects any positive reservation), while no active subscription leaves account
-  balance billing unchanged; provider payment coupling, renewal workers, and browser
-  evidence remain open.
+  balance billing unchanged; provider payment coupling and browser evidence remain
+  open. Platform `e05ed40` adds a hosted lifecycle worker: internal
+  auto-renewals reset grants only after reservations drain, no-auto-renew rows expire,
+  stale `expired` auto-renew rows recover, and held rows wait in `past_due`; each
+  transition is paired with a deterministic subscription event and concurrent workers
+  process a row once.
 - TOTP setup, verification, login backup-code use, and disable flows now share a
   PostgreSQL-backed state machine. Five failures in a 15-minute window lock the
   account, accepted TOTP time steps cannot be replayed, backup codes are consumed
@@ -381,7 +385,7 @@ current-source runtime evidence.
 
 ## Current verification evidence
 
-At Platform `ad6ac20` plus User Web `ad6ac20`, and Gateway `3da0d33`:
+At Platform `e05ed40` plus User Web `e05ed40`, and Gateway `3da0d33`:
 
 - Gateway built locally and passed 125/125 CTest cases, including deterministic
   fault-hook claim/repeat behavior, terminal SSE detection, provider EOF
@@ -393,8 +397,8 @@ At Platform `ad6ac20` plus User Web `ad6ac20`, and Gateway `3da0d33`:
   sixteen request pairs, all sixteen response pairs, cross-protocol response
   envelope validation, and cross-protocol error normalization with standard
   status precedence.
-- Platform Release test/build passed with 0 warnings and 0 errors: 192/192 tests,
-  including 53 Host tests, 69 Grain tests, 29 Admin tests, and 41 Provider mock
+- Platform Release test/build passed with 0 warnings and 0 errors: 193/193 tests,
+  including 53 Host tests, 69 Grain tests, 30 Admin tests, and 41 Provider mock
   tests. Admin coverage
   includes PostgreSQL-backed TOTP replay, backup-code consumption, lockout,
   recovery, OAuth provider/redirect/verifier binding, one-time state consumption,
@@ -419,7 +423,10 @@ At Platform `ad6ac20` plus User Web `ad6ac20`, and Gateway `3da0d33`:
   reservation boundary, concurrent over-allocation rejection, normal settlement
   consumption, and no-charge release. The user subscription API and Billing/
   Dashboard expose `quotaReservedUsd` and `quotaRemainingUsd`; payment-provider
-  coupling, renewal scheduling, and browser evidence remain open.
+  coupling and browser evidence remain open. Admin `SubscriptionRenewalService`
+  coverage additionally proves auto-renew grant reset, stale-expired recovery,
+  no-renew expiry, reservation deferral, deterministic events, and concurrent
+  worker once-only processing.
 - SEC-01 now has executable request, non-stream response, and SSE event-boundary
   evidence: the canonical Cap'n Proto contract carries bounded request/response
   policy content, Platform evaluates active scoped rules before lease creation or

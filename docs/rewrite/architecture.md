@@ -94,6 +94,12 @@ unknown Provider outcomes retain the reservation for reconciliation. This preven
 distributed concurrent requests from overselling a grant without duplicating
 accounting SQL in Gateway or Admin. A zero grant is finite, while users without an
 active subscription continue to use account balance only.
+The Admin-owned subscription lifecycle worker consumes due `renewal_at` rows with
+`SKIP LOCKED`: non-renewing rows become `expired`, internal plans reset the next
+grant only after `quota_reserved_usd` reaches zero, and rows with unresolved holds
+become `past_due` until the lease terminal state is known. Expiry and renewal events
+use deterministic period keys in `subscription_events`; external payment providers
+must explicitly advance a future adapter before a `past_due` row can renew.
 
 After authentication and API-key capability authorization, Platform evaluates the
 bounded request content against active, scope-aware `log`/`block` rules. Matches
