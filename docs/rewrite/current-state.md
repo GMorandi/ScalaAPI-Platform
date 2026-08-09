@@ -11,7 +11,7 @@ read-only requirements reference and is excluded from builds and runtime.
 | Repository | Commit | Worktree | Role |
 | --- | --- | --- | --- |
 | `gateway` | `1d03130` | clean | C++ HTTP/WebSocket edge, protocol parsing/conversion, fail-closed OpenAI/Gemini model catalog and Anthropic token-count response validation, bounded Embeddings and Responses validation, streaming, strict Provider media contracts, bounded transport timers, normalized Provider availability errors, shared retryable Platform transport policy, durable usage delivery, authenticated Garnet projections, bounded request/response content-policy RPC evaluation, event-boundary streaming response moderation, and fail-closed response delivery |
-| `platform` | `713f5c0` | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, Provider mock contracts, rotating identity/session/TOTP/OAuth state, API-key policy and audit, versioned runtime configuration, persistent scheduling and lease/hold/ledger state, audited operator reconciliation, media/object lifecycle, staged request/response content-policy evaluation, and deterministic stream-disconnect fixtures |
+| `platform` | `1793133` | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, Provider mock contracts, rotating identity/session/TOTP/OAuth state, API-key policy and audit, versioned runtime configuration, persistent scheduling and lease/hold/ledger state, audited operator reconciliation, media/object lifecycle, staged request/response content-policy evaluation, and deterministic stream-disconnect fixtures |
 | `sub2api` | `43ec48d` | read-only clean | Requirements catalogue only; never a runtime or compatibility dependency |
 
 The current tracked inventory is:
@@ -292,7 +292,7 @@ current-source runtime evidence.
 
 ## Current verification evidence
 
-At Platform `713f5c0` and Gateway `1d03130`:
+At Platform `1793133` and Gateway `1d03130`:
 
 - Gateway built locally and passed 117/117 CTest cases, including deterministic
   fault-hook claim/repeat behavior, terminal SSE detection, provider EOF
