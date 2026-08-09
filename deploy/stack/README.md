@@ -17,7 +17,9 @@ set the certificate service name, and mount a trusted CA through a production
 override before using an untrusted network.
 
 The root workspace Compose file is a convenience launcher. Changes must be applied
-to this versioned file first and verified against an empty volume set.
+to this versioned file first and verified against an empty volume set. The stack
+serves the Admin Web on port 3000 and the authenticated User Web on port 3001;
+both are independent clients of the new Admin API contracts.
 
 Run the repository-owned greenfield gate from any directory with Docker Compose
 or Podman Compose available:

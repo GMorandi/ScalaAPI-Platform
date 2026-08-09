@@ -1,0 +1,26 @@
+@import "tailwindcss";
+
+@theme { --color-ink: #0b1220; --color-line: #dbe2ea; }
+body { @apply bg-[#f5f7fb] text-slate-900 antialiased; }
+.title { @apply text-3xl font-semibold tracking-tight text-slate-950; }
+.eyebrow { @apply mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500; }
+.muted { @apply text-sm text-slate-500; }
+.panel { @apply border border-slate-200 bg-white p-5; }
+.section-head { @apply mb-4 flex flex-wrap items-center justify-between gap-3; }
+.section-head h2 { @apply text-base font-semibold text-slate-950; }
+.metric { @apply flex min-h-32 flex-col justify-between border border-slate-200 bg-white p-5; }
+.metric strong { @apply text-3xl font-semibold tracking-tight text-slate-950; }
+.metric-label { @apply text-xs font-semibold uppercase tracking-wide text-slate-500; }
+.metric-note { @apply text-xs text-slate-500; }
+.field { @apply mt-1 block w-full border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-slate-900 focus:ring-1 focus:ring-slate-900; }
+.primary { @apply inline-flex items-center justify-center bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50; }
+.secondary { @apply inline-flex items-center justify-center border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:border-slate-900 hover:text-slate-950 disabled:cursor-not-allowed disabled:opacity-50; }
+.notice { @apply border-l-2 border-emerald-600 bg-emerald-50 px-4 py-3 text-sm text-emerald-800; }
+.error { @apply border-l-2 border-rose-600 bg-rose-50 px-4 py-3 text-sm text-rose-700; }
+.status { @apply inline-flex bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-700; }
+.status-muted { @apply bg-slate-100 text-slate-600; }
+.link-button { @apply mr-3 text-sm text-slate-700 underline hover:text-slate-950; }
+.danger-link { @apply text-sm text-rose-700 underline hover:text-rose-900; }
+.data-table { @apply w-full min-w-[640px] text-left text-sm; }
+.data-table th { @apply border-b border-slate-200 px-3 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500; }
+.data-table td { @apply border-b border-slate-100 px-3 py-3 text-slate-700; }

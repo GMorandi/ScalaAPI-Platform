@@ -74,7 +74,12 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: admin-web/package-lock.json
+          cache-dependency-path: |
+            admin-web/package-lock.json
+            user-web/package-lock.json
       - name: Admin Web typecheck and build
         working-directory: admin-web
+        run: npm ci && npm run typecheck && npm run build
+      - name: User Web typecheck and build
+        working-directory: user-web
         run: npm ci && npm run typecheck && npm run build

@@ -10,6 +10,7 @@ using SqlSugar;
 using ScalaAPI.Data.Entities;
 using ScalaAPI.Admin.Data;
 using ScalaAPI.Data.Accounting;
+using ScalaAPI.Data.Repositories;
 using Orleans;
 using ScalaAPI.Grains.Interfaces;
 
@@ -28,6 +29,7 @@ public static class PlatformEndpoints
     {
         app.MapPaymentWebhookEndpoints();
         MapApiKeySelfService(app);
+        MapUserUsage(app);
         MapUsageSummary(app);
         MapAnnouncements(app);
         MapPayments(app);
@@ -194,6 +196,63 @@ public static class PlatformEndpoints
                   output_tokens = EXCLUDED.output_tokens, total_cost_usd = EXCLUDED.total_cost_usd
                 """);
             return Results.Ok(new { message = "Summary refreshed" });
+        });
+    }
+
+    private static void MapUserUsage(WebApplication app)
+    {
+        var group = app.MapGroup("/user/usage").RequireAuthorization("UserOnly");
+
+        group.MapGet("/", async (ClaimsPrincipal principal, ISqlSugarClient db,
+            IUsageLogRepository usage, string? model, DateTime? from, DateTime? to,
+            int page = 1, int size = 50) =>
+        {
+            var email = principal.Identity?.Name?.Trim().ToLowerInvariant();
+            if (string.IsNullOrWhiteSpace(email)) return Results.Unauthorized();
+            var account = await db.Queryable<UserAccountEntity>()
+                .Where(x => x.Email == email && x.Status == "active").FirstAsync();
+            if (account is null) return Results.Unauthorized();
+
+            page = Math.Max(page, 1);
+            size = Math.Clamp(size, 1, 100);
+            var items = await usage.GetPaged(account.Id, model, from, to, page, size);
+            var total = await usage.Count(account.Id, model, from, to);
+            return Results.Ok(new
+            {
+                items = items.Select(item => new
+                {
+                    request_id = item.RequestId,
+                    model = item.Model,
+                    input_tokens = item.InputTokens,
+                    output_tokens = item.OutputTokens,
+                    cost_usd = item.CostUsd,
+                    duration_ms = item.DurationMs,
+                    stream = item.Stream,
+                    client_disconnect = item.ClientDisconnect,
+                    created_at = item.CreatedAt,
+                }),
+                total,
+                page,
+                size,
+                pages = (int)Math.Ceiling((double)total / size),
+            });
+        });
+
+        group.MapGet("/balance", async (ClaimsPrincipal principal,
+            ISqlSugarClient db, AccountingStore accounting, CancellationToken ct) =>
+        {
+            var email = principal.Identity?.Name?.Trim().ToLowerInvariant();
+            if (string.IsNullOrWhiteSpace(email)) return Results.Unauthorized();
+            var user = await db.Queryable<UserAccountEntity>()
+                .Where(x => x.Email == email && x.Status == "active").FirstAsync();
+            if (user is null) return Results.Unauthorized();
+            var snapshot = await accounting.GetSnapshotAsync(user.Id, ct);
+            return Results.Ok(new
+            {
+                user_id = snapshot.UserId,
+                balance = snapshot.Balance,
+                ledger_version = snapshot.Version,
+            });
         });
     }
 

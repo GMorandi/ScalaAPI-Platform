@@ -98,6 +98,7 @@ export OBJECT_STORAGE_CONSOLE_PORT="${SMOKE_OBJECT_STORAGE_CONSOLE_PORT:-29001}"
 export OBJECT_STORAGE_PUBLIC_ENDPOINT="http://127.0.0.1:${OBJECT_STORAGE_PORT}"
 export GATEWAY_PORT="${SMOKE_GATEWAY_PORT:-28080}"
 export ADMIN_WEB_PORT="${SMOKE_ADMIN_WEB_PORT:-23000}"
+export USER_WEB_PORT="${SMOKE_USER_WEB_PORT:-23001}"
 export GATEWAY_CORES="${SMOKE_GATEWAY_CORES:-2}"
 if [[ -n "${GATEWAY_FAULT_HOOK:-}${PLATFORM_FAULT_HOOK:-}" &&
       -z "${DISPATCH_LEASE_TTL_SECONDS:-}" ]]; then
@@ -109,6 +110,7 @@ if [[ -n "${PLATFORM_FAULT_HOOK:-}" ]]; then
 fi
 
 gateway_url="http://127.0.0.1:${GATEWAY_PORT}"
+user_web_url="http://127.0.0.1:${USER_WEB_PORT}"
 user_email="smoke-${suffix}@scalaapi.test"
 user_password="smoke-user-${suffix}-password"
 chat_request_id="smoke-chat-${suffix}"
@@ -475,12 +477,13 @@ compose "${up_arguments[@]}"
 wait_for "Gateway readiness" 180 curl -fsS "$gateway_url/ready" >/dev/null
 wait_for "Admin API readiness" 60 compose exec -T admin-api \
     curl -fsS http://127.0.0.1:5001/ready >/dev/null
+wait_for "User Web readiness" 60 curl -fsS "$user_web_url/" >/dev/null
 
 migration_count="$(db_query "SELECT count(*) FROM schema_migrations;")"
-assert_equals "22" "$migration_count" "Applied migration count"
+assert_equals "25" "$migration_count" "Applied migration count"
 second_migration_output="$(compose run --rm migrate 2>&1)"
 second_skip_count="$(grep -cE 'skip .+\.sql' <<<"$second_migration_output" || true)"
-assert_equals "22" "$second_skip_count" "Idempotent migrator skip count"
+assert_equals "25" "$second_skip_count" "Idempotent migrator skip count"
 
 login_response="$(admin_request POST /admin/auth/login \
     "$(jq -cn --arg username "$ADMIN_USERNAME" --arg password "$ADMIN_PASSWORD" \
@@ -1034,7 +1037,7 @@ if [[ "$garnet_probe" != *PONG* ]]; then
     exit 1
 fi
 
-echo "PASS: 22 empty-volume migrations and second-run idempotency"
+echo "PASS: 25 empty-volume migrations and second-run idempotency"
 echo "PASS: idempotent administrative funding, audit, conflict, and overdraft guards"
 echo "PASS: Garnet-authenticated Gateway -> Platform -> Provider mock request"
 echo "PASS: terminal lease, hold, usage, ledger, and outbox invariants"

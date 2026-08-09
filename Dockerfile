@@ -52,6 +52,8 @@ COPY deploy/migrations/018-accounting-authority.sql ./migrations/018-accounting-
 COPY deploy/migrations/019-accounting-reconciliation.sql ./migrations/019-accounting-reconciliation.sql
 COPY deploy/migrations/020-lease-dispatch-evidence.sql ./migrations/020-lease-dispatch-evidence.sql
 COPY deploy/migrations/021-reconciliation-resolutions.sql ./migrations/021-reconciliation-resolutions.sql
+COPY deploy/migrations/022-auth-totp-state.sql ./migrations/022-auth-totp-state.sql
+COPY deploy/migrations/023-auth-oauth-states.sql ./migrations/023-auth-oauth-states.sql
 ENTRYPOINT ["dotnet", "migrate/Db.Migrator.dll", "/app/migrations"]
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS provider-mock

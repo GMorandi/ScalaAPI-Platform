@@ -183,6 +183,14 @@ services:
       admin-api:
         condition: service_healthy
 
+  user-web:
+    build: ../../user-web
+    ports:
+      - "${USER_WEB_PORT:-3001}:80"
+    depends_on:
+      admin-api:
+        condition: service_healthy
+
 volumes:
   pgdata:
   garnet_data:
