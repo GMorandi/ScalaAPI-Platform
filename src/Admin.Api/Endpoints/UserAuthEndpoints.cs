@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using System.Security.Cryptography;
+using System.Text.Json;
 using Microsoft.AspNetCore.WebUtilities;
 using Npgsql;
 using OtpNet;
@@ -615,8 +616,8 @@ public static class UserAuthEndpoints
                     ["redirect_uri"] = req.RedirectUri,
                     ["code_verifier"] = req.CodeVerifier,
                 }), ct);
-            var tokenData = await tokenResp.Content.ReadFromJsonAsync<Dictionary<string, string>>(ct);
-            if (tokenData is null || !tokenData.TryGetValue("access_token", out var accessToken))
+            var accessToken = await ReadAccessTokenAsync(tokenResp.Content, ct);
+            if (accessToken is null)
                 return (null, null);
 
             client.DefaultRequestHeaders.Authorization =
@@ -654,8 +655,8 @@ public static class UserAuthEndpoints
                     ["redirect_uri"] = req.RedirectUri,
                     ["code_verifier"] = req.CodeVerifier,
                 }));
-            var tokenData = await tokenResp.Content.ReadFromJsonAsync<Dictionary<string, string>>(ct);
-            if (tokenData is null || !tokenData.TryGetValue("access_token", out var accessToken))
+            var accessToken = await ReadAccessTokenAsync(tokenResp.Content, ct);
+            if (accessToken is null)
                 return (null, null);
 
             client.DefaultRequestHeaders.Authorization =
@@ -669,6 +670,17 @@ public static class UserAuthEndpoints
         }
 
         return (null, null);
+    }
+
+    private static async Task<string?> ReadAccessTokenAsync(HttpContent content,
+        CancellationToken ct)
+    {
+        await using var stream = await content.ReadAsStreamAsync(ct);
+        using var document = await JsonDocument.ParseAsync(stream, cancellationToken: ct);
+        return document.RootElement.TryGetProperty("access_token", out var accessToken)
+            && accessToken.ValueKind == JsonValueKind.String
+            ? accessToken.GetString()
+            : null;
     }
 
     private static string? OAuthEndpoint(IConfiguration config, string provider,
