@@ -70,6 +70,61 @@ public sealed class ContentPolicyPropagationTests
         }
     }
 
+    [Fact]
+    public async Task ConcurrentWorkersSerializeClaimsAndPublishEachRevisionOnce()
+    {
+        var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
+        if (string.IsNullOrWhiteSpace(connectionString)) return;
+
+        await using var dataSource = NpgsqlDataSource.Create(connectionString);
+        var baseRevision = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() * 1000
+            + Random.Shared.Next(1, 900);
+        var eventIds = new[]
+        {
+            await InsertEventAsync(dataSource, baseRevision),
+            await InsertEventAsync(dataSource, baseRevision + 1)
+        };
+        try
+        {
+            var firstGarnet = new RecordingGarnet();
+            var secondGarnet = new RecordingGarnet();
+            var first = new ContentPolicyPropagationService(
+                dataSource, firstGarnet,
+                NullLogger<ContentPolicyPropagationService>.Instance);
+            var second = new ContentPolicyPropagationService(
+                dataSource, secondGarnet,
+                NullLogger<ContentPolicyPropagationService>.Instance);
+
+            var results = await Task.WhenAll(
+                first.PropagateOnceAsync($"test-a-{Guid.NewGuid():N}"),
+                second.PropagateOnceAsync($"test-b-{Guid.NewGuid():N}"));
+
+            Assert.Equal(2, results.Sum(result => result.Propagated));
+            Assert.Equal(0, results.Sum(result => result.Failed));
+            foreach (var eventId in eventIds)
+                Assert.True(await IsPropagatedAsync(dataSource, eventId));
+
+            var revisions = firstGarnet.SetCalls
+                .Concat(secondGarnet.SetCalls)
+                .Where(call => call.Key == GarnetKeyspace.ContentPolicyRevision)
+                .Select(call => long.Parse(call.Value))
+                .Where(value => value == baseRevision || value == baseRevision + 1)
+                .ToArray();
+            Assert.Equal(2, revisions.Length);
+            Assert.Equal(1, revisions.Count(value => value == baseRevision));
+            Assert.Equal(1, revisions.Count(value => value == baseRevision + 1));
+            Assert.Equal(2, firstGarnet.Increments.Count(key =>
+                key == GarnetKeyspace.InvalidationVersion)
+                + secondGarnet.Increments.Count(key =>
+                    key == GarnetKeyspace.InvalidationVersion));
+        }
+        finally
+        {
+            foreach (var eventId in eventIds)
+                await DeleteEventAsync(dataSource, eventId);
+        }
+    }
+
     private static async Task<long> InsertEventAsync(NpgsqlDataSource dataSource, long revision)
     {
         await using var command = dataSource.CreateCommand("""
