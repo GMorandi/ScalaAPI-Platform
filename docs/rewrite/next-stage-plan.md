@@ -344,7 +344,7 @@ Admin and user create/update/rotate/revoke paths write the same scope/expiry
 projection and append actor, action, scope, and reason data to the new
 `api_key_audit_events` table. Runtime scope denials append a bounded audit event
 with request ID and never persist plaintext credentials. The 62-case Grain suite,
-schema assertion, Release build, full 129-test Platform run, and
+schema assertion, Release build, full 132-test Platform run, and
 `scalaapi-key-policy-verified` empty-stack proof pass. The smoke proves that
 denied requests create no lease, hold, or Provider call and that the policy
 denial audit row is persisted. The slice remains `partial` until authenticated

@@ -19,7 +19,7 @@ The current tracked inventory is:
 - Gateway: 52 production C++ source/header files, 10 test source files, and 104
   CTest cases.
 - Platform: 88 hand-written production C# files, 3 generated Cap'n Proto C#
-  files, 33 test/benchmark C# files, and 129 tests: 59 Grain, 34 Host, 12 Admin,
+  files, 33 test/benchmark C# files, and 132 tests: 62 Grain, 34 Host, 12 Admin,
   and 24 Provider mock tests.
 - Product surface: 119 direct Admin API route declarations, 45 product tables,
   20 SQLSugar entity types, 23 Admin Web TypeScript/TSX files and 11 page views,
@@ -255,8 +255,8 @@ At Platform `a1936c0` and Gateway `52a0035`:
   classification, incomplete chunked-body disconnect classification, zero-length
   client-write cancellation, and bounded Provider pre-header stream timeout
   handling plus independent inter-chunk and total-stream timeout scenarios.
-- Platform Release test/build passed with 0 warnings and 0 errors: 129/129 tests,
-  including 34 Host tests and 59 Grain tests. Admin coverage
+- Platform Release test/build passed with 0 warnings and 0 errors: 132/132 tests,
+  including 34 Host tests and 62 Grain tests. Admin coverage
   includes PostgreSQL-backed TOTP replay, backup-code consumption, lockout,
   recovery, OAuth provider/redirect/verifier binding, one-time state consumption,
   and expiry. Host coverage
