@@ -2,7 +2,7 @@
 
 ## Checkpoint
 
-The next stage starts from Platform and User Web `d71fe8b`, Gateway `3da0d33`, and read-only
+The next stage starts from Platform and User Web `44d2096`, Gateway `3da0d33`, and read-only
 reference `sub2api@43ec48d`.
 
 The greenfield baseline now starts from empty volumes, uses PostgreSQL as authority,
@@ -158,6 +158,12 @@ decimal quotes over HTTPS by default; changed snapshots close only the prior ope
 version for that provider/model; and identical snapshots replay without new rows.
 Provider Mock plus real PostgreSQL tests prove the contract and history. Provider-
 specific price rules, tokenizer/golden fixtures, and multi-provider runtime E2E remain.
+Platform `44d2096` adds migration 037 and the first media object integrity boundary:
+a `SKIP LOCKED` worker verifies signed object `HEAD` existence, size, and ETag for
+stored media, retries missing/mismatched/transient metadata, and restores a row to
+`stored` after the object becomes valid without changing the settled operation or
+lease. Object listing/orphan cleanup, restore, cancellation/restart, and full
+MinIO lifecycle evidence remain explicit follow-on gates.
 Migration `023-auth-oauth-states.sql` now adds one-time OAuth state with S256 PKCE:
 the Admin start flow returns provider-bound state/verifier/challenge material,
 PostgreSQL stores only hashes, and callback consumption binds the exact redirect URI
@@ -693,7 +699,8 @@ Then expand the remaining 58-domain work in this order:
    runtime cross-protocol E2E; source-owned protocol fixtures are frozen in
    Gateway `8f33790`.
 2. Complete Provider-specific OAuth refresh profiles and runtime evidence, provider-
-   specific price/tokenizer adapters, media recovery, and object reconciliation/restore.
+   specific price/tokenizer adapters, media cancellation/restart/restore, object
+   listing/orphan cleanup, and full object reconciliation lifecycle evidence.
 3. Complete identity hardening beyond the TOTP, OAuth PKCE, Passkey, and encrypted
    mail-outbox state machines, including backup-code recovery UX, live SMTP/provider
    delivery, anti-enumeration,

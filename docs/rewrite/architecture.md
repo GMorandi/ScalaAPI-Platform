@@ -210,7 +210,10 @@ delay, disconnect, and malformed usage. Normalized request fields select faults,
 while separate seeded accounts isolate scheduler cooldown and retry state. Gateway
 rejects an incomplete payload-bearing 2xx before usage extraction. S3-compatible
 storage owns media bytes; PostgreSQL owns object keys, metadata, retention, and
-authorization.
+authorization. Platform's metadata-only object reconciler claims due succeeded
+rows with `SKIP LOCKED`, verifies signed `HEAD` ETag/size/existence, and records
+retryable object metadata failures without changing a settled operation or lease;
+object listing/orphan deletion and restore are separate lifecycle controls.
 
 ## Internal contract
 
