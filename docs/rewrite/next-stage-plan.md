@@ -2,7 +2,7 @@
 
 ## Checkpoint
 
-The next stage starts from Platform `f06cccc`, Gateway `3da0d33`, User Web `45b75f8`, and read-only
+The next stage starts from Platform `80ab783`, Gateway `3da0d33`, User Web `45b75f8`, and read-only
 reference `sub2api@43ec48d`.
 
 The greenfield baseline now starts from empty volumes, uses PostgreSQL as authority,
@@ -361,6 +361,12 @@ Remaining package deliverables:
   actor/IP audit are covered by a real PostgreSQL test. Add scheduled runners,
   monitor templates/history, feedback notifications, and browser evidence before
   moving OPS-03 to implemented.
+- OPS-05 now has a bounded maintenance slice at Platform `80ab783`: repeatable-read
+  user export omits credential material, while cleanup migration 032 removes only
+  expired auth/session/Passkey data under explicit retention and row limits. The
+  Admin command is dry-run capable, actor-scoped and idempotent, with audit evidence;
+  add scheduler integration, immutable retention/object cleanup, browser authorization,
+  and maintenance metrics before moving OPS-05 to implemented.
 - Add a blocking negative probe for each new fault hook so a swallowed child failure or
   missing scenario makes the top-level gate non-zero.
 

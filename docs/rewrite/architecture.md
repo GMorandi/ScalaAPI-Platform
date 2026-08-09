@@ -51,6 +51,13 @@ monotonic, and credential registration/revocation audits are written with the st
 mutation. The public login endpoint issues the same rotating session contract as
 password/OAuth login; browser ceremony and anti-abuse policy remain release gates.
 
+Maintenance is a Platform-owned data boundary. `/user/export` uses a repeatable-read
+snapshot and returns only bounded non-secret account, usage, session, and Passkey
+metadata. Admin cleanup is a separate idempotent command with explicit retention and
+row limits; it removes only expired authentication/ceremony records and writes the
+operation plus actor audit in the same transaction. Media/object retention and
+immutable audit retention are separate lifecycle controls.
+
 `accounting_accounts` is the monetary authority: one row per product user stores a
 NUMERIC posted balance and monotonically increasing ledger version. The account,
 append-only `balance_ledger`, `request_leases`, `balance_holds`, request idempotency,
