@@ -11,7 +11,7 @@ read-only requirements reference and is excluded from builds and runtime.
 | Repository | Commit | Worktree | Role |
 | --- | --- | --- | --- |
 | `gateway` | `297b131` | clean | C++ HTTP/WebSocket edge, protocol parsing/conversion, streaming, strict Provider media contracts, bounded stream header/client timeouts, distinct inter-chunk/total timer tests, normalized Provider availability errors, transport/evidence, charge-aware failover, durable usage delivery, authenticated Garnet projections, deterministic fault boundaries, and late-usage settlement from truncated SSE |
-| `platform` | `fe21ccd` | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, identity, scheduling, evidence-backed leases/holds/ledger, audited operator resolution, media lifecycle, Admin API/Web, Provider mock, migrations, deterministic fault boundaries, and Garnet deployment gates |
+| `platform` | `a0ea559` | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, identity, scheduling, evidence-backed leases/holds/ledger, audited operator resolution, media lifecycle, Admin API/Web, Provider mock, migrations, deterministic Platform/Gateway fault boundaries, and Garnet deployment gates |
 | `sub2api` | `43ec48d` | read-only clean | Requirements catalogue only; never a runtime or compatibility dependency |
 
 The current tracked inventory is:
@@ -97,7 +97,9 @@ current-source runtime evidence.
 - Gateway and Platform expose opt-in, one-shot deterministic fault hooks at
   dispatch, Provider completion, settlement commit, and outbox acknowledgement.
   Hooks persist a claim marker so a restarted process does not crash repeatedly;
-  the smoke harness proves Platform pre-commit, post-commit, and pre-ack recovery.
+  the smoke harness proves Platform pre-commit, post-commit, and pre-ack recovery
+  plus Gateway termination after Provider completion with the ambiguous lease
+  retained for reconciliation.
 
 ### Identity and control plane
 
@@ -184,7 +186,7 @@ current-source runtime evidence.
 
 ## Current verification evidence
 
-At Platform `fe21ccd` and Gateway `297b131`:
+At Platform `a0ea559` and Gateway `297b131`:
 
 - Gateway built locally and passed 102/102 CTest cases, including deterministic
   fault-hook claim/repeat behavior, terminal SSE detection, provider EOF
@@ -196,6 +198,15 @@ At Platform `fe21ccd` and Gateway `297b131`:
   includes deterministic fault-hook configuration plus atomic operator
   settle/release, replay/conflict behavior, and concurrent resolution serialization.
 - Admin Web typecheck and production build passed.
+- The current-source empty-stack project `scalaapi-gateway-recovery-0907` ran with
+  `GATEWAY_FAULT_HOOK=gateway.after_provider_completion` and a 15-second lease TTL.
+  Gateway returned an empty transport reply, persisted its one-shot marker,
+  terminated, and was explicitly started as the same container. Readiness
+  recovered, the original lease became `reconciliation_needed` with an active
+  hold and no usage/debit, and the marker prevented a repeat crash. The complete
+  gate then passed with ten unknown-charge incidents, one audited operator settle,
+  and nine remaining open incidents. The cleanup trap removed the temporary
+  project; only the named `apitf_*` development resources remain.
 - Scheduler benchmark integrity dry run executed all 4 selected child benchmarks
   and returned zero. It is a failure-propagation check, not performance evidence.
 - `deploy/stack/smoke.sh` built current sibling sources in isolated Podman
@@ -283,9 +294,10 @@ Detailed gate results and residual coverage are maintained in `verification.md`.
   timer distinctions are pinned by Gateway `18083f9`.
 - Source smoke now proves Platform pre-settlement-commit, post-settlement-commit,
   and pre-outbox-acknowledgement crash boundaries, Gateway reconnect/backoff
-  recovery, durable usage replay, and exactly-once settlement. The remaining
-  dispatch, Provider-completion, Gateway, and multi-instance hook matrix still
-  needs independent runtime assertions, including hold/idempotency reconciliation.
+  recovery, durable usage replay, and exactly-once settlement. The current source
+  gate additionally proves Gateway termination after Provider completion and
+  retention of its forwarded lease/hold for reconciliation; dispatch/worker
+  reclaim, other Gateway boundaries, and multi-instance hook assertions remain.
 - Garnet authentication, outage/reconnect, rebuild, and invalidation flush have
   evidence; TLS plus concurrent multi-Gateway/multi-Silo behavior is not a release
   gate yet.
