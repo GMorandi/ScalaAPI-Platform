@@ -116,6 +116,9 @@ user_email="smoke-${suffix}@scalaapi.test"
 user_password="smoke-user-${suffix}-password"
 chat_request_id="smoke-chat-${suffix}"
 chat_idempotency_key="smoke-chat-idem-${suffix}"
+concurrent_request_id="smoke-chat-concurrent-${suffix}"
+concurrent_idempotency_key="smoke-chat-concurrent-idem-${suffix}"
+expired_key_request_id="smoke-expired-key-${suffix}"
 platform_restart_request_id="smoke-platform-restart-${suffix}"
 platform_restart_idempotency_key="smoke-platform-restart-idem-${suffix}"
 gateway_restart_request_id="smoke-gateway-restart-${suffix}"
@@ -928,6 +931,69 @@ assert_equals "$(jq -cS . <<<"$chat_response")" "$(jq -cS . <<<"$chat_replay")" 
     "Idempotent chat replay body"
 assert_equals "1" "$(db_query "SELECT count(*) FROM request_idempotency WHERE idempotency_key = '$chat_idempotency_key';")" \
     "Idempotent chat lease count"
+
+concurrent_tmp_dir="$(mktemp -d)"
+concurrent_chat_body='{"model":"gpt-4o","messages":[{"role":"user","content":"concurrent idempotency"}],"stream":false}'
+curl -sS --max-time 30 -o "$concurrent_tmp_dir/first.body" -w '%{http_code}' \
+    "$gateway_url/v1/chat/completions" \
+    -H "Authorization: Bearer $api_key" -H "Content-Type: application/json" \
+    -H "X-Request-ID: $concurrent_request_id-a" \
+    -H "Idempotency-Key: $concurrent_idempotency_key" \
+    --data "$concurrent_chat_body" >"$concurrent_tmp_dir/first.status" &
+concurrent_first_pid=$!
+curl -sS --max-time 30 -o "$concurrent_tmp_dir/second.body" -w '%{http_code}' \
+    "$gateway_url/v1/chat/completions" \
+    -H "Authorization: Bearer $api_key" -H "Content-Type: application/json" \
+    -H "X-Request-ID: $concurrent_request_id-b" \
+    -H "Idempotency-Key: $concurrent_idempotency_key" \
+    --data "$concurrent_chat_body" >"$concurrent_tmp_dir/second.status" &
+concurrent_second_pid=$!
+set +e
+wait "$concurrent_first_pid"
+concurrent_first_exit=$?
+wait "$concurrent_second_pid"
+concurrent_second_exit=$?
+set -e
+assert_equals "0" "$concurrent_first_exit" "Concurrent first request transport"
+assert_equals "0" "$concurrent_second_exit" "Concurrent second request transport"
+concurrent_first_status="$(tr -d '\r\n' <"$concurrent_tmp_dir/first.status")"
+concurrent_second_status="$(tr -d '\r\n' <"$concurrent_tmp_dir/second.status")"
+assert_one_of "200|409" "$concurrent_first_status" "Concurrent first request status"
+assert_one_of "200|409" "$concurrent_second_status" "Concurrent second request status"
+if [[ "$concurrent_first_status" == "409" && "$concurrent_second_status" == "409" ]]; then
+    echo "Concurrent idempotency requests both rejected" >&2
+    exit 1
+fi
+concurrent_idempotency_settled() {
+    [[ "$(db_query "SELECT count(*) FROM request_leases WHERE request_id LIKE '$concurrent_request_id-%' AND status = 'completed';")" == "1" ]]
+}
+wait_for "concurrent idempotency settlement" 30 concurrent_idempotency_settled
+assert_equals "1" "$(db_query "SELECT count(*) FROM request_idempotency WHERE idempotency_key = '$concurrent_idempotency_key';")" \
+    "Concurrent idempotency lease uniqueness"
+rm -rf "$concurrent_tmp_dir"
+echo "PASS: concurrent API-key idempotency serialized without duplicate lease"
+
+expired_key_expires_at="$(jq -nr '((now * 1000) | floor) + 2000')"
+expired_key_response="$(admin_request POST /admin/apikeys/ \
+    "$(jq -cn --argjson user "$user_id" --argjson group "$openai_group_id" \
+        --argjson expires "$expired_key_expires_at" \
+        '{userId:$user,groupId:$group,quota:100,expiresAt:$expires,ipWhitelist:[],ipBlacklist:[],rateLimit5h:0,rateLimit1d:0,rateLimit7d:0}')" \
+    "$admin_token")"
+expired_api_key="$(jq -er '.key' <<<"$expired_key_response")"
+sleep 3
+expired_key_result="$(curl -sS --max-time 20 --write-out $'\n%{http_code}' \
+    "$gateway_url/v1/chat/completions" \
+    -H "Authorization: Bearer $expired_api_key" -H "Content-Type: application/json" \
+    -H "X-Request-ID: $expired_key_request_id" \
+    -H "Idempotency-Key: $expired_key_request_id-idem" \
+    --data "$chat_body")"
+expired_key_status="$(printf '%s\n' "$expired_key_result" | tail -n 1)"
+expired_key_body="$(printf '%s\n' "$expired_key_result" | sed '$d')"
+assert_equals "401" "$expired_key_status" "Expired API key HTTP status"
+jq -e '.error.type == "authentication_error"' <<<"$expired_key_body" >/dev/null
+assert_equals "0" "$(db_query "SELECT count(*) FROM request_leases WHERE request_id = '$expired_key_request_id';")" \
+    "Expired API key creates no lease"
+echo "PASS: expired API key rejected before scheduling with no lease"
 
 python3 "$stack_dir/realtime_smoke.py" "$gateway_url" "$api_key" \
     "$realtime_request_id" "$realtime_idempotency_key"
