@@ -2,7 +2,7 @@
 
 ## Checkpoint
 
-The next stage starts from Platform `1793133`, Gateway `1d03130`, and read-only
+The next stage starts from Platform `a3928f6`, Gateway `cd475c7`, and read-only
 reference `sub2api@43ec48d`.
 
 The greenfield baseline now starts from empty volumes, uses PostgreSQL as authority,
@@ -60,19 +60,23 @@ through the clean Gateway runtime image, including exactly-once
 lease/usage/hold/ledger settlement; long-connection/backpressure soak, remaining
 boundaries, the worker/multi-silo matrix, and multi-instance scenarios are still
 open.
-The current source-built `scalaapi-stream-policy-20260809b` gate applies and
-replays 29 migration records from empty volumes, proves Garnet-authenticated
-request routing, staged request/response policy, the full Provider fault matrix,
-media persistence, audited reconciliation, and exactly-once restart billing. A
-response block withholds Provider output but still commits the normal Provider
-usage debit and stores an exact client-facing 400 replay. Content rule creation
-returns its persisted identity, and the Provider mock forces headers before the
-zero-byte disconnect fixture so the intended 503 classification is deterministic.
-Gateway `1d03130` additionally withholds each bounded SSE event until response
-policy approval, emits an OpenAI/Anthropic/Gemini-shaped terminal policy error on
-block or fail-closed evaluation, and preserves the unknown-charge hold and
-idempotency evidence. The same empty-stack run proves the first event is not
-leaked and the retained hold is reconciled later.
+The current source-built `scalaapi-classifier-20260809c` gate applies and
+replays 30 migration records from empty volumes, proves Garnet-authenticated
+request routing, staged request/response policy, the versioned Unicode evaluator,
+external-classifier fail-closed handling, the full Provider fault matrix, media
+persistence, audited reconciliation, and exactly-once restart billing. The
+Unicode request probe matches fullwidth/decomposed/confusable content, redacts its
+audit, and creates no lease. The external-classifier response probe returns HTTP
+503, redacts its audit, and still commits one normal Provider usage debit with an
+exact 503 replay. A response block withholds Provider output but still commits the
+normal Provider usage debit and stores an exact client-facing 400 replay. Content
+rule creation returns its persisted identity, and the Provider mock forces headers
+before the zero-byte disconnect fixture so the intended 503 classification is
+deterministic. Gateway `cd475c7` additionally withholds each bounded SSE event
+until response policy approval, emits an OpenAI/Anthropic/Gemini-shaped terminal
+policy error on block or fail-closed evaluation, and preserves the unknown-charge
+hold and idempotency evidence. The same empty-stack run proves the first event is
+not leaked and the retained hold is reconciled later.
 
 Provider OAuth credentials now use encrypted versioned state with a single-account
 refresh lease, compare-and-set completion, bounded error evidence, and scheduler
@@ -135,31 +139,35 @@ concurrency, and idempotent group spend remain covered by the Grain suite; HTTP
 group CRUD validation, distributed rate-window contention, and multi-Silo fallback
 fault evidence remain release work.
 
-The `SEC-01` runtime slice is active at Gateway `1d03130` and Platform `6fc76f3`.
+The `SEC-01` runtime slice is active at Gateway `cd475c7` and Platform `a3928f6`.
 The canonical dispatch contract carries bounded request and response content.
 Platform applies request `log`/`block` rules before scheduler/lease activity and
 response rules after Provider validation but before non-stream delivery. Both stages
 write rule-linked audits; request blocks create no lease, while response blocks hide
 the Provider body, preserve one normal usage debit, and replay the client-facing
-400. Migration 028 adds stage constraints and idempotent stage logging. Gateway
+400. Migration 029 adds the versioned `unicode-confusable-v1` evaluator, classifier
+selection, policy revision state, and audit redaction metadata. Gateway
 event-boundary streaming enforcement is source-tested and empty-stack verified;
-the domain remains `partial` until Unicode/normalization and classifier fixtures,
-alerting, rule-change propagation, and browser authorization evidence are
-automated.
+the classifier boundary fails closed with retryable HTTP 503 when an external
+adapter is unavailable. The domain remains `partial` until a real external adapter,
+multi-instance propagation/alerting, browser authorization, and long-stream metrics
+are automated.
 
 ## Next implementation slice
 
-1. Extend `SEC-01` beyond the completed event-boundary streaming slice. Add
-   protocol golden fixtures for OpenAI Chat/Responses, Anthropic, and Gemini, and
-   prove bounded-buffer overflow, classifier failure, cancellation, and late usage
-   settlement semantics under every stream terminal event.
-2. Add a source-owned content normalizer and classifier contract. Normalize Unicode
-   (including confusable and decomposed forms) before matching, version the rule
-   evaluator, and fail closed when an external classifier is unavailable. Add rule
-   update propagation, bounded audit snippets, and sensitive-content redaction tests.
-3. Add operator and browser evidence. Exercise Admin rule stage/update/delete with
-   fresh identity, authorization, audit, and cache invalidation; add Admin/User Web
-   browser tests for policy management and the user-visible policy error contract.
+1. Complete the classifier production boundary. Add a source-owned or contract-tested
+   external adapter with bounded timeout/latency, deterministic unavailable/retry
+   semantics, protocol golden fixtures for OpenAI Chat/Responses, Anthropic, and
+   Gemini, and prove bounded-buffer overflow, cancellation, and late usage settlement
+   under every stream terminal event.
+2. Prove policy revision propagation and operations. Exercise concurrent Admin
+   rule stage/update/delete changes across multiple Platform instances, invalidate
+   Gateway caches through Garnet, persist alert events for classifier outages and
+   policy blocks, and verify monotonic revisions in every audit row.
+3. Add operator and browser evidence. Exercise Admin rule management with fresh
+   identity, authorization, audit, redaction, and replay checks; add Admin/User Web
+   browser tests for policy management and the user-visible 400/503 policy error
+   contracts.
 4. Close release reliability gates in parallel: Provider golden request/response
    fixtures, long WebSocket/backpressure soak, multi-Gateway/multi-Silo contention,
    Garnet TLS/outage/rebuild, PostgreSQL/Garnet recovery, and backup/restore drills.

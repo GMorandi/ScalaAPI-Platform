@@ -63,8 +63,13 @@ usage still completes the lease and the policy response is retained for exact
 idempotency replay. For SSE, Gateway buffers one bounded event until the same
 lease-bound decision allows it, then emits a protocol-shaped terminal policy error
 for block or fail-closed outcomes without leaking the blocked event. A blocked or
-failed stream retains unknown-charge evidence for reconciliation; external
-classifiers and Unicode normalization remain future contracts.
+failed stream retains unknown-charge evidence for reconciliation. The shared
+`unicode-confusable-v1` evaluator performs deterministic NFKC/case-folding,
+format-character removal, and bounded confusable mapping before local matching.
+Rules persist evaluator version, classifier choice, redaction, and a monotonic
+policy revision. An external classifier is an explicit adapter boundary and an
+unavailable adapter fails closed as retryable policy-unavailable; it is not a
+silent local fallback.
 
 A request begins `held`. Gateway must persist `forwarded` before contacting a
 Provider and records `output_started` after its first successful client write. The

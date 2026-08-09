@@ -10,16 +10,16 @@ read-only requirements reference and is excluded from builds and runtime.
 
 | Repository | Commit | Worktree | Role |
 | --- | --- | --- | --- |
-| `gateway` | `1d03130` | clean | C++ HTTP/WebSocket edge, protocol parsing/conversion, fail-closed OpenAI/Gemini model catalog and Anthropic token-count response validation, bounded Embeddings and Responses validation, streaming, strict Provider media contracts, bounded transport timers, normalized Provider availability errors, shared retryable Platform transport policy, durable usage delivery, authenticated Garnet projections, bounded request/response content-policy RPC evaluation, event-boundary streaming response moderation, and fail-closed response delivery |
-| `platform` | `1793133` | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, Provider mock contracts, rotating identity/session/TOTP/OAuth state, API-key policy and audit, versioned runtime configuration, persistent scheduling and lease/hold/ledger state, audited operator reconciliation, media/object lifecycle, staged request/response content-policy evaluation, and deterministic stream-disconnect fixtures |
+| `gateway` | `cd475c7` | clean | C++ HTTP/WebSocket edge, protocol parsing/conversion, fail-closed OpenAI/Gemini model catalog and Anthropic token-count response validation, bounded Embeddings and Responses validation, streaming, strict Provider media contracts, bounded transport timers, normalized Provider availability errors, shared retryable Platform transport policy, durable usage delivery, authenticated Garnet projections, bounded request/response content-policy RPC evaluation, event-boundary streaming response moderation, and fail-closed response delivery including retryable classifier outages |
+| `platform` | `a3928f6` | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, Provider mock contracts, rotating identity/session/TOTP/OAuth state, API-key policy and audit, versioned runtime configuration, persistent scheduling and lease/hold/ledger state, audited operator reconciliation, media/object lifecycle, staged request/response content-policy evaluation with versioned Unicode normalization, classifier boundary, policy revision propagation, and redacted audits |
 | `sub2api` | `43ec48d` | read-only clean | Requirements catalogue only; never a runtime or compatibility dependency |
 
 The current tracked inventory is:
 
-- Gateway: 52 production C++ source/header files, 10 test source files, and 117
+- Gateway: 52 production C++ source/header files, 10 test source files, and 118
   CTest cases.
-- Platform: 90 hand-written production C# files, 3 generated Cap'n Proto C#
-  files, 38 test/benchmark C# files, and 162 tests: 69 Grain, 38 Host, 18 Admin,
+- Platform: 93 hand-written production C# files, 3 generated Cap'n Proto C#
+  files, 38 test/benchmark C# files, and 164 tests: 69 Grain, 40 Host, 18 Admin,
   and 37 Provider mock tests.
 - Product surface: 119 direct Admin API route declarations, 45 product tables,
   20 SQLSugar entity types, 23 Admin Web TypeScript/TSX files and 11 page views,
@@ -63,8 +63,12 @@ current-source runtime evidence.
   one bounded SSE event at a time, evaluates it before client write, and emits a
   protocol-shaped terminal policy error on block/fail-closed outcomes; a blocked
   stream retains its unknown-charge hold/idempotency evidence. Matches are durably
-  audited. Unicode normalization, richer classifiers, alerting, and browser
-  workflows remain open.
+  audited with rule identity, evaluator version, classifier, policy revision, and
+  optional redacted snippets. The native `unicode-confusable-v1` evaluator applies
+  NFKC, case folding, format-character removal, and a bounded confusable map. Local
+  matching is deterministic; external classifiers have an explicit adapter boundary
+  and fail closed with retryable 503 semantics until an adapter is configured.
+  Alert delivery, browser workflows, and long-stream classifier metrics remain open.
 - S3-compatible storage owns media bytes. PostgreSQL owns media metadata,
   authorization, object keys, ETags, sizes, and lifecycle state.
 - All business money is `decimal`; PostgreSQL uses `NUMERIC`; the RPC boundary
@@ -271,10 +275,10 @@ current-source runtime evidence.
 
 ### Bootstrap and deployment
 
-- The direct source migrator applied product migrations 001-028 to a temporary
-  empty PostgreSQL 17 database and skipped all 28 on replay. The migrator image
+- The direct source migrator applied product migrations 001-029 to a temporary
+  empty PostgreSQL 17 database and skipped all 29 on replay. The migrator image
   copies the complete migration directory, so new forward migrations cannot be
-  silently omitted. The current empty-stack gate applied and replayed 29 records
+  silently omitted. The current empty-stack gate applied and replayed 30 records
   including Orleans support. No source database, snapshot, old key, CDC table,
   or compatibility mapping is required.
 - `deploy/stack` independently starts PostgreSQL, authenticated Garnet, MinIO,
@@ -292,15 +296,15 @@ current-source runtime evidence.
 
 ## Current verification evidence
 
-At Platform `1793133` and Gateway `1d03130`:
+At Platform `a3928f6` and Gateway `cd475c7`:
 
-- Gateway built locally and passed 117/117 CTest cases, including deterministic
+- Gateway built locally and passed 118/118 CTest cases, including deterministic
   fault-hook claim/repeat behavior, terminal SSE detection, provider EOF
   classification, incomplete chunked-body disconnect classification, zero-length
   client-write cancellation, and bounded Provider pre-header stream timeout
   handling plus independent inter-chunk and total-stream timeout scenarios.
-- Platform Release test/build passed with 0 warnings and 0 errors: 162/162 tests,
-  including 38 Host tests, 69 Grain tests, 18 Admin tests, and 37 Provider mock
+- Platform Release test/build passed with 0 warnings and 0 errors: 164/164 tests,
+  including 40 Host tests, 69 Grain tests, 18 Admin tests, and 37 Provider mock
   tests. Admin coverage
   includes PostgreSQL-backed TOTP replay, backup-code consumption, lockout,
   recovery, OAuth provider/redirect/verifier binding, one-time state consumption,
@@ -320,9 +324,14 @@ At Platform `1793133` and Gateway `1d03130`:
   plus response output withholding with normal usage settlement and exact 400
   replay. Gateway buffers a bounded SSE event until policy approval, emits a
   protocol-shaped terminal policy error on block/fail-closed outcomes, and keeps
-  unknown-charge settlement evidence when output is interrupted. Unicode
-  normalization, richer classifiers, alerts, and runtime browser evidence remain
-  open, so the domain is still `partial`.
+  unknown-charge settlement evidence when output is interrupted. The source-owned
+  evaluator normalizes compatibility/decomposed/confusable Unicode forms, rules
+  carry an evaluator/classifier version, policy mutations bump a monotonic revision,
+  and redacted audits never persist sensitive snippets. An unavailable external
+  classifier fails closed and is covered by Host tests, Gateway fail-closed tests,
+  and the empty-stack response/settlement probe. Alert delivery, rule propagation
+  across multiple instances, and runtime browser evidence remain open, so the
+  domain is still `partial`.
 - AUTH-01 coverage includes email/password boundary tests, PostgreSQL-backed login
   identity/IP lockout and success reset tests, independent-IP accounting,
   registration-IP lockout, migration schema assertions, and duplicate insert
@@ -545,18 +554,22 @@ At Platform `1793133` and Gateway `1d03130`:
   public 503/provider_unavailable responses and released every no-charge hold.
 - Garnet authentication returned `PONG`; asynchronous media bootstrapped the empty
   MinIO bucket and a signed URL downloaded the expected 67-byte object.
-- The latest `scalaapi-stream-policy-20260809b` smoke command exited zero. It
-  applied 29 empty-volume migration records and skipped all 29 on replay, proved
+- The latest `scalaapi-classifier-20260809c` smoke command exited zero. It
+  applied 30 empty-volume migration records and skipped all 30 on replay, proved
   request and response content-policy paths, the complete Provider fault matrix,
   Garnet-authenticated routing, media persistence, reconciliation, operator
-  settlement/replay, and post-restart billing. The response policy scenario hid
+  settlement/replay, and post-restart billing. The Unicode request scenario matched
+  fullwidth/decomposed/confusable content, redacted its audit snippet, and created
+  no lease. The external-classifier response scenario failed closed with HTTP 503,
+  redacted its audit, and still completed exactly one normal usage settlement and
+  503 response replay. The response policy scenario hid
   Provider output while recording one audit, completed lease, committed hold,
   usage event/log, NUMERIC debit, and replayed client-facing HTTP 400 exactly.
   The streaming policy case adds one retained unknown-charge incident; the run
   therefore ended with eleven open incidents before the audited settlement and
   ten after it, with no duplicate debit for the blocked stream.
   The cleanup removed every project container, temporary volume/network, and
-  `scalaapi-stream-policy-20260809b_*` images. Only the named `apitf_*` baseline
+  `scalaapi-classifier-20260809c_*` images. Only the named `apitf_*` baseline
   development resources and `scalaapi-gateway:dev` remain.
 
 Detailed gate results and residual coverage are maintained in `verification.md`.
