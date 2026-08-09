@@ -2,7 +2,7 @@
 
 ## Checkpoint
 
-The next stage starts from Platform `c2d3cf9`, Gateway `52a0035`, and read-only
+The next stage starts from Platform `c9113c8`, Gateway `52a0035`, and read-only
 reference `sub2api@43ec48d`.
 
 The greenfield baseline now starts from empty volumes, uses PostgreSQL as authority,
@@ -349,7 +349,7 @@ refresh audit and multi-Silo evidence.
 
 ## Current P0 slice: API-key authorization boundary
 
-Platform `c2d3cf9` now treats API-key policy as a new product contract. A key
+Platform `c9113c8` now treats API-key policy as a new product contract. A key
 stores a normalized set of Gateway capability scopes (`messages`, `responses`,
 `embeddings`, media, realtime, and the provider-specific model capabilities) and
 an optional millisecond expiry. Platform checks the requested capability after
@@ -365,14 +365,18 @@ with request ID and never persist plaintext credentials. The 66-case Grain suite
 schema assertion, Release build, full 141-test Platform run, and
 `scalaapi-key-policy-verified` empty-stack proof pass. The smoke proves that
 denied requests create no lease, hold, or Provider call and that the policy
-denial audit row is persisted. The slice remains `partial` until authenticated
-HTTP replay/concurrency and expired-key cases are covered.
+denial audit row is persisted. The source smoke now also proves two concurrent
+Chat requests with one idempotency key leave one completed lease/idempotency row,
+and that a short-lived key returns HTTP 401 before scheduling after expiry. The
+slice remains `partial` until Admin update/revoke, user self-service rotation,
+multi-instance contention, and authenticated audit-query cases are covered.
 
 Exit: one Admin create/update/revoke flow and one user rotate flow are exercised
 against a fresh PostgreSQL/Garnet stack; a scoped key is allowed for exactly one
 capability and rejected for another before scheduling; an expired key returns the
-expired error; repeated policy commands are serialized; and the audit query shows
-actor, action, scope, expiry, capability, and request ID without key material.
+expired error; repeated and concurrent policy commands are serialized; and the
+audit query shows actor, action, scope, expiry, capability, and request ID without
+key material.
 
 ## Work package 4: Garnet and cluster resilience
 

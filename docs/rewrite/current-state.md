@@ -11,7 +11,7 @@ read-only requirements reference and is excluded from builds and runtime.
 | Repository | Commit | Worktree | Role |
 | --- | --- | --- | --- |
 | `gateway` | `52a0035` | clean | C++ HTTP/WebSocket edge, protocol parsing/conversion, streaming, strict Provider media contracts, bounded stream header/client timeouts, distinct inter-chunk/total timer tests, normalized Provider availability errors, shared retryable Platform transport policy for HTTP and realtime dispatch, Photon WebSocket URL normalization, transport/evidence, charge-aware failover, durable usage delivery, authenticated Garnet projections, deterministic fault boundaries, late-usage settlement from truncated SSE, and HTTP 403 capability-denial mapping |
-| `platform` | `c2d3cf9` | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, rotating single-use auth sessions with replay/revocation evidence, normalized registration/login validation with hash-only PostgreSQL abuse counters, identity/TOTP and OAuth PKCE abuse state, Provider OAuth credential refresh and secret-free audit history, API-key scopes/expiry and denial audit, typed JSONB policy projections, bounded token-endpoint timeout classification, persistent group routing/rate/fallback policy, scheduling, evidence-backed leases/holds/ledger, audited operator resolution, restart-safe active-lease dispatch recovery, media lifecycle, Admin API/Web/User Web, HTTP/SSE/realtime and OAuth Provider mock fixtures, dependency-free full-stack smoke assertions, verified Gateway image override support, migrations, deterministic Platform/Gateway fault boundaries, and Garnet deployment gates |
+| `platform` | `c9113c8` | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, rotating single-use auth sessions with replay/revocation evidence, normalized registration/login validation with hash-only PostgreSQL abuse counters, identity/TOTP and OAuth PKCE abuse state, Provider OAuth credential refresh and secret-free audit history, API-key scopes/expiry with HTTP replay/concurrency/expiry evidence and denial audit, typed JSONB policy projections, bounded token-endpoint timeout classification, persistent group routing/rate/fallback policy, scheduling, evidence-backed leases/holds/ledger, audited operator resolution, restart-safe active-lease dispatch recovery, media lifecycle, Admin API/Web/User Web, HTTP/SSE/realtime and OAuth Provider mock fixtures, dependency-free full-stack smoke assertions, verified Gateway image override support, migrations, deterministic Platform/Gateway fault boundaries, and Garnet deployment gates |
 | `sub2api` | `43ec48d` | read-only clean | Requirements catalogue only; never a runtime or compatibility dependency |
 
 The current tracked inventory is:
@@ -263,7 +263,7 @@ current-source runtime evidence.
 
 ## Current verification evidence
 
-At Platform `c2d3cf9` and Gateway `52a0035`:
+At Platform `c9113c8` and Gateway `52a0035`:
 
 - Gateway built locally and passed 104/104 CTest cases, including deterministic
   fault-hook claim/repeat behavior, terminal SSE detection, provider EOF
@@ -297,8 +297,9 @@ At Platform `c2d3cf9` and Gateway `52a0035`:
   container now includes migrations `025-api-key-policy-audit.sql` and
   `026-auth-abuse-counters.sql`; authenticated
   HTTP audit-row and denied-capability empty-stack assertions are covered by the
-  latest source-built smoke; replay/concurrency and expired-key HTTP cases remain
-  release gates.
+  latest source-built smoke; authenticated HTTP replay/concurrency and expired-key
+  cases now pass, while update/revoke/user-rotation and multi-instance audit
+  coverage remain release gates.
 - The latest source-built empty-volume project `scalaapi-key-policy-verified`
   applied all 26 migration files and observed all 26 as `skip` on a second run.
   An API key scoped only to `models` received HTTP 403 `permission_error` for
@@ -396,6 +397,13 @@ At Platform `c2d3cf9` and Gateway `52a0035`:
   refresh, realtime settlement, Platform/Gateway restart recovery, the complete
   Provider matrix, audited reconciliation, and MinIO signed persistence. The
   cleanup trap removed the temporary project resources and stack-specific tags.
+- The current-source project `scalaapi-key-http-verified` added two concurrent
+  Chat requests sharing one API-key idempotency key and observed one completed
+  lease/idempotency row with no duplicate billing; the serialized responses were
+  the documented active replay conflict or completed replay. A short-lived API
+  key returned HTTP 401 `authentication_error` after expiry and created no lease.
+  The complete 27-migration Garnet, Provider, restart, realtime, reconciliation,
+  and MinIO matrix passed and all temporary stack resources were removed.
 - Scheduler benchmark integrity dry run executed all 4 selected child benchmarks
   and returned zero. It is a failure-propagation check, not performance evidence.
 - `deploy/stack/smoke.sh` built current sibling sources in isolated Podman
