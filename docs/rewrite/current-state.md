@@ -11,15 +11,15 @@ read-only requirements reference and is excluded from builds and runtime.
 | Repository | Commit | Worktree | Role |
 | --- | --- | --- | --- |
 | `gateway` | `9c7171f` | clean | C++ HTTP/WebSocket edge, protocol parsing/conversion, streaming, strict Provider media contracts, bounded stream header/client timeouts, distinct inter-chunk/total timer tests, normalized Provider availability errors, shared retryable Platform transport policy for HTTP and realtime dispatch, Photon WebSocket URL normalization, transport/evidence, charge-aware failover, durable usage delivery, authenticated Garnet projections, deterministic fault boundaries, and late-usage settlement from truncated SSE |
-| `platform` | `9e7a631` | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, identity/TOTP and OAuth PKCE abuse state, scheduling, evidence-backed leases/holds/ledger, audited operator resolution, restart-safe active-lease dispatch recovery, media lifecycle, Admin API/Web/User Web, HTTP/SSE and realtime Provider mock fixtures, dependency-free realtime full-stack smoke assertions, verified Gateway image override support, migrations, deterministic Platform/Gateway fault boundaries, and Garnet deployment gates |
+| `platform` | `c8dd39d` | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, identity/TOTP and OAuth PKCE abuse state, Provider OAuth credential refresh, scheduling, evidence-backed leases/holds/ledger, audited operator resolution, restart-safe active-lease dispatch recovery, media lifecycle, Admin API/Web/User Web, HTTP/SSE and realtime Provider mock fixtures, dependency-free realtime full-stack smoke assertions, verified Gateway image override support, migrations, deterministic Platform/Gateway fault boundaries, and Garnet deployment gates |
 | `sub2api` | `43ec48d` | read-only clean | Requirements catalogue only; never a runtime or compatibility dependency |
 
 The current tracked inventory is:
 
 - Gateway: 52 production C++ source/header files, 10 test source files, and 104
   CTest cases.
-- Platform: 83 hand-written production C# files, 3 generated Cap'n Proto C#
-  files, 29 test/benchmark C# files, and 102 tests: 57 Grain, 30 Host, 9 Admin,
+- Platform: 84 hand-written production C# files, 3 generated Cap'n Proto C#
+  files, 30 test/benchmark C# files, and 107 tests: 59 Grain, 33 Host, 9 Admin,
   and 6 Provider mock tests.
 - Product surface: 119 direct Admin API route declarations, 45 product tables,
   20 SQLSugar entity types, 23 Admin Web TypeScript/TSX files and 11 page views,
@@ -147,6 +147,14 @@ current-source runtime evidence.
 - Users, groups, Provider accounts, encrypted credentials, scheduling, sticky
   routing, rate/concurrency policy, and versioned pricing are represented as
   Orleans aggregates with PostgreSQL operational records where implemented.
+  OAuth Provider accounts persist encrypted access/refresh/client secrets with an
+  expiry, version, refresh lease, compare-and-set completion, bounded failure code,
+  and scheduler backoff. Dispatch recovery and media polling resolve credentials
+  through one refresh service before contacting the Provider. Its generic token
+  adapter requires HTTPS by default, bounds responses, validates header material,
+  and never includes Provider response bodies in errors. Admin reads expose only
+  non-secret refresh health; the account form supports explicit static-header and
+  OAuth modes while retaining encrypted secrets on metadata-only edits.
 - Admin can publish/close effective price versions. New leases snapshot version
   identity and every NUMERIC unit rate, so mutable configuration cannot reprice an
   existing request.
@@ -224,21 +232,24 @@ current-source runtime evidence.
 
 ## Current verification evidence
 
-At Platform `9e7a631` and Gateway `9c7171f`:
+At Platform `c8dd39d` and Gateway `9c7171f`:
 
 - Gateway built locally and passed 104/104 CTest cases, including deterministic
   fault-hook claim/repeat behavior, terminal SSE detection, provider EOF
   classification, incomplete chunked-body disconnect classification, zero-length
   client-write cancellation, and bounded Provider pre-header stream timeout
   handling plus independent inter-chunk and total-stream timeout scenarios.
-- Platform Release test/build passed with 0 warnings and 0 errors: 102/102 tests,
-  including 30 Host tests against a fresh real PostgreSQL schema. Admin coverage
+- Platform Release test/build passed with 0 warnings and 0 errors: 107/107 tests,
+  including 33 Host tests and 59 Grain tests. Admin coverage
   includes PostgreSQL-backed TOTP replay, backup-code consumption, lockout,
   recovery, OAuth provider/redirect/verifier binding, one-time state consumption,
   and expiry. Host coverage
   includes deterministic fault-hook configuration plus atomic operator
-  settle/release, replay/conflict behavior, and concurrent resolution serialization.
-- Admin Web and User Web typecheck and production builds passed; the User Web
+  settle/release, replay/conflict behavior, concurrent resolution serialization,
+  OAuth credential refresh leases, atomic token rotation, failure backoff, strict
+  token endpoint form/HTTPS handling, and sensitive-error redaction.
+- Admin Web and User Web typecheck and production builds passed; Admin Web now
+  manages static/OAuth Provider credentials without reading stored secrets. The User Web
   build includes password recovery, email verification, authenticator security,
   active-plan subscription controls, redeem codes, and referral summary routes.
 - `deploy/stack/realtime_smoke.py` passed against a real Release `Provider.Mock`
@@ -405,7 +416,8 @@ Detailed gate results and residual coverage are maintained in `verification.md`.
 - Hosted CI cannot currently check out the private sibling repository with the
   default per-repository token. The local cross-repository smoke must become a
   blocking release workflow with a read-only checkout boundary.
-- Provider adapters beyond the mock, protocol golden fixtures, User Web browser
+- Provider adapters beyond the mock, provider-specific OAuth refresh profiles,
+  protocol golden fixtures, User Web browser
   tests for auth recovery/TOTP UX, Passkeys, full commercial coupling, audit/observability,
   HA, load/soak, backup/restore, and signed rollback remain partial or missing.
 - Admin Web and User Web have blocking type/build gates but no browser runner;
