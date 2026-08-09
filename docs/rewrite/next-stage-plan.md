@@ -2,7 +2,7 @@
 
 ## Checkpoint
 
-The next stage starts from Platform `80ab783`, Gateway `3da0d33`, User Web `45b75f8`, and read-only
+The next stage starts from Platform and User Web `acb1c66`, Gateway `3da0d33`, and read-only
 reference `sub2api@43ec48d`.
 
 The greenfield baseline now starts from empty volumes, uses PostgreSQL as authority,
@@ -151,11 +151,19 @@ user-scoped usage history, API keys, billing/subscriptions, profile, and passwor
 change, password recovery, email verification, and TOTP setup/verification/disable
 with backup-code display. Billing lists active plans, purchases/cancels/renews
 subscriptions, redeems promotion codes, and generates a referral code with summary
-totals. The API adds user-scoped usage and balance reads and the Compose stack
+totals. The Dashboard now also lists published, unexpired announcements and marks
+each item read through the authenticated idempotent read endpoint. The API adds
+user-scoped usage and balance reads and the Compose stack
 serves User Web separately from Admin Web. Browser automation, backup-code sign-in
 UX, real payment checkout, signup referral attribution/anti-abuse, and commercial
 audit remain
 open.
+- COM-05 now has a bounded read-tracking slice at Platform `acb1c66`: migration 033
+  stores one user/announcement read state, the authenticated list/read endpoints
+  filter published and unexpired rows, and the first read writes one audit event while
+  duplicate reads replay the timestamp. User Web renders unread items on Dashboard;
+  targeting, scheduling, browser authorization, and commercial delivery evidence are
+  still required before moving COM-05 to implemented.
 The `CORE-03`/`CORE-05` scheduling slice at Platform `c2d3cf9` persists group RPM
 windows in Orleans state, resolves exact model routes before longest-prefix and
 wildcard patterns, applies overnight peak multipliers to the primary dispatch,
