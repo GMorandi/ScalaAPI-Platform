@@ -73,6 +73,8 @@ public sealed class MigrationSchemaTests
                 "expires_at", "consumed_at", "created_at"],
             ["passkey_credentials"] = ["credential_id", "user_id", "user_handle", "public_key",
                 "signature_counter", "display_name", "created_at", "last_used_at"],
+            ["maintenance_operations"] = ["operation_key", "actor_user_id", "request_fingerprint",
+                "dry_run", "result", "created_at", "completed_at"],
             ["provider_credential_refresh_attempts"] = ["id", "attempt_id", "account_id",
                 "source", "version_before", "version_after", "outcome", "error_code",
                 "token_endpoint_host", "started_at", "completed_at", "duration_ms"],
