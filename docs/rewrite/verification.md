@@ -28,6 +28,10 @@ outbox. The gate ended with nine unknown-charge incidents, one audited operator
 resolution, and eight remaining open incidents. Temporary smoke containers,
 volumes, networks, and tags were removed by the cleanup trap; baseline `apitf_*`
 development resources remain.
+The canonical/vendor Cap'n Proto digest check passes for all three schemas. The
+host `verify-generated-contracts.sh` command remains an environment gate on this
+machine because the pinned `capnp` compiler is not installed; CI or the build
+container must run the byte-identical C# generation check before release.
 The recovery hook matrix also passed in `scalaapi-recovery-after-commit-0901`
 with `platform.after_settlement_commit` and in
 `scalaapi-recovery-debug-0903` with `platform.before_outbox_ack`: both observed
