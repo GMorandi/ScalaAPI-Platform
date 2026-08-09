@@ -11,7 +11,7 @@ read-only requirements reference and is excluded from builds and runtime.
 | Repository | Commit | Worktree | Role |
 | --- | --- | --- | --- |
 | `gateway` | `3da0d33` | clean | C++ HTTP/WebSocket edge, protocol parsing/conversion, versioned OpenAI Chat/Responses, Anthropic Messages, and Gemini request/response/SSE golden contracts, full pairwise provider request/response/error matrix assertions, fail-closed model catalog and token-count validation, bounded Embeddings and Responses validation, streaming, strict Provider media contracts, bounded transport timers, normalized Provider availability errors, shared retryable Platform transport policy, durable usage delivery, authenticated Garnet projections, bounded request/response content-policy RPC evaluation, event-boundary streaming response moderation, and fail-closed response delivery including retryable classifier outages |
-| `platform` | `857ef3b` backend + User Web `857ef3b` | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, Provider mock contracts, rotating identity/session/TOTP/OAuth state, native Passkey/WebAuthn ceremonies, encrypted email notification outbox and retry worker, API-key policy and audit, versioned runtime configuration, persistent scheduling and lease/hold/ledger state, audited operator reconciliation, atomic audited referral rewards, authenticated and audited operational metrics, bounded redacted audit queries/exports, encrypted proxy and validated TLS profile administration, audited bounded channel monitor checks, auditable user data export, bounded authentication/ceremony cleanup, user announcement read tracking, media/object lifecycle, staged request/response content-policy evaluation with versioned Unicode normalization, bounded source-owned external classifier adapter, durable policy revision propagation through Garnet, operational alert evidence, and redacted audits |
+| `platform` | `ad6ac20` backend + User Web `ad6ac20` | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, Provider mock contracts, rotating identity/session/TOTP/OAuth state, native Passkey/WebAuthn ceremonies, encrypted email notification outbox and retry worker, API-key policy and audit, versioned runtime configuration, persistent scheduling and lease/hold/ledger state, atomic subscription quota reservation and settlement, audited operator reconciliation, atomic audited referral rewards, authenticated and audited operational metrics, bounded redacted audit queries/exports, encrypted proxy and validated TLS profile administration, audited bounded channel monitor checks, auditable user data export, bounded authentication/ceremony cleanup, user announcement read tracking, media/object lifecycle, staged request/response content-policy evaluation with versioned Unicode normalization, bounded source-owned external classifier adapter, durable policy revision propagation through Garnet, operational alert evidence, and redacted audits |
 | `sub2api` | `43ec48d` | read-only clean | Requirements catalogue only; never a runtime or compatibility dependency |
 
 The current tracked inventory is:
@@ -19,7 +19,7 @@ The current tracked inventory is:
 - Gateway: 52 production C++ source/header files, 11 test source files, and 125
   CTest cases.
 - Platform: 106 hand-written production C# files, 3 generated Cap'n Proto C#
-  files, 49 test/benchmark C# files, and 191 tests: 69 Grain, 52 Host, 29 Admin,
+  files, 50 test/benchmark C# files, and 192 tests: 69 Grain, 53 Host, 29 Admin,
   and 41 Provider mock tests.
 - Product surface: 125 direct Admin API route declarations, 50 product tables,
   22 SQLSugar entity types, 23 Admin Web TypeScript/TSX files and 11 page views,
@@ -170,6 +170,16 @@ current-source runtime evidence.
   browser mail flow, delivery metrics, and broader abuse limits remain open.
 - API keys support create, list, rotate, revoke, hash-only persistence, registry
   projection, absolute quota, and independent 5-hour/day/week spend windows.
+- Subscription plans and user subscriptions now carry NUMERIC granted, used, and
+  reserved quota. Migration 035 binds a request lease to the active subscription
+  selected at dispatch; `RequestLeaseStore` locks that row before reserving the
+  maximum hold, rejects concurrent over-allocation with `quotaExhausted`, and
+  releases or consumes the reservation atomically with normal settlement, no-charge
+  abort, safe expiry, and operator release. User subscription responses and Billing/
+  Dashboard expose reserved and remaining quota. A zero quota grant is finite (it
+  rejects any positive reservation), while no active subscription leaves account
+  balance billing unchanged; provider payment coupling, renewal workers, and browser
+  evidence remain open.
 - TOTP setup, verification, login backup-code use, and disable flows now share a
   PostgreSQL-backed state machine. Five failures in a 15-minute window lock the
   account, accepted TOTP time steps cannot be replayed, backup codes are consumed
@@ -349,11 +359,11 @@ current-source runtime evidence.
 
 ### Bootstrap and deployment
 
-- The direct source migrator applied product migrations 001-034 to a temporary
-  empty PostgreSQL 17 database and skipped all 34 on replay. The migrator image
+- The direct source migrator applied product migrations 001-035 to a temporary
+  empty PostgreSQL 17 database and skipped all 35 on replay. The migrator image
   copies the complete migration directory, so new forward migrations cannot be
-  silently omitted. The targeted empty-schema maintenance gate applies and replays
-  35 records including Orleans support. No source database, snapshot, old key, CDC
+  silently omitted. The targeted empty-schema subscription gate applies and replays
+  36 records including Orleans support. No source database, snapshot, old key, CDC
   table, or compatibility mapping is required; the full Compose image gate still
   needs to be rebuilt against this commit.
 - `deploy/stack` independently starts PostgreSQL, authenticated Garnet, MinIO,
@@ -371,7 +381,7 @@ current-source runtime evidence.
 
 ## Current verification evidence
 
-At Platform `857ef3b` plus User Web `857ef3b`, and Gateway `3da0d33`:
+At Platform `ad6ac20` plus User Web `ad6ac20`, and Gateway `3da0d33`:
 
 - Gateway built locally and passed 125/125 CTest cases, including deterministic
   fault-hook claim/repeat behavior, terminal SSE detection, provider EOF
@@ -383,8 +393,8 @@ At Platform `857ef3b` plus User Web `857ef3b`, and Gateway `3da0d33`:
   sixteen request pairs, all sixteen response pairs, cross-protocol response
   envelope validation, and cross-protocol error normalization with standard
   status precedence.
-- Platform Release test/build passed with 0 warnings and 0 errors: 191/191 tests,
-  including 52 Host tests, 69 Grain tests, 29 Admin tests, and 41 Provider mock
+- Platform Release test/build passed with 0 warnings and 0 errors: 192/192 tests,
+  including 53 Host tests, 69 Grain tests, 29 Admin tests, and 41 Provider mock
   tests. Admin coverage
   includes PostgreSQL-backed TOTP replay, backup-code consumption, lockout,
   recovery, OAuth provider/redirect/verifier binding, one-time state consumption,
@@ -405,6 +415,11 @@ At Platform `857ef3b` plus User Web `857ef3b`, and Gateway `3da0d33`:
 - Email delivery coverage adds encrypted password-reset and verification outbox
   rows, one-shot SMTP-worker delivery, superseded-token cancellation, retry/backoff
   recovery, and action-link hydration through three real PostgreSQL Admin tests.
+- Subscription quota coverage adds migration 035, a PostgreSQL `FOR UPDATE`
+  reservation boundary, concurrent over-allocation rejection, normal settlement
+  consumption, and no-charge release. The user subscription API and Billing/
+  Dashboard expose `quotaReservedUsd` and `quotaRemainingUsd`; payment-provider
+  coupling, renewal scheduling, and browser evidence remain open.
 - SEC-01 now has executable request, non-stream response, and SSE event-boundary
   evidence: the canonical Cap'n Proto contract carries bounded request/response
   policy content, Platform evaluates active scoped rules before lease creation or

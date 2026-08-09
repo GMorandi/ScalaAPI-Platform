@@ -2,7 +2,7 @@
 
 ## Checkpoint
 
-The next stage starts from Platform and User Web `857ef3b`, Gateway `3da0d33`, and read-only
+The next stage starts from Platform and User Web `ad6ac20`, Gateway `3da0d33`, and read-only
 reference `sub2api@43ec48d`.
 
 The greenfield baseline now starts from empty volumes, uses PostgreSQL as authority,
@@ -134,6 +134,18 @@ directly. Three real PostgreSQL tests cover ciphertext redaction, one-shot deliv
 stale-token suppression, and retry recovery. Live SMTP/provider delivery, browser
 receipt, delivery metrics, and broader abuse limits remain, so AUTH-05 is still
 `partial`.
+The BILL-03/COM-02 quota slice is now closed for this checkpoint at Platform
+`ad6ac20`: migration `035-subscription-quota-reservations.sql` adds NUMERIC
+subscription reservations and lease ownership. The dispatch transaction locks the
+active subscription row, reserves the maximum lease hold, returns the existing
+`quotaExhausted` protocol rejection on concurrent over-allocation, and consumes or
+releases the reservation in the same transaction as usage settlement, safe abort,
+expiry, or operator release. A real PostgreSQL test proves two concurrent 0.60 USD
+requests against a 1.00 USD grant produce one reservation, then proves settlement
+and no-charge release. User Web now displays reserved and remaining quota. This
+does not close BILL-03/COM-02: rolling-window cross-protocol enforcement,
+payment-provider coupling, renewal/grant-reset workers, quota reconciliation,
+multi-Silo evidence, and browser workflows remain the next commercial gates.
 Migration `023-auth-oauth-states.sql` now adds one-time OAuth state with S256 PKCE:
 the Admin start flow returns provider-bound state/verifier/challenge material,
 PostgreSQL stores only hashes, and callback consumption binds the exact redirect URI
@@ -288,6 +300,12 @@ with current streaming/empty-stack evidence in Gateway `b27965f` and Platform
 - Proved migration 020 idempotency, safe never-forwarded expiry, retained unknown
   aborts, late exactly-once settlement, and a source-built fault matrix with three
   intentional unknown-charge incidents.
+- Added migration 035 and subscription entitlement reservation to the same authority
+  boundary. Active grants are row-locked before dispatch; completed usage consumes
+  actual cost, never-forwarded/no-charge terminal paths release the maximum hold,
+  and unknown Provider outcomes retain the reservation for reconciliation. The Host
+  test proves concurrent over-allocation rejection, settlement usage, and abort
+  release; payment/renewal coupling and browser evidence remain separate work.
 - Added migration 021 and a native resolution contract. `settle` validates bounded
   usage/evidence and calls the same completion transaction as normal Provider
   usage; `release` accepts only `never_forwarded`, `provider_rejection`, or
@@ -668,8 +686,9 @@ Then expand the remaining 58-domain work in this order:
    delivery, anti-enumeration,
    and browser tests for the new User Web/API-key/usage/order/
    subscription flows.
-4. Complete payment adapters/reconciliation/refunds, subscription workers, redeem,
-   signup referral attribution/anti-abuse, notification, and commercial audit flows.
+4. Complete payment adapters/reconciliation/refunds, subscription renewal and quota
+   grant-reset workers, subscription quota reconciliation, redeem, signup referral
+   attribution/anti-abuse, notification, and commercial audit flows.
 5. Complete policy/security, observability, multi-region/HA, load and long-connection
    soak, backup/restore, signed updates, and rollback drills.
 

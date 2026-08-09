@@ -86,7 +86,14 @@ responses additionally retain a bounded body for replay after settlement. Active
 duplicates remain 409 until the completion report is durable, and streaming replay
 is a separate protocol concern. Each lease also stores an immutable price version
 and NUMERIC unit-rate snapshot; settlement never reprices from mutable process
-configuration.
+configuration. An active subscription adds a second NUMERIC entitlement boundary:
+the lease transaction locks the selected subscription row and reserves its maximum
+hold before Provider dispatch. `quota_reserved_usd` is consumed by the same normal
+usage settlement or released by a proven no-charge/never-forwarded terminal path;
+unknown Provider outcomes retain the reservation for reconciliation. This prevents
+distributed concurrent requests from overselling a grant without duplicating
+accounting SQL in Gateway or Admin. A zero grant is finite, while users without an
+active subscription continue to use account balance only.
 
 After authentication and API-key capability authorization, Platform evaluates the
 bounded request content against active, scope-aware `log`/`block` rules. Matches
