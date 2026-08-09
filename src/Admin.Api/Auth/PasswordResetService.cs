@@ -7,7 +7,8 @@ namespace ScalaAPI.Admin.Auth;
 public sealed record PasswordResetIssue(string Token, DateTime ExpiresAt);
 
 public sealed class PasswordResetService(
-    NpgsqlDataSource dataSource, ILogger<PasswordResetService> logger)
+    NpgsqlDataSource dataSource, SecretProtector protector,
+    ILogger<PasswordResetService> logger)
 {
     private static readonly TimeSpan TokenLifetime = TimeSpan.FromMinutes(15);
 
@@ -42,6 +43,8 @@ public sealed class PasswordResetService(
             invalidate.Parameters.AddWithValue(userId);
             await invalidate.ExecuteNonQueryAsync(ct);
         }
+        await EmailOutboxStore.CancelPendingAsync(connection, transaction, normalized,
+            "password_reset", ct);
 
         await using (var insert = connection.CreateCommand())
         {
@@ -55,6 +58,10 @@ public sealed class PasswordResetService(
             insert.Parameters.AddWithValue(expiresAt);
             await insert.ExecuteNonQueryAsync(ct);
         }
+
+        await EmailOutboxStore.EnqueueAsync(connection, transaction,
+            $"password-reset:{Hash(token)}", normalized, "password_reset",
+            protector.Protect(token), expiresAt, ct);
 
         await transaction.CommitAsync(ct);
         logger.LogInformation("Issued password reset token for user {UserId}", userId);

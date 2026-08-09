@@ -136,6 +136,16 @@ services:
       Payments__WebhookSecrets__mock: ${PAYMENTS_WEBHOOK_SECRET_MOCK:-}
       PasswordReset__ExposeToken: ${PASSWORD_RESET_EXPOSE_TOKEN:-false}
       EmailVerification__ExposeToken: ${EMAIL_VERIFICATION_EXPOSE_TOKEN:-false}
+      Email__Provider: ${EMAIL_PROVIDER:-smtp}
+      Email__PublicBaseUrl: ${EMAIL_PUBLIC_BASE_URL:-http://localhost:5173}
+      Email__PollSeconds: ${EMAIL_POLL_SECONDS:-5}
+      Email__CaptureDirectory: ${EMAIL_CAPTURE_DIRECTORY:-/tmp/scalaapi-email}
+      Smtp__Host: ${SMTP_HOST:-}
+      Smtp__Port: ${SMTP_PORT:-587}
+      Smtp__Username: ${SMTP_USERNAME:-}
+      Smtp__Password: ${SMTP_PASSWORD:-}
+      Smtp__From: ${SMTP_FROM:-noreply@example.invalid}
+      Smtp__SecureSocketOptions: ${SMTP_SECURE_SOCKET_OPTIONS:-StartTls}
       OAuth__GitHub__ClientId: ${OAUTH_GITHUB_CLIENT_ID:-mock-client}
       OAuth__GitHub__ClientSecret: ${OAUTH_GITHUB_CLIENT_SECRET:-mock-secret}
       OAuth__GitHub__AuthorizationEndpoint: ${OAUTH_GITHUB_AUTHORIZATION_ENDPOINT:-http://provider-mock:8081/oauth/authorize}

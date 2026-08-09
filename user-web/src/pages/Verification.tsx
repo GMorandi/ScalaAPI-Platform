@@ -4,7 +4,7 @@ import { post } from "../api/client";
 
 export default function Verification() {
   const [email, setEmail] = createSignal(localStorage.getItem("email") ?? "");
-  const [token, setToken] = createSignal("");
+  const [token, setToken] = createSignal(new URLSearchParams(window.location.search).get("token") ?? "");
   const [message, setMessage] = createSignal("");
   const [error, setError] = createSignal("");
   const request = async (event: Event) => {

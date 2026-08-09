@@ -87,6 +87,8 @@ builder.Services.AddSingleton<TotpVerificationService>();
 builder.Services.AddSingleton<OAuthStateService>();
 builder.Services.AddSingleton<PasswordResetService>();
 builder.Services.AddSingleton<EmailVerificationService>();
+builder.Services.AddSingleton<IEmailSender, SmtpEmailSender>();
+builder.Services.AddHostedService<EmailDeliveryWorker>();
 builder.Services.AddHostedService<PaymentWebhookRecoveryService>();
 
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)

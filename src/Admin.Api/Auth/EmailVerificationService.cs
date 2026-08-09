@@ -7,7 +7,8 @@ namespace ScalaAPI.Admin.Auth;
 public sealed record EmailVerificationIssue(string Token, DateTime ExpiresAt);
 
 public sealed class EmailVerificationService(
-    NpgsqlDataSource dataSource, ILogger<EmailVerificationService> logger)
+    NpgsqlDataSource dataSource, SecretProtector protector,
+    ILogger<EmailVerificationService> logger)
 {
     private static readonly TimeSpan TokenLifetime = TimeSpan.FromHours(24);
 
@@ -41,6 +42,8 @@ public sealed class EmailVerificationService(
             invalidate.Parameters.AddWithValue(userId);
             await invalidate.ExecuteNonQueryAsync(ct);
         }
+        await EmailOutboxStore.CancelPendingAsync(connection, transaction, normalized,
+            "email_verification", ct);
 
         await using (var insert = connection.CreateCommand())
         {
@@ -54,6 +57,10 @@ public sealed class EmailVerificationService(
             insert.Parameters.AddWithValue(expiresAt);
             await insert.ExecuteNonQueryAsync(ct);
         }
+
+        await EmailOutboxStore.EnqueueAsync(connection, transaction,
+            $"email-verification:{Hash(token)}", normalized, "email_verification",
+            protector.Protect(token), expiresAt, ct);
 
         await transaction.CommitAsync(ct);
         logger.LogInformation("Issued email verification token for user {UserId}", userId);

@@ -3,7 +3,7 @@ import { A } from "@solidjs/router";
 import { post } from "../api/client";
 
 export default function Recovery() {
-  const [email, setEmail] = createSignal(""); const [token, setToken] = createSignal("");
+  const [email, setEmail] = createSignal(""); const [token, setToken] = createSignal(new URLSearchParams(window.location.search).get("token") ?? "");
   const [password, setPassword] = createSignal(""); const [message, setMessage] = createSignal("");
   const [error, setError] = createSignal("");
   const request = async (event: Event) => { event.preventDefault(); setError(""); setMessage(""); try { const result = await post<{ accepted: boolean; debug_token?: string }>("/auth/password-reset/request", { email: email() }); setMessage(result.debug_token ? `Development token: ${result.debug_token}` : "If the address exists, a reset message has been sent."); if (result.debug_token) setToken(result.debug_token); } catch (err) { setError(err instanceof Error ? err.message : "Unable to request recovery"); } };
