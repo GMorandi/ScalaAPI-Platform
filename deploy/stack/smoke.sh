@@ -600,16 +600,25 @@ start_platform_after_fault() {
         curl -fsS http://127.0.0.1:5000/ready >/dev/null
 }
 
-# A pre-settlement crash happens before the normal settlement wait can pass,
-# so observe the deterministic exit and recover the same container first.
-if [[ "${PLATFORM_FAULT_HOOK:-}" == "platform.before_settlement_commit" ]]; then
+# Settlement and outbox hooks terminate the Platform process after the request
+# has reached a durable boundary. Observe that exit before waiting for the
+# terminal row, then start the same container so the persisted outbox can run.
+platform_hook_exits_after_durable_write() {
+    [[ "${PLATFORM_FAULT_HOOK:-}" == "platform.after_settlement_commit" ||
+       "${PLATFORM_FAULT_HOOK:-}" == "platform.before_outbox_ack" ]]
+}
+
+if [[ "${PLATFORM_FAULT_HOOK:-}" == "platform.before_settlement_commit" ]] ||
+   platform_hook_exits_after_durable_write; then
     platform_container_id="$(service_container_id platform-silo)"
     platform_faulted() {
         [[ "$("$container_cli" inspect --format '{{.State.Status}}' \
             "$platform_container_id" 2>/dev/null)" != "running" ]]
     }
     wait_for "Platform fault hook termination" 30 platform_faulted
-    start_platform_after_fault
+    if [[ "${PLATFORM_FAULT_HOOK}" == "platform.before_settlement_commit" ]]; then
+        start_platform_after_fault
+    fi
 fi
 
 wait_for "chat settlement" 30 chat_settled
@@ -767,6 +776,14 @@ assert_equals "duplicate" "$(jq -er '.status' <<<"$operator_replay")" \
     "Idempotent operator settlement replay"
 assert_equals "1" "$(db_query "SELECT count(*) FROM accounting_reconciliation_resolutions WHERE incident_id = ${operator_incident_id};")" \
     "Operator resolution audit row"
+
+operator_resolution_visible() {
+    local visible
+    visible="$(admin_request GET '/admin/reconciliation/incidents?status=open' '' "$admin_token")" \
+        || return 1
+    [[ "$(jq -er '.total' <<<"$visible")" == "8" ]]
+}
+wait_for "operator resolution visibility" 30 operator_resolution_visible
 open_after_resolution="$(admin_request GET '/admin/reconciliation/incidents?status=open' '' "$admin_token")"
 assert_equals "8" "$(jq -er '.total' <<<"$open_after_resolution")" \
     "Remaining unknown-charge incidents after operator settlement"
