@@ -69,7 +69,15 @@ format-character removal, and bounded confusable mapping before local matching.
 Rules persist evaluator version, classifier choice, redaction, and a monotonic
 policy revision. An external classifier is an explicit adapter boundary and an
 unavailable adapter fails closed as retryable policy-unavailable; it is not a
-silent local fallback.
+silent local fallback. Every Admin rule create/update/delete increments the
+revision and appends an actor/IP audit row plus a PostgreSQL change-outbox event
+in the same transaction. A hosted Platform worker claims those events with
+`FOR UPDATE SKIP LOCKED`, publishes the latest revision and invalidation counter
+to authenticated Garnet, and clears or retries the claim with bounded error
+evidence. Policy blocks and classifier/evaluator failures append deterministic,
+redacted alert events in the same policy-decision transaction. Admin exposes
+protected paged change and alert queries; PostgreSQL remains authoritative when
+Garnet is unavailable.
 
 A request begins `held`. Gateway must persist `forwarded` before contacting a
 Provider and records `output_started` after its first successful client write. The
@@ -121,7 +129,8 @@ authentication. Both clients support TLS 1.2/1.3 with certificate-name validatio
 production deployment must enable it and mount trust material through an override.
 
 Key namespaces are prefixed with `scalaapi:v1`. Auth, model, route, sticky-session,
-rate-window, and invalidation keys have explicit TTLs or are version counters.
+rate-window, content-policy revision, and invalidation keys have explicit TTLs or
+are version counters.
 All keys are projections and may be rebuilt from the product registry and Orleans
 aggregate projections through the protected Platform rebuild operation. Garnet outage makes
 new rate-sensitive dispatch fail closed while settlement and recovery outboxes stay
