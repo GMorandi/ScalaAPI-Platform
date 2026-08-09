@@ -10,8 +10,8 @@ read-only requirements reference and is excluded from builds and runtime.
 
 | Repository | Commit | Worktree | Role |
 | --- | --- | --- | --- |
-| `gateway` | `4bfe577` | clean | C++ HTTP/WebSocket edge, protocol parsing/conversion, streaming, strict Provider media contracts, bounded stream header/client timeouts, transport/evidence, charge-aware failover, durable usage delivery, authenticated Garnet projections, deterministic fault boundaries, and fail-closed cancellation/partial-SSE handling |
-| `platform` | `ef2654d` | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, identity, scheduling, evidence-backed leases/holds/ledger, audited operator resolution, media lifecycle, Admin API/Web, Provider mock, migrations, deterministic fault boundaries, and deployment gates |
+| `gateway` | `1574d42` | clean | C++ HTTP/WebSocket edge, protocol parsing/conversion, streaming, strict Provider media contracts, bounded stream header/client timeouts, transport/evidence, charge-aware failover, durable usage delivery, authenticated Garnet projections, deterministic fault boundaries, and fail-closed cancellation/partial-SSE handling |
+| `platform` | `1325ecd` | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, identity, scheduling, evidence-backed leases/holds/ledger, audited operator resolution, media lifecycle, Admin API/Web, Provider mock, migrations, deterministic fault boundaries, and deployment gates |
 | `sub2api` | `43ec48d` | read-only clean | Requirements catalogue only; never a runtime or compatibility dependency |
 
 The current tracked inventory is:
@@ -176,7 +176,7 @@ current-source runtime evidence.
 
 ## Current verification evidence
 
-At Platform `ef2654d` and Gateway `4bfe577`:
+At Platform `1325ecd` and Gateway `1574d42`:
 
 - Gateway built locally and passed 99/99 CTest cases, including deterministic
   fault-hook claim/repeat behavior, terminal SSE detection, provider EOF
@@ -191,27 +191,26 @@ At Platform `ef2654d` and Gateway `4bfe577`:
 - Scheduler benchmark integrity dry run executed all 4 selected child benchmarks
   and returned zero. It is a failure-propagation check, not performance evidence.
 - `deploy/stack/smoke.sh` built current sibling sources in the isolated Podman
-  project `scalaapi-smoke-streamtimeout-fix3-0809`, created new volumes, applied
-  all 22 migrations, and observed all 22 skip on the second migrator run.
-  Source-built image IDs were Platform
-  `46b1be29fb3e8eacfdcc97f5c979b01e766b577f00f2e7a2f8b1122d267d3eff`, Admin API
-  `bfd6f70a86e01e5e1ab14c968e2770752c1e36d0e31830a91943aca3b9f4c1fa`, Gateway
-  `5b589b1252bdb9d083807a3ac6f998204c8ceae6f9ae8223fd32a22dacdb64aa`, Provider
-  mock `cb2284848158d9d3ce1541de7a4f7e1dd931e8368c872dcdcd18d0678f920d6f`,
-  migrator `371add0cb87b23abc64f4df496412789c6afd536a4838d214163ca6f86575049`,
-  and Admin Web `2c66104c9ef79eede07543bafea08f7a2e973fbc248c05fd0e94de18da144acd`.
-  The smoke intentionally crashed Platform once at
-  `platform.after_settlement_commit`; single-silo membership recovery restarted
-  the same service, replayed the durable usage outbox, and preserved one debit.
-  It separated explicit non-stream and streaming 429/500 rejections from nine
-  unknown-charge scenarios, including Provider disconnect,
-  disconnect-before-output, malformed usage, timeout before response headers,
-  partial SSE disconnect, invalid streaming content type, and a real downstream
-  client timeout after the first SSE event. The pre-header timeout returned a
-  bounded HTTP 502 with `provider_protocol_error`, retained one unknown-charge
-  hold, and did not fail over. It resolved one incident through the Admin API
-  with `settle`, replayed the same command as `duplicate`, and reduced open
-  incidents from nine to eight before the second reconciliation run.
+  project `scalaapi-smoke-before-settle-0815`, created new volumes, applied all
+  22 migrations, and observed all 22 skip on the second migrator run. Source-built
+  image IDs were Platform `d0ae432e0d7a291a1331b1267753784a3986d31cff0d03e3ab87156af88623c1`,
+  Admin API `bc97cd5211d8896cba8432bffc35a90e43e32d8c33a5fa78c1cad80fea8e7273`,
+  Gateway `778396ecaa3a98932c48003fe2965dc4b3525504bb6198bfb7728f0920a4518e`,
+  Provider mock `440beb3d8c7d39adf252f82fa1c7a3bfb3aabef2c07c9a4b5e0749b7341e3832`,
+  migrator `0cc37aea501a7ab18ba126396c57fe774a1e2ead87f1dbc7a62d10d1bfaec2a3`,
+  and Admin Web `ca947ebe46fed653b68f55ecfcdf70e5e316c1354b0b3d4b11c9e8855dc1c906`.
+  The smoke intentionally crashed Platform once before settlement commit; the
+  harness observed the exit, explicitly started the same container, replayed the
+  Gateway usage outbox after reconnect, and preserved one debit. It also replaced
+  Platform and Gateway independently, separated explicit non-stream and streaming
+  429/500 rejections from nine unknown-charge scenarios, including Provider
+  disconnect, disconnect-before-output, malformed usage, timeout before response
+  headers, partial SSE disconnect, invalid streaming content type, and a real
+  downstream client timeout after the first SSE event. The pre-header timeout
+  returned bounded HTTP 502 with `provider_protocol_error`, retained one hold, and
+  did not fail over. One incident was settled through the Admin API, replayed as
+  `duplicate`, and the next reconciliation retained eight remaining open
+  unknown-charge incidents.
 - The clean-stack Admin API funded a new zero-balance user once. Exact replay
   returned the same ledger identity, changed replay returned 409, overdraft returned
   409, and PostgreSQL contained exactly one NUMERIC adjustment and one actor audit.
@@ -223,7 +222,7 @@ At Platform `ef2654d` and Gateway `4bfe577`:
 - The real-database reconciliation test corrupted an account and terminal hold,
   repaired only safe hold/projection drift, preserved an unknown charge and active
   hold, accepted late settlement, and resolved both incidents on the next run. The
-  stack gate intentionally ended with three open unknown-charge incidents, so the
+  stack gate intentionally ended with eight open unknown-charge incidents, so the
   comprehensive reconciliation result was `failed` rather than falsely reporting a
   clean account boundary.
 - Platform and Gateway were independently replaced; a fresh billable request after
@@ -243,9 +242,10 @@ At Platform `ef2654d` and Gateway `4bfe577`:
 - Garnet authentication returned `PONG`; asynchronous media bootstrapped the empty
   MinIO bucket and a signed URL downloaded the expected 67-byte object.
 - The smoke command exited zero and its cleanup trap removed only its containers and
-  temporary volumes. The exact `scalaapi-smoke-streamtimeout-fix3-0809_*` image tags were
-  then removed explicitly; no project container or temporary image remained. The host
-  retained only the three named `apitf_*` baseline volumes and the Garnet base image.
+  temporary volumes. The exact `scalaapi-smoke-before-settle-0815_*` image tags and
+  earlier diagnostic smoke tags were then removed explicitly; no smoke project
+  container, volume, or tagged image remained. The host retained only the three named
+  `apitf_*` baseline volumes and the Garnet base image.
 
 Detailed gate results and residual coverage are maintained in `verification.md`.
 
@@ -268,10 +268,11 @@ Detailed gate results and residual coverage are maintained in `verification.md`.
   transport reset currently returns 502 while scheduler exhaustion after the same
   reset can return 503; the next error-contract slice must normalize the public
   status and body.
-- One source smoke proves the Platform post-settlement-commit crash boundary and
-  replay. The remaining dispatch, Provider-completion, pre-commit, Gateway, and
-  outbox-acknowledgement hook matrix still needs independent runtime assertions,
-  including hold/idempotency reconciliation and multi-instance recovery.
+- One source smoke now proves the Platform pre-settlement-commit crash boundary,
+  Gateway reconnect/backoff recovery, durable usage replay, and exactly-once
+  settlement. The remaining dispatch, Provider-completion, post-commit, Gateway,
+  and outbox-acknowledgement hook matrix still needs independent runtime
+  assertions, including hold/idempotency reconciliation and multi-instance recovery.
 - Garnet authentication, outage/reconnect, rebuild, and invalidation flush have
   evidence; TLS plus concurrent multi-Gateway/multi-Silo behavior is not a release
   gate yet.

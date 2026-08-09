@@ -2,7 +2,7 @@
 
 ## Checkpoint
 
-The next stage starts from Platform `ef2654d`, Gateway `4bfe577`, and read-only
+The next stage starts from Platform `1325ecd`, Gateway `1574d42`, and read-only
 reference `sub2api@43ec48d`.
 
 The greenfield baseline now starts from empty volumes, uses PostgreSQL as authority,
@@ -28,8 +28,10 @@ one open unknown-charge incident exactly once with actor, evidence, reason, leas
 event, and audit persistence in the same transaction; subsequent reconciliation
 preserves that decision. Gateway and Platform now expose deterministic one-shot
 fault hooks around dispatch, Provider completion, settlement commit, and outbox
-acknowledgement. The source smoke intentionally crashed Platform after settlement
-commit and recovered a single Orleans silo without a duplicate debit. Gateway now
+acknowledgement. The source smoke intentionally crashed Platform before settlement
+commit, explicitly restarted the same container, and recovered a single Orleans
+silo without a duplicate debit; Gateway reconnect/backoff recovery drained the
+durable usage outbox. Gateway now
 has source-level terminal-event-gated SSE completion, incomplete chunked-body
 classification, and client-cancellation classification. The empty stack proves
 Provider disconnect, disconnect-before-output, malformed-usage, timeout before
@@ -65,8 +67,8 @@ failed assertion makes the top-level command non-zero.
 Accounting authority completed at `c15b53b`, reconciliation foundation at
 `fddba62`, dispatch evidence at `6bfb974`/`84634d1`, audited resolution at
 `0559659`, and deterministic fault boundaries at `1cad5b7`/`30b8c2b`/`8c3d2e0`,
-with current streaming/empty-stack evidence in Gateway `4bfe577` and Platform
-`ef2654d`:
+with current streaming/empty-stack evidence in Gateway `1574d42` and Platform
+`1325ecd`:
 
 - Added one per-user `accounting_accounts` authority with NUMERIC posted balance
   and monotonically increasing ledger version.
@@ -122,8 +124,9 @@ Implemented in this package:
   one-shot claims, and repeat mode.
 - Added explicit `Orleans:SingleSiloRecovery` for the development smoke path and
   a Podman-compatible harness restart. The source smoke proved a
-  `platform.after_settlement_commit` crash, durable usage replay, and exactly one
-  usage debit.
+`platform.before_settlement_commit` crash, durable usage replay, and exactly one
+usage debit; the Podman harness now starts an exited container explicitly before
+waiting for settlement.
 
 Next implementation slice:
 
@@ -151,7 +154,7 @@ an open incident can be resolved only through the audited settle/release contrac
 
 ## Work package 2: cancellation and streaming failure semantics
 
-Progress in Gateway `4bfe577` and Platform `ef2654d`: the streaming pipe now requires a source protocol
+Progress in Gateway `1574d42` and Platform `1325ecd`: the streaming pipe now requires a source protocol
 terminal event before treating Provider EOF as complete, classifies timeout/EOF as
 incomplete (including Photon incomplete chunked-body `-1/errno=0`), treats
 zero/error client writes as cancellation, records bounded
@@ -286,7 +289,7 @@ idempotency state, outbox backlog, and reconciliation status:
 
 1. Finish package 1 hook-matrix and recovery tests first; dispatch evidence, the
    authoritative unknown-charge state, audited incident decisions, and one
-   post-commit crash replay now exist. Provider-side streaming cancellation semantics
+   pre-commit crash replay now exist. Provider-side streaming cancellation semantics
    and actual client cancellation are source- and empty-stack-tested, but cancellation
    cannot be release-complete without the public error contract, final-usage replay,
    every deterministic boundary, and multi-instance recovery.
