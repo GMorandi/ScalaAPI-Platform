@@ -1,7 +1,8 @@
 import { createSignal } from "solid-js";
 import { A, useNavigate } from "@solidjs/router";
-import { get } from "../api/client";
+import { get, post } from "../api/client";
 import { useAuth } from "../store/auth";
+import { authenticationOptions, serializeCredential, webAuthnAvailable } from "../webauthn";
 
 export default function Login() {
   const auth = useAuth();
@@ -30,6 +31,20 @@ export default function Login() {
     } catch (err) { setError(err instanceof Error ? err.message : "OAuth is unavailable"); }
   };
 
+  const passkeyLogin = async () => {
+    setError(""); setBusy(true);
+    if (!email().trim()) { setError("Enter your email before using a passkey"); setBusy(false); return; }
+    if (!webAuthnAvailable()) { setError("Passkeys are unavailable in this browser"); setBusy(false); return; }
+    try {
+      const start = await post<{ challenge_id: string; options: Record<string, unknown> }>("/auth/passkeys/options", { email: email() });
+      const credential = await navigator.credentials.get({ publicKey: authenticationOptions(start.options) });
+      if (!(credential instanceof PublicKeyCredential)) throw new Error("No passkey assertion was returned");
+      const session = await post<{ token: string; refresh_token: string; email: string; role: string }>(`/auth/passkeys/${start.challenge_id}`, serializeCredential(credential));
+      auth.acceptSession(session); navigate("/");
+    } catch (err) { setError(err instanceof Error ? err.message : "Unable to sign in with passkey"); }
+    finally { setBusy(false); }
+  };
+
   return <div class="flex min-h-screen items-center justify-center bg-[#0b1220] px-5">
     <div class="w-full max-w-md bg-white p-8 shadow-2xl">
       <p class="mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">ScalaAPI</p>
@@ -45,6 +60,7 @@ export default function Login() {
       <p class="mt-4 text-center text-sm"><A href="/recover" class="text-slate-600 underline hover:text-slate-950">Forgot your password?</A></p>
       <div class="my-6 flex items-center gap-3 text-xs text-slate-400"><span class="h-px flex-1 bg-slate-200" />OR<span class="h-px flex-1 bg-slate-200" /></div>
       <div class="grid grid-cols-2 gap-3"><button class="secondary" onClick={() => oauth("github")}>GitHub</button><button class="secondary" onClick={() => oauth("google")}>Google</button></div>
+      <button disabled={busy()} class="secondary mt-3 w-full" onClick={passkeyLogin}>Sign in with passkey</button>
       <p class="mt-7 text-center text-sm text-slate-500">New here? <A href="/register" class="font-medium text-slate-950 underline">Create an account</A></p>
     </div>
   </div>;
