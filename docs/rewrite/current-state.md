@@ -10,13 +10,13 @@ read-only requirements reference and is excluded from builds and runtime.
 
 | Repository | Commit | Worktree | Role |
 | --- | --- | --- | --- |
-| `gateway` | `12bf8f1` | clean | C++ HTTP/WebSocket edge, protocol parsing/conversion, versioned OpenAI Chat/Responses, Anthropic Messages, and Gemini request/response/SSE golden contracts, fail-closed model catalog and token-count validation, bounded Embeddings and Responses validation, streaming, strict Provider media contracts, bounded transport timers, normalized Provider availability errors, shared retryable Platform transport policy, durable usage delivery, authenticated Garnet projections, bounded request/response content-policy RPC evaluation, event-boundary streaming response moderation, and fail-closed response delivery including retryable classifier outages |
+| `gateway` | `8f33790` | clean | C++ HTTP/WebSocket edge, protocol parsing/conversion, versioned OpenAI Chat/Responses, Anthropic Messages, and Gemini request/response/SSE golden contracts, full pairwise provider request/response matrix assertions, fail-closed model catalog and token-count validation, bounded Embeddings and Responses validation, streaming, strict Provider media contracts, bounded transport timers, normalized Provider availability errors, shared retryable Platform transport policy, durable usage delivery, authenticated Garnet projections, bounded request/response content-policy RPC evaluation, event-boundary streaming response moderation, and fail-closed response delivery including retryable classifier outages |
 | `platform` | `15cdfc0` | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, Provider mock contracts, rotating identity/session/TOTP/OAuth state, API-key policy and audit, versioned runtime configuration, persistent scheduling and lease/hold/ledger state, audited operator reconciliation, media/object lifecycle, staged request/response content-policy evaluation with versioned Unicode normalization, bounded source-owned external classifier adapter, durable policy revision propagation through Garnet, operational alert evidence, and redacted audits |
 | `sub2api` | `43ec48d` | read-only clean | Requirements catalogue only; never a runtime or compatibility dependency |
 
 The current tracked inventory is:
 
-- Gateway: 52 production C++ source/header files, 11 test source files, and 122
+- Gateway: 52 production C++ source/header files, 11 test source files, and 124
   CTest cases.
 - Platform: 94 hand-written production C# files, 3 generated Cap'n Proto C#
   files, 41 test/benchmark C# files, and 180 tests: 69 Grain, 52 Host, 18 Admin,
@@ -303,16 +303,17 @@ current-source runtime evidence.
 
 ## Current verification evidence
 
-At Platform `15cdfc0` and Gateway `12bf8f1`:
+At Platform `15cdfc0` and Gateway `8f33790`:
 
-- Gateway built locally and passed 122/122 CTest cases, including deterministic
+- Gateway built locally and passed 124/124 CTest cases, including deterministic
   fault-hook claim/repeat behavior, terminal SSE detection, provider EOF
   classification, incomplete chunked-body disconnect classification, zero-length
   client-write cancellation, and bounded Provider pre-header stream timeout
   handling plus independent inter-chunk and total-stream timeout scenarios. The
   source-owned protocol golden suite covers versioned OpenAI Chat/Responses,
-  Anthropic Messages, and Gemini request/response/SSE/error fixtures plus
-  cross-protocol conversion.
+  Anthropic Messages, and Gemini request/response/SSE/error fixtures, all
+  sixteen request pairs, all sixteen response pairs, and cross-protocol
+  conversion.
 - Platform Release test/build passed with 0 warnings and 0 errors: 180/180 tests,
   including 52 Host tests, 69 Grain tests, 18 Admin tests, and 41 Provider mock
   tests. Admin coverage
@@ -515,9 +516,10 @@ At Platform `15cdfc0` and Gateway `12bf8f1`:
 - Gateway `b27965f` validates direct non-stream OpenAI Responses envelopes before
   settlement: completed status, non-empty output item types, model/id metadata,
   and positive consistent input/output/total usage are required; malformed
-  envelopes retain an unknown-charge lease. Gateway `12bf8f1` freezes matching
-  versioned request/response/SSE/error fixtures and runs them through all four
-  protocol parsers, usage/terminal-event handling, and cross-protocol converters.
+  envelopes retain an unknown-charge lease. Gateway `8f33790` freezes matching
+  versioned request/response/SSE/error fixtures and runs all four protocol
+  parsers, all sixteen request pairs, all sixteen response pairs,
+  usage/terminal-event handling, and cross-protocol converters.
 - Scheduler benchmark integrity dry run executed all 4 selected child benchmarks
   and returned zero. It is a failure-propagation check, not performance evidence.
 - `deploy/stack/smoke.sh` built current sibling sources in isolated Podman
