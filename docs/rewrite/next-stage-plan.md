@@ -2,7 +2,7 @@
 
 ## Checkpoint
 
-The next stage starts from Platform `d126ea5`, Gateway `6243b2d`, and read-only
+The next stage starts from Platform `d126ea5`, Gateway `b27965f`, and read-only
 reference `sub2api@43ec48d`.
 
 The greenfield baseline now starts from empty volumes, uses PostgreSQL as authority,
@@ -147,7 +147,7 @@ failed assertion makes the top-level command non-zero.
 Accounting authority completed at `c15b53b`, reconciliation foundation at
 `fddba62`, dispatch evidence at `6bfb974`/`84634d1`, audited resolution at
 `0559659`, and deterministic fault boundaries at `1cad5b7`/`30b8c2b`/`8c3d2e0`,
-with current streaming/empty-stack evidence in Gateway `6243b2d` and Platform
+with current streaming/empty-stack evidence in Gateway `b27965f` and Platform
 `d126ea5`:
 
 - Added one per-user `accounting_accounts` authority with NUMERIC posted balance
@@ -336,12 +336,18 @@ Provider-specific dimensions, tokenizers, and versioned golden fixtures remain
 before GW-07 can become `implemented`.
 
 The model catalog/token-count contract slice is closed for this checkpoint at
-Gateway `6243b2d` and Platform `d126ea5`: OpenAI entries are unique and complete,
+Gateway `b27965f` and Platform `d126ea5`: OpenAI entries are unique and complete,
 Gemini list/detail metadata carries supported methods and positive token limits,
 and Anthropic count tokens requires a bounded positive `input_tokens`. The mock
 and source tests cover malformed, duplicate, and zero-count failures. Provider-
 specific catalog authority, tokenizers, golden fixtures, and provider-group E2E
 remain before GW-06 can become `implemented`.
+
+The direct non-stream OpenAI Responses contract is now fail-closed at Gateway
+`b27965f`: a successful Provider payload must carry completed response metadata,
+typed output items, and consistent positive usage before normal settlement. The
+Gateway retains the lease for malformed envelopes; streaming event goldens,
+subresource lifecycle, and cross-provider E2E remain before GW-03 is `implemented`.
 
 Deliverables:
 

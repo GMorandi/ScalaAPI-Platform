@@ -14,9 +14,12 @@ read-only requirements reference and is excluded from builds and runtime.
 | `platform` | `d126ea5` | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, source-owned deterministic OpenAI/Gemini model catalogs and Anthropic token-count fault profiles, Embeddings mock honoring input cardinality/dimensions/float-base64 encoding with deterministic provider faults, rotating single-use auth sessions with replay/revocation evidence, normalized registration/login validation with hash-only PostgreSQL abuse counters, identity/TOTP and OAuth PKCE abuse state, configurable external OAuth authorization-code exchange with Provider mock and secret-free audit history, API-key scopes/expiry with HTTP replay/concurrency/expiry evidence, denial audit, authenticated paged audit query, ownership-safe Admin updates, and exact-boundary expiry enforcement, typed JSONB policy projections, bounded token-endpoint timeout classification, persistent group routing/rate/fallback policy, scheduling, evidence-backed leases/holds/ledger, audited operator resolution, restart-safe active-lease dispatch recovery, media lifecycle, Admin API/Web/User Web, HTTP/SSE/realtime and OAuth Provider mock fixtures, dependency-free full-stack smoke assertions, verified Gateway image override support, migrations, deterministic Platform/Gateway fault boundaries, and Garnet deployment gates |
 | `sub2api` | `43ec48d` | read-only clean | Requirements catalogue only; never a runtime or compatibility dependency |
 
+The source table above is superseded for this checkpoint by Gateway `b27965f`,
+which adds direct Responses envelope validation; Platform remains `d126ea5`.
+
 The current tracked inventory is:
 
-- Gateway: 52 production C++ source/header files, 10 test source files, and 109
+- Gateway: 52 production C++ source/header files, 10 test source files, and 111
   CTest cases.
 - Platform: 89 hand-written production C# files, 3 generated Cap'n Proto C#
   files, 36 test/benchmark C# files, and 156 tests: 67 Grain, 34 Host, 18 Admin,
@@ -275,9 +278,9 @@ current-source runtime evidence.
 
 ## Current verification evidence
 
-At Platform `d126ea5` and Gateway `6243b2d`:
+At Platform `d126ea5` and Gateway `b27965f`:
 
-- Gateway built locally and passed 109/109 CTest cases, including deterministic
+- Gateway built locally and passed 111/111 CTest cases, including deterministic
   fault-hook claim/repeat behavior, terminal SSE detection, provider EOF
   classification, incomplete chunked-body disconnect classification, zero-length
   client-write cancellation, and bounded Provider pre-header stream timeout
@@ -455,6 +458,10 @@ At Platform `d126ea5` and Gateway `6243b2d`:
   Gemini model metadata/token limits, and Anthropic positive bounded `input_tokens`;
   the source CTest catalog cases and Platform `d126ea5` Provider HTTP tests cover
   valid metadata plus malformed, duplicate, zero, and invalid token-count profiles.
+- Gateway `b27965f` validates direct non-stream OpenAI Responses envelopes before
+  settlement: completed status, non-empty output item types, model/id metadata,
+  and positive consistent input/output/total usage are required; malformed
+  envelopes retain an unknown-charge lease.
 - Scheduler benchmark integrity dry run executed all 4 selected child benchmarks
   and returned zero. It is a failure-propagation check, not performance evidence.
 - `deploy/stack/smoke.sh` built current sibling sources in isolated Podman
