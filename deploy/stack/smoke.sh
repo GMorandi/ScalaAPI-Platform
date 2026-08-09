@@ -481,10 +481,10 @@ wait_for "Admin API readiness" 60 compose exec -T admin-api \
 wait_for "User Web readiness" 60 curl -fsS "$user_web_url/" >/dev/null
 
 migration_count="$(db_query "SELECT count(*) FROM schema_migrations;")"
-assert_equals "25" "$migration_count" "Applied migration count"
+assert_equals "26" "$migration_count" "Applied migration count"
 second_migration_output="$(compose run --rm migrate 2>&1)"
 second_skip_count="$(grep -cE 'skip .+\.sql' <<<"$second_migration_output" || true)"
-assert_equals "25" "$second_skip_count" "Idempotent migrator skip count"
+assert_equals "26" "$second_skip_count" "Idempotent migrator skip count"
 
 login_response="$(admin_request POST /admin/auth/login \
     "$(jq -cn --arg username "$ADMIN_USERNAME" --arg password "$ADMIN_PASSWORD" \
