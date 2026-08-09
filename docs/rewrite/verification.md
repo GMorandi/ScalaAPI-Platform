@@ -2,7 +2,7 @@
 
 ## Current evidence
 
-The latest source snapshot is Gateway `de77ccb` and Platform `5528b06`.
+The latest source snapshot is Gateway `de77ccb` and Platform `2572587`.
 Gateway CTest is 104/104. The complete empty-volume gate passed in
 `scalaapi-smoke-0830` with the same 22-migration double-run, Garnet-authenticated
 request path, nine unknown-charge fault scenarios, and the new
@@ -58,12 +58,18 @@ settlement, and eight remaining open incidents. This smoke used a temporary
 runtime image assembled from the verified local Gateway build because the
 pinned Photon commit is unavailable for a clean Gateway image build; all
 temporary resources and tags were removed.
-The Platform `5528b06` Provider.Mock local WebSocket probe also passed: a real
+The Platform `2572587` Provider.Mock local WebSocket probe also passed: a real
 HTTP/1.1 upgrade to `/v1/responses`, masked `session.update` input, deterministic
 `session.created` and `response.done` usage frames (7 input/5 output), and a
 clean close all completed successfully. This validates the source-owned
 fixture; Gateway-to-Provider forwarding, settlement, and long-connection soak
 remain in the full-stack gate.
+The checked-in `deploy/stack/realtime_smoke.py` client now performs the same
+protocol probe without third-party dependencies, and `deploy/stack/smoke.sh`
+asserts one realtime lease, usage event, usage log, committed hold, and ledger
+debit. This gate addition is syntax-checked and Provider.Mock-verified, but the
+full Gateway-to-Platform runtime result is pending the unavailable pinned Photon
+dependency needed to build a clean Gateway image.
 The older detailed rows below retain prior checkpoint evidence; this snapshot
 supersedes them where commit, image, or late-usage results differ.
 
@@ -76,6 +82,7 @@ supersedes them where commit, image, or late-usage results differ.
 | Platform dispatch retry and active-lease recovery | `scalaapi-platform-dispatch-retry-0914` source-built smoke passed; Platform died after the lease/hold commit, Gateway retried with the same request/idempotency identity, and replacement Platform recovered and settled the existing lease with exactly one lease, usage event, usage log, and debit | A lost dispatch response is retryable without allocating a second lease or billing twice |
 | Gateway build and CTest | Clean local build; 104/104, exit 0 | Includes nested Anthropic start/final usage regression, TCP/TLS client, bounded response replay, malformed-usage/non-SSE guards, incomplete successful payload rejection, exact event-stream media-type validation, explicit-rejection evidence classification, terminal usage-outbox retirement, Garnet invalidation flush recovery, deterministic fault-hook claim/repeat tests, terminal SSE detection, incomplete chunked-body Provider disconnect classification, zero-length client-write cancellation, independent inter-chunk versus total-stream timeout tests, usage extraction from a truncated SSE stream, and the shared HTTP/realtime Platform dispatch retry policy |
 | Platform tests | 95/95, exit 0 | 57 Grain tests, 28 PostgreSQL-connected Host tests, 4 Admin tests, and 6 Provider mock selector tests; includes ordered accounting, replay/conflict, SQL holds, versioned projection, held/forwarded/output-started transitions, safe held expiry, unknown-abort hold preservation, audited operator settle/release, resolution replay/conflict/concurrency, incident resolution, late exactly-once settlement, and deterministic fault-hook configuration |
+| Realtime smoke client | `python3 deploy/stack/realtime_smoke.py` passed against Release `Provider.Mock`; `bash -n deploy/stack/smoke.sh` and `git diff --check` passed | Validates HTTP/1.1 upgrade, masked session input, deterministic session/usage frames, and close handling; the full-stack invocation additionally checks exactly-once lease/usage/hold/ledger settlement when a clean Gateway image is available |
 | Platform Release build | Passed, 0 warnings and 0 errors | Includes Platform Host, Admin API, migrator, Provider mock, and benchmark assembly |
 | Admin Web | Typecheck and production build passed | Blocking CI gate exists; browser tests are not configured |
 | Scheduler benchmark dry run | 4/4, exit 0; no-match negative probe exits 1 | Dependency injection and child-result propagation pass; not performance evidence |

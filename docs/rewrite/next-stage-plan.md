@@ -2,7 +2,7 @@
 
 ## Checkpoint
 
-The next stage starts from Platform `5528b06`, Gateway `de77ccb`, and read-only
+The next stage starts from Platform `2572587`, Gateway `de77ccb`, and read-only
 reference `sub2api@43ec48d`.
 
 The greenfield baseline now starts from empty volumes, uses PostgreSQL as authority,
@@ -175,9 +175,11 @@ Next implementation slice:
 - Exercise every remaining hook independently with replay assertions for duplicate
   completion, abort, expiry, projection replacement, and process restart. Platform
   dispatch retry and active-lease recovery are proven for regular Chat, while
-  Gateway source tests cover the same policy for realtime. Next add a Provider
-  WebSocket mock and runtime soak, then cover remaining Gateway hooks and multi-silo
-  recovery before promoting the billing slice.
+  Gateway source tests cover the same policy for realtime. The Provider WebSocket
+  fixture and dependency-free client are now checked in; run the full-stack
+  realtime invocation, then add long-connection/backpressure soak, replay after
+  restart, remaining Gateway hooks, and multi-silo recovery before promoting the
+  billing slice.
 
 Remaining package deliverables:
 
@@ -198,7 +200,7 @@ an open incident can be resolved only through the audited settle/release contrac
 
 ## Work package 2: cancellation and streaming failure semantics
 
-Progress in Gateway `de77ccb` and Platform `5528b06`: the streaming pipe now requires a source protocol
+Progress in Gateway `de77ccb` and Platform `2572587`: the streaming pipe now requires a source protocol
 terminal event before treating Provider EOF as complete, classifies timeout/EOF as
 incomplete (including Photon incomplete chunked-body `-1/errno=0`), treats
 zero/error client writes as cancellation, records bounded

@@ -11,7 +11,7 @@ read-only requirements reference and is excluded from builds and runtime.
 | Repository | Commit | Worktree | Role |
 | --- | --- | --- | --- |
 | `gateway` | `de77ccb` | clean | C++ HTTP/WebSocket edge, protocol parsing/conversion, streaming, strict Provider media contracts, bounded stream header/client timeouts, distinct inter-chunk/total timer tests, normalized Provider availability errors, shared retryable Platform transport policy for HTTP and realtime dispatch, transport/evidence, charge-aware failover, durable usage delivery, authenticated Garnet projections, deterministic fault boundaries, and late-usage settlement from truncated SSE |
-| `platform` | `5528b06` | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, identity, scheduling, evidence-backed leases/holds/ledger, audited operator resolution, restart-safe active-lease dispatch recovery, media lifecycle, Admin API/Web, HTTP/SSE and realtime Provider mock fixtures, migrations, deterministic Platform/Gateway fault boundaries, and Garnet deployment gates |
+| `platform` | `2572587` | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, identity, scheduling, evidence-backed leases/holds/ledger, audited operator resolution, restart-safe active-lease dispatch recovery, media lifecycle, Admin API/Web, HTTP/SSE and realtime Provider mock fixtures, dependency-free realtime full-stack smoke assertions, migrations, deterministic Platform/Gateway fault boundaries, and Garnet deployment gates |
 | `sub2api` | `43ec48d` | read-only clean | Requirements catalogue only; never a runtime or compatibility dependency |
 
 The current tracked inventory is:
@@ -200,7 +200,7 @@ current-source runtime evidence.
 
 ## Current verification evidence
 
-At Platform `5528b06` and Gateway `de77ccb`:
+At Platform `2572587` and Gateway `de77ccb`:
 
 - Gateway built locally and passed 104/104 CTest cases, including deterministic
   fault-hook claim/repeat behavior, terminal SSE detection, provider EOF
@@ -212,6 +212,14 @@ At Platform `5528b06` and Gateway `de77ccb`:
   includes deterministic fault-hook configuration plus atomic operator
   settle/release, replay/conflict behavior, and concurrent resolution serialization.
 - Admin Web typecheck and production build passed.
+- `deploy/stack/realtime_smoke.py` passed against a real Release `Provider.Mock`
+  process: it completed the HTTP/1.1 WebSocket upgrade, sent a masked
+  `session.update`, validated deterministic `session.created` and `response.done`
+  usage frames, and closed cleanly. `deploy/stack/smoke.sh` now invokes this
+  client and requires exactly one completed realtime lease, usage event, usage
+  log, committed hold, and `usage_debit` ledger entry; the full Gateway-to-
+  Platform runtime assertion remains pending because the pinned Photon commit
+  cannot currently produce a clean Gateway image.
 - The current-source empty-stack project `scalaapi-gateway-recovery-0907` ran with
   `GATEWAY_FAULT_HOOK=gateway.after_provider_completion` and a 15-second lease TTL.
   Gateway returned an empty transport reply, persisted its one-shot marker,
