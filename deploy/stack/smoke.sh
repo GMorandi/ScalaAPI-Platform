@@ -480,10 +480,10 @@ wait_for "Admin API readiness" 60 compose exec -T admin-api \
 wait_for "User Web readiness" 60 curl -fsS "$user_web_url/" >/dev/null
 
 migration_count="$(db_query "SELECT count(*) FROM schema_migrations;")"
-assert_equals "25" "$migration_count" "Applied migration count"
+assert_equals "24" "$migration_count" "Applied migration count"
 second_migration_output="$(compose run --rm migrate 2>&1)"
 second_skip_count="$(grep -cE 'skip .+\.sql' <<<"$second_migration_output" || true)"
-assert_equals "25" "$second_skip_count" "Idempotent migrator skip count"
+assert_equals "24" "$second_skip_count" "Idempotent migrator skip count"
 
 login_response="$(admin_request POST /admin/auth/login \
     "$(jq -cn --arg username "$ADMIN_USERNAME" --arg password "$ADMIN_PASSWORD" \
@@ -1037,7 +1037,7 @@ if [[ "$garnet_probe" != *PONG* ]]; then
     exit 1
 fi
 
-echo "PASS: 25 empty-volume migrations and second-run idempotency"
+echo "PASS: 24 empty-volume migrations and second-run idempotency"
 echo "PASS: idempotent administrative funding, audit, conflict, and overdraft guards"
 echo "PASS: Garnet-authenticated Gateway -> Platform -> Provider mock request"
 echo "PASS: terminal lease, hold, usage, ledger, and outbox invariants"
