@@ -2,7 +2,7 @@
 
 ## Checkpoint
 
-The next stage starts from Platform `9320320`, Gateway `9c7171f`, and read-only
+The next stage starts from Platform `da62f74`, Gateway `9c7171f`, and read-only
 reference `sub2api@43ec48d`.
 
 The greenfield baseline now starts from empty volumes, uses PostgreSQL as authority,
@@ -120,7 +120,7 @@ Accounting authority completed at `c15b53b`, reconciliation foundation at
 `fddba62`, dispatch evidence at `6bfb974`/`84634d1`, audited resolution at
 `0559659`, and deterministic fault boundaries at `1cad5b7`/`30b8c2b`/`8c3d2e0`,
 with current streaming/empty-stack evidence in Gateway `9c7171f` and Platform
-`9320320`:
+`da62f74`:
 
 - Added one per-user `accounting_accounts` authority with NUMERIC posted balance
   and monotonically increasing ledger version.
@@ -235,7 +235,7 @@ an open incident can be resolved only through the audited settle/release contrac
 
 ## Work package 2: cancellation and streaming failure semantics
 
-Progress in Gateway `9c7171f` and Platform `9320320`: the streaming pipe now requires a source protocol
+Progress in Gateway `9c7171f` and Platform `da62f74`: the streaming pipe now requires a source protocol
 terminal event before treating Provider EOF as complete, classifies timeout/EOF as
 incomplete (including Photon incomplete chunked-body `-1/errno=0`), treats
 zero/error client writes as cancellation, records bounded
@@ -289,7 +289,7 @@ state, terminal lease, hold, usage, debit, idempotency, and reconciliation outco
 
 ## Work package 3: Provider and protocol contract fixtures
 
-The generic Provider OAuth runtime slice is complete at Platform `9320320`:
+The generic Provider OAuth runtime slice is complete at Platform `da62f74`:
 the source-owned mock endpoint, real HTTP Platform-client contract tests, and
 `scalaapi-oauth-refresh-20260809` empty-stack assertion prove an expired encrypted
 credential rotates to version 2 before dispatch, settles once, and remains secret
