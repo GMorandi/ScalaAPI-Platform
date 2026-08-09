@@ -658,6 +658,7 @@ app.MapPost("/v1/chat/completions", async (HttpContext context, CancellationToke
                 // A zero-length response closes deterministically without a
                 // terminal SSE event; the Gateway must retain the hold.
                 context.Response.ContentLength = 0;
+                await context.Response.StartAsync(cancellationToken);
                 context.Abort();
                 return;
             }
