@@ -2,7 +2,7 @@
 
 ## Checkpoint
 
-The next stage starts from Platform `326fc43`, Gateway `3da0d33`, and read-only
+The next stage starts from Platform `ac560d5`, Gateway `3da0d33`, and read-only
 reference `sub2api@43ec48d`.
 
 The greenfield baseline now starts from empty volumes, uses PostgreSQL as authority,
@@ -60,7 +60,7 @@ through the clean Gateway runtime image, including exactly-once
 lease/usage/hold/ledger settlement; long-connection/backpressure soak, remaining
 boundaries, the worker/multi-silo matrix, and multi-instance scenarios are still
 open.
-The current source-built `scalaapi-classifier-20260809d` gate applies and
+The prior source-built `scalaapi-classifier-20260809d` gate applies and
 replays 31 migration records from empty volumes, proves Garnet-authenticated
 request routing, staged request/response policy, the versioned Unicode evaluator,
 external-classifier match/outage handling, the full Provider fault matrix, media
@@ -135,6 +135,15 @@ mock that binds one-time authorization codes to client, redirect, and S256 verif
 the `scalaapi-oauth-20260809b` gate proves account creation and replay rejection.
 Redirect allowlists, account-link collision policy, and browser UX remain release
 work.
+The `AUTH-04` Passkey slice adds migration `031-passkeys.sql` and Fido2-backed
+registration/authentication routes. PostgreSQL stores bounded five-minute
+flow-scoped challenges with atomic consumption plus credential public keys,
+user handles, signature counters, display names, and last-use timestamps; actor/IP
+registration and revocation audits commit with credential mutations. The targeted
+empty-schema test proves challenge replay rejection, credential deletion, and
+monotonic counter updates. Browser WebAuthn ceremony, User Web passkey management,
+public-endpoint anti-enumeration, and distributed abuse limits are the next identity
+exit conditions, so AUTH-04 remains `partial`.
 The first User Web slice now provides a standalone refresh-aware Solid client:
 registration/password login, PKCE callback, dashboard balance/recent usage,
 user-scoped usage history, API keys, billing/subscriptions, profile, and password
@@ -631,8 +640,9 @@ Then expand the remaining 58-domain work in this order:
    Gateway `8f33790`.
 2. Complete Provider-specific OAuth refresh profiles and runtime evidence, price/quota adapters, media recovery,
    and object reconciliation/restore.
-3. Complete identity hardening beyond the TOTP and OAuth PKCE state machines, Passkeys,
-   backup-code recovery UX, mail delivery, and browser tests for the new User Web/API-key/usage/order/
+3. Complete identity hardening beyond the TOTP, OAuth PKCE, and Passkey state
+   machines, including backup-code recovery UX, mail delivery, anti-enumeration,
+   and browser tests for the new User Web/API-key/usage/order/
    subscription flows.
 4. Complete payment adapters/reconciliation/refunds, subscription workers, redeem,
    signup referral attribution/anti-abuse, notification, and commercial audit flows.

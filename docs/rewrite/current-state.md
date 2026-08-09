@@ -11,15 +11,15 @@ read-only requirements reference and is excluded from builds and runtime.
 | Repository | Commit | Worktree | Role |
 | --- | --- | --- | --- |
 | `gateway` | `3da0d33` | clean | C++ HTTP/WebSocket edge, protocol parsing/conversion, versioned OpenAI Chat/Responses, Anthropic Messages, and Gemini request/response/SSE golden contracts, full pairwise provider request/response/error matrix assertions, fail-closed model catalog and token-count validation, bounded Embeddings and Responses validation, streaming, strict Provider media contracts, bounded transport timers, normalized Provider availability errors, shared retryable Platform transport policy, durable usage delivery, authenticated Garnet projections, bounded request/response content-policy RPC evaluation, event-boundary streaming response moderation, and fail-closed response delivery including retryable classifier outages |
-| `platform` | `db770e2` | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, Provider mock contracts, rotating identity/session/TOTP/OAuth state, API-key policy and audit, versioned runtime configuration, persistent scheduling and lease/hold/ledger state, audited operator reconciliation, atomic audited referral rewards, authenticated and audited operational metrics, bounded redacted audit queries/exports, encrypted proxy and validated TLS profile administration, audited bounded channel monitor checks, media/object lifecycle, staged request/response content-policy evaluation with versioned Unicode normalization, bounded source-owned external classifier adapter, durable policy revision propagation through Garnet, operational alert evidence, and redacted audits |
+| `platform` | `ac560d5` | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, Provider mock contracts, rotating identity/session/TOTP/OAuth state, native Passkey/WebAuthn ceremonies, API-key policy and audit, versioned runtime configuration, persistent scheduling and lease/hold/ledger state, audited operator reconciliation, atomic audited referral rewards, authenticated and audited operational metrics, bounded redacted audit queries/exports, encrypted proxy and validated TLS profile administration, audited bounded channel monitor checks, media/object lifecycle, staged request/response content-policy evaluation with versioned Unicode normalization, bounded source-owned external classifier adapter, durable policy revision propagation through Garnet, operational alert evidence, and redacted audits |
 | `sub2api` | `43ec48d` | read-only clean | Requirements catalogue only; never a runtime or compatibility dependency |
 
 The current tracked inventory is:
 
 - Gateway: 52 production C++ source/header files, 11 test source files, and 125
   CTest cases.
-- Platform: 98 hand-written production C# files, 3 generated Cap'n Proto C#
-  files, 45 test/benchmark C# files, and 185 tests: 69 Grain, 52 Host, 23 Admin,
+- Platform: 101 hand-written production C# files, 3 generated Cap'n Proto C#
+  files, 46 test/benchmark C# files, and 186 tests: 69 Grain, 52 Host, 24 Admin,
   and 41 Provider mock tests.
 - Product surface: 121 direct Admin API route declarations, 47 product tables,
   22 SQLSugar entity types, 23 Admin Web TypeScript/TSX files and 11 page views,
@@ -28,8 +28,8 @@ The current tracked inventory is:
   Ent schemas, 82 Vue view/component files, and 240 migrations. These are scope
   signals, not parity percentages or migration targets.
 
-The 58-domain inventory is 2 `implemented`, 49 `partial`, 2 `skeleton`,
-and 5 `missing`. A route, table, mock response, or manual probe does not promote a
+The 58-domain inventory is 2 `implemented`, 50 `partial`, 2 `skeleton`,
+and 4 `missing`. A route, table, mock response, or manual probe does not promote a
 domain; promotion requires a defined contract/state machine, automated tests, and
 current-source runtime evidence.
 
@@ -168,6 +168,15 @@ current-source runtime evidence.
   atomically, and disable never accepts a backup code. Real PostgreSQL Admin tests
   cover cross-instance lockout, recovery, replay, one-time backup use, and atomic
   disable behavior.
+- Passkey/WebAuthn registration and authentication use Fido2NetLib with a native
+  PostgreSQL ceremony table. Challenges are bounded, five-minute, flow-scoped, and
+  atomically one-shot; credential public keys, user handles, and signature counters
+  are stored without private key material. Registration and revocation write actor/IP
+  audit rows in the same transaction, and authentication advances counters
+  monotonically before issuing the normal rotating session. A real empty-schema test
+  covers challenge replay, credential lifecycle, counter monotonicity, and audit
+  cleanup; browser ceremony, anti-enumeration, abuse limiting, and User Web controls
+  remain open.
 - OAuth start and callback flows issue S256 PKCE material and persist only hashed
   state/verifier values. Callback consumption is bound to the normalized provider
   and exact redirect URI, serialized by PostgreSQL, expires after ten minutes, and
@@ -315,12 +324,13 @@ current-source runtime evidence.
 
 ### Bootstrap and deployment
 
-- The direct source migrator applied product migrations 001-030 to a temporary
-  empty PostgreSQL 17 database and skipped all 30 on replay. The migrator image
+- The direct source migrator applied product migrations 001-031 to a temporary
+  empty PostgreSQL 17 database and skipped all 31 on replay. The migrator image
   copies the complete migration directory, so new forward migrations cannot be
-  silently omitted. The current empty-stack gate applied and replayed 31 records
-  including Orleans support. No source database, snapshot, old key, CDC table,
-  or compatibility mapping is required.
+  silently omitted. The targeted empty-schema Passkey gate applies and replays 32
+  records including Orleans support. No source database, snapshot, old key, CDC
+  table, or compatibility mapping is required; the full Compose image gate still
+  needs to be rebuilt against this commit.
 - `deploy/stack` independently starts PostgreSQL, authenticated Garnet, MinIO,
   Provider mock, Platform, Gateway, Admin API, Admin Web, and User Web. Image digests pin the
   infrastructure services.
@@ -336,7 +346,7 @@ current-source runtime evidence.
 
 ## Current verification evidence
 
-At Platform `326fc43` and Gateway `3da0d33`:
+At Platform `ac560d5` and Gateway `3da0d33`:
 
 - Gateway built locally and passed 125/125 CTest cases, including deterministic
   fault-hook claim/repeat behavior, terminal SSE detection, provider EOF
@@ -348,8 +358,8 @@ At Platform `326fc43` and Gateway `3da0d33`:
   sixteen request pairs, all sixteen response pairs, cross-protocol response
   envelope validation, and cross-protocol error normalization with standard
   status precedence.
-- Platform Release test/build passed with 0 warnings and 0 errors: 185/185 tests,
-  including 52 Host tests, 69 Grain tests, 23 Admin tests, and 41 Provider mock
+- Platform Release test/build passed with 0 warnings and 0 errors: 186/186 tests,
+  including 52 Host tests, 69 Grain tests, 24 Admin tests, and 41 Provider mock
   tests. Admin coverage
   includes PostgreSQL-backed TOTP replay, backup-code consumption, lockout,
   recovery, OAuth provider/redirect/verifier binding, one-time state consumption,
@@ -360,7 +370,8 @@ At Platform `326fc43` and Gateway `3da0d33`:
   token endpoint form/HTTPS handling, and sensitive-error redaction. Provider mock
   coverage additionally includes real ASP.NET HTTP contract tests through the
   Platform token client for rotation, revoked grants, malformed JSON, and bounded
-  oversized responses.
+  oversized responses. Passkey coverage adds the bounded challenge/credential
+  lifecycle and monotonic counter assertions.
 - SEC-01 now has executable request, non-stream response, and SSE event-boundary
   evidence: the canonical Cap'n Proto contract carries bounded request/response
   policy content, Platform evaluates active scoped rules before lease creation or
@@ -698,7 +709,8 @@ Detailed gate results and residual coverage are maintained in `verification.md`.
   blocking release workflow with a read-only checkout boundary.
 - Provider adapters beyond the mock, provider-specific OAuth refresh profiles,
   provider-specific tokenizer/catalog fixtures, User Web browser
-  tests for auth recovery/TOTP UX, Passkeys, full commercial coupling, audit/observability,
+  tests for auth recovery/TOTP/Passkey UX, Passkey anti-enumeration and abuse,
+  full commercial coupling, audit/observability,
   HA, load/soak, backup/restore, and signed rollback remain partial or missing.
 - Admin Web and User Web have blocking type/build gates but no browser runner;
   email delivery, backup-code sign-in, payment checkout, referral signup

@@ -44,6 +44,13 @@ append-only ledger entries, usage settlement, content policy, media metadata, an
 Orleans coordinates concurrency; PostgreSQL is the durable business and accounting
 source of truth. Orleans storage internals are never used as a business listing API.
 
+Passkey authentication is a native Fido2/WebAuthn boundary. PostgreSQL stores only
+short-lived flow-scoped challenge options and credential public material; private keys
+remain in authenticators. Challenge consumption is atomic, signature counters are
+monotonic, and credential registration/revocation audits are written with the state
+mutation. The public login endpoint issues the same rotating session contract as
+password/OAuth login; browser ceremony and anti-abuse policy remain release gates.
+
 `accounting_accounts` is the monetary authority: one row per product user stores a
 NUMERIC posted balance and monotonically increasing ledger version. The account,
 append-only `balance_ledger`, `request_leases`, `balance_holds`, request idempotency,
