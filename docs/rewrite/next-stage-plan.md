@@ -2,7 +2,7 @@
 
 ## Checkpoint
 
-The next stage starts from Platform `a1936c0`, Gateway `52a0035`, and read-only
+The next stage starts from Platform `075d95b`, Gateway `52a0035`, and read-only
 reference `sub2api@43ec48d`.
 
 The greenfield baseline now starts from empty volumes, uses PostgreSQL as authority,
@@ -99,6 +99,14 @@ totals. The API adds user-scoped usage and balance reads and the Compose stack
 serves User Web separately from Admin Web. Browser automation, backup-code sign-in
 UX, real payment checkout, referral reward settlement, and commercial audit remain
 open.
+The `CORE-03`/`CORE-05` scheduling slice at Platform `075d95b` persists group RPM
+windows in Orleans state, resolves exact model routes before longest-prefix and
+wildcard patterns, applies overnight peak multipliers to the primary dispatch,
+and walks active multi-level fallback chains with cycle protection. Existing sticky
+bindings, capability filtering, priority/load ordering, account and user
+concurrency, and idempotent group spend remain covered by the Grain suite; HTTP
+group CRUD validation, distributed rate-window contention, and multi-Silo fallback
+fault evidence remain release work.
 
 This stage contains no compatibility, cutover, dual-write, CDC, snapshot import,
 old-key import, ID preservation, status mapping, or business-data migration work.
@@ -127,7 +135,7 @@ Accounting authority completed at `c15b53b`, reconciliation foundation at
 `fddba62`, dispatch evidence at `6bfb974`/`84634d1`, audited resolution at
 `0559659`, and deterministic fault boundaries at `1cad5b7`/`30b8c2b`/`8c3d2e0`,
 with current streaming/empty-stack evidence in Gateway `52a0035` and Platform
-`a1936c0`:
+`075d95b`:
 
 - Added one per-user `accounting_accounts` authority with NUMERIC posted balance
   and monotonically increasing ledger version.
@@ -242,7 +250,7 @@ an open incident can be resolved only through the audited settle/release contrac
 
 ## Work package 2: cancellation and streaming failure semantics
 
-Progress in Gateway `52a0035` and Platform `a1936c0`: the streaming pipe now requires a source protocol
+Progress in Gateway `52a0035` and Platform `075d95b`: the streaming pipe now requires a source protocol
 terminal event before treating Provider EOF as complete, classifies timeout/EOF as
 incomplete (including Photon incomplete chunked-body `-1/errno=0`), treats
 zero/error client writes as cancellation, records bounded
@@ -296,7 +304,7 @@ state, terminal lease, hold, usage, debit, idempotency, and reconciliation outco
 
 ## Work package 3: Provider and protocol contract fixtures
 
-The generic Provider OAuth runtime slice is complete at Platform `a1936c0`:
+The generic Provider OAuth runtime slice is complete at Platform `075d95b`:
 the source-owned mock endpoint, real HTTP Platform-client contract tests, and
 `scalaapi-oauth-refresh-20260809` empty-stack assertion prove an expired encrypted
 credential rotates to version 2 before dispatch, settles once, and remains secret
@@ -331,7 +339,7 @@ refresh audit and multi-Silo evidence.
 
 ## Current P0 slice: API-key authorization boundary
 
-Platform `a1936c0` now treats API-key policy as a new product contract. A key
+Platform `075d95b` now treats API-key policy as a new product contract. A key
 stores a normalized set of Gateway capability scopes (`messages`, `responses`,
 `embeddings`, media, realtime, and the provider-specific model capabilities) and
 an optional millisecond expiry. Platform checks the requested capability after
@@ -343,8 +351,8 @@ matching scope.
 Admin and user create/update/rotate/revoke paths write the same scope/expiry
 projection and append actor, action, scope, and reason data to the new
 `api_key_audit_events` table. Runtime scope denials append a bounded audit event
-with request ID and never persist plaintext credentials. The 62-case Grain suite,
-schema assertion, Release build, full 132-test Platform run, and
+with request ID and never persist plaintext credentials. The 66-case Grain suite,
+schema assertion, Release build, full 136-test Platform run, and
 `scalaapi-key-policy-verified` empty-stack proof pass. The smoke proves that
 denied requests create no lease, hold, or Provider call and that the policy
 denial audit row is persisted. The slice remains `partial` until authenticated

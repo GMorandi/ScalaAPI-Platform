@@ -11,7 +11,7 @@ read-only requirements reference and is excluded from builds and runtime.
 | Repository | Commit | Worktree | Role |
 | --- | --- | --- | --- |
 | `gateway` | `52a0035` | clean | C++ HTTP/WebSocket edge, protocol parsing/conversion, streaming, strict Provider media contracts, bounded stream header/client timeouts, distinct inter-chunk/total timer tests, normalized Provider availability errors, shared retryable Platform transport policy for HTTP and realtime dispatch, Photon WebSocket URL normalization, transport/evidence, charge-aware failover, durable usage delivery, authenticated Garnet projections, deterministic fault boundaries, late-usage settlement from truncated SSE, and HTTP 403 capability-denial mapping |
-| `platform` | `a1936c0` | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, rotating single-use auth sessions with replay/revocation evidence, identity/TOTP and OAuth PKCE abuse state, Provider OAuth credential refresh and secret-free audit history, API-key scopes/expiry and denial audit, typed JSONB policy projections, bounded token-endpoint timeout classification, scheduling, evidence-backed leases/holds/ledger, audited operator resolution, restart-safe active-lease dispatch recovery, media lifecycle, Admin API/Web/User Web, HTTP/SSE/realtime and OAuth Provider mock fixtures, dependency-free full-stack smoke assertions, verified Gateway image override support, migrations, deterministic Platform/Gateway fault boundaries, and Garnet deployment gates |
+| `platform` | `075d95b` | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, rotating single-use auth sessions with replay/revocation evidence, identity/TOTP and OAuth PKCE abuse state, Provider OAuth credential refresh and secret-free audit history, API-key scopes/expiry and denial audit, typed JSONB policy projections, bounded token-endpoint timeout classification, persistent group routing/rate/fallback policy, scheduling, evidence-backed leases/holds/ledger, audited operator resolution, restart-safe active-lease dispatch recovery, media lifecycle, Admin API/Web/User Web, HTTP/SSE/realtime and OAuth Provider mock fixtures, dependency-free full-stack smoke assertions, verified Gateway image override support, migrations, deterministic Platform/Gateway fault boundaries, and Garnet deployment gates |
 | `sub2api` | `43ec48d` | read-only clean | Requirements catalogue only; never a runtime or compatibility dependency |
 
 The current tracked inventory is:
@@ -19,7 +19,7 @@ The current tracked inventory is:
 - Gateway: 52 production C++ source/header files, 10 test source files, and 104
   CTest cases.
 - Platform: 88 hand-written production C# files, 3 generated Cap'n Proto C#
-  files, 33 test/benchmark C# files, and 132 tests: 62 Grain, 34 Host, 12 Admin,
+  files, 33 test/benchmark C# files, and 136 tests: 66 Grain, 34 Host, 12 Admin,
   and 24 Provider mock tests.
 - Product surface: 119 direct Admin API route declarations, 45 product tables,
   20 SQLSugar entity types, 23 Admin Web TypeScript/TSX files and 11 page views,
@@ -157,6 +157,11 @@ current-source runtime evidence.
 - Users, groups, Provider accounts, encrypted credentials, scheduling, sticky
   routing, rate/concurrency policy, and versioned pricing are represented as
   Orleans aggregates with PostgreSQL operational records where implemented.
+  Group scheduling now persists RPM window counters, chooses exact model routes
+  before longest-prefix and wildcard routes, applies overnight peak multipliers,
+  and follows multi-level fallback chains with cycle protection. Sticky bindings,
+  account load ordering, capability filtering, and user/account concurrency remain
+  Orleans-owned; multi-silo contention and HTTP group policy validation remain open.
   OAuth Provider accounts persist encrypted access/refresh/client secrets with an
   expiry, version, refresh lease, compare-and-set completion, bounded failure code,
   and scheduler backoff. Dispatch recovery and media polling resolve credentials
@@ -248,15 +253,15 @@ current-source runtime evidence.
 
 ## Current verification evidence
 
-At Platform `a1936c0` and Gateway `52a0035`:
+At Platform `075d95b` and Gateway `52a0035`:
 
 - Gateway built locally and passed 104/104 CTest cases, including deterministic
   fault-hook claim/repeat behavior, terminal SSE detection, provider EOF
   classification, incomplete chunked-body disconnect classification, zero-length
   client-write cancellation, and bounded Provider pre-header stream timeout
   handling plus independent inter-chunk and total-stream timeout scenarios.
-- Platform Release test/build passed with 0 warnings and 0 errors: 132/132 tests,
-  including 34 Host tests and 62 Grain tests. Admin coverage
+- Platform Release test/build passed with 0 warnings and 0 errors: 136/136 tests,
+  including 34 Host tests and 66 Grain tests. Admin coverage
   includes PostgreSQL-backed TOTP replay, backup-code consumption, lockout,
   recovery, OAuth provider/redirect/verifier binding, one-time state consumption,
   and expiry. Host coverage
@@ -267,7 +272,7 @@ At Platform `a1936c0` and Gateway `52a0035`:
   coverage additionally includes real ASP.NET HTTP contract tests through the
   Platform token client for rotation, revoked grants, malformed JSON, and bounded
   oversized responses.
-- API-key policy tests pass in the 62-case Grain suite: scope normalization,
+- API-key policy tests pass in the 66-case Grain suite: scope normalization,
   unknown-scope rejection, explicit projection round-trip, capability allow/deny,
   and expiry rejection. The schema gate requires `user_api_keys.scopes`,
   `expires_at_ms`, and the append-only `api_key_audit_events` table. The runtime
