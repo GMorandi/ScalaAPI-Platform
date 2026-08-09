@@ -57,3 +57,37 @@ export interface DashboardStats {
   totalUsers: number;
   totalApiKeys: number;
 }
+
+export interface ReconciliationIncident {
+  id: number;
+  incident_key: string;
+  kind: string;
+  severity: string;
+  user_id: number | null;
+  lease_token: string | null;
+  status: string;
+  expected: unknown;
+  actual: unknown;
+  occurrences: number;
+  first_seen_at: string;
+  last_seen_at: string;
+  resolved_at: string | null;
+  last_run_id: number | null;
+}
+
+export interface ReconciliationRunResult {
+  started: boolean;
+  runId?: number;
+  status?: string;
+  openIncidents?: number;
+  resolvedIncidents?: number;
+}
+
+export interface ReconciliationResolutionResult {
+  status: string;
+  error_code?: string;
+  resolution_id?: number;
+  lease_token?: string;
+  action?: string;
+  cost_usd?: number;
+}

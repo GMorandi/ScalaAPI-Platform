@@ -8,6 +8,7 @@ const links = [
   { href: "/users", key: "nav.users" },
   { href: "/apikeys", key: "nav.apikeys" },
   { href: "/config", key: "nav.config" },
+  { href: "/reconciliation", key: "nav.reconciliation" },
 ];
 
 export default function Sidebar() {
