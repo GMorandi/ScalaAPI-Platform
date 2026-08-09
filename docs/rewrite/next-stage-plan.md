@@ -2,7 +2,7 @@
 
 ## Checkpoint
 
-The next stage starts from Platform `9848427`, Gateway `3da0d33`, and read-only
+The next stage starts from Platform `becf189`, Gateway `3da0d33`, and read-only
 reference `sub2api@43ec48d`.
 
 The greenfield baseline now starts from empty volumes, uses PostgreSQL as authority,
@@ -335,6 +335,11 @@ Remaining package deliverables:
   aggregation, and filtered policy-alert evidence are covered by a real
   PostgreSQL test. Add collectors, alert rules, dashboards, delivery/recovery,
   and browser evidence before moving OPS-02 to implemented.
+- Admin audit reads are now a bounded safe-output slice at Platform `becf189`:
+  list/export limits, recursive sensitive-field redaction, and removal of the
+  generic client insert path are covered by a real PostgreSQL test. Add retention
+  and immutable-storage controls, authorization/browser export tests, and a
+  security scan before moving SEC-02 to implemented.
 - Add a blocking negative probe for each new fault hook so a swallowed child failure or
   missing scenario makes the top-level gate non-zero.
 
