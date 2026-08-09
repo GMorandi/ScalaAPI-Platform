@@ -2,7 +2,7 @@
 
 ## Checkpoint
 
-The next stage starts from Platform `15cdfc0`, Gateway `3da0d33`, and read-only
+The next stage starts from Platform `6344f88`, Gateway `3da0d33`, and read-only
 reference `sub2api@43ec48d`.
 
 The greenfield baseline now starts from empty volumes, uses PostgreSQL as authority,
@@ -143,7 +143,8 @@ with backup-code display. Billing lists active plans, purchases/cancels/renews
 subscriptions, redeems promotion codes, and generates a referral code with summary
 totals. The API adds user-scoped usage and balance reads and the Compose stack
 serves User Web separately from Admin Web. Browser automation, backup-code sign-in
-UX, real payment checkout, referral reward settlement, and commercial audit remain
+UX, real payment checkout, signup referral attribution/anti-abuse, and commercial
+audit remain
 open.
 The `CORE-03`/`CORE-05` scheduling slice at Platform `c2d3cf9` persists group RPM
 windows in Orleans state, resolves exact model routes before longest-prefix and
@@ -322,9 +323,13 @@ Earlier reliability follow-up (now covered by the current gate):
 
 Remaining package deliverables:
 
-- Define authority contracts before adding subscription grants, affiliate rebates,
-  or any new monetary effect. They must use the same account/version API and cannot
-  write `balance_ledger` directly.
+- The referral reward command is now an authority-compliant slice at Platform
+  `6344f88`: deterministic dual-user locks, one attribution, NUMERIC AccountingStore
+  effect, actor/IP audit, exact replay, and changed-payload conflict are covered by
+  a real PostgreSQL test. Extend it with signup-code attribution and anti-abuse
+  policy before moving COM-04 to implemented. Subscription grants and any other
+  new monetary effect must use the same account/version API and cannot write
+  `balance_ledger` directly.
 - Add a blocking negative probe for each new fault hook so a swallowed child failure or
   missing scenario makes the top-level gate non-zero.
 
@@ -609,7 +614,7 @@ Then expand the remaining 58-domain work in this order:
    backup-code recovery UX, mail delivery, and browser tests for the new User Web/API-key/usage/order/
    subscription flows.
 4. Complete payment adapters/reconciliation/refunds, subscription workers, redeem,
-   affiliate, notification, and commercial audit flows.
+   signup referral attribution/anti-abuse, notification, and commercial audit flows.
 5. Complete policy/security, observability, multi-region/HA, load and long-connection
    soak, backup/restore, signed updates, and rollback drills.
 

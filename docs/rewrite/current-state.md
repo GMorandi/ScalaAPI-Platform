@@ -10,13 +10,13 @@ read-only requirements reference and is excluded from builds and runtime.
 
 | Repository | Commit | Worktree | Role |
 | --- | --- | --- | --- |
-| `gateway` | `8f33790` | clean | C++ HTTP/WebSocket edge, protocol parsing/conversion, versioned OpenAI Chat/Responses, Anthropic Messages, and Gemini request/response/SSE golden contracts, full pairwise provider request/response matrix assertions, fail-closed model catalog and token-count validation, bounded Embeddings and Responses validation, streaming, strict Provider media contracts, bounded transport timers, normalized Provider availability errors, shared retryable Platform transport policy, durable usage delivery, authenticated Garnet projections, bounded request/response content-policy RPC evaluation, event-boundary streaming response moderation, and fail-closed response delivery including retryable classifier outages |
-| `platform` | `15cdfc0` | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, Provider mock contracts, rotating identity/session/TOTP/OAuth state, API-key policy and audit, versioned runtime configuration, persistent scheduling and lease/hold/ledger state, audited operator reconciliation, media/object lifecycle, staged request/response content-policy evaluation with versioned Unicode normalization, bounded source-owned external classifier adapter, durable policy revision propagation through Garnet, operational alert evidence, and redacted audits |
+| `gateway` | `3da0d33` | clean | C++ HTTP/WebSocket edge, protocol parsing/conversion, versioned OpenAI Chat/Responses, Anthropic Messages, and Gemini request/response/SSE golden contracts, full pairwise provider request/response/error matrix assertions, fail-closed model catalog and token-count validation, bounded Embeddings and Responses validation, streaming, strict Provider media contracts, bounded transport timers, normalized Provider availability errors, shared retryable Platform transport policy, durable usage delivery, authenticated Garnet projections, bounded request/response content-policy RPC evaluation, event-boundary streaming response moderation, and fail-closed response delivery including retryable classifier outages |
+| `platform` | `6344f88` | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, Provider mock contracts, rotating identity/session/TOTP/OAuth state, API-key policy and audit, versioned runtime configuration, persistent scheduling and lease/hold/ledger state, audited operator reconciliation, atomic audited referral rewards, media/object lifecycle, staged request/response content-policy evaluation with versioned Unicode normalization, bounded source-owned external classifier adapter, durable policy revision propagation through Garnet, operational alert evidence, and redacted audits |
 | `sub2api` | `43ec48d` | read-only clean | Requirements catalogue only; never a runtime or compatibility dependency |
 
 The current tracked inventory is:
 
-- Gateway: 52 production C++ source/header files, 11 test source files, and 124
+- Gateway: 52 production C++ source/header files, 11 test source files, and 125
   CTest cases.
 - Platform: 94 hand-written production C# files, 3 generated Cap'n Proto C#
   files, 41 test/benchmark C# files, and 180 tests: 69 Grain, 52 Host, 18 Admin,
@@ -28,7 +28,7 @@ The current tracked inventory is:
   Ent schemas, 82 Vue view/component files, and 240 migrations. These are scope
   signals, not parity percentages or migration targets.
 
-The 58-domain inventory is 2 `implemented`, 44 `partial`, 7 `skeleton`,
+The 58-domain inventory is 2 `implemented`, 45 `partial`, 6 `skeleton`,
 and 5 `missing`. A route, table, mock response, or manual probe does not promote a
 domain; promotion requires a defined contract/state machine, automated tests, and
 current-source runtime evidence.
@@ -279,6 +279,13 @@ current-source runtime evidence.
 - Signed payment webhooks, order paid/refunded transitions, stable ledger effects,
   pending-event recovery, subscription purchase/cancel/renew/expiry, and
   transactional redeem-code effects exist as partial commercial foundations.
+- Platform `6344f88` replaces the unaudited referral record mutation with an
+  authenticated Admin reward command. It takes a deterministic lock on both
+  users, requires an owned referral code, enforces one referrer/referred pair,
+  credits the referrer through the NUMERIC `AccountingStore`, updates referral
+  counters, and writes actor/IP audit evidence in one transaction. Exact command
+  replay and changed-payload conflict are covered by a real PostgreSQL test;
+  signup attribution, anti-abuse policy, and browser evidence remain open.
 
 ### Bootstrap and deployment
 
@@ -614,7 +621,8 @@ Detailed gate results and residual coverage are maintained in `verification.md`.
   persisted held/forwarded/output-started evidence to classify expiry and aborts.
   Admin operators can resolve an open unknown-charge incident exactly once through
   an audited, idempotent `settle` or evidence-gated `release` command; subscription
-  quota grants and future affiliate effects still need explicit authority contracts.
+  quota grants and signup referral attribution/anti-abuse still need explicit
+  authority contracts beyond the audited Admin reward command.
 - Gateway now classifies client cancellation and incomplete SSE as unknown-charge
   outcomes, records disconnect/cancellation reasons, and prevents failover after
   output or partial Provider output. The source-level behavior is covered by 125
@@ -655,8 +663,8 @@ Detailed gate results and residual coverage are maintained in `verification.md`.
   tests for auth recovery/TOTP UX, Passkeys, full commercial coupling, audit/observability,
   HA, load/soak, backup/restore, and signed rollback remain partial or missing.
 - Admin Web and User Web have blocking type/build gates but no browser runner;
-  email delivery, backup-code sign-in, payment checkout, referral settlement, and
-  account-management browser scenarios remain.
+  email delivery, backup-code sign-in, payment checkout, referral signup
+  attribution, and account-management browser scenarios remain.
 
 ## Historical boundary and acceptance rule
 
