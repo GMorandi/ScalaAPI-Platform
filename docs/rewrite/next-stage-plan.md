@@ -2,7 +2,7 @@
 
 ## Checkpoint
 
-The next stage starts from Platform `d126ea5`, Gateway `b27965f`, and read-only
+The next stage starts from Platform `c029b3c`, Gateway `b27965f`, and read-only
 reference `sub2api@43ec48d`.
 
 The greenfield baseline now starts from empty volumes, uses PostgreSQL as authority,
@@ -96,7 +96,7 @@ notification, anti-enumeration, and broader public-endpoint limits are covered.
 Migration `023-auth-oauth-states.sql` now adds one-time OAuth state with S256 PKCE:
 the Admin start flow returns provider-bound state/verifier/challenge material,
 PostgreSQL stores only hashes, and callback consumption binds the exact redirect URI
-and rejects replay or expiry before any upstream token exchange. Platform `d126ea5`
+and rejects replay or expiry before any upstream token exchange. Platform `c029b3c`
 adds configurable authorization/token/user endpoints and a source-owned Provider
 mock that binds one-time authorization codes to client, redirect, and S256 verifier;
 the `scalaapi-oauth-20260809b` gate proves account creation and replay rejection.
@@ -148,7 +148,7 @@ Accounting authority completed at `c15b53b`, reconciliation foundation at
 `fddba62`, dispatch evidence at `6bfb974`/`84634d1`, audited resolution at
 `0559659`, and deterministic fault boundaries at `1cad5b7`/`30b8c2b`/`8c3d2e0`,
 with current streaming/empty-stack evidence in Gateway `b27965f` and Platform
-`d126ea5`:
+`c029b3c`:
 
 - Added one per-user `accounting_accounts` authority with NUMERIC posted balance
   and monotonically increasing ledger version.
@@ -263,7 +263,7 @@ an open incident can be resolved only through the audited settle/release contrac
 
 ## Work package 2: cancellation and streaming failure semantics
 
-Progress in Gateway `6243b2d` and Platform `d126ea5`: the streaming pipe now requires a source protocol
+Progress in Gateway `b27965f` and Platform `c029b3c`: the streaming pipe now requires a source protocol
 terminal event before treating Provider EOF as complete, classifies timeout/EOF as
 incomplete (including Photon incomplete chunked-body `-1/errno=0`), treats
 zero/error client writes as cancellation, records bounded
@@ -318,7 +318,7 @@ state, terminal lease, hold, usage, debit, idempotency, and reconciliation outco
 ## Work package 3: Provider and protocol contract fixtures
 
 The generic Provider OAuth runtime and user-login exchange are complete at
-Platform `d126ea5`: the source-owned mock endpoint, real HTTP Platform-client
+Platform `c029b3c`: the source-owned mock endpoint, real HTTP Platform-client
 contract tests, and `scalaapi-oauth-refresh-20260809` empty-stack assertion prove
 an expired encrypted credential rotates before dispatch, while the
 `scalaapi-oauth-20260809b` gate proves authorization-code exchange, exact S256
@@ -328,7 +328,7 @@ provider fidelity and release evidence, not a compatibility layer.
 The OpenAI Embeddings contract slice is also closed for this checkpoint. Gateway
 `6243b2d` bounds input cardinality and dimensions, validates successful float and
 base64 response shape and usage, and retains an unknown-charge lease for a
-malformed Provider payload. Platform `d126ea5` provides deterministic dimension,
+malformed Provider payload. Platform `c029b3c` provides deterministic dimension,
 encoding, usage, and fault profiles with HTTP tests; the
 `scalaapi-embeddings-20260809b` empty-stack gate proves two float vectors, one
 base64 vector, NUMERIC settlement, and `502/provider_protocol_error` reconciliation.
@@ -336,7 +336,7 @@ Provider-specific dimensions, tokenizers, and versioned golden fixtures remain
 before GW-07 can become `implemented`.
 
 The model catalog/token-count contract slice is closed for this checkpoint at
-Gateway `b27965f` and Platform `d126ea5`: OpenAI entries are unique and complete,
+Gateway `b27965f` and Platform `c029b3c`: OpenAI entries are unique and complete,
 Gemini list/detail metadata carries supported methods and positive token limits,
 and Anthropic count tokens requires a bounded positive `input_tokens`. The mock
 and source tests cover malformed, duplicate, and zero-count failures. Provider-
@@ -348,6 +348,12 @@ The direct non-stream OpenAI Responses contract is now fail-closed at Gateway
 typed output items, and consistent positive usage before normal settlement. The
 Gateway retains the lease for malformed envelopes; streaming event goldens,
 subresource lifecycle, and cross-provider E2E remain before GW-03 is `implemented`.
+
+CORE-06 now has a native configuration contract at Platform `c029b3c`: bounded
+runtime settings, secret rejection, boolean feature flags, independent snapshots,
+optimistic version checks, and actor/IP audit persistence are implemented. Dynamic
+consumers, reload propagation, and browser controls remain before the domain can
+become `implemented`.
 
 Deliverables:
 
@@ -377,7 +383,7 @@ refresh audit and multi-Silo evidence.
 
 ## Current P0 slice: API-key authorization boundary
 
-Platform `d126ea5` now treats API-key policy as a new product contract. A key
+Platform `c029b3c` now treats API-key policy as a new product contract. A key
 stores a normalized set of Gateway capability scopes (`messages`, `responses`,
 `embeddings`, media, realtime, and the provider-specific model capabilities) and
 an optional millisecond expiry. Platform checks the requested capability after

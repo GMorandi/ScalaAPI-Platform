@@ -15,14 +15,15 @@ read-only requirements reference and is excluded from builds and runtime.
 | `sub2api` | `43ec48d` | read-only clean | Requirements catalogue only; never a runtime or compatibility dependency |
 
 The source table above is superseded for this checkpoint by Gateway `b27965f`,
-which adds direct Responses envelope validation; Platform remains `d126ea5`.
+which adds direct Responses envelope validation; Platform is now `c029b3c` with
+versioned runtime configuration and feature-flag updates.
 
 The current tracked inventory is:
 
 - Gateway: 52 production C++ source/header files, 10 test source files, and 111
   CTest cases.
 - Platform: 89 hand-written production C# files, 3 generated Cap'n Proto C#
-  files, 36 test/benchmark C# files, and 156 tests: 67 Grain, 34 Host, 18 Admin,
+  files, 37 test/benchmark C# files, and 158 tests: 69 Grain, 34 Host, 18 Admin,
   and 37 Provider mock tests.
 - Product surface: 119 direct Admin API route declarations, 45 product tables,
   20 SQLSugar entity types, 23 Admin Web TypeScript/TSX files and 11 page views,
@@ -192,6 +193,11 @@ current-source runtime evidence.
 - Admin can publish/close effective price versions. New leases snapshot version
   identity and every NUMERIC unit rate, so mutable configuration cannot reprice an
   existing request.
+- Runtime configuration is persisted in the `system` ConfigGrain with bounded
+  keys/values, explicit rejection of secrets and connection strings, boolean-only
+  `feature.*` flags, independent snapshots, and optimistic version checks. Admin
+  updates return the new version and append actor/IP `config.update` audit rows;
+  dynamic consumers and browser controls remain open.
 
 ### Billing and idempotency
 
@@ -285,8 +291,8 @@ At Platform `d126ea5` and Gateway `b27965f`:
   classification, incomplete chunked-body disconnect classification, zero-length
   client-write cancellation, and bounded Provider pre-header stream timeout
   handling plus independent inter-chunk and total-stream timeout scenarios.
-- Platform Release test/build passed with 0 warnings and 0 errors: 156/156 tests,
-  including 34 Host tests, 67 Grain tests, 18 Admin tests, and 37 Provider mock
+- Platform Release test/build passed with 0 warnings and 0 errors: 158/158 tests,
+  including 34 Host tests, 69 Grain tests, 18 Admin tests, and 37 Provider mock
   tests. Admin coverage
   includes PostgreSQL-backed TOTP replay, backup-code consumption, lockout,
   recovery, OAuth provider/redirect/verifier binding, one-time state consumption,

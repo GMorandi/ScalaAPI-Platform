@@ -2,11 +2,15 @@
 
 ## Current evidence
 
-The latest source snapshot is Gateway `b27965f` and Platform `d126ea5`.
+The latest source snapshot is Gateway `b27965f` and Platform `c029b3c`.
 The source contract slice now also validates OpenAI model-list entries, Gemini
 model names/methods/token limits, and Anthropic positive bounded `input_tokens`;
 the Provider mock exposes deterministic malformed, duplicate, and zero-count
 profiles for these contracts.
+Platform `c029b3c` adds versioned runtime configuration snapshots, bounded key/value
+validation, secret/connection-string rejection, boolean-only feature flags, stale
+version conflict handling, and Admin actor/IP audit persistence; the Grain suite
+covers snapshot isolation and validation.
 The latest source-built project `scalaapi-embeddings-20260809b` passed the
 full empty-volume gate: 27 migration files applied and skipped on the second
 run, Garnet authenticated the Gateway -> Platform path, two three-dimensional
@@ -153,7 +157,8 @@ supersedes them where commit, image, or late-usage results differ.
 | Platform dispatch retry and active-lease recovery | `scalaapi-platform-dispatch-retry-0914` source-built smoke passed; Platform died after the lease/hold commit, Gateway retried with the same request/idempotency identity, and replacement Platform recovered and settled the existing lease with exactly one lease, usage event, usage log, and debit | A lost dispatch response is retryable without allocating a second lease or billing twice |
 | Embeddings contract smoke | `scalaapi-embeddings-20260809b`, exit 0 | Gateway `40cb02f` and Platform `ef1e474` returned two three-dimensional float vectors and one two-dimensional base64 vector, settled both against the active NUMERIC Embeddings price, and mapped a shape-invalid Provider response to `502/provider_protocol_error` with one retained `reconciliation_needed` hold; the same run applied and re-ran all 27 migrations and passed the full Garnet, OAuth, restart, Provider, reconciliation, and MinIO matrix |
 | Gateway build and CTest | Clean local build; 111/111, exit 0 | Adds fail-closed OpenAI Responses completed-envelope/output/usage checks, OpenAI model-list duplicate/metadata checks, Gemini model name/method/token-limit checks, and Anthropic bounded positive token-count checks to the Embeddings request/response, nested Anthropic usage, SSE, timeout, cancellation, Garnet, retry, and routing coverage |
-| Platform tests | 156/156, exit 0 | 67 Grain tests, 34 Host tests, 18 Admin tests, and 37 Provider mock tests; the Provider suite adds real HTTP OpenAI/Gemini catalog and Anthropic count-token contracts plus deterministic malformed/duplicate/zero profiles alongside Embeddings cardinality/dimensions/base64 and deterministic 429/500/malformed contracts and the existing auth, scheduling, accounting, media, and audit coverage |
+| Platform tests | 158/158, exit 0 | 69 Grain tests, 34 Host tests, 18 Admin tests, and 37 Provider mock tests; the Grain suite adds versioned runtime configuration snapshot/validation cases, while the Provider suite adds real HTTP OpenAI/Gemini catalog and Anthropic count-token contracts plus deterministic malformed/duplicate/zero profiles alongside Embeddings cardinality/dimensions/base64 and deterministic 429/500/malformed contracts and the existing auth, scheduling, accounting, media, and audit coverage |
+| Runtime configuration contract | Platform `c029b3c` Grain tests and Admin Release build | `feature.*` values are boolean-only, sensitive keys and connection strings are rejected, updates use an expected version, returned snapshots are independent copies, and successful Admin writes persist `config.update` actor/IP audit rows; dynamic consumer reload and browser controls remain |
 | Authentication abuse smoke | `scalaapi-auth-abuse-verified3`, exit 0 | Fresh PostgreSQL applies 000 plus 001-026, second migrator run skips all 27; malformed registration is 400, five bad logins are 401, the sixth is 429 with `Retry-After`, and the full Garnet/protocol/restart/Provider/reconciliation/MinIO matrix remains green |
 | API-key HTTP replay and expiry smoke | `scalaapi-key-http-verified`, exit 0 | Two concurrent Chat requests share one idempotency key and leave one completed lease/idempotency row; a short-lived key returns 401 `authentication_error` after expiry with no lease; the complete stack matrix remains green |
 | API-key authenticated audit smoke | `scalaapi-api-key-audit-verified`, exit 0 | Admin token reads a filtered denied event by key hash, receives actor/action metadata without plaintext-key fields, and the complete empty-volume Garnet/Provider/restart/reconciliation/MinIO matrix remains green |
