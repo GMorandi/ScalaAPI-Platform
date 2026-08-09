@@ -183,7 +183,7 @@ public static class UserAuthEndpoints
         });
 
         auth.MapPost("/login", async (UserLoginRequest req, ISqlSugarClient db,
-            SecretProtector protector, AuthSessionService sessions, HttpContext http) =>
+            TotpVerificationService totp, AuthSessionService sessions, HttpContext http) =>
         {
             var email = req.Email.Trim().ToLowerInvariant();
             var account = await db.Queryable<UserAccountEntity>()
@@ -199,34 +199,24 @@ public static class UserAuthEndpoints
                 if (string.IsNullOrEmpty(req.TotpCode))
                     return Results.Json(new { error = "totp_required" }, statusCode: 403);
 
-                var backupCodesBefore = account.TotpBackupCodes;
-                if (!VerifyTotp(account, req.TotpCode, protector, out var consumedBackupCode))
+                var verification = await totp.VerifyAsync(account.Id, req.TotpCode!,
+                    allowBackupCodes: true, http.RequestAborted);
+                if (!verification.Accepted)
+                {
+                    if (verification.Status == TotpVerificationStatus.Locked)
+                    {
+                        http.Response.Headers["Retry-After"] =
+                            verification.RetryAfterSeconds.ToString(
+                                System.Globalization.CultureInfo.InvariantCulture);
+                        return Results.Json(new { error = "totp_locked" }, statusCode: 429);
+                    }
                     return Results.Unauthorized();
-                if (consumedBackupCode)
-                {
-                    var consumed = await db.Updateable<UserAccountEntity>()
-                        .SetColumns(x => new UserAccountEntity
-                        {
-                            TotpBackupCodes = account.TotpBackupCodes,
-                            LastLoginAt = DateTime.UtcNow,
-                        })
-                        .Where(x => x.Id == account.Id && x.TotpBackupCodes == backupCodesBefore)
-                        .ExecuteCommandAsync();
-                    if (consumed != 1) return Results.Unauthorized();
-                }
-                else
-                {
-                    account.LastLoginAt = DateTime.UtcNow;
-                    await db.Updateable(account).UpdateColumns(x => x.LastLoginAt)
-                        .ExecuteCommandAsync();
                 }
             }
-            else
-            {
-                account.LastLoginAt = DateTime.UtcNow;
-                await db.Updateable(account).UpdateColumns(x => x.LastLoginAt)
-                    .ExecuteCommandAsync();
-            }
+
+            account.LastLoginAt = DateTime.UtcNow;
+            await db.Updateable(account).UpdateColumns(x => x.LastLoginAt)
+                .ExecuteCommandAsync();
 
             var tokens = await sessions.IssueAsync(account.Id, account.Email, account.Role,
                 http.Connection.RemoteIpAddress?.ToString(), http.Request.Headers.UserAgent);
@@ -380,6 +370,8 @@ public static class UserAuthEndpoints
             var account = await db.Queryable<UserAccountEntity>()
                 .Where(x => x.Email == email).FirstAsync();
             if (account is null) return Results.NotFound();
+            if (account.TotpEnabled)
+                return Results.Conflict(new { error = "TOTP is already enabled" });
 
             var secret = Base32Encoding.ToString(KeyGeneration.GenerateRandomKey(20));
             account.TotpSecret = protector.Protect(secret);
@@ -390,43 +382,44 @@ public static class UserAuthEndpoints
         });
 
         user.MapPost("/totp/verify", async (ClaimsPrincipal principal, TotpVerifyRequest req,
-            ISqlSugarClient db, SecretProtector protector) =>
+            ISqlSugarClient db, TotpVerificationService totp, HttpContext http) =>
         {
             var email = principal.Identity?.Name;
             var account = await db.Queryable<UserAccountEntity>()
                 .Where(x => x.Email == email).FirstAsync();
             if (account is null || account.TotpSecret is null) return Results.NotFound();
-
-            if (!VerifyTotp(account, req.Code, protector, out _))
-                return Results.BadRequest(new { error = "Invalid TOTP code" });
-
             var backupCodes = GenerateBackupCodes();
-            account.TotpEnabled = true;
-            account.TotpBackupCodes = string.Join(",",
-                backupCodes.Select(BCrypt.Net.BCrypt.HashPassword));
-            await db.Updateable(account)
-                .UpdateColumns(x => new { x.TotpEnabled, x.TotpBackupCodes }).ExecuteCommandAsync();
+            var verification = await totp.EnableAsync(account.Id, req.Code,
+                backupCodes.Select(BCrypt.Net.BCrypt.HashPassword).ToArray());
+            if (verification.Status == TotpVerificationStatus.Locked)
+            {
+                http.Response.Headers["Retry-After"] = verification.RetryAfterSeconds.ToString(
+                    System.Globalization.CultureInfo.InvariantCulture);
+                return Results.Json(new { error = "totp_locked" }, statusCode: 429);
+            }
+            if (!verification.Accepted)
+                return Results.BadRequest(new { error = "Invalid TOTP code" });
 
             return Results.Ok(new { backup_codes = backupCodes });
         });
 
         user.MapPost("/totp/disable", async (ClaimsPrincipal principal, TotpVerifyRequest req,
-            ISqlSugarClient db, SecretProtector protector) =>
+            ISqlSugarClient db, TotpVerificationService totp, HttpContext http) =>
         {
             var email = principal.Identity?.Name;
             var account = await db.Queryable<UserAccountEntity>()
                 .Where(x => x.Email == email).FirstAsync();
             if (account is null) return Results.NotFound();
 
-            if (!VerifyTotp(account, req.Code, protector, out _))
+            var verification = await totp.DisableAsync(account.Id, req.Code);
+            if (verification.Status == TotpVerificationStatus.Locked)
+            {
+                http.Response.Headers["Retry-After"] = verification.RetryAfterSeconds.ToString(
+                    System.Globalization.CultureInfo.InvariantCulture);
+                return Results.Json(new { error = "totp_locked" }, statusCode: 429);
+            }
+            if (!verification.Accepted)
                 return Results.BadRequest(new { error = "Invalid TOTP code" });
-
-            account.TotpEnabled = false;
-            account.TotpSecret = null;
-            account.TotpBackupCodes = null;
-            await db.Updateable(account)
-                .UpdateColumns(x => new { x.TotpEnabled, x.TotpSecret, x.TotpBackupCodes })
-                .ExecuteCommandAsync();
 
             return Results.Ok(new { message = "2FA disabled" });
         });
@@ -470,34 +463,6 @@ public static class UserAuthEndpoints
             return await sessions.RevokeAsync(userId, sessionId)
                 ? Results.NoContent() : Results.NotFound();
         });
-    }
-
-    private static bool VerifyTotp(UserAccountEntity account, string code,
-        SecretProtector protector, out bool backupCodeConsumed)
-    {
-        backupCodeConsumed = false;
-        if (account.TotpSecret is null) return false;
-
-        var secretBytes = Base32Encoding.ToBytes(protector.Unprotect(account.TotpSecret));
-        var totp = new Totp(secretBytes);
-
-        if (totp.VerifyTotp(code, out _, new VerificationWindow(0, 0)))
-            return true;
-
-        if (account.TotpBackupCodes is not null)
-        {
-            var codes = account.TotpBackupCodes.Split(',', StringSplitOptions.RemoveEmptyEntries);
-            var usedIndex = Array.FindIndex(codes, hash => BCrypt.Net.BCrypt.Verify(code, hash));
-            if (usedIndex >= 0)
-            {
-                var remaining = codes.Where((_, index) => index != usedIndex).ToArray();
-                account.TotpBackupCodes = string.Join(",", remaining);
-                backupCodeConsumed = true;
-                return true;
-            }
-        }
-
-        return false;
     }
 
     private static string[] GenerateBackupCodes()

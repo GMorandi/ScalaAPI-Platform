@@ -54,6 +54,8 @@ builder.Services.AddHttpClient("platform-internal", client =>
 });
 builder.Services.AddSingleton(NpgsqlDataSource.Create(pgConnection));
 builder.Services.AddSingleton<AuthSessionService>();
+builder.Services.AddSingleton<TimeProvider>(TimeProvider.System);
+builder.Services.AddSingleton<TotpVerificationService>();
 builder.Services.AddSingleton<PasswordResetService>();
 builder.Services.AddSingleton<EmailVerificationService>();
 builder.Services.AddHostedService<PaymentWebhookRecoveryService>();
