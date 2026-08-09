@@ -5,6 +5,7 @@ import Layout from "./components/Layout";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
 import Recovery from "./pages/Recovery";
+import Verification from "./pages/Verification";
 import OAuthCallback from "./pages/OAuthCallback";
 import Dashboard from "./pages/Dashboard";
 import Keys from "./pages/Keys";
@@ -23,6 +24,7 @@ export default function App() {
     <Route path="/login" component={Login} />
     <Route path="/register" component={Register} />
     <Route path="/recover" component={Recovery} />
+    <Route path="/verify-email" component={Verification} />
     <Route path="/oauth/callback/:provider" component={OAuthCallback} />
     <Route path="/" component={Protected}>
       <Route path="/" component={Dashboard} />
