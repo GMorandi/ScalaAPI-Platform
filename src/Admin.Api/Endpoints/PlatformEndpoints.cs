@@ -1531,25 +1531,21 @@ public static class PlatformEndpoints
     {
         var group = app.MapGroup("/admin/audit-logs").RequireAuthorization("AdminOnly");
 
-        group.MapGet("/", async (ISqlSugarClient db, long? userId, string? action,
-            DateTime? from, DateTime? to, int page = 1, int size = 50) =>
+        group.MapGet("/", async (AuditLogStore audit, long? userId, string? action,
+            DateTime? from, DateTime? to, int page = 1, int size = 50,
+            CancellationToken ct = default) =>
         {
-            var query = db.Queryable<AuditLogEntity>();
-            if (userId.HasValue) query = query.Where(x => x.UserId == userId.Value);
-            if (!string.IsNullOrEmpty(action)) query = query.Where(x => x.Action == action);
-            if (from.HasValue) query = query.Where(x => x.CreatedAt >= from.Value);
-            if (to.HasValue) query = query.Where(x => x.CreatedAt <= to.Value);
-            var total = await query.CountAsync();
-            var items = await query.OrderByDescending(x => x.CreatedAt)
-                .Skip((page - 1) * size).Take(size).ToListAsync();
-            return Results.Ok(new { items, total, page, size });
+            var result = await audit.ListAsync(userId, action, from, to, page, size, ct: ct);
+            return Results.Ok(result);
         });
 
-        group.MapPost("/", async (ISqlSugarClient db, AuditLogEntity req) =>
+        group.MapGet("/export", async (AuditLogStore audit, long? userId, string? action,
+            DateTime? from, DateTime? to, int size = 1_000,
+            CancellationToken ct = default) =>
         {
-            req.CreatedAt = DateTime.UtcNow;
-            await db.Insertable(req).ExecuteCommandAsync();
-            return Results.Ok();
+            var result = await audit.ListAsync(userId, action, from, to, 1, size,
+                maximumSize: 1_000, ct: ct);
+            return Results.Ok(result);
         });
     }
 
