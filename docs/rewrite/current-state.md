@@ -11,15 +11,15 @@ read-only requirements reference and is excluded from builds and runtime.
 | Repository | Commit | Worktree | Role |
 | --- | --- | --- | --- |
 | `gateway` | `3da0d33` | clean | C++ HTTP/WebSocket edge, protocol parsing/conversion, versioned OpenAI Chat/Responses, Anthropic Messages, and Gemini request/response/SSE golden contracts, full pairwise provider request/response/error matrix assertions, fail-closed model catalog and token-count validation, bounded Embeddings and Responses validation, streaming, strict Provider media contracts, bounded transport timers, normalized Provider availability errors, shared retryable Platform transport policy, durable usage delivery, authenticated Garnet projections, bounded request/response content-policy RPC evaluation, event-boundary streaming response moderation, and fail-closed response delivery including retryable classifier outages |
-| `platform` | `db770e2` | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, Provider mock contracts, rotating identity/session/TOTP/OAuth state, API-key policy and audit, versioned runtime configuration, persistent scheduling and lease/hold/ledger state, audited operator reconciliation, atomic audited referral rewards, authenticated and audited operational metrics, bounded redacted audit queries/exports, encrypted proxy and validated TLS profile administration, media/object lifecycle, staged request/response content-policy evaluation with versioned Unicode normalization, bounded source-owned external classifier adapter, durable policy revision propagation through Garnet, operational alert evidence, and redacted audits |
+| `platform` | `db770e2` | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, Provider mock contracts, rotating identity/session/TOTP/OAuth state, API-key policy and audit, versioned runtime configuration, persistent scheduling and lease/hold/ledger state, audited operator reconciliation, atomic audited referral rewards, authenticated and audited operational metrics, bounded redacted audit queries/exports, encrypted proxy and validated TLS profile administration, audited bounded channel monitor checks, media/object lifecycle, staged request/response content-policy evaluation with versioned Unicode normalization, bounded source-owned external classifier adapter, durable policy revision propagation through Garnet, operational alert evidence, and redacted audits |
 | `sub2api` | `43ec48d` | read-only clean | Requirements catalogue only; never a runtime or compatibility dependency |
 
 The current tracked inventory is:
 
 - Gateway: 52 production C++ source/header files, 11 test source files, and 125
   CTest cases.
-- Platform: 97 hand-written production C# files, 3 generated Cap'n Proto C#
-  files, 44 test/benchmark C# files, and 184 tests: 69 Grain, 52 Host, 22 Admin,
+- Platform: 98 hand-written production C# files, 3 generated Cap'n Proto C#
+  files, 45 test/benchmark C# files, and 185 tests: 69 Grain, 52 Host, 23 Admin,
   and 41 Provider mock tests.
 - Product surface: 121 direct Admin API route declarations, 47 product tables,
   22 SQLSugar entity types, 23 Admin Web TypeScript/TSX files and 11 page views,
@@ -28,7 +28,7 @@ The current tracked inventory is:
   Ent schemas, 82 Vue view/component files, and 240 migrations. These are scope
   signals, not parity percentages or migration targets.
 
-The 58-domain inventory is 2 `implemented`, 48 `partial`, 3 `skeleton`,
+The 58-domain inventory is 2 `implemented`, 49 `partial`, 2 `skeleton`,
 and 5 `missing`. A route, table, mock response, or manual probe does not promote a
 domain; promotion requires a defined contract/state machine, automated tests, and
 current-source runtime evidence.
@@ -306,6 +306,12 @@ current-source runtime evidence.
   empty-schema PostgreSQL test covers ciphertext, password retention/clear,
   TLS validation, and audit cardinality. Provider-specific outbound adapters,
   TLS handshake enforcement, and browser/security evidence remain open.
+- Platform `326fc43` replaces raw channel-monitor inserts with an authenticated
+  `ChannelMonitorStore`: checks require an active account, bound status/latency/
+  error fields, and one transactionally paired actor/IP audit row. Real
+  PostgreSQL coverage proves valid, invalid, missing-account, bounded listing,
+  and audit behavior; scheduled runners, templates, history, and feedback
+  notifications remain open.
 
 ### Bootstrap and deployment
 
@@ -330,7 +336,7 @@ current-source runtime evidence.
 
 ## Current verification evidence
 
-At Platform `db770e2` and Gateway `3da0d33`:
+At Platform `326fc43` and Gateway `3da0d33`:
 
 - Gateway built locally and passed 125/125 CTest cases, including deterministic
   fault-hook claim/repeat behavior, terminal SSE detection, provider EOF
@@ -342,8 +348,8 @@ At Platform `db770e2` and Gateway `3da0d33`:
   sixteen request pairs, all sixteen response pairs, cross-protocol response
   envelope validation, and cross-protocol error normalization with standard
   status precedence.
-- Platform Release test/build passed with 0 warnings and 0 errors: 184/184 tests,
-  including 52 Host tests, 69 Grain tests, 22 Admin tests, and 41 Provider mock
+- Platform Release test/build passed with 0 warnings and 0 errors: 185/185 tests,
+  including 52 Host tests, 69 Grain tests, 23 Admin tests, and 41 Provider mock
   tests. Admin coverage
   includes PostgreSQL-backed TOTP replay, backup-code consumption, lockout,
   recovery, OAuth provider/redirect/verifier binding, one-time state consumption,

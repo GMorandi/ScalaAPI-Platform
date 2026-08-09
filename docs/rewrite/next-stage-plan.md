@@ -2,7 +2,7 @@
 
 ## Checkpoint
 
-The next stage starts from Platform `db770e2`, Gateway `3da0d33`, and read-only
+The next stage starts from Platform `326fc43`, Gateway `3da0d33`, and read-only
 reference `sub2api@43ec48d`.
 
 The greenfield baseline now starts from empty volumes, uses PostgreSQL as authority,
@@ -346,6 +346,11 @@ Remaining package deliverables:
   Add provider-specific outbound adapters, actual TLS fingerprint application,
   secret rotation/retention, browser authorization, and security scans before
   moving SEC-03 to implemented.
+- Channel-monitor writes are now an audited bounded slice at Platform `326fc43`:
+  active-account validation, health/latency/error bounds, paged history, and
+  actor/IP audit are covered by a real PostgreSQL test. Add scheduled runners,
+  monitor templates/history, feedback notifications, and browser evidence before
+  moving OPS-03 to implemented.
 - Add a blocking negative probe for each new fault hook so a swallowed child failure or
   missing scenario makes the top-level gate non-zero.
 
