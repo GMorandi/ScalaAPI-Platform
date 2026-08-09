@@ -552,6 +552,9 @@ At Platform `1793133` and Gateway `1d03130`:
   settlement/replay, and post-restart billing. The response policy scenario hid
   Provider output while recording one audit, completed lease, committed hold,
   usage event/log, NUMERIC debit, and replayed client-facing HTTP 400 exactly.
+  The streaming policy case adds one retained unknown-charge incident; the run
+  therefore ended with eleven open incidents before the audited settlement and
+  ten after it, with no duplicate debit for the blocked stream.
   The cleanup removed every project container, temporary volume/network, and
   `scalaapi-stream-policy-20260809b_*` images. Only the named `apitf_*` baseline
   development resources and `scalaapi-gateway:dev` remain.

@@ -38,7 +38,7 @@ has source-level terminal-event-gated SSE completion, incomplete chunked-body
 classification, and client-cancellation classification. The empty stack proves
 Provider disconnect, disconnect-before-output, malformed-usage, timeout before
 response headers, and actual downstream client-cancellation and invalid-content-type
-SSE retention with nine total unknown-charge incidents. The pre-header timeout now
+SSE retention with eleven total unknown-charge incidents. The pre-header timeout now
 returns a bounded 502/provider_protocol_error and retains its hold; direct and
 zero-output Provider resets now return 503/provider_unavailable, while partial SSE
 resets retain their unknown-charge hold. Gateway CTest now independently proves the
