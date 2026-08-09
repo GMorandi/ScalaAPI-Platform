@@ -2,7 +2,7 @@
 
 ## Checkpoint
 
-The next stage starts from Platform `713f5c0`, Gateway `e7f6184`, and read-only
+The next stage starts from Platform `713f5c0`, Gateway `1d03130`, and read-only
 reference `sub2api@43ec48d`.
 
 The greenfield baseline now starts from empty volumes, uses PostgreSQL as authority,
@@ -60,7 +60,7 @@ through the clean Gateway runtime image, including exactly-once
 lease/usage/hold/ledger settlement; long-connection/backpressure soak, remaining
 boundaries, the worker/multi-silo matrix, and multi-instance scenarios are still
 open.
-The current source-built `scalaapi-response-policy-20260809` gate applies and
+The current source-built `scalaapi-stream-policy-20260809b` gate applies and
 replays 29 migration records from empty volumes, proves Garnet-authenticated
 request routing, staged request/response policy, the full Provider fault matrix,
 media persistence, audited reconciliation, and exactly-once restart billing. A
@@ -68,6 +68,11 @@ response block withholds Provider output but still commits the normal Provider
 usage debit and stores an exact client-facing 400 replay. Content rule creation
 returns its persisted identity, and the Provider mock forces headers before the
 zero-byte disconnect fixture so the intended 503 classification is deterministic.
+Gateway `1d03130` additionally withholds each bounded SSE event until response
+policy approval, emits an OpenAI/Anthropic/Gemini-shaped terminal policy error on
+block or fail-closed evaluation, and preserves the unknown-charge hold and
+idempotency evidence. The same empty-stack run proves the first event is not
+leaked and the retained hold is reconciled later.
 
 Provider OAuth credentials now use encrypted versioned state with a single-account
 refresh lease, compare-and-set completion, bounded error evidence, and scheduler
@@ -130,24 +135,24 @@ concurrency, and idempotent group spend remain covered by the Grain suite; HTTP
 group CRUD validation, distributed rate-window contention, and multi-Silo fallback
 fault evidence remain release work.
 
-The `SEC-01` runtime slice is active at Gateway `e7f6184` and Platform `6fc76f3`.
+The `SEC-01` runtime slice is active at Gateway `1d03130` and Platform `6fc76f3`.
 The canonical dispatch contract carries bounded request and response content.
 Platform applies request `log`/`block` rules before scheduler/lease activity and
 response rules after Provider validation but before non-stream delivery. Both stages
 write rule-linked audits; request blocks create no lease, while response blocks hide
 the Provider body, preserve one normal usage debit, and replay the client-facing
-400. Migration 028 adds stage constraints and idempotent stage logging. The domain
-remains `partial` until streaming response enforcement, Unicode/normalization and
-classifier fixtures, alerting, rule-change propagation, and browser authorization
-evidence are automated.
+400. Migration 028 adds stage constraints and idempotent stage logging. Gateway
+event-boundary streaming enforcement is source-tested and empty-stack verified;
+the domain remains `partial` until Unicode/normalization and classifier fixtures,
+alerting, rule-change propagation, and browser authorization evidence are
+automated.
 
 ## Next implementation slice
 
-1. Finish `SEC-01` for streaming responses. Define a bounded buffering/windowing
-   policy that can withhold unsafe chunks before client delivery, emit a terminal
-   policy error on denial, and preserve the existing unknown-charge/late-usage
-   settlement semantics on cancellation or classifier failure. Add protocol tests
-   for OpenAI Chat/Responses, Anthropic, and Gemini SSE fixtures.
+1. Extend `SEC-01` beyond the completed event-boundary streaming slice. Add
+   protocol golden fixtures for OpenAI Chat/Responses, Anthropic, and Gemini, and
+   prove bounded-buffer overflow, classifier failure, cancellation, and late usage
+   settlement semantics under every stream terminal event.
 2. Add a source-owned content normalizer and classifier contract. Normalize Unicode
    (including confusable and decomposed forms) before matching, version the rule
    evaluator, and fail closed when an external classifier is unavailable. Add rule
@@ -306,12 +311,14 @@ an open incident can be resolved only through the audited settle/release contrac
 
 ## Work package 2: cancellation and streaming failure semantics
 
-Progress in Gateway `b27965f` and Platform `c029b3c`: the streaming pipe now requires a source protocol
+Progress in Gateway `1d03130` and Platform `c029b3c`: the streaming pipe now requires a source protocol
 terminal event before treating Provider EOF as complete, classifies timeout/EOF as
 incomplete (including Photon incomplete chunked-body `-1/errno=0`), treats
 zero/error client writes as cancellation, records bounded
 disconnect/cancellation reasons, and prevents Gateway failover or normal usage
-settlement for ambiguous partial streams. These behaviors are covered by 114 Gateway
+settlement for ambiguous partial streams. The same pipe now buffers each bounded
+SSE event for response policy approval and emits a protocol-shaped terminal policy
+error without leaking blocked data. These behaviors are covered by 117 Gateway
 CTest cases. Platform smoke proves Provider disconnect, disconnect-before-output,
 malformed-usage, invalid content type, downstream client cancellation, and streaming
 429/500 rejection outcomes with the expected hold/debit behavior. Exact

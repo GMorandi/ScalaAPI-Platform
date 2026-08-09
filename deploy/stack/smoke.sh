@@ -894,6 +894,42 @@ SELECT
   (SELECT count(*) FROM request_leases WHERE request_id = '$response_policy_request_id') || '|' ||
   (SELECT count(*) FROM balance_ledger b JOIN request_leases l USING (lease_token) WHERE l.request_id = '$response_policy_request_id' AND b.entry_type = 'usage_debit');")" \
     "Response content policy replay idempotency"
+
+response_stream_policy_request_id="smoke-response-stream-policy-${suffix}"
+response_stream_policy_idempotency_key="${response_stream_policy_request_id}-idem"
+response_stream_policy_body="$(jq -cn --arg marker "$suffix" \
+    '{model:"gpt-4o",messages:[{role:"user",content:("stream response policy " + $marker)}],stream:true}')"
+response_stream_policy_response="$(curl -sS --max-time 20 --write-out $'\n%{http_code}' \
+    "$gateway_url/v1/chat/completions" \
+    -H "Authorization: Bearer $api_key" \
+    -H "Content-Type: application/json" \
+    -H "X-Request-ID: $response_stream_policy_request_id" \
+    -H "Idempotency-Key: $response_stream_policy_idempotency_key" \
+    --data "$response_stream_policy_body")"
+assert_equals "200" "${response_stream_policy_response##*$'\n'}" \
+    "Streaming response policy keeps established SSE status"
+grep -q '"type":"content_policy_blocked"' \
+    <<<"${response_stream_policy_response%$'\n'*}"
+if grep -q "mock response" <<<"${response_stream_policy_response%$'\n'*}"; then
+    echo "Streaming response policy leaked Provider output" >&2
+    exit 1
+fi
+response_stream_policy_state=""
+for attempt in $(seq 1 30); do
+    response_stream_policy_state="$(db_query "
+SELECT
+  (SELECT count(*) FROM content_audit_logs WHERE request_id = '$response_stream_policy_request_id' AND stage = 'response' AND action = 'block') || '|' ||
+  (SELECT count(*) FROM request_leases WHERE request_id = '$response_stream_policy_request_id' AND status = 'reconciliation_needed') || '|' ||
+  (SELECT count(*) FROM balance_holds h JOIN request_leases l USING (lease_token) WHERE l.request_id = '$response_stream_policy_request_id' AND h.status = 'active') || '|' ||
+  (SELECT count(*) FROM usage_events u WHERE u.request_id = '$response_stream_policy_request_id') || '|' ||
+  (SELECT count(*) FROM balance_ledger b JOIN request_leases l USING (lease_token) WHERE l.request_id = '$response_stream_policy_request_id' AND b.entry_type = 'usage_debit') || '|' ||
+  (SELECT count(*) FROM request_idempotency WHERE idempotency_key = '$response_stream_policy_idempotency_key' AND status = 'reconciliation_needed');")"
+    [[ "$response_stream_policy_state" == "1|1|1|0|0|1" ]] && break
+    sleep 1
+done
+assert_equals "1|1|1|0|0|1" "$response_stream_policy_state" \
+    "Streaming response policy unknown-charge invariants"
+echo "PASS: streaming response policy with withheld first event and retained hold"
 admin_request DELETE "/admin/content-audit/rules/$response_policy_rule_id" "" "$admin_token" >/dev/null
 echo "PASS: response content policy with hidden output, normal settlement, and exact replay"
 start_platform_after_fault() {
@@ -1347,7 +1383,9 @@ SELECT
   (SELECT count(*) FROM usage_events WHERE request_id = '$chat_request_id') || '|' ||
   (SELECT count(*) FROM usage_logs WHERE request_id = '$chat_request_id') || '|' ||
   (SELECT count(*) FROM balance_ledger l JOIN request_leases r ON r.lease_token = l.lease_token WHERE r.request_id = '$chat_request_id' AND l.entry_type = 'usage_debit' AND l.amount = -r.final_cost_usd);")"
-expected_unknown_incidents=$((10 + gateway_hook_unknown_incidents))
+# The streaming response-policy case intentionally retains one additional
+# unknown-charge lease so the first SSE event can be withheld before blocking.
+expected_unknown_incidents=$((11 + gateway_hook_unknown_incidents))
 expected_open_after_resolution=$((expected_unknown_incidents - 1))
 assert_equals "0|${expected_unknown_incidents}|${expected_unknown_incidents}|0|0|1|1|1|1" \
     "$terminal_state" "Terminal billing invariants"

@@ -60,9 +60,11 @@ Provider contact. For successful non-stream Chat responses, Gateway evaluates th
 Provider body through the same lease-bound RPC before delivery. A response block
 replaces the body with HTTP 400 `content_policy_violation` while normal Provider
 usage still completes the lease and the policy response is retained for exact
-idempotency replay. Unknown policy evaluation fails closed with HTTP 503 and does
-not expose the Provider body. Streaming response moderation and external
-classifiers remain future contracts.
+idempotency replay. For SSE, Gateway buffers one bounded event until the same
+lease-bound decision allows it, then emits a protocol-shaped terminal policy error
+for block or fail-closed outcomes without leaking the blocked event. A blocked or
+failed stream retains unknown-charge evidence for reconciliation; external
+classifiers and Unicode normalization remain future contracts.
 
 A request begins `held`. Gateway must persist `forwarded` before contacting a
 Provider and records `output_started` after its first successful client write. The
