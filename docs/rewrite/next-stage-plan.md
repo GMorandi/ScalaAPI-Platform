@@ -2,7 +2,7 @@
 
 ## Checkpoint
 
-The next stage starts from Platform `c029b3c`, Gateway `b27965f`, and read-only
+The next stage starts from Platform `bab9d44`, Gateway `20d0b85`, and read-only
 reference `sub2api@43ec48d`.
 
 The greenfield baseline now starts from empty volumes, uses PostgreSQL as authority,
@@ -120,6 +120,16 @@ bindings, capability filtering, priority/load ordering, account and user
 concurrency, and idempotent group spend remain covered by the Grain suite; HTTP
 group CRUD validation, distributed rate-window contention, and multi-Silo fallback
 fault evidence remain release work.
+
+The first `SEC-01` runtime slice is now active at Gateway `20d0b85` and Platform
+`bab9d44`. The canonical dispatch contract carries bounded request content, and
+Platform applies active scope-aware `log`/`block` rules after authentication and
+capability checks but before scheduler, hold, lease, or Provider activity. Matches
+are written to `content_audit_logs`; blocked requests receive a dedicated HTTP 400
+error and the source smoke asserts zero leases. Migration 027 constrains rule
+actions/status/pattern length. The next security work is response-side enforcement,
+Unicode and classifier fixtures, alerting, rule-change propagation, and browser
+authorization evidence; the domain remains `partial` until those are automated.
 
 This stage contains no compatibility, cutover, dual-write, CDC, snapshot import,
 old-key import, ID preservation, status mapping, or business-data migration work.
@@ -372,6 +382,11 @@ Deliverables:
   canonical Platform source, generated C#, Gateway vendor copy, and both digest
   gates as one coordinated release change; no deprecated compatibility fields are
   added.
+- Extend SEC-01 from the proven pre-dispatch substring contract to normalized
+  Unicode fixtures, response-side enforcement before client delivery, optional
+  classifier adapters, rule-change propagation, alerting, and browser-authorized
+  operator workflows. Every block must prove zero Provider contact or a defined
+  post-response settlement outcome.
 
 Dependencies: package 2 defines terminal streaming behavior; the generic OAuth
   transport and mock fixture are now available.
@@ -478,6 +493,8 @@ idempotency state, outbox backlog, and reconciliation status:
 10. Platform crash around settlement commit and outbox acknowledgement.
 11. Garnet flush, outage, TLS failure, and rebuild with concurrent Gateways.
 12. Silo removal and rolling Gateway/Platform replacement.
+13. Scope-aware content log/block, rule update, oversized input, response policy,
+    audit correlation, and zero-lease pre-dispatch rejection.
 
 ## Sequence and commit discipline
 

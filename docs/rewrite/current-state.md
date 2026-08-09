@@ -10,20 +10,16 @@ read-only requirements reference and is excluded from builds and runtime.
 
 | Repository | Commit | Worktree | Role |
 | --- | --- | --- | --- |
-| `gateway` | `6243b2d` | clean | C++ HTTP/WebSocket edge, protocol parsing/conversion, fail-closed OpenAI/Gemini model catalog and Anthropic token-count response validation, bounded Embeddings request cardinality/dimensions, successful Embeddings response shape/usage validation, streaming, strict Provider media contracts, bounded stream header/client timeouts, distinct inter-chunk/total-stream timer tests, normalized Provider availability errors, shared retryable Platform transport policy for HTTP and realtime dispatch, Photon WebSocket URL normalization, transport/evidence, charge-aware failover, durable usage delivery, authenticated Garnet projections, deterministic fault boundaries, late-usage settlement from truncated SSE, and HTTP 403 capability-denial mapping |
-| `platform` | `d126ea5` | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, source-owned deterministic OpenAI/Gemini model catalogs and Anthropic token-count fault profiles, Embeddings mock honoring input cardinality/dimensions/float-base64 encoding with deterministic provider faults, rotating single-use auth sessions with replay/revocation evidence, normalized registration/login validation with hash-only PostgreSQL abuse counters, identity/TOTP and OAuth PKCE abuse state, configurable external OAuth authorization-code exchange with Provider mock and secret-free audit history, API-key scopes/expiry with HTTP replay/concurrency/expiry evidence, denial audit, authenticated paged audit query, ownership-safe Admin updates, and exact-boundary expiry enforcement, typed JSONB policy projections, bounded token-endpoint timeout classification, persistent group routing/rate/fallback policy, scheduling, evidence-backed leases/holds/ledger, audited operator resolution, restart-safe active-lease dispatch recovery, media lifecycle, Admin API/Web/User Web, HTTP/SSE/realtime and OAuth Provider mock fixtures, dependency-free full-stack smoke assertions, verified Gateway image override support, migrations, deterministic Platform/Gateway fault boundaries, and Garnet deployment gates |
+| `gateway` | `20d0b85` | clean | C++ HTTP/WebSocket edge, protocol parsing/conversion, fail-closed OpenAI/Gemini model catalog and Anthropic token-count response validation, bounded Embeddings and Responses validation, streaming, strict Provider media contracts, bounded transport timers, normalized Provider availability errors, shared retryable Platform transport policy, durable usage delivery, authenticated Garnet projections, and bounded request-body context for pre-dispatch content policy |
+| `platform` | `bab9d44` | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, Provider mock contracts, rotating identity/session/TOTP/OAuth state, API-key policy and audit, versioned runtime configuration, persistent scheduling and lease/hold/ledger state, audited operator reconciliation, media/object lifecycle, and source-owned pre-dispatch content-policy evaluation with no-lease rejection evidence |
 | `sub2api` | `43ec48d` | read-only clean | Requirements catalogue only; never a runtime or compatibility dependency |
-
-The source table above is superseded for this checkpoint by Gateway `b27965f`,
-which adds direct Responses envelope validation; Platform is now `c029b3c` with
-versioned runtime configuration and feature-flag updates.
 
 The current tracked inventory is:
 
 - Gateway: 52 production C++ source/header files, 10 test source files, and 111
   CTest cases.
-- Platform: 89 hand-written production C# files, 3 generated Cap'n Proto C#
-  files, 37 test/benchmark C# files, and 158 tests: 69 Grain, 34 Host, 18 Admin,
+- Platform: 90 hand-written production C# files, 3 generated Cap'n Proto C#
+  files, 38 test/benchmark C# files, and 161 tests: 69 Grain, 37 Host, 18 Admin,
   and 37 Provider mock tests.
 - Product surface: 119 direct Admin API route declarations, 45 product tables,
   20 SQLSugar entity types, 23 Admin Web TypeScript/TSX files and 11 page views,
@@ -32,7 +28,7 @@ The current tracked inventory is:
   Ent schemas, 82 Vue view/component files, and 240 migrations. These are scope
   signals, not parity percentages or migration targets.
 
-The 58-domain inventory remains 2 `implemented`, 42 `partial`, 9 `skeleton`,
+The 58-domain inventory is 2 `implemented`, 44 `partial`, 7 `skeleton`,
 and 5 `missing`. A route, table, mock response, or manual probe does not promote a
 domain; promotion requires a defined contract/state machine, automated tests, and
 current-source runtime evidence.
@@ -58,6 +54,12 @@ current-source runtime evidence.
   rotate/revoke paths persist the same policy projection and append actor-scoped
   audit events; denied capability requests are recorded with a request ID and no
   plaintext key material.
+- Gateway transmits a bounded request body in the revision-3 dispatch contract.
+  Platform evaluates active, scope-aware `log`/`block` rules after authentication
+  and capability authorization but before scheduling, lease creation, or Provider
+  contact. Matches are durably audited; a block returns a dedicated HTTP 400
+  `content_policy_violation` and creates no hold or lease. Response-side policy,
+  richer classifiers, alerting, and browser workflows remain open.
 - S3-compatible storage owns media bytes. PostgreSQL owns media metadata,
   authorization, object keys, ETags, sizes, and lifecycle state.
 - All business money is `decimal`; PostgreSQL uses `NUMERIC`; the RPC boundary
@@ -264,11 +266,12 @@ current-source runtime evidence.
 
 ### Bootstrap and deployment
 
-- The active migrator applies Orleans support plus migrations 001-026 to an empty
-  PostgreSQL database and rejects checksum drift. A second execution skips all 27
-  migration files (Orleans support plus 001-026), including the native
-  `auth_abuse_counters` table. No source database, snapshot, old key, CDC table, or compatibility mapping
-  is required.
+- The direct source migrator applied product migrations 001-027 to a temporary
+  empty PostgreSQL 17 database and skipped all 27 on replay, including the native
+  content rule constraints/index. Compose additionally installs Orleans support
+  and now requires 28 total migration records; that full empty-stack run remains
+  pending for this checkpoint. No source database, snapshot, old key, CDC table,
+  or compatibility mapping is required.
 - `deploy/stack` independently starts PostgreSQL, authenticated Garnet, MinIO,
   Provider mock, Platform, Gateway, Admin API, Admin Web, and User Web. Image digests pin the
   infrastructure services.
@@ -284,15 +287,15 @@ current-source runtime evidence.
 
 ## Current verification evidence
 
-At Platform `d126ea5` and Gateway `b27965f`:
+At Platform `bab9d44` and Gateway `20d0b85`:
 
 - Gateway built locally and passed 111/111 CTest cases, including deterministic
   fault-hook claim/repeat behavior, terminal SSE detection, provider EOF
   classification, incomplete chunked-body disconnect classification, zero-length
   client-write cancellation, and bounded Provider pre-header stream timeout
   handling plus independent inter-chunk and total-stream timeout scenarios.
-- Platform Release test/build passed with 0 warnings and 0 errors: 158/158 tests,
-  including 34 Host tests, 69 Grain tests, 18 Admin tests, and 37 Provider mock
+- Platform Release test/build passed with 0 warnings and 0 errors: 161/161 tests,
+  including 37 Host tests, 69 Grain tests, 18 Admin tests, and 37 Provider mock
   tests. Admin coverage
   includes PostgreSQL-backed TOTP replay, backup-code consumption, lockout,
   recovery, OAuth provider/redirect/verifier binding, one-time state consumption,
@@ -304,6 +307,12 @@ At Platform `d126ea5` and Gateway `b27965f`:
   coverage additionally includes real ASP.NET HTTP contract tests through the
   Platform token client for rotation, revoked grants, malformed JSON, and bounded
   oversized responses.
+- SEC-01 now has executable pre-dispatch evidence: the canonical Cap'n Proto
+  contract carries the bounded request body, Platform evaluates active scoped
+  rules before lease creation, PostgreSQL Host tests cover block audit, scope
+  isolation, and fail-closed size limits, and the source smoke asserts one block
+  audit with zero request leases. Response-side enforcement and runtime browser
+  evidence remain unimplemented, so the domain is `partial` rather than complete.
 - AUTH-01 coverage includes email/password boundary tests, PostgreSQL-backed login
   identity/IP lockout and success reset tests, independent-IP accounting,
   registration-IP lockout, migration schema assertions, and duplicate insert

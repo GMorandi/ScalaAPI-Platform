@@ -33,7 +33,7 @@ requests fail open.
 
 Platform owns identity, groups, API keys, provider accounts and encrypted
 credentials, scheduler state, lease state machines, balance holds, decimal pricing,
-append-only ledger entries, usage settlement, media metadata, and Admin/User APIs.
+append-only ledger entries, usage settlement, content policy, media metadata, and Admin/User APIs.
 Orleans coordinates concurrency; PostgreSQL is the durable business and accounting
 source of truth. Orleans storage internals are never used as a business listing API.
 
@@ -50,6 +50,14 @@ duplicates remain 409 until the completion report is durable, and streaming repl
 is a separate protocol concern. Each lease also stores an immutable price version
 and NUMERIC unit-rate snapshot; settlement never reprices from mutable process
 configuration.
+
+After authentication and API-key capability authorization, Platform evaluates the
+bounded request content against active, scope-aware `log`/`block` rules. Matches
+are persisted in `content_audit_logs`. A blocking decision terminates dispatch
+before group rate accounting, scheduling, credential hydration, lease/hold creation,
+or Provider contact. Gateway maps the dedicated internal rejection to HTTP 400.
+This initial policy contract uses bounded case-insensitive substring rules; response
+enforcement and external classifiers are separate future contracts.
 
 A request begins `held`. Gateway must persist `forwarded` before contacting a
 Provider and records `output_started` after its first successful client write. The
@@ -127,5 +135,6 @@ both repositories check the same schema digest. Platform CI restores the pinned
 commit `1a0e12c0a3ba1f0dbbad45ddfef555166e0a14fc`, regenerates all C# artifacts in a
 temporary directory, and byte-compares them with the checked-in output. The contract
 is currently revision 3 and contains no compatibility branches or deprecated
-fields. Revisions replace the single greenfield contract; they do not preserve old
-wire behavior.
+fields. Its dispatch request carries the request body for the pre-dispatch policy
+decision, and Platform rejects bodies above 128 KiB before billable work. Revisions
+replace the single greenfield contract; they do not preserve old wire behavior.
