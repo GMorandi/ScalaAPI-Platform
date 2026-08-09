@@ -67,9 +67,16 @@ failed stream retains unknown-charge evidence for reconciliation. The shared
 `unicode-confusable-v1` evaluator performs deterministic NFKC/case-folding,
 format-character removal, and bounded confusable mapping before local matching.
 Rules persist evaluator version, classifier choice, redaction, and a monotonic
-policy revision. An external classifier is an explicit adapter boundary and an
-unavailable adapter fails closed as retryable policy-unavailable; it is not a
-silent local fallback. Every Admin rule create/update/delete increments the
+policy revision. The configured `external` classifier uses the source-owned HTTP
+adapter contract `POST /v1/classifier/evaluate` with JSON fields `content`,
+`pattern`, and `evaluator_version`. Platform bounds the UTF-8 request to 129 KiB,
+the pattern to 1024 bytes, the response to 8 KiB, and the timeout to 100-5000 ms.
+HTTP 429/5xx and transport/timeout failures map to retryable
+`content_policy_classifier_unavailable`; non-success or malformed/unknown JSON
+maps to `content_policy_classifier_protocol_error`. The Provider mock implements
+match, no-match, outage, malformed, oversized, and timeout fixtures for this
+contract. An unavailable adapter fails closed; it is not a silent local fallback.
+Every Admin rule create/update/delete increments the
 revision and appends an actor/IP audit row plus a PostgreSQL change-outbox event
 in the same transaction. A hosted Platform worker claims those events with
 `FOR UPDATE SKIP LOCKED`, publishes the latest revision and invalidation counter

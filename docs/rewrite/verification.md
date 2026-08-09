@@ -2,7 +2,7 @@
 
 ## Current evidence
 
-The latest source snapshot is Gateway `cd475c7` and Platform `caa719e`.
+The latest source snapshot is Gateway `cd475c7` and Platform `7fca582`.
 The SEC-01 slice now extends the single revision-3 Cap'n Proto contract with
 bounded request and response content and a dedicated response-evaluation method.
 Platform evaluates request rules before scheduling and non-stream response rules
@@ -12,7 +12,7 @@ through the existing idempotency response store. Gateway and generated Platform
 contracts match byte-for-byte; the current smoke asserts request zero-lease
 blocking, response audit/output withholding, one normal debit, and exact replay.
 
-The current source-built project `scalaapi-policy-20260809i` exited zero.
+The current source-built project `scalaapi-classifier-20260809d` exited zero.
 It applied 31 empty-volume migration records (Orleans plus product migrations
 001-030), skipped all 31 on the second migrator run, authenticated Gateway through
 Garnet, passed the complete Provider fault matrix including deterministic
@@ -26,16 +26,21 @@ model names/methods/token limits, and Anthropic positive bounded `input_tokens`;
 the Provider mock exposes deterministic malformed, duplicate, and zero-count
 profiles for these contracts.
 
-The policy operations slice at Platform `9fb449c` adds migration 030. The follow-up
-Platform `caa719e` serializes revision publication across workers. Admin rule
+The policy operations slice at Platform `9fb449c` adds migration 030. Platform
+`caa719e` serializes revision publication across workers, and `7fca582` adds the
+source-owned external classifier adapter and Provider mock HTTP contract. Admin rule
 mutations now atomically record revision, actor/IP audit, and a PostgreSQL change
 outbox. A hosted worker claims and retries those changes, publishes the revision
 and invalidation counter to authenticated Garnet, and exposes paged Admin change
 history. Policy blocks and unavailable classifiers append deterministic alert rows;
 the empty-stack smoke waited for propagated changes and queried both warning block
 and critical classifier-unavailable evidence. Host tests cover successful Garnet
-propagation and failure/retry recovery. A real external classifier, multi-instance
-ordering, and browser evidence remain release gates.
+propagation and failure/retry recovery, bounded classifier requests, status/schema/
+timeout mapping, and caller cancellation. The Provider mock tests match/no-match
+and deterministic fault fixtures; the empty-stack gate proves external match/block
+400 and outage 503 with redacted audit plus one normal settlement/replay. A
+production provider, multi-instance ordering, and browser evidence remain release
+gates.
 Platform `c029b3c` adds versioned runtime configuration snapshots, bounded key/value
 validation, secret/connection-string rejection, boolean-only feature flags, stale
 version conflict handling, and Admin actor/IP audit persistence; the Grain suite
@@ -186,8 +191,8 @@ supersedes them where commit, image, or late-usage results differ.
 | Platform dispatch retry and active-lease recovery | `scalaapi-platform-dispatch-retry-0914` source-built smoke passed; Platform died after the lease/hold commit, Gateway retried with the same request/idempotency identity, and replacement Platform recovered and settled the existing lease with exactly one lease, usage event, usage log, and debit | A lost dispatch response is retryable without allocating a second lease or billing twice |
 | Embeddings contract smoke | `scalaapi-embeddings-20260809b`, exit 0 | Gateway `40cb02f` and Platform `ef1e474` returned two three-dimensional float vectors and one two-dimensional base64 vector, settled both against the active NUMERIC Embeddings price, and mapped a shape-invalid Provider response to `502/provider_protocol_error` with one retained `reconciliation_needed` hold; the same run applied and re-ran all 27 migrations and passed the full Garnet, OAuth, restart, Provider, reconciliation, and MinIO matrix |
 | Gateway build and CTest | Clean local build; 118/118, exit 0 | Adds retryable classifier-outage fail-closed disposition to revision-3 response policy, in addition to bounded event-boundary streaming policy buffering, protocol-shaped policy errors, response replay, model catalog, Embeddings, nested Anthropic usage, SSE, timeout, cancellation, Garnet, retry, and routing coverage |
-| Platform tests | 166/166, exit 0; Host 42/42 rerun against temporary PostgreSQL 17 | 69 Grain tests, 42 Host tests, 18 Admin tests, and 37 Provider mock tests; Host coverage includes versioned Unicode normalization, external-classifier fail-closed behavior, redacted audit metadata, policy revision schema, propagation success/retry, staged audits, accounting, media, and reconciliation |
-| Versioned content policy | Gateway `cd475c7`; Platform `caa719e` | `unicode-confusable-v1` normalizes NFKC/case/format/confusable forms before local matching; rules persist classifier/evaluator/redaction and a monotonic policy revision. External classifier unavailability fails closed with retryable HTTP 503, redacts audit snippets, and preserves one normal response settlement/replay. Request Unicode blocking creates no lease; SSE buffering retains unknown-charge evidence. Migration 030 durably records rule mutations, serializes worker publication, retries Garnet revision/invalidation propagation, and persists warning/critical alert evidence queried by Admin. Multi-instance ordering, browser evidence, and a real external adapter remain open |
+| Platform tests | 179/179, exit 0; Release build 0 warnings/0 errors | 69 Grain tests, 51 Host tests, 18 Admin tests, and 41 Provider mock tests; Host coverage includes versioned Unicode normalization, source-owned external classifier request/status/schema/timeout/cancellation behavior, redacted audit metadata, policy revision schema, propagation success/retry, staged audits, accounting, media, and reconciliation; Provider HTTP tests cover the classifier contract and deterministic fixtures |
+| Versioned content policy | Gateway `cd475c7`; Platform `7fca582` | `unicode-confusable-v1` normalizes NFKC/case/format/confusable forms before local matching; rules persist classifier/evaluator/redaction and a monotonic policy revision. The configured external adapter sends explicit JSON fields with bounded UTF-8 request/response sizes and 100-5000ms timeout; 429/5xx and transport timeout map to retryable HTTP 503, while malformed/unknown schema fails closed as protocol error. Request Unicode blocking creates no lease; response match/block and SSE buffering retain their billing evidence. Migration 030 durably records rule mutations, serializes worker publication, retries Garnet revision/invalidation propagation, and persists warning/critical alert evidence queried by Admin. A production provider, multi-instance ordering, browser evidence, protocol golden fixtures, and long-stream classifier metrics remain open |
 | Runtime configuration contract | Platform `c029b3c` Grain tests and Admin Release build | `feature.*` values are boolean-only, sensitive keys and connection strings are rejected, updates use an expected version, returned snapshots are independent copies, and successful Admin writes persist `config.update` actor/IP audit rows; dynamic consumer reload and browser controls remain |
 | Authentication abuse smoke | `scalaapi-auth-abuse-verified3`, exit 0 | Fresh PostgreSQL applies 000 plus 001-026, second migrator run skips all 27; malformed registration is 400, five bad logins are 401, the sixth is 429 with `Retry-After`, and the full Garnet/protocol/restart/Provider/reconciliation/MinIO matrix remains green |
 | API-key HTTP replay and expiry smoke | `scalaapi-key-http-verified`, exit 0 | Two concurrent Chat requests share one idempotency key and leave one completed lease/idempotency row; a short-lived key returns 401 `authentication_error` after expiry with no lease; the complete stack matrix remains green |
@@ -200,7 +205,7 @@ supersedes them where commit, image, or late-usage results differ.
 | Scheduler benchmark dry run | 4/4, exit 0; no-match negative probe exits 1 | Dependency injection and child-result propagation pass; not performance evidence |
 | Contract generation and digest | Canonical and Gateway vendor schemas match at the content-policy extension; fixed-scale pricing round-trip passed; official Cap'n Proto 1.0.2 commit `1a0e12c0` plus local `capnpc-csharp` 1.3.118 regenerated all three C# files byte-identically; an intentional drift probe exited 1 with a unified diff | Platform's single-repository generated-output gate is blocking; atomic cross-private-repository schema release coordination remains |
 | PostgreSQL migrator | A temporary empty PostgreSQL 17 database applied product migrations 001-030 and skipped all 30 on replay; the migrator image copies the complete directory and includes migration 030 | Compose installs Orleans support and the current empty-stack gate applies/skips 31 total records. No source database, CDC, compatibility table, snapshot, or old key was used |
-| Empty-volume Compose gate | `deploy/stack/smoke.sh` passed from Platform `caa719e`/Gateway `cd475c7` in unique project `scalaapi-policy-20260809i`; the stack applied/skipped all 31 records, authenticated Garnet, waited for policy-change outbox propagation, queried policy-block and classifier-outage alerts, settled/replayed Chat and realtime WebSocket, matched and redacted Unicode request content with no lease, failed closed on an unavailable external classifier with HTTP 503 and one normal settlement/replay, withheld the first blocked response SSE event while retaining its unknown-charge hold, exercised restart/recovery and the complete Provider matrix, resolved one incident, and persisted/downloaded the MinIO object. Eleven unknown-charge incidents were present before the audited settlement and ten remained open afterward | Source-owned gate proves ordered accounts, evidence-backed holds, exactly-once recovery including dispatch retry and outbox claim reclaim, versioned/redacted content-policy behavior, safe never-forwarded expiry, late usage settlement, actual client cancellation retention, deterministic zero-output disconnect classification, serialized policy revision publication, audited alert evidence, and audited unknown-charge resolution. Hosted CI, runtime WebSocket soak, multi-instance ordering, real external classifier adapter, browser evidence, and cross-protocol automation remain |
+| Empty-volume Compose gate | `deploy/stack/smoke.sh` passed from Platform `7fca582`/Gateway `cd475c7` in unique project `scalaapi-classifier-20260809d`; the stack applied/skipped all 31 records, authenticated Garnet, waited for policy-change outbox propagation, queried policy-block and classifier-outage alerts, proved external classifier match/block HTTP 400 and outage HTTP 503 with redacted audit, one normal settlement, and exact replay, settled/replayed Chat and realtime WebSocket, matched and redacted Unicode request content with no lease, withheld the first blocked response SSE event while retaining its unknown-charge hold, exercised restart/recovery and the complete Provider matrix, resolved one incident, and persisted/downloaded the MinIO object | Source-owned gate proves ordered accounts, evidence-backed holds, exactly-once recovery including dispatch retry and outbox claim reclaim, versioned/redacted content-policy behavior, bounded external classifier faults, safe never-forwarded expiry, late usage settlement, actual client cancellation retention, deterministic zero-output disconnect classification, serialized policy revision publication, audited alert evidence, and audited unknown-charge resolution. Hosted CI, runtime WebSocket soak, multi-instance ordering, production classifier, browser evidence, and cross-protocol automation remain |
 | Garnet smoke | Auth, PING, SET/GET, PX, INCR, DEL passed | Official digest; no Redis or embedded server |
 | Empty-volume Embeddings gate | `deploy/stack/smoke.sh` passed from Platform `ef1e474` in unique project `scalaapi-embeddings-20260809b` | The current source applied all 27 migrations and skipped all 27 on the second run, authenticated Garnet, settled two float and one base64 Embeddings request against the NUMERIC price version, retained one unknown-charge hold for a shape-invalid response, and passed the full restart, Provider, reconciliation, OAuth, realtime, and MinIO matrix |
 | Garnet outage/recovery | Platform readiness 503 then 200 | Automatic TCP reconnect verified |

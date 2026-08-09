@@ -2,7 +2,7 @@
 
 ## Checkpoint
 
-The next stage starts from Platform `caa719e`, Gateway `cd475c7`, and read-only
+The next stage starts from Platform `7fca582`, Gateway `cd475c7`, and read-only
 reference `sub2api@43ec48d`.
 
 The greenfield baseline now starts from empty volumes, uses PostgreSQL as authority,
@@ -60,15 +60,16 @@ through the clean Gateway runtime image, including exactly-once
 lease/usage/hold/ledger settlement; long-connection/backpressure soak, remaining
 boundaries, the worker/multi-silo matrix, and multi-instance scenarios are still
 open.
-The current source-built `scalaapi-policy-20260809i` gate applies and
+The current source-built `scalaapi-classifier-20260809d` gate applies and
 replays 31 migration records from empty volumes, proves Garnet-authenticated
 request routing, staged request/response policy, the versioned Unicode evaluator,
-external-classifier fail-closed handling, the full Provider fault matrix, media
+external-classifier match/outage handling, the full Provider fault matrix, media
 persistence, audited reconciliation, and exactly-once restart billing. The
 Unicode request probe matches fullwidth/decomposed/confusable content, redacts its
-audit, and creates no lease. The external-classifier response probe returns HTTP
-503, redacts its audit, and still commits one normal Provider usage debit with an
-exact 503 replay. A response block withholds Provider output but still commits the
+audit, and creates no lease. The source-owned external classifier match probe
+returns HTTP 400 and its outage fixture returns HTTP 503; both redact their audit
+and still commit one normal Provider usage debit with exact response replay. A
+response block withholds Provider output but still commits the
 normal Provider usage debit and stores an exact client-facing 400 replay. Content
 rule creation returns its persisted identity, and the Provider mock forces headers
 before the zero-byte disconnect fixture so the intended 503 classification is
@@ -79,15 +80,17 @@ hold and idempotency evidence. The same empty-stack run proves the first event i
 not leaked and the retained hold is reconciled later.
 
 The completed policy-operations slice is committed as Platform `9fb449c`, with
-worker-order serialization finalized in `caa719e`.
+worker-order serialization finalized in `caa719e` and the bounded external
+classifier adapter/Provider contract finalized in `7fca582`.
 Migration 030 makes Admin rule create/update/delete mutations append an actor/IP
 audit row and a durable revision outbox atomically. A hosted worker claims the
 outbox with expiry/retry state, publishes the revision and invalidation counter to
 Garnet, and exposes protected change history. Runtime block, classifier-unavailable,
 and unsupported-evaluator outcomes persist deterministic redacted alert evidence;
 Admin exposes filtered alert queries. Host tests cover Garnet success and retry,
-and `scalaapi-policy-20260809i` proves empty-stack propagation and alert queries.
-This closes the single-instance operations package, not the real classifier,
+and `scalaapi-classifier-20260809d` proves empty-stack propagation, classifier
+match/outage semantics, and alert queries. This closes the single-instance
+operations and source-owned adapter package, not the production classifier,
 multi-instance ordering, browser, or collector/dashboard gates.
 
 Provider OAuth credentials now use encrypted versioned state with a single-account
@@ -151,7 +154,7 @@ concurrency, and idempotent group spend remain covered by the Grain suite; HTTP
 group CRUD validation, distributed rate-window contention, and multi-Silo fallback
 fault evidence remain release work.
 
-The `SEC-01` runtime slice is active at Gateway `cd475c7` and Platform `caa719e`.
+The `SEC-01` runtime slice is active at Gateway `cd475c7` and Platform `7fca582`.
 The canonical dispatch contract carries bounded request and response content.
 Platform applies request `log`/`block` rules before scheduler/lease activity and
 response rules after Provider validation but before non-stream delivery. Both stages
@@ -160,24 +163,25 @@ the Provider body, preserve one normal usage debit, and replay the client-facing
 400. Migration 029 adds the versioned `unicode-confusable-v1` evaluator, classifier
 selection, policy revision state, and audit redaction metadata. Gateway
 event-boundary streaming enforcement is source-tested and empty-stack verified;
-the classifier boundary fails closed with retryable HTTP 503 when an external
-adapter is unavailable. Migration 030 now provides durable single-instance change
-propagation and alert evidence. The domain remains `partial` until a real external
-adapter, multi-instance ordering, browser authorization, and long-stream metrics
-are automated.
+the classifier boundary uses a source-owned HTTP contract with explicit JSON fields,
+bounded request/response bytes, timeout control, and deterministic fail-closed
+status/schema/transport mappings. Migration 030 now provides durable single-instance
+change propagation and alert evidence. The domain remains `partial` until a
+production provider, multi-instance ordering, browser authorization, protocol
+golden fixtures, and long-stream metrics are automated.
 
 ## Next implementation slice
 
-1. Complete the classifier production boundary. Add a source-owned or contract-tested
-   external adapter with bounded timeout/latency, deterministic unavailable/retry
-   semantics, protocol golden fixtures for OpenAI Chat/Responses, Anthropic, and
-   Gemini, and prove bounded-buffer overflow, cancellation, and late usage settlement
-   under every stream terminal event.
+1. Complete the classifier release boundary. Keep the source-owned adapter and mock
+   contract as the deterministic CI path; add a production provider adapter with
+   measured latency budgets, protocol golden fixtures for OpenAI Chat/Responses,
+   Anthropic, and Gemini, and prove bounded-buffer overflow, cancellation, and late
+   usage settlement under every stream terminal event.
 2. Extend policy revision propagation and operations to multiple Platform/Gateway
    instances. Verify ordered outbox claims, Garnet invalidation convergence,
    monotonic revisions under concurrent rule changes, and alert correlation after
    worker failure or Garnet outage. The single-instance outbox, retry, and alert
-   evidence is complete in `caa719e`.
+   evidence is complete in `7fca582`.
 3. Add operator and browser evidence. Exercise Admin rule management with fresh
    identity, authorization, audit, redaction, and replay checks; add Admin/User Web
    browser tests for policy management and the user-visible 400/503 policy error

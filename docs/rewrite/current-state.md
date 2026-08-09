@@ -11,7 +11,7 @@ read-only requirements reference and is excluded from builds and runtime.
 | Repository | Commit | Worktree | Role |
 | --- | --- | --- | --- |
 | `gateway` | `cd475c7` | clean | C++ HTTP/WebSocket edge, protocol parsing/conversion, fail-closed OpenAI/Gemini model catalog and Anthropic token-count response validation, bounded Embeddings and Responses validation, streaming, strict Provider media contracts, bounded transport timers, normalized Provider availability errors, shared retryable Platform transport policy, durable usage delivery, authenticated Garnet projections, bounded request/response content-policy RPC evaluation, event-boundary streaming response moderation, and fail-closed response delivery including retryable classifier outages |
-| `platform` | `caa719e` | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, Provider mock contracts, rotating identity/session/TOTP/OAuth state, API-key policy and audit, versioned runtime configuration, persistent scheduling and lease/hold/ledger state, audited operator reconciliation, media/object lifecycle, staged request/response content-policy evaluation with versioned Unicode normalization, classifier boundary, durable policy revision propagation through Garnet, operational alert evidence, and redacted audits |
+| `platform` | `7fca582` | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, Provider mock contracts, rotating identity/session/TOTP/OAuth state, API-key policy and audit, versioned runtime configuration, persistent scheduling and lease/hold/ledger state, audited operator reconciliation, media/object lifecycle, staged request/response content-policy evaluation with versioned Unicode normalization, bounded source-owned external classifier adapter, durable policy revision propagation through Garnet, operational alert evidence, and redacted audits |
 | `sub2api` | `43ec48d` | read-only clean | Requirements catalogue only; never a runtime or compatibility dependency |
 
 The current tracked inventory is:
@@ -19,8 +19,8 @@ The current tracked inventory is:
 - Gateway: 52 production C++ source/header files, 10 test source files, and 118
   CTest cases.
 - Platform: 94 hand-written production C# files, 3 generated Cap'n Proto C#
-  files, 39 test/benchmark C# files, and 166 tests: 69 Grain, 42 Host, 18 Admin,
-  and 37 Provider mock tests.
+  files, 41 test/benchmark C# files, and 179 tests: 69 Grain, 51 Host, 18 Admin,
+  and 41 Provider mock tests.
 - Product surface: 121 direct Admin API route declarations, 47 product tables,
   22 SQLSugar entity types, 23 Admin Web TypeScript/TSX files and 11 page views,
   plus 16 User Web TypeScript/TSX files and 11 user views.
@@ -66,8 +66,10 @@ current-source runtime evidence.
   audited with rule identity, evaluator version, classifier, policy revision, and
   optional redacted snippets. The native `unicode-confusable-v1` evaluator applies
   NFKC, case folding, format-character removal, and a bounded confusable map. Local
-  matching is deterministic; external classifiers have an explicit adapter boundary
-  and fail closed with retryable 503 semantics until an adapter is configured.
+  matching is deterministic; the configured external classifier uses the bounded
+  source-owned HTTP adapter contract and fails closed with retryable 503 semantics
+  on transport, timeout, or 429/5xx outcomes. Malformed or unknown classifier
+  responses fail closed as protocol errors.
   Policy mutations are recorded in a PostgreSQL outbox, propagated to Garnet with
   expiring claims and retry evidence, and policy blocks/classifier outages create
   deterministic alert rows queryable by Admin. Browser workflows, multi-instance
@@ -299,15 +301,15 @@ current-source runtime evidence.
 
 ## Current verification evidence
 
-At Platform `caa719e` and Gateway `cd475c7`:
+At Platform `7fca582` and Gateway `cd475c7`:
 
 - Gateway built locally and passed 118/118 CTest cases, including deterministic
   fault-hook claim/repeat behavior, terminal SSE detection, provider EOF
   classification, incomplete chunked-body disconnect classification, zero-length
   client-write cancellation, and bounded Provider pre-header stream timeout
   handling plus independent inter-chunk and total-stream timeout scenarios.
-- Platform Release test/build passed with 0 warnings and 0 errors: 166/166 tests,
-  including 42 Host tests, 69 Grain tests, 18 Admin tests, and 37 Provider mock
+- Platform Release test/build passed with 0 warnings and 0 errors: 179/179 tests,
+  including 51 Host tests, 69 Grain tests, 18 Admin tests, and 41 Provider mock
   tests. Admin coverage
   includes PostgreSQL-backed TOTP replay, backup-code consumption, lockout,
   recovery, OAuth provider/redirect/verifier binding, one-time state consumption,
@@ -335,9 +337,16 @@ At Platform `caa719e` and Gateway `cd475c7`:
   and the empty-stack response/settlement probe. Migration 030 adds an append-only
   policy-change outbox with expiring claims, authenticated Garnet revision/
   invalidation propagation, and deterministic `policy_block`/`classifier_unavailable`
-  alert rows with protected Admin queries. The latest smoke proves all three paths;
-  multi-instance ordering, runtime browser evidence, and a real external adapter
-  remain open, so the domain is still `partial`.
+  alert rows with protected Admin queries. Platform `7fca582` adds a source-owned
+  HTTP adapter with explicit `content`, `pattern`, and `evaluator_version` JSON,
+  bounded request/response bytes, a configurable 100-5000ms timeout, and stable
+  fail-closed mappings for transport, status, timeout, and malformed outcomes.
+  The Provider mock implements the same contract with deterministic match,
+  outage, malformed, oversized, and timeout fixtures; Host and Provider HTTP
+  contract tests cover it and the empty-stack gate proves match/block 400 and
+  outage 503 with redacted audit plus one normal settlement/replay. Multi-instance
+  ordering, runtime browser evidence, a production provider, and long-stream
+  classifier metrics remain open, so the domain is still `partial`.
 - AUTH-01 coverage includes email/password boundary tests, PostgreSQL-backed login
   identity/IP lockout and success reset tests, independent-IP accounting,
   registration-IP lockout, migration schema assertions, and duplicate insert
@@ -560,15 +569,17 @@ At Platform `caa719e` and Gateway `cd475c7`:
   public 503/provider_unavailable responses and released every no-charge hold.
 - Garnet authentication returned `PONG`; asynchronous media bootstrapped the empty
   MinIO bucket and a signed URL downloaded the expected 67-byte object.
-- The latest `scalaapi-policy-20260809i` smoke command exited zero. It
+- The latest `scalaapi-classifier-20260809d` smoke command exited zero. It
   applied 31 empty-volume migration records and skipped all 31 on replay, proved
-  request and response content-policy paths, the complete Provider fault matrix,
+  request and response content-policy paths, the source-owned external classifier
+  match/outage contract, the complete Provider fault matrix,
   Garnet-authenticated routing, media persistence, reconciliation, operator
   settlement/replay, and post-restart billing. The Unicode request scenario matched
   fullwidth/decomposed/confusable content, redacted its audit snippet, and created
-  no lease. The external-classifier response scenario failed closed with HTTP 503,
-  redacted its audit, and still completed exactly one normal usage settlement and
-  503 response replay. The response policy scenario hid
+  no lease. The external-classifier match scenario blocked with HTTP 400 and the
+  outage scenario failed closed with HTTP 503; both redacted their audits and
+  completed exactly one normal usage settlement and exact response replay. The
+  response policy scenario hid
   Provider output while recording one audit, completed lease, committed hold,
   usage event/log, NUMERIC debit, and replayed client-facing HTTP 400 exactly.
   The streaming policy case adds one retained unknown-charge incident; the run
@@ -577,8 +588,8 @@ At Platform `caa719e` and Gateway `cd475c7`:
   The run also waited for policy-change outbox propagation, queried policy-block
   and classifier-outage alert evidence, and verified retryable Garnet propagation
   in Host tests. The cleanup removed every project container, temporary volume/
-  network, and `scalaapi-policy-20260809{d,e,f,g,h,i}_*` image tags. Only the named `apitf_*` baseline
-  development resources and `scalaapi-gateway:dev` remain.
+  network, and the `scalaapi-classifier-20260809d_*` image tags. Only the named
+  `apitf_*` baseline development resources and `scalaapi-gateway:dev` remain.
 
 Detailed gate results and residual coverage are maintained in `verification.md`.
 
