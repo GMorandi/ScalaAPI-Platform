@@ -2,13 +2,20 @@
 
 ## Current evidence
 
-The latest source snapshot is Gateway `52a0035` and Platform `a929e06`.
+The latest source snapshot is Gateway `52a0035` and Platform `4605f45`.
 The current source-built project `scalaapi-api-key-audit-verified` passed the
 full 27-migration empty-volume gate and authenticated the API-key audit query:
 the filtered denied event returned actor/action metadata and no plaintext-key
 field. The complete Garnet, API-key replay/concurrency/expiry, auth/OAuth,
 realtime, restart/recovery, Provider fault, reconciliation, and MinIO matrix
 remained green; all temporary stack resources and images were removed.
+The follow-up `scalaapi-api-key-lifecycle-verified` smoke passed the API-key
+lifecycle assertions: Admin ownership guard/update/revoke, updated-key Chat,
+revoked-key 401, and user self-service rotation with old/new state and audit
+invariants. The lifecycle slice is evidence-backed; the full fault matrix is
+not promoted to a new green gate because the existing
+`disconnect_before_output` fixture can end as a transport timeout before the
+reconciliation assertion.
 The current source-built project `scalaapi-key-http-verified` passed the full
 27-migration empty-volume gate with authenticated HTTP API-key replay and expiry
 checks. Two simultaneous Chat requests sharing one idempotency key produced one
@@ -43,14 +50,14 @@ OAuth refresh, realtime settlement, Platform/Gateway restart recovery, the compl
 Provider fault matrix, audited reconciliation, and MinIO signed object persistence.
 Its cleanup removed all containers, volumes, networks, and stack-specific image tags;
 only the named `apitf_*` development resources remain.
-The Platform `a929e06` auth/scheduling/policy slice passes the full 143-test suite and Release
+The Platform `4605f45` auth/scheduling/policy slice passes the full 143-test suite and Release
 build with zero warnings: API-key scope normalization and projection tests pass,
 unknown scopes are rejected, capability denials are classified before scheduling,
 and migration/schema checks require the new scope, expiry, append-only audit, and
 auth-abuse counter state. Authenticated HTTP replay/concurrency and expired-key
 cases pass in `scalaapi-key-http-verified`; the authenticated API-key audit query
-passes in `scalaapi-api-key-audit-verified`; key update/revoke/user-rotation and
-multi-instance contention remain open.
+and lifecycle update/revoke/rotation pass in `scalaapi-key-lifecycle-verified`;
+multi-instance contention and browser cases remain open.
 Gateway CTest is 104/104. The complete empty-volume gate passed in
 `scalaapi-realtime-smoke-20260809` with the 22-migration double-run,
 Garnet-authenticated request path, realtime WebSocket settlement, nine

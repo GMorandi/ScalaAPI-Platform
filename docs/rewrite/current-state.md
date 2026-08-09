@@ -263,7 +263,7 @@ current-source runtime evidence.
 
 ## Current verification evidence
 
-At Platform `a929e06` and Gateway `52a0035`:
+At Platform `4605f45` and Gateway `52a0035`:
 
 - Gateway built locally and passed 104/104 CTest cases, including deterministic
   fault-hook claim/repeat behavior, terminal SSE detection, provider EOF
@@ -298,8 +298,8 @@ At Platform `a929e06` and Gateway `52a0035`:
   `026-auth-abuse-counters.sql`; authenticated
   HTTP audit-row and denied-capability empty-stack assertions are covered by the
   latest source-built smoke; authenticated HTTP replay/concurrency, expired-key,
-  and API-key audit-query cases now pass, while update/revoke/user-rotation and
-  multi-instance coverage remain release gates.
+  API-key audit-query, Admin update/revoke, and user-rotation cases now pass.
+  Multi-instance contention and browser coverage remain release gates.
 - The latest source-built empty-volume project `scalaapi-key-policy-verified`
   applied all 26 migration files and observed all 26 as `skip` on a second run.
   An API key scoped only to `models` received HTTP 403 `permission_error` for
@@ -410,6 +410,15 @@ At Platform `a929e06` and Gateway `52a0035`:
   response. The full matrix passed again and all temporary containers, stack
   images, and dangling images were removed, leaving only the named `apitf_*`
   development resources and baseline images.
+- The follow-up source smoke at Platform `4605f45`, project
+  `scalaapi-api-key-lifecycle-verified`, authenticated the audit query, rejected
+  an Admin ownership-changing update with 400, accepted a valid policy update,
+  settled Chat through the updated key, revoked it and observed 401, then
+  rotated a User Web key and verified distinct old-revoked/new-active rows plus
+  `updated`, `revoked`, and `rotated` audit records. The lifecycle assertions
+  passed repeatedly; the complete matrix still exposes the known
+  `disconnect_before_output` transport-timeout/reconciliation fixture and is not
+  claimed as a new green release gate.
 - Scheduler benchmark integrity dry run executed all 4 selected child benchmarks
   and returned zero. It is a failure-propagation check, not performance evidence.
 - `deploy/stack/smoke.sh` built current sibling sources in isolated Podman

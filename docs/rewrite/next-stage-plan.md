@@ -349,7 +349,7 @@ refresh audit and multi-Silo evidence.
 
 ## Current P0 slice: API-key authorization boundary
 
-Platform `a929e06` now treats API-key policy as a new product contract. A key
+Platform `4605f45` now treats API-key policy as a new product contract. A key
 stores a normalized set of Gateway capability scopes (`messages`, `responses`,
 `embeddings`, media, realtime, and the provider-specific model capabilities) and
 an optional millisecond expiry. Platform checks the requested capability after
@@ -369,8 +369,10 @@ denial audit row is persisted. The source smoke now also proves two concurrent
 Chat requests with one idempotency key leave one completed lease/idempotency row,
 that a short-lived key returns HTTP 401 before scheduling after expiry, and that
 an authenticated Admin audit query returns the denied event without key material.
-The slice remains `partial` until Admin update/revoke E2E, user self-service
-rotation, multi-instance contention, and browser cases are covered.
+The lifecycle smoke `scalaapi-api-key-lifecycle-verified` now covers Admin
+ownership-safe update/revoke, updated-key dispatch, revoked-key rejection, and
+user self-service rotation with database state and audit invariants. The slice
+remains `partial` until multi-instance contention and browser cases are covered.
 
 Exit: one Admin create/update/revoke flow and one user rotate flow are exercised
 against a fresh PostgreSQL/Garnet stack; a scoped key is allowed for exactly one
