@@ -43,6 +43,7 @@ builder.Services.AddScoped<ISqlSugarClient>(_ => new SqlSugarClient(new Connecti
 }));
 builder.Services.AddScoped<ListingRepository>();
 builder.Services.AddScoped<BalanceAdjustmentStore>();
+builder.Services.AddScoped<ReferralRewardStore>();
 builder.Services.AddSingleton<AccountingStore>();
 builder.Services.AddSingleton<AccountingProjectionService>();
 builder.Services.AddSingleton<IAccountingProjectionRepairer, OrleansAccountingProjectionRepairer>();

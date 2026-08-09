@@ -1005,26 +1005,49 @@ public static class PlatformEndpoints
             return Results.Ok(new { items });
         });
 
-        admin.MapPost("/record", async (ISqlSugarClient db, ReferralRecordRequest req) =>
+        admin.MapPost("/record", async (
+            ClaimsPrincipal principal,
+            HttpRequest http,
+            ReferralRewardStore rewards,
+            AccountingProjectionService projection,
+            ReferralRecordRequest req,
+            CancellationToken ct) =>
         {
-            var record = new ReferralRecordEntity
-            {
-                ReferrerUserId = req.ReferrerUserId,
-                ReferredUserId = req.ReferredUserId,
-                BonusUsd = req.BonusUsd,
-                CreatedAt = DateTime.UtcNow,
-            };
-            await db.Insertable(record).ExecuteCommandAsync();
+            if (!ScalaAPI.Admin.Auth.AuthClaims.TryGetUserId(principal, out var actorId))
+                return Results.Unauthorized();
+            if (!http.Headers.TryGetValue("Idempotency-Key", out var key)
+                || string.IsNullOrWhiteSpace(key.ToString()))
+                return Results.BadRequest(new { error = "Idempotency-Key is required" });
 
-            var code = await db.Queryable<ReferralCodeEntity>().Where(x => x.UserId == req.ReferrerUserId).FirstAsync();
-            if (code is not null)
+            var result = await rewards.RecordAsync(
+                actorId, req.ReferrerUserId, req.ReferredUserId, req.BonusUsd,
+                key.ToString(), req.Reason,
+                http.HttpContext.Connection.RemoteIpAddress?.ToString(), ct);
+            switch (result.Status)
             {
-                code.TotalReferrals++;
-                code.TotalBonusUsd += req.BonusUsd;
-                await db.Updateable(code).UpdateColumns(x => new { x.TotalReferrals, x.TotalBonusUsd }).ExecuteCommandAsync();
+                case ReferralRewardStatus.Invalid:
+                    return Results.BadRequest(new { error = "Invalid referral reward command" });
+                case ReferralRewardStatus.UserNotFound:
+                case ReferralRewardStatus.CodeNotFound:
+                    return Results.NotFound(new { error = result.Status == ReferralRewardStatus.CodeNotFound
+                        ? "Referral code not found" : "Referral user not found" });
+                case ReferralRewardStatus.Conflict:
+                    return Results.Conflict(new { error = "Referral reward command conflicts with an existing attribution" });
+                case ReferralRewardStatus.Replay:
+                case ReferralRewardStatus.Created:
+                    if (result.Status == ReferralRewardStatus.Created)
+                        await projection.ApplyAsync(result.Snapshot, ct);
+                    return Results.Ok(new
+                    {
+                        id = result.RecordId,
+                        ledger_id = result.LedgerId,
+                        duplicate = result.Status == ReferralRewardStatus.Replay,
+                        ledger_version = result.Snapshot.Version,
+                        balance_after = result.Snapshot.Balance,
+                    });
+                default:
+                    return Results.StatusCode(StatusCodes.Status500InternalServerError);
             }
-
-            return Results.Ok(new { id = record.Id });
         });
     }
 
@@ -1617,7 +1640,8 @@ public static class PlatformEndpoints
     private record ChannelCheckRequest(long AccountId, string Status, int LatencyMs, string? Error);
     private record RestoreRequest(string BackupId);
     private record EmailRequest(string To, string Subject, string Body, Dictionary<string, string>? TemplateVars);
-    private record ReferralRecordRequest(long ReferrerUserId, long ReferredUserId, decimal BonusUsd);
+    private record ReferralRecordRequest(
+        long ReferrerUserId, long ReferredUserId, decimal BonusUsd, string Reason);
     private record ContentCheckRequest(string Content, long UserId, string? RequestId,
         string? Stage);
     private record ContentAuditRuleRequest(string? Pattern, string? ActionType,
