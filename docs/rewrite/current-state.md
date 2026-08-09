@@ -10,7 +10,7 @@ read-only requirements reference and is excluded from builds and runtime.
 
 | Repository | Commit | Worktree | Role |
 | --- | --- | --- | --- |
-| `gateway` | `6c43e5d` | clean | C++ HTTP/WebSocket edge, protocol parsing/conversion, streaming, strict Provider media contracts, bounded stream header/client timeouts, normalized Provider availability errors, transport/evidence, charge-aware failover, durable usage delivery, authenticated Garnet projections, deterministic fault boundaries, and fail-closed cancellation/partial-SSE handling |
+| `gateway` | `18083f9` | clean | C++ HTTP/WebSocket edge, protocol parsing/conversion, streaming, strict Provider media contracts, bounded stream header/client timeouts, distinct inter-chunk/total timer tests, normalized Provider availability errors, transport/evidence, charge-aware failover, durable usage delivery, authenticated Garnet projections, deterministic fault boundaries, and fail-closed cancellation/partial-SSE handling |
 | `platform` | `b0d7ee2` | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, identity, scheduling, evidence-backed leases/holds/ledger, audited operator resolution, media lifecycle, Admin API/Web, Provider mock, migrations, deterministic fault boundaries, and deployment gates |
 | `sub2api` | `43ec48d` | read-only clean | Requirements catalogue only; never a runtime or compatibility dependency |
 
@@ -66,7 +66,8 @@ current-source runtime evidence.
 - Non-stream Provider requests have a 30-second boundary and bounded retries.
   Streaming Provider calls now bound the response-header wait by the first-token
   deadline and extend the incoming client socket for the configured stream window;
-  separate inter-chunk and total-stream timers remain open. Failover retains the
+  separate inter-chunk and total-stream timers are independently enforced and
+  unit-tested. Failover retains the
   public idempotency key while allocating a unique internal request/lease ID per
   attempt.
 - Gateway durably changes a lease from `held` to `forwarded` before opening HTTP or
@@ -180,13 +181,13 @@ current-source runtime evidence.
 
 ## Current verification evidence
 
-At Platform `b0d7ee2` and Gateway `6c43e5d`:
+At Platform `b0d7ee2` and Gateway `18083f9`:
 
-- Gateway built locally and passed 99/99 CTest cases, including deterministic
+- Gateway built locally and passed 101/101 CTest cases, including deterministic
   fault-hook claim/repeat behavior, terminal SSE detection, provider EOF
   classification, incomplete chunked-body disconnect classification, zero-length
   client-write cancellation, and bounded Provider pre-header stream timeout
-  handling.
+  handling plus independent inter-chunk and total-stream timeout scenarios.
 - Platform Release test/build passed with 0 warnings and 0 errors: 95/95 tests,
   including 28 Host tests against a fresh real PostgreSQL schema. Host coverage
   includes deterministic fault-hook configuration plus atomic operator
@@ -270,9 +271,10 @@ Detailed gate results and residual coverage are maintained in `verification.md`.
   timeout handling with no usage/debit.
   The empty-stack gate now proves actual downstream socket cancellation as well;
   final usage/reconciliation fixtures for a truncated stream remain. Gateway
-  commit `6c43e5d` and smoke assertion commit `b0d7ee2` now normalize Provider
+  commit `6c43e5d` normalizes Provider
   connection resets and scheduler exhaustion to `503/provider_unavailable`; bounded
-  timeout and malformed protocol cases remain `502/provider_protocol_error`.
+  timeout and malformed protocol cases remain `502/provider_protocol_error`; the
+  timer distinctions are pinned by Gateway `18083f9`.
 - One source smoke now proves the Platform pre-settlement-commit crash boundary,
   Gateway reconnect/backoff recovery, durable usage replay, and exactly-once
   settlement. The remaining dispatch, Provider-completion, post-commit, Gateway,

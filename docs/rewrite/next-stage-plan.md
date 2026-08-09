@@ -2,7 +2,7 @@
 
 ## Checkpoint
 
-The next stage starts from Platform `b0d7ee2`, Gateway `6c43e5d`, and read-only
+The next stage starts from Platform `b0d7ee2`, Gateway `18083f9`, and read-only
 reference `sub2api@43ec48d`.
 
 The greenfield baseline now starts from empty volumes, uses PostgreSQL as authority,
@@ -39,9 +39,9 @@ response headers, and actual downstream client-cancellation and invalid-content-
 SSE retention with nine total unknown-charge incidents. The pre-header timeout now
 returns a bounded 502/provider_protocol_error and retains its hold; direct and
 zero-output Provider resets now return 503/provider_unavailable, while partial SSE
-resets retain their unknown-charge hold. Final-usage/replay reconciliation, distinct
-inter-chunk/total stream timers, the remaining hook matrix, and multi-instance
-scenarios are still open.
+resets retain their unknown-charge hold. Gateway CTest now independently proves the
+inter-chunk and total-stream timers. Final-usage/replay reconciliation, the remaining
+hook matrix, and multi-instance scenarios are still open.
 
 This stage contains no compatibility, cutover, dual-write, CDC, snapshot import,
 old-key import, ID preservation, status mapping, or business-data migration work.
@@ -69,7 +69,7 @@ failed assertion makes the top-level command non-zero.
 Accounting authority completed at `c15b53b`, reconciliation foundation at
 `fddba62`, dispatch evidence at `6bfb974`/`84634d1`, audited resolution at
 `0559659`, and deterministic fault boundaries at `1cad5b7`/`30b8c2b`/`8c3d2e0`,
-with current streaming/empty-stack evidence in Gateway `6c43e5d` and Platform
+with current streaming/empty-stack evidence in Gateway `18083f9` and Platform
 `b0d7ee2`:
 
 - Added one per-user `accounting_accounts` authority with NUMERIC posted balance
@@ -156,7 +156,7 @@ an open incident can be resolved only through the audited settle/release contrac
 
 ## Work package 2: cancellation and streaming failure semantics
 
-Progress in Gateway `6c43e5d` and Platform `b0d7ee2`: the streaming pipe now requires a source protocol
+Progress in Gateway `18083f9` and Platform `b0d7ee2`: the streaming pipe now requires a source protocol
 terminal event before treating Provider EOF as complete, classifies timeout/EOF as
 incomplete (including Photon incomplete chunked-body `-1/errno=0`), treats
 zero/error client writes as cancellation, records bounded
@@ -167,7 +167,8 @@ malformed-usage, invalid content type, downstream client cancellation, and strea
 429/500 rejection outcomes with the expected hold/debit behavior. Exact
 `text/event-stream` media type validation rejects JSON or lookalike media types
 before client output and retains the authorized hold as unknown charge.
-The public Provider availability contract is now closed for direct and zero-output
+The public Provider availability contract and distinct inter-chunk/total timer
+contract are now closed for direct and zero-output
 resets: Gateway returns `503/provider_unavailable`, dispatch wait exhaustion uses the
 same body, and bounded timeout/malformed protocol cases remain `502/provider_protocol_error`.
 The package is not closed until final-usage/replay behavior is proven through Platform. Actual downstream client socket cancellation
@@ -181,8 +182,9 @@ client closes before the delayed second write, and the lease remains
 Deliverables:
 
 - Keep the normalized direct-reset and dispatch-exhaustion `503/provider_unavailable`
-  contract stable while adding protocol-wide golden fixtures. Freeze its
-  retryable/non-retryable mapping before extending adapters.
+  contract stable while adding protocol-wide golden fixtures. The independent
+  inter-chunk/total timer tests pass; freeze the retryable/non-retryable mapping
+  before extending adapters.
 - Propagate client cancellation through the HTTP/SSE transport and stop retrying as
   soon as any response bytes have reached the client. Gateway source behavior and
   stack-level socket/reconciliation evidence now pass; add replay and final-usage
@@ -194,8 +196,8 @@ Deliverables:
 - Extend the isolated fault accounts to SSE: Provider disconnect before first event,
   disconnect after partial output, malformed usage, invalid content type, and established-SSE status
   retention now pass in the empty-stack gate, as do streaming 429/500 no-charge
-  rejections. The no-header timeout is now covered; add protocol-wide assertions,
-  separate inter-chunk/total stream timers, and final-usage behavior for a truncated
+  rejections. The no-header timeout and separate inter-chunk/total stream timers are
+  now covered; add protocol-wide assertions and final-usage behavior for a truncated
   stream. Actual client disconnect and invalid content type are covered by the
   current fault matrix.
 - Add bounded-buffer/backpressure assertions and verify that partial output cannot
