@@ -232,6 +232,17 @@ public class ApiKeyGrainTests
     }
 
     [Fact]
+    public async Task Validate_KeyAtExpiryBoundary_Throws()
+    {
+        var grain = GetGrain(1061);
+        var expiresAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        await grain.Create(new ApiKeyUpsert(1, 1, 100.0m, expiresAt, [], [], 0, 0, 0));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => grain.Validate(new AuthRequest("10.0.0.1", "req-expiry-boundary")));
+    }
+
+    [Fact]
     public async Task Validate_BlacklistedIp_Throws()
     {
         var grain = GetGrain(1007);

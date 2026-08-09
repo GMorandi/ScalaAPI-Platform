@@ -56,7 +56,7 @@ public class ApiKeyGrain : Grain, IApiKeyGrain
         if (s.Status != "active")
             throw new InvalidOperationException("API key is not active");
 
-        if (s.ExpiresAt.HasValue && s.ExpiresAt.Value < DateTimeOffset.UtcNow.ToUnixTimeMilliseconds())
+        if (s.ExpiresAt.HasValue && s.ExpiresAt.Value <= DateTimeOffset.UtcNow.ToUnixTimeMilliseconds())
             throw new InvalidOperationException("API key expired");
 
         var ipBlacklist = s.IpBlacklist ?? [];

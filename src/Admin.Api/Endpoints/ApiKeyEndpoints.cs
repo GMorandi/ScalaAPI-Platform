@@ -32,6 +32,33 @@ public static class ApiKeyEndpoints
             return Results.Ok(new PagedResponse<object>(items, total, page, size));
         });
 
+        group.MapGet("/{hash}/audit", async (string hash, ISqlSugarClient db,
+            ApiKeyAuditStore audit, string? action = null, DateTime? from = null,
+            DateTime? to = null, int page = 1, int size = 50, CancellationToken ct = default) =>
+        {
+            var key = await db.Queryable<UserApiKeyEntity>()
+                .Where(x => x.KeyHash == hash).FirstAsync();
+            if (key is null) return Results.NotFound();
+            if (!string.IsNullOrWhiteSpace(action)
+                && !new[] { "created", "updated", "rotated", "revoked", "expired", "denied" }
+                    .Contains(action, StringComparer.Ordinal))
+                return Results.BadRequest(new { error = "Unsupported API-key audit action" });
+            if (from.HasValue && to.HasValue && from > to)
+                return Results.BadRequest(new { error = "from must be before or equal to to" });
+
+            var result = await audit.ListAsync(key.ApiKeyId, action, from, to, page, size, ct);
+            return Results.Ok(new
+            {
+                items = result.Items.Select(item => new
+                {
+                    item.Id, item.ApiKeyId, item.UserId, item.ActorUserId, item.Action,
+                    item.Scopes, item.ExpiresAtMs, item.Capability, item.Reason,
+                    item.RequestId, item.CreatedAt,
+                }),
+                result.Total, result.Page, result.Size,
+            });
+        });
+
         group.MapPost("/", async (ApiKeyCreateRequest req, IClusterClient client,
             ListingRepository repo, ISqlSugarClient db, ClaimsPrincipal principal,
             ApiKeyAuditStore audit) =>
@@ -86,6 +113,9 @@ public static class ApiKeyEndpoints
             var grain = client.GetGrain<IApiKeyGrain>(hash);
             var entity = await db.Queryable<UserApiKeyEntity>().Where(x => x.KeyHash == hash).FirstAsync();
             if (entity is null) return Results.NotFound();
+            var current = await grain.GetConfig();
+            if (current.UserId != req.UserId)
+                return Results.BadRequest(new { error = "API-key ownership cannot be changed" });
             await grain.Update(new ApiKeyUpsert(
                 req.UserId, req.GroupId, req.Quota, req.ExpiresAt,
                 req.IpWhitelist, req.IpBlacklist,
@@ -95,7 +125,7 @@ public static class ApiKeyEndpoints
                 new SugarParameter("@scopes", JsonSerializer.Serialize(scopes)),
                 new SugarParameter("@expires", req.ExpiresAt),
                 new SugarParameter("@hash", hash));
-            await audit.RecordAsync(entity.ApiKeyId, req.UserId, actorId, "updated", scopes, req.ExpiresAt,
+            await audit.RecordAsync(entity.ApiKeyId, current.UserId, actorId, "updated", scopes, req.ExpiresAt,
                 reason: "admin policy update");
             return Results.NoContent();
         });

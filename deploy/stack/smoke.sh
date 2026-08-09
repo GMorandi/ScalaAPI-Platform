@@ -662,6 +662,16 @@ SELECT
   (SELECT count(*) FROM api_key_audit_events WHERE api_key_id = $scoped_api_key_id AND action = 'denied' AND capability = 'chat_completions') || '|' ||
   (SELECT count(*) FROM request_leases WHERE request_id = '$scoped_request_id');")" \
     "Scoped API key denial audit and lease invariants"
+scoped_api_key_hash="$(db_query "SELECT key_hash FROM user_api_keys WHERE api_key_id = $scoped_api_key_id;")"
+scoped_audit_response="$(admin_request GET "/admin/apikeys/${scoped_api_key_hash}/audit?action=denied&page=1&size=10" "" "$admin_token")"
+assert_equals "1" "$(jq -r '.total' <<<"$scoped_audit_response")" \
+    "Scoped API key authenticated audit total"
+assert_equals "denied" "$(jq -r '.items[0].action' <<<"$scoped_audit_response")" \
+    "Scoped API key authenticated audit action"
+if jq -e 'has("key") or (.items[0] | has("key"))' <<<"$scoped_audit_response" >/dev/null; then
+    echo "API-key audit response exposed key material" >&2
+    exit 1
+fi
 echo "PASS: scoped API key denies chat capability with audited 403 and no lease"
 fault_429_api_key="$(create_api_key "$fault_429_group_id")"
 fault_500_api_key="$(create_api_key "$fault_500_group_id")"
