@@ -10,8 +10,8 @@ read-only requirements reference and is excluded from builds and runtime.
 
 | Repository | Commit | Worktree | Role |
 | --- | --- | --- | --- |
-| `gateway` | `297b131` | clean | C++ HTTP/WebSocket edge, protocol parsing/conversion, streaming, strict Provider media contracts, bounded stream header/client timeouts, distinct inter-chunk/total timer tests, normalized Provider availability errors, transport/evidence, charge-aware failover, durable usage delivery, authenticated Garnet projections, deterministic fault boundaries, and late-usage settlement from truncated SSE |
-| `platform` | `bb7f2c0` | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, identity, scheduling, evidence-backed leases/holds/ledger, audited operator resolution, media lifecycle, Admin API/Web, Provider mock, migrations, deterministic Platform/Gateway fault boundaries, and Garnet deployment gates |
+| `gateway` | `eb5734f` | clean | C++ HTTP/WebSocket edge, protocol parsing/conversion, streaming, strict Provider media contracts, bounded stream header/client timeouts, distinct inter-chunk/total timer tests, normalized Provider availability errors, retryable Platform transport errors with bounded dispatch retry, transport/evidence, charge-aware failover, durable usage delivery, authenticated Garnet projections, deterministic fault boundaries, and late-usage settlement from truncated SSE |
+| `platform` | `90597b8` | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, identity, scheduling, evidence-backed leases/holds/ledger, audited operator resolution, restart-safe active-lease dispatch recovery, media lifecycle, Admin API/Web, Provider mock, migrations, deterministic Platform/Gateway fault boundaries, and Garnet deployment gates |
 | `sub2api` | `43ec48d` | read-only clean | Requirements catalogue only; never a runtime or compatibility dependency |
 
 The current tracked inventory is:
@@ -103,6 +103,12 @@ current-source runtime evidence.
   pre-commit/post-commit/pre-ack recovery, and Gateway termination before Provider
   dispatch (safe expiry) or after Provider completion (ambiguous lease retained
   for reconciliation).
+- Platform dispatch responses distinguish transient transport/protocol loss with
+  the dedicated `platformUnavailable` reject code. Gateway retries that code with
+  bounded backoff under the existing dispatch deadline, preserving the original
+  request and public idempotency identity. Platform looks up the durable request
+  lease and rebuilds its upstream target after restart, so a lost response resumes
+  the existing active lease instead of creating a second lease or charge.
 
 ### Identity and control plane
 
@@ -189,7 +195,7 @@ current-source runtime evidence.
 
 ## Current verification evidence
 
-At Platform `bb7f2c0` and Gateway `297b131`:
+At Platform `90597b8` and Gateway `eb5734f`:
 
 - Gateway built locally and passed 102/102 CTest cases, including deterministic
   fault-hook claim/repeat behavior, terminal SSE detection, provider EOF
@@ -236,6 +242,17 @@ At Platform `bb7f2c0` and Gateway `297b131`:
   unknown-charge incidents, one audited operator settlement, and eight remaining
   open incidents; temporary containers, volumes, networks, and image tags were
   removed after evidence capture.
+- The current-source project `scalaapi-platform-dispatch-retry-0914` enabled
+  `PLATFORM_FAULT_HOOK=platform.before_provider_dispatch`. Platform terminated
+  after creating the durable lease/hold; Gateway retried the same request with
+  the same idempotency identity, the replacement Platform recovered the active
+  lease, and the Provider request settled exactly one lease, usage event, usage
+  log, and NUMERIC debit. The complete matrix passed with nine unknown-charge
+  incidents, one audited operator settlement, and eight remaining open incidents.
+  This smoke used a temporary runtime image assembled from the verified local
+  Gateway build because the pinned Photon commit is no longer available for a
+  clean Gateway image build; all temporary containers, volumes, networks, and
+  image tags were removed after evidence capture.
 - Scheduler benchmark integrity dry run executed all 4 selected child benchmarks
   and returned zero. It is a failure-propagation check, not performance evidence.
 - `deploy/stack/smoke.sh` built current sibling sources in isolated Podman
@@ -315,9 +332,10 @@ Detailed gate results and residual coverage are maintained in `verification.md`.
   disconnect-before-output, malformed-usage retention, and bounded pre-header
   timeout handling with no usage/debit.
   The empty-stack gate now proves actual downstream socket cancellation as well;
-  Gateway commit `297b131` now preserves valid Provider usage observed before
-  truncated SSE EOF and settles it through the existing durable outbox path.
-  Gateway commit `6c43e5d` normalizes Provider
+  Gateway commit `eb5734f` preserves valid Provider usage observed before
+  truncated SSE EOF, settles it through the existing durable outbox path, and
+  retries transient Platform dispatch loss under the same request identity.
+  The same source line normalizes Provider
   connection resets and scheduler exhaustion to `503/provider_unavailable`; bounded
   timeout and malformed protocol cases remain `502/provider_protocol_error`; the
   timer distinctions are pinned by Gateway `18083f9`.
@@ -327,8 +345,10 @@ Detailed gate results and residual coverage are maintained in `verification.md`.
   Gateway reconnect/backoff recovery, durable usage replay, and exactly-once
   settlement. The current source gate also proves Gateway termination before
   dispatch with safe held expiry and after Provider completion with retention of its
-  forwarded lease/hold for reconciliation; Platform dispatch retry semantics,
-  other Gateway boundaries, and multi-instance hook assertions remain.
+  forwarded lease/hold for reconciliation. Platform dispatch retry and active
+  lease recovery now pass; realtime/other Gateway dispatch retry paths,
+  multi-instance hook assertions, and a reproducible clean Gateway image build
+  remain.
 - Garnet authentication, outage/reconnect, rebuild, and invalidation flush have
   evidence; TLS plus concurrent multi-Gateway/multi-Silo behavior is not a release
   gate yet.

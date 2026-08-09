@@ -2,7 +2,7 @@
 
 ## Checkpoint
 
-The next stage starts from Platform `bb7f2c0`, Gateway `297b131`, and read-only
+The next stage starts from Platform `90597b8`, Gateway `eb5734f`, and read-only
 reference `sub2api@43ec48d`.
 
 The greenfield baseline now starts from empty volumes, uses PostgreSQL as authority,
@@ -49,9 +49,13 @@ completion, restarts the same container, and retains the forwarded lease/hold as
 one reconciliation incident without a debit. Gateway before Provider dispatch and
 Platform before Provider dispatch now safely expire their unforwarded held leases
 after the same container is restarted. A Platform worker crash immediately after
-claiming a completed outbox event is also reclaimed and applied once; dispatch retry
-semantics, remaining boundaries, the worker/multi-silo matrix, and multi-instance
-scenarios are still open.
+claiming a completed outbox event is also reclaimed and applied once. Platform
+dispatch responses now expose a dedicated retryable `platformUnavailable` code;
+Gateway retries it with bounded backoff under the existing deadline, and Platform
+rebuilds the original active lease target after process loss. The Chat smoke proves
+one lease, usage event, usage log, and debit after this recovery. Realtime/other
+Gateway retry paths, remaining boundaries, the worker/multi-silo matrix, and
+multi-instance scenarios are still open.
 
 This stage contains no compatibility, cutover, dual-write, CDC, snapshot import,
 old-key import, ID preservation, status mapping, or business-data migration work.
@@ -79,8 +83,8 @@ failed assertion makes the top-level command non-zero.
 Accounting authority completed at `c15b53b`, reconciliation foundation at
 `fddba62`, dispatch evidence at `6bfb974`/`84634d1`, audited resolution at
 `0559659`, and deterministic fault boundaries at `1cad5b7`/`30b8c2b`/`8c3d2e0`,
-with current streaming/empty-stack evidence in Gateway `297b131` and Platform
-`bb7f2c0`:
+with current streaming/empty-stack evidence in Gateway `eb5734f` and Platform
+`90597b8`:
 
 - Added one per-user `accounting_accounts` authority with NUMERIC posted balance
   and monotonically increasing ledger version.
@@ -151,6 +155,12 @@ Implemented in this package:
   after claiming the completed settlement outbox but before any Grain side effect,
   explicitly starts the same container, and proves the expired claim is reclaimed
   and applied once with no duplicate financial effect.
+- The `scalaapi-platform-dispatch-retry-0914` source smoke terminates Platform
+  after the lease/hold commit. Gateway retries the same request and the replacement
+  Platform rebuilds the active lease target; the request settles one lease, usage
+  event, usage log, and NUMERIC debit. The full matrix passes. The smoke uses a
+  temporary runtime image assembled from the verified local Gateway build because
+  the pinned Photon commit is unavailable for a clean image build.
 - Added explicit `Orleans:SingleSiloRecovery` for the development smoke path and
   a Podman-compatible harness restart. The source smoke proved
   `platform.before_settlement_commit`, `platform.after_settlement_commit`, and
@@ -162,10 +172,9 @@ Next implementation slice:
 
 - Exercise every remaining hook independently with replay assertions for duplicate
   completion, abort, expiry, projection replacement, and process restart. Platform
-  and Gateway before-provider-dispatch, Platform outbox-claim reclaim, and Gateway
-  after-provider-completion recovery are now proven; next cover Platform dispatch
-  retry semantics, remaining Gateway hooks, and multi-silo recovery before
-  promoting the billing slice.
+  dispatch retry and active-lease recovery are proven for regular Chat; next cover
+  realtime and other Gateway dispatch paths, remaining Gateway hooks, and multi-silo
+  recovery before promoting the billing slice.
 
 Remaining package deliverables:
 
@@ -186,7 +195,7 @@ an open incident can be resolved only through the audited settle/release contrac
 
 ## Work package 2: cancellation and streaming failure semantics
 
-Progress in Gateway `297b131` and Platform `bb7f2c0`: the streaming pipe now requires a source protocol
+Progress in Gateway `eb5734f` and Platform `90597b8`: the streaming pipe now requires a source protocol
 terminal event before treating Provider EOF as complete, classifies timeout/EOF as
 incomplete (including Photon incomplete chunked-body `-1/errno=0`), treats
 zero/error client writes as cancellation, records bounded
