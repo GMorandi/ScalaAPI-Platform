@@ -19,7 +19,7 @@ The current tracked inventory is:
 - Gateway: 52 production C++ source/header files, 11 test source files, and 125
   CTest cases.
 - Platform: 94 hand-written production C# files, 3 generated Cap'n Proto C#
-  files, 41 test/benchmark C# files, and 180 tests: 69 Grain, 52 Host, 18 Admin,
+  files, 41 test/benchmark C# files, and 181 tests: 69 Grain, 52 Host, 19 Admin,
   and 41 Provider mock tests.
 - Product surface: 121 direct Admin API route declarations, 47 product tables,
   22 SQLSugar entity types, 23 Admin Web TypeScript/TSX files and 11 page views,
@@ -322,8 +322,8 @@ At Platform `15cdfc0` and Gateway `3da0d33`:
   sixteen request pairs, all sixteen response pairs, cross-protocol response
   envelope validation, and cross-protocol error normalization with standard
   status precedence.
-- Platform Release test/build passed with 0 warnings and 0 errors: 180/180 tests,
-  including 52 Host tests, 69 Grain tests, 18 Admin tests, and 41 Provider mock
+- Platform Release test/build passed with 0 warnings and 0 errors: 181/181 tests,
+  including 52 Host tests, 69 Grain tests, 19 Admin tests, and 41 Provider mock
   tests. Admin coverage
   includes PostgreSQL-backed TOTP replay, backup-code consumption, lockout,
   recovery, OAuth provider/redirect/verifier binding, one-time state consumption,
