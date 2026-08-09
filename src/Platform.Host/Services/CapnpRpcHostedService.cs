@@ -777,6 +777,12 @@ public class DispatchService
                 isMediaOperation ? "" : req.IdempotencyKey,
                 isMediaOperation ? "" : req.RequestFingerprint,
                 requestPrice));
+            if (created.SubscriptionQuotaExceeded)
+            {
+                await accountGrain.ReleaseSlot(selection.LeaseToken!);
+                await userGrain.ReleaseSlot(selection.LeaseToken!);
+                return DispatchResult.Rejected("quotaExhausted", "Subscription quota exhausted");
+            }
             if (created.InsufficientFunds)
             {
                 await accountGrain.ReleaseSlot(selection.LeaseToken!);

@@ -31,7 +31,9 @@ public sealed record RequestLease(
     decimal? PriceImageInputPerUnit,
     decimal? PriceImageOutputPerUnit,
     decimal? PriceVideoPerSecond,
-    decimal? PriceRealtimePerMinute)
+    decimal? PriceRealtimePerMinute,
+    long? SubscriptionId = null,
+    decimal SubscriptionHoldAmount = 0m)
 {
     public ModelPrice? PriceSnapshot => PricingVersion is null
         || PriceInputPerMillion is null || PriceOutputPerMillion is null
@@ -68,12 +70,14 @@ public sealed record LeaseCreateResult(
     bool Created,
     bool Replay,
     bool Conflict,
-    bool InsufficientFunds)
+    bool InsufficientFunds,
+    bool SubscriptionQuotaExceeded = false)
 {
     public static LeaseCreateResult New() => new(true, false, false, false);
     public static LeaseCreateResult Duplicate() => new(false, true, false, false);
     public static LeaseCreateResult IdempotencyConflict() => new(false, false, true, false);
     public static LeaseCreateResult NoFunds() => new(false, false, false, true);
+    public static LeaseCreateResult QuotaExceeded() => new(false, false, false, false, true);
 }
 
 public sealed record IdempotencyLookup(
@@ -289,6 +293,28 @@ public sealed class RequestLeaseStore(
             return LeaseCreateResult.NoFunds();
         }
 
+        var subscription = await TryReserveSubscriptionQuotaAsync(
+            connection, transaction, request.UserId, request.HoldAmount, ct);
+        if (!subscription.Allowed)
+        {
+            await transaction.RollbackAsync(ct);
+            return LeaseCreateResult.QuotaExceeded();
+        }
+        if (subscription.SubscriptionId is not null)
+        {
+            await using var attach = connection.CreateCommand();
+            attach.Transaction = transaction;
+            attach.CommandText = """
+                UPDATE request_leases
+                SET subscription_id = $2, subscription_hold_amount = $3
+                WHERE lease_token = $1
+                """;
+            attach.Parameters.AddWithValue(request.LeaseToken);
+            attach.Parameters.AddWithValue(subscription.SubscriptionId.Value);
+            attach.Parameters.AddWithValue(request.HoldAmount);
+            await attach.ExecuteNonQueryAsync(ct);
+        }
+
         await AppendLeaseEventAsync(connection, transaction, request.LeaseToken,
             "held", "platform", "balance hold reserved", null, ct);
 
@@ -338,7 +364,8 @@ public sealed class RequestLeaseStore(
                    pricing_version, price_input_per_million, price_output_per_million,
                    price_cache_create_per_million, price_cache_read_per_million,
                    price_image_input_per_unit, price_image_output_per_unit,
-                   price_video_per_second, price_realtime_per_minute
+                   price_video_per_second, price_realtime_per_minute,
+                   subscription_id, subscription_hold_amount
             FROM request_leases WHERE request_id = $1
             """);
         command.Parameters.AddWithValue(requestId);
@@ -357,7 +384,8 @@ public sealed class RequestLeaseStore(
                    pricing_version, price_input_per_million, price_output_per_million,
                    price_cache_create_per_million, price_cache_read_per_million,
                    price_image_input_per_unit, price_image_output_per_unit,
-                   price_video_per_second, price_realtime_per_minute
+                   price_video_per_second, price_realtime_per_minute,
+                   subscription_id, subscription_hold_amount
             FROM request_leases WHERE lease_token = $1
             """);
         command.Parameters.AddWithValue(leaseToken);
@@ -484,6 +512,8 @@ public sealed class RequestLeaseStore(
                     $"Usage accounting effect {effect.EffectId} was rejected: {effect.Status}");
         }
 
+        await FinalizeSubscriptionQuotaAsync(connection, transaction, lease, cost, ct);
+
         await using (var finalize = connection.CreateCommand())
         {
             finalize.Transaction = transaction;
@@ -591,6 +621,7 @@ public sealed class RequestLeaseStore(
 
             await accounting.FinalizeHoldAsync(connection, transaction,
                 lease.UserId, lease.HoldHandle, "released", ct);
+            await ReleaseSubscriptionQuotaAsync(connection, transaction, lease, ct);
             await FinalizeIdempotencyAsync(connection, transaction,
                 lease.LeaseToken, "aborted", ct);
             await EnqueueAsync(connection, transaction, lease.LeaseToken, "abort", ct);
@@ -895,8 +926,11 @@ public sealed class RequestLeaseStore(
         command.Parameters.AddWithValue((object?)providerStatusCode ?? DBNull.Value);
         await command.ExecuteNonQueryAsync(ct);
         if (!unknown)
+        {
             await accounting.FinalizeHoldAsync(connection, transaction,
                 lease.UserId, lease.HoldHandle, "released", ct);
+            await ReleaseSubscriptionQuotaAsync(connection, transaction, lease, ct);
+        }
         await FinalizeIdempotencyAsync(connection, transaction, lease.LeaseToken,
             unknown ? "reconciliation_needed" : "aborted", ct);
         await EnqueueAsync(connection, transaction, leaseToken, unknown ? "reconcile" : "abort", ct);
@@ -918,12 +952,14 @@ public sealed class RequestLeaseStore(
     {
         await using var connection = await dataSource.OpenConnectionAsync(ct);
         await using var transaction = await connection.BeginTransactionAsync(ct);
-        var expired = new List<(string Token, string Status, long UserId, string? HoldHandle)>();
+        var expired = new List<(string Token, string Status, long UserId, string? HoldHandle,
+            long? SubscriptionId, decimal SubscriptionHoldAmount)>();
         await using (var command = connection.CreateCommand())
         {
             command.Transaction = transaction;
             command.CommandText = """
-                SELECT lease_token, status, user_id, hold_handle
+                SELECT lease_token, status, user_id, hold_handle,
+                       subscription_id, subscription_hold_amount
                 FROM request_leases
                 WHERE status IN ('held', 'forwarded', 'output_started')
                   AND expires_at <= now()
@@ -934,7 +970,8 @@ public sealed class RequestLeaseStore(
             await using var reader = await command.ExecuteReaderAsync(ct);
             while (await reader.ReadAsync(ct))
                 expired.Add((reader.GetString(0), reader.GetString(1), reader.GetInt64(2),
-                    reader.IsDBNull(3) ? null : reader.GetString(3)));
+                    reader.IsDBNull(3) ? null : reader.GetString(3),
+                    reader.IsDBNull(4) ? null : reader.GetInt64(4), reader.GetDecimal(5)));
         }
         foreach (var item in expired)
         {
@@ -957,8 +994,12 @@ public sealed class RequestLeaseStore(
             update.Parameters.AddWithValue(item.Token);
             await update.ExecuteNonQueryAsync(ct);
             if (safe)
+            {
                 await accounting.FinalizeHoldAsync(connection, transaction,
                     item.UserId, item.HoldHandle, "released", ct);
+                await ReleaseSubscriptionQuotaAsync(connection, transaction,
+                    item.SubscriptionId, item.SubscriptionHoldAmount, ct: ct);
+            }
             await FinalizeIdempotencyAsync(connection, transaction,
                 item.Token, safe ? "expired" : "reconciliation_needed", ct);
             await EnqueueAsync(connection, transaction, item.Token, safe ? "expire" : "reconcile", ct);
@@ -1002,7 +1043,8 @@ public sealed class RequestLeaseStore(
                       l.pricing_version, l.price_input_per_million, l.price_output_per_million,
                       l.price_cache_create_per_million, l.price_cache_read_per_million,
                       l.price_image_input_per_unit, l.price_image_output_per_unit,
-                      l.price_video_per_second, l.price_realtime_per_minute
+                      l.price_video_per_second, l.price_realtime_per_minute,
+                      l.subscription_id, l.subscription_hold_amount
             """;
         command.Parameters.AddWithValue(batchSize);
         command.Parameters.AddWithValue(workerId);
@@ -1073,6 +1115,82 @@ public sealed class RequestLeaseStore(
         command.Parameters.AddWithValue(item.Id);
         command.Parameters.AddWithValue(reason.Length > 1000 ? reason[..1000] : reason);
         await command.ExecuteNonQueryAsync(ct);
+    }
+
+    private static async Task<(bool Allowed, long? SubscriptionId)> TryReserveSubscriptionQuotaAsync(
+        NpgsqlConnection connection, NpgsqlTransaction transaction, long userId,
+        decimal holdAmount, CancellationToken ct)
+    {
+        await using var select = connection.CreateCommand();
+        select.Transaction = transaction;
+        select.CommandText = """
+            SELECT id, quota_granted_usd, quota_used_usd, quota_reserved_usd
+            FROM user_subscriptions
+            WHERE user_id = $1 AND status = 'active'
+              AND (expires_at IS NULL OR expires_at > now())
+            ORDER BY expires_at DESC NULLS LAST, id DESC
+            LIMIT 1
+            FOR UPDATE
+            """;
+        select.Parameters.AddWithValue(userId);
+        await using var reader = await select.ExecuteReaderAsync(ct);
+        if (!await reader.ReadAsync(ct))
+            return (true, null);
+
+        var subscriptionId = reader.GetInt64(0);
+        var granted = reader.GetDecimal(1);
+        var used = reader.GetDecimal(2);
+        var reserved = reader.GetDecimal(3);
+        var available = granted - used - reserved;
+        await reader.DisposeAsync();
+        if (available < holdAmount)
+            return (false, subscriptionId);
+
+        await using var update = connection.CreateCommand();
+        update.Transaction = transaction;
+        update.CommandText = """
+            UPDATE user_subscriptions
+            SET quota_reserved_usd = quota_reserved_usd + $2
+            WHERE id = $1
+            """;
+        update.Parameters.AddWithValue(subscriptionId);
+        update.Parameters.AddWithValue(holdAmount);
+        await update.ExecuteNonQueryAsync(ct);
+        return (true, subscriptionId);
+    }
+
+    private static Task FinalizeSubscriptionQuotaAsync(
+        NpgsqlConnection connection, NpgsqlTransaction transaction,
+        RequestLease lease, decimal cost, CancellationToken ct) =>
+        ReleaseSubscriptionQuotaAsync(connection, transaction, lease.SubscriptionId,
+            lease.SubscriptionHoldAmount, cost, ct);
+
+    private static Task ReleaseSubscriptionQuotaAsync(
+        NpgsqlConnection connection, NpgsqlTransaction transaction,
+        RequestLease lease, CancellationToken ct) =>
+        ReleaseSubscriptionQuotaAsync(connection, transaction, lease.SubscriptionId,
+            lease.SubscriptionHoldAmount, 0m, ct);
+
+    private static async Task ReleaseSubscriptionQuotaAsync(
+        NpgsqlConnection connection, NpgsqlTransaction transaction,
+        long? subscriptionId, decimal reservedAmount, decimal usedAmount = 0m,
+        CancellationToken ct = default)
+    {
+        if (subscriptionId is null || (reservedAmount <= 0m && usedAmount <= 0m))
+            return;
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            UPDATE user_subscriptions
+            SET quota_reserved_usd = GREATEST(quota_reserved_usd - $2, 0),
+                quota_used_usd = quota_used_usd + $3
+            WHERE id = $1
+            """;
+        command.Parameters.AddWithValue(subscriptionId.Value);
+        command.Parameters.AddWithValue(reservedAmount);
+        command.Parameters.AddWithValue(usedAmount);
+        if (await command.ExecuteNonQueryAsync(ct) != 1)
+            throw new InvalidOperationException($"Subscription {subscriptionId} disappeared during lease settlement");
     }
 
     private static decimal ComputeCost(RequestLease lease, LeaseCompletion usage, ModelPrice price)
@@ -1147,7 +1265,8 @@ public sealed class RequestLeaseStore(
                    pricing_version, price_input_per_million, price_output_per_million,
                    price_cache_create_per_million, price_cache_read_per_million,
                    price_image_input_per_unit, price_image_output_per_unit,
-                   price_video_per_second, price_realtime_per_minute
+                   price_video_per_second, price_realtime_per_minute,
+                   subscription_id, subscription_hold_amount
             FROM request_leases WHERE lease_token = $1 FOR UPDATE
             """;
         command.Parameters.AddWithValue(leaseToken);
@@ -1176,7 +1295,9 @@ public sealed class RequestLeaseStore(
             reader.IsDBNull(i + 21) ? null : reader.GetDecimal(i + 21),
             reader.IsDBNull(i + 22) ? null : reader.GetDecimal(i + 22),
             reader.IsDBNull(i + 23) ? null : reader.GetDecimal(i + 23),
-            reader.IsDBNull(i + 24) ? null : reader.GetDecimal(i + 24));
+            reader.IsDBNull(i + 24) ? null : reader.GetDecimal(i + 24),
+            reader.IsDBNull(i + 25) ? null : reader.GetInt64(i + 25),
+            reader.GetDecimal(i + 26));
     }
 
     private static async Task EnqueueAsync(NpgsqlConnection connection, NpgsqlTransaction transaction,

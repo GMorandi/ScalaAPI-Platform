@@ -800,7 +800,7 @@ public static class PlatformEndpoints
         command.CommandText = """
             SELECT s.id, s.plan_id, p.name, p.price_monthly, p.quota_usd, s.status,
                    s.started_at, s.expires_at, s.renewal_at, s.cancelled_at,
-                   s.quota_granted_usd, s.quota_used_usd
+                   s.quota_granted_usd, s.quota_used_usd, s.quota_reserved_usd
             FROM user_subscriptions s JOIN subscription_plans p ON p.id = s.plan_id
             WHERE s.user_id = $1 ORDER BY s.started_at DESC
             """;
@@ -818,6 +818,9 @@ public static class PlatformEndpoints
                 renewalAt = reader.IsDBNull(8) ? (DateTime?)null : reader.GetFieldValue<DateTime>(8),
                 cancelledAt = reader.IsDBNull(9) ? (DateTime?)null : reader.GetFieldValue<DateTime>(9),
                 quotaGrantedUsd = reader.GetDecimal(10), quotaUsedUsd = reader.GetDecimal(11),
+                quotaReservedUsd = reader.GetDecimal(12),
+                quotaRemainingUsd = Math.Max(0m, reader.GetDecimal(10)
+                    - reader.GetDecimal(11) - reader.GetDecimal(12)),
             });
         }
         return items;

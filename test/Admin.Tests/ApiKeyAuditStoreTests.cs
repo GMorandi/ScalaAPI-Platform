@@ -55,12 +55,18 @@ public sealed class ApiKeyAuditStoreTests
         }
         finally
         {
-            await using var cleanup = dataSource.CreateCommand("""
-                DELETE FROM api_key_audit_events WHERE api_key_id = $1;
-                DELETE FROM user_api_keys WHERE api_key_id = $1;
-                """);
-            cleanup.Parameters.AddWithValue(apiKeyId);
-            await cleanup.ExecuteNonQueryAsync();
+            await using (var auditCleanup = dataSource.CreateCommand(
+                "DELETE FROM api_key_audit_events WHERE api_key_id = $1"))
+            {
+                auditCleanup.Parameters.AddWithValue(apiKeyId);
+                await auditCleanup.ExecuteNonQueryAsync();
+            }
+            await using (var keyCleanup = dataSource.CreateCommand(
+                "DELETE FROM user_api_keys WHERE api_key_id = $1"))
+            {
+                keyCleanup.Parameters.AddWithValue(apiKeyId);
+                await keyCleanup.ExecuteNonQueryAsync();
+            }
         }
     }
 }

@@ -22,7 +22,7 @@ public sealed class MigrationSchemaTests
             ["request_leases"] = ["lease_token", "request_id", "hold_amount", "status",
                 "pricing_version", "price_input_per_million", "price_output_per_million",
                 "reconciliation_needed_at", "forwarded_at", "output_started_at",
-                "provider_status_code"],
+                "provider_status_code", "subscription_id", "subscription_hold_amount"],
             ["request_lease_events"] = ["lease_token", "event_type", "source", "detail",
                 "provider_status_code", "created_at"],
             ["request_idempotency"] = ["api_key_id", "idempotency_key", "request_fingerprint", "lease_token", "status",
@@ -84,7 +84,8 @@ public sealed class MigrationSchemaTests
                 "token_endpoint_host", "started_at", "completed_at", "duration_ms"],
             ["payment_webhook_events"] = ["provider", "event_id", "event_type", "payload_hash", "status", "attempts", "next_attempt_at"],
             ["subscription_events"] = ["subscription_id", "user_id", "event_type", "idempotency_key", "payload"],
-            ["user_subscriptions"] = ["user_id", "plan_id", "status", "idempotency_key", "renewal_at", "quota_granted_usd", "quota_used_usd"]
+            ["user_subscriptions"] = ["user_id", "plan_id", "status", "idempotency_key", "renewal_at",
+                "quota_granted_usd", "quota_used_usd", "quota_reserved_usd"]
         };
 
         await using var connection = new NpgsqlConnection(connectionString);
