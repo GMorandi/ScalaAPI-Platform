@@ -2,7 +2,7 @@
 
 ## Checkpoint
 
-The next stage starts from Platform `becf189`, Gateway `3da0d33`, and read-only
+The next stage starts from Platform `db770e2`, Gateway `3da0d33`, and read-only
 reference `sub2api@43ec48d`.
 
 The greenfield baseline now starts from empty volumes, uses PostgreSQL as authority,
@@ -340,6 +340,12 @@ Remaining package deliverables:
   generic client insert path are covered by a real PostgreSQL test. Add retention
   and immutable-storage controls, authorization/browser export tests, and a
   security scan before moving SEC-02 to implemented.
+- Proxy/TLS administration is now a secured configuration slice at Platform
+  `db770e2`: AES-GCM proxy secrets, redacted list views, bounded proxy/TLS input,
+  generic probe errors, and actor/IP audit are covered by a real PostgreSQL test.
+  Add provider-specific outbound adapters, actual TLS fingerprint application,
+  secret rotation/retention, browser authorization, and security scans before
+  moving SEC-03 to implemented.
 - Add a blocking negative probe for each new fault hook so a swallowed child failure or
   missing scenario makes the top-level gate non-zero.
 
