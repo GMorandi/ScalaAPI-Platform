@@ -55,6 +55,8 @@ public sealed class MigrationSchemaTests
                 "locked_until", "last_accepted_step", "updated_at"],
             ["auth_oauth_states"] = ["state_hash", "provider", "redirect_uri", "verifier_hash",
                 "expires_at", "consumed_at", "created_at"],
+            ["auth_abuse_counters"] = ["counter_key", "failure_count", "window_started_at",
+                "locked_until", "updated_at"],
             ["provider_credential_refresh_attempts"] = ["id", "attempt_id", "account_id",
                 "source", "version_before", "version_after", "outcome", "error_code",
                 "token_endpoint_host", "started_at", "completed_at", "duration_ms"],

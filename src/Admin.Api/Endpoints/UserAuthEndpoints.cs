@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using System.Security.Cryptography;
 using Microsoft.AspNetCore.WebUtilities;
+using Npgsql;
 using OtpNet;
 using SqlSugar;
 using Orleans;
@@ -154,27 +155,59 @@ public static class UserAuthEndpoints
         });
 
         auth.MapPost("/register", async (RegisterRequest req, ISqlSugarClient db,
-            IClusterClient client, ListingRepository registry, AccountingStore accounting) =>
+            IClusterClient client, ListingRepository registry, AccountingStore accounting,
+            AuthAbuseService abuse, HttpContext http) =>
         {
-            if (string.IsNullOrWhiteSpace(req.Email) || string.IsNullOrWhiteSpace(req.Password))
-                return Results.BadRequest(new { error = "Email and password required" });
-            if (req.Password.Length < 12)
-                return Results.BadRequest(new { error = "Password must be at least 12 characters" });
+            var ipAddress = http.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+            var gate = await abuse.CheckRegistrationAsync(ipAddress, http.RequestAborted);
+            if (!gate.Allowed)
+            {
+                http.Response.Headers["Retry-After"] = gate.RetryAfterSeconds.ToString(
+                    System.Globalization.CultureInfo.InvariantCulture);
+                return Results.Json(new { error = "auth_rate_limited" }, statusCode: 429);
+            }
 
-            var email = req.Email.Trim().ToLowerInvariant();
+            if (!AuthInputValidation.TryNormalizeEmail(req.Email, out var email))
+            {
+                await abuse.RecordRegistrationFailureAsync(ipAddress, http.RequestAborted);
+                return Results.BadRequest(new { error = "A valid email is required" });
+            }
+            if (!AuthInputValidation.IsValidPassword(req.Password))
+            {
+                await abuse.RecordRegistrationFailureAsync(ipAddress, http.RequestAborted);
+                return Results.BadRequest(new { error = "Password must be 12 to 256 characters" });
+            }
+            var displayName = AuthInputValidation.NormalizeDisplayName(req.DisplayName);
+            if (displayName?.Length > 200)
+            {
+                await abuse.RecordRegistrationFailureAsync(ipAddress, http.RequestAborted);
+                return Results.BadRequest(new { error = "Display name is too long" });
+            }
+
             var existing = await db.Queryable<UserAccountEntity>()
                 .Where(x => x.Email == email).FirstAsync();
             if (existing is not null)
+            {
+                await abuse.RecordRegistrationFailureAsync(ipAddress, http.RequestAborted);
                 return Results.Conflict(new { error = "Email already registered" });
+            }
 
             var account = new UserAccountEntity
             {
                 Email = email,
                 PasswordHash = BCrypt.Net.BCrypt.HashPassword(req.Password),
-                DisplayName = req.DisplayName,
+                DisplayName = displayName,
                 CreatedAt = DateTime.UtcNow,
             };
-            await db.Insertable(account).ExecuteCommandAsync();
+            try
+            {
+                await db.Insertable(account).ExecuteCommandAsync();
+            }
+            catch (PostgresException exception) when (exception.SqlState == "23505")
+            {
+                await abuse.RecordRegistrationFailureAsync(ipAddress, http.RequestAborted);
+                return Results.Conflict(new { error = "Email already registered" });
+            }
             account.Id = Convert.ToInt64(await db.Ado.GetScalarAsync(
                 "SELECT id FROM user_accounts WHERE email = @email",
                 new SugarParameter("@email", email)));
@@ -182,21 +215,49 @@ public static class UserAuthEndpoints
                 "user", 1, 0, []));
             await registry.RegisterInteger("user", account.Id);
             await accounting.EnsureAccountAsync(account.Id);
+            await abuse.RecordRegistrationSuccessAsync(ipAddress, http.RequestAborted);
 
             return Results.Ok(new { id = account.Id, email = account.Email });
         });
 
         auth.MapPost("/login", async (UserLoginRequest req, ISqlSugarClient db,
-            TotpVerificationService totp, AuthSessionService sessions, HttpContext http) =>
+            TotpVerificationService totp, AuthSessionService sessions,
+            AuthAbuseService abuse, HttpContext http) =>
         {
-            var email = req.Email.Trim().ToLowerInvariant();
+            var ipAddress = http.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+            var normalizedEmail = AuthInputValidation.TryNormalizeEmail(req.Email, out var email)
+                ? email : null;
+            var gate = await abuse.CheckLoginAsync(normalizedEmail, ipAddress, http.RequestAborted);
+            if (!gate.Allowed)
+            {
+                http.Response.Headers["Retry-After"] = gate.RetryAfterSeconds.ToString(
+                    System.Globalization.CultureInfo.InvariantCulture);
+                return Results.Json(new { error = "auth_rate_limited" }, statusCode: 429);
+            }
+            if (normalizedEmail is null)
+            {
+                await abuse.RecordLoginFailureAsync(null, ipAddress, http.RequestAborted);
+                return Results.Unauthorized();
+            }
+            if (!AuthInputValidation.IsValidPassword(req.Password))
+            {
+                await abuse.RecordLoginFailureAsync(email, ipAddress, http.RequestAborted);
+                return Results.Unauthorized();
+            }
+
             var account = await db.Queryable<UserAccountEntity>()
                 .Where(x => x.Email == email).FirstAsync();
             if (account is null || account.Status != "active" || account.PasswordHash is null)
+            {
+                await abuse.RecordLoginFailureAsync(email, ipAddress, http.RequestAborted);
                 return Results.Unauthorized();
+            }
 
             if (!BCrypt.Net.BCrypt.Verify(req.Password, account.PasswordHash))
+            {
+                await abuse.RecordLoginFailureAsync(email, ipAddress, http.RequestAborted);
                 return Results.Unauthorized();
+            }
 
             if (account.TotpEnabled)
             {
@@ -224,6 +285,7 @@ public static class UserAuthEndpoints
 
             var tokens = await sessions.IssueAsync(account.Id, account.Email, account.Role,
                 http.Connection.RemoteIpAddress?.ToString(), http.Request.Headers.UserAgent);
+            await abuse.RecordLoginSuccessAsync(email, ipAddress, http.RequestAborted);
             return Results.Ok(new
             {
                 token = tokens.Token, refresh_token = tokens.RefreshToken,

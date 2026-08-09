@@ -56,6 +56,7 @@ COPY deploy/migrations/022-auth-totp-state.sql ./migrations/022-auth-totp-state.
 COPY deploy/migrations/023-auth-oauth-states.sql ./migrations/023-auth-oauth-states.sql
 COPY deploy/migrations/024-provider-credential-refresh-audit.sql ./migrations/024-provider-credential-refresh-audit.sql
 COPY deploy/migrations/025-api-key-policy-audit.sql ./migrations/025-api-key-policy-audit.sql
+COPY deploy/migrations/026-auth-abuse-counters.sql ./migrations/026-auth-abuse-counters.sql
 ENTRYPOINT ["dotnet", "migrate/Db.Migrator.dll", "/app/migrations"]
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS provider-mock

@@ -481,10 +481,10 @@ wait_for "Admin API readiness" 60 compose exec -T admin-api \
 wait_for "User Web readiness" 60 curl -fsS "$user_web_url/" >/dev/null
 
 migration_count="$(db_query "SELECT count(*) FROM schema_migrations;")"
-assert_equals "26" "$migration_count" "Applied migration count"
+assert_equals "27" "$migration_count" "Applied migration count"
 second_migration_output="$(compose run --rm migrate 2>&1)"
 second_skip_count="$(grep -cE 'skip .+\.sql' <<<"$second_migration_output" || true)"
-assert_equals "26" "$second_skip_count" "Idempotent migrator skip count"
+assert_equals "27" "$second_skip_count" "Idempotent migrator skip count"
 
 login_response="$(admin_request POST /admin/auth/login \
     "$(jq -cn --arg username "$ADMIN_USERNAME" --arg password "$ADMIN_PASSWORD" \
@@ -521,6 +521,27 @@ fault_invalid_content_type_group_id="$(jq -er '.scenarios[] | select(.scenario =
     <<<"$fault_seed_response")"
 assert_equals "9" "$(jq -er '.scenarios | length' <<<"$fault_seed_response")" \
     "Seeded fault scenario count"
+
+invalid_register_status="$(compose exec -T admin-api curl -sS -o /dev/null -w '%{http_code}' \
+    -X POST -H 'Content-Type: application/json' \
+    --data '{"email":"not-an-email","password":"long-enough-password"}' \
+    http://127.0.0.1:5001/auth/register)"
+assert_equals "400" "$invalid_register_status" "Invalid registration input rejection"
+abuse_email="auth-abuse-${suffix}@scalaapi.test"
+for attempt in $(seq 1 5); do
+    failed_login_status="$(compose exec -T admin-api curl -sS -o /dev/null -w '%{http_code}' \
+        -X POST -H 'Content-Type: application/json' \
+        --data "$(jq -cn --arg email "$abuse_email" \
+            '{email:$email,password:"wrong-password-for-throttle"}')" \
+        http://127.0.0.1:5001/auth/login)"
+    assert_equals "401" "$failed_login_status" "Failed login attempt $attempt"
+done
+login_throttled_status="$(compose exec -T admin-api curl -sS -o /dev/null -w '%{http_code}' \
+    -X POST -H 'Content-Type: application/json' \
+    --data "$(jq -cn --arg email "$abuse_email" \
+        '{email:$email,password:"wrong-password-for-throttle"}')" \
+    http://127.0.0.1:5001/auth/login)"
+assert_equals "429" "$login_throttled_status" "Login abuse throttle"
 
 register_response="$(admin_request POST /auth/register \
     "$(jq -cn --arg email "$user_email" --arg password "$user_password" \
@@ -1114,7 +1135,7 @@ if [[ "$garnet_probe" != *PONG* ]]; then
     exit 1
 fi
 
-echo "PASS: 26 empty-volume migrations and second-run idempotency"
+echo "PASS: 27 empty-volume migrations and second-run idempotency"
 echo "PASS: idempotent administrative funding, audit, conflict, and overdraft guards"
 echo "PASS: Garnet-authenticated Gateway -> Platform -> Provider mock request"
 echo "PASS: terminal lease, hold, usage, ledger, and outbox invariants"
