@@ -124,7 +124,30 @@ builder.Services.AddSingleton<AccountingReconciliationService>();
 builder.Services.AddHttpClient<ObjectStorageClient>();
 builder.Services.AddSingleton<RequestLeaseStore>();
 builder.Services.AddSingleton<MediaOperationStore>();
-builder.Services.AddSingleton<IContentClassifier, DefaultContentClassifier>();
+var classifierEndpoint = builder.Configuration["ContentClassifier:Endpoint"];
+if (string.IsNullOrWhiteSpace(classifierEndpoint))
+{
+    builder.Services.AddSingleton<IContentClassifier, DefaultContentClassifier>();
+}
+else
+{
+    if (!Uri.TryCreate(classifierEndpoint, UriKind.Absolute, out var endpoint)
+        || (endpoint.Scheme != Uri.UriSchemeHttp && endpoint.Scheme != Uri.UriSchemeHttps))
+        throw new InvalidOperationException(
+            "ContentClassifier:Endpoint must be an absolute HTTP(S) URL");
+    var timeoutMs = Math.Clamp(
+        builder.Configuration.GetValue("ContentClassifier:TimeoutMs", 750), 100, 5000);
+    var options = new ContentClassifierClientOptions(
+        endpoint, TimeSpan.FromMilliseconds(timeoutMs));
+    builder.Services.AddSingleton(options);
+    builder.Services.AddHttpClient<HttpContentClassifier>(client =>
+    {
+        client.Timeout = options.Timeout;
+        client.MaxResponseContentBufferSize = ContentClassifierClientOptions.MaxResponseBytes;
+    });
+    builder.Services.AddSingleton<IContentClassifier>(sp =>
+        sp.GetRequiredService<HttpContentClassifier>());
+}
 builder.Services.AddSingleton<ContentPolicyService>();
 builder.Services.AddSingleton<ContentPolicyPropagationService>();
 builder.Services.AddSingleton<DispatchService>();

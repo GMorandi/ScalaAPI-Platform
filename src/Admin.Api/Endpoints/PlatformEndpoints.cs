@@ -1205,7 +1205,7 @@ public static class PlatformEndpoints
         });
 
         group.MapGet("/alerts", async (ISqlSugarClient db, string? kind,
-            string? severity, long? userId, string? requestId,
+            string? severity, long? userId, long? ruleId, string? requestId,
             int page = 1, int size = 50) =>
         {
             page = Math.Max(1, page);
@@ -1214,6 +1214,7 @@ public static class PlatformEndpoints
             if (!string.IsNullOrWhiteSpace(kind)) query = query.Where(x => x.Kind == kind);
             if (!string.IsNullOrWhiteSpace(severity)) query = query.Where(x => x.Severity == severity);
             if (userId.HasValue) query = query.Where(x => x.UserId == userId.Value);
+            if (ruleId.HasValue) query = query.Where(x => x.RuleId == ruleId.Value);
             if (!string.IsNullOrWhiteSpace(requestId)) query = query.Where(x => x.RequestId == requestId);
             var total = await query.CountAsync();
             var items = await query.OrderByDescending(x => x.CreatedAt)

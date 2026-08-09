@@ -158,6 +158,48 @@ app.MapGet("/v1beta/models/{model}", (string model) => Results.Ok(new
     supportedGenerationMethods = new[] { "generateContent", "streamGenerateContent" }
 }));
 
+app.MapPost("/v1/classifier/evaluate", async (HttpContext context,
+    CancellationToken cancellationToken) =>
+{
+    using var body = await MockProviderHelpers.ReadJsonAsync(context, cancellationToken);
+    var root = body.RootElement;
+    if (root.ValueKind != JsonValueKind.Object
+        || !root.TryGetProperty("content", out var content)
+        || content.ValueKind != JsonValueKind.String
+        || !root.TryGetProperty("pattern", out var pattern)
+        || pattern.ValueKind != JsonValueKind.String
+        || !root.TryGetProperty("evaluator_version", out var evaluator)
+        || evaluator.ValueKind != JsonValueKind.String
+        || evaluator.GetString() != "unicode-confusable-v1")
+        return Results.BadRequest(new { error = "classifier_request_invalid" });
+
+    var normalizedContent = content.GetString() ?? "";
+    var normalizedPattern = pattern.GetString() ?? "";
+    if (normalizedContent.Length > 128 * 1024 || normalizedPattern.Length is < 1 or > 1024)
+        return Results.BadRequest(new { error = "classifier_request_too_large" });
+
+    // These markers are source-owned fault fixtures used by contract and smoke
+    // tests; no upstream provider protocol is being emulated here.
+    if (normalizedPattern.Contains("external-classifier-outage-marker",
+            StringComparison.Ordinal))
+        return Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
+    if (normalizedPattern.Contains("external-classifier-malformed-marker",
+            StringComparison.Ordinal))
+        return Results.Text("{not-json", "application/json", statusCode: 200);
+    if (normalizedPattern.Contains("external-classifier-oversized-marker",
+            StringComparison.Ordinal))
+        return Results.Text(new string('x', 9 * 1024), "application/json", statusCode: 200);
+    if (normalizedPattern.Contains("external-classifier-timeout-marker",
+            StringComparison.Ordinal))
+    {
+        await Task.Delay(TimeSpan.FromSeconds(10), cancellationToken);
+        return Results.Ok(new { outcome = "no_match" });
+    }
+
+    var matched = normalizedContent.Contains(normalizedPattern, StringComparison.Ordinal);
+    return Results.Ok(new { outcome = matched ? "match" : "no_match" });
+});
+
 app.MapGet("/v1/responses", async (HttpContext context, CancellationToken cancellationToken) =>
 {
     if (!context.WebSockets.IsWebSocketRequest)

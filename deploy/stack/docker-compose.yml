@@ -87,6 +87,8 @@ services:
       Security__MasterKey: ${SECURITY_MASTER_KEY:?SECURITY_MASTER_KEY is required}
       ProviderCredentials__AllowInsecureTokenEndpoints: ${PROVIDER_CREDENTIALS_ALLOW_INSECURE:-false}
       ProviderMock__BaseUrl: http://provider-mock:8081
+      ContentClassifier__Endpoint: ${CONTENT_CLASSIFIER_ENDPOINT:-http://provider-mock:8081/v1/classifier/evaluate}
+      ContentClassifier__TimeoutMs: ${CONTENT_CLASSIFIER_TIMEOUT_MS:-750}
       Dispatch__LeaseTtlSeconds: ${DISPATCH_LEASE_TTL_SECONDS:-360}
       FaultInjection__Hook: ${PLATFORM_FAULT_HOOK:-}
       FaultInjection__MarkerDirectory: ${PLATFORM_FAULT_MARKER_DIR:-/var/run/scalaapi/fault-hooks}
