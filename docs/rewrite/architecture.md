@@ -53,11 +53,16 @@ configuration.
 
 After authentication and API-key capability authorization, Platform evaluates the
 bounded request content against active, scope-aware `log`/`block` rules. Matches
-are persisted in `content_audit_logs`. A blocking decision terminates dispatch
-before group rate accounting, scheduling, credential hydration, lease/hold creation,
-or Provider contact. Gateway maps the dedicated internal rejection to HTTP 400.
-This initial policy contract uses bounded case-insensitive substring rules; response
-enforcement and external classifiers are separate future contracts.
+are persisted in `content_audit_logs` with an explicit `request` or `response`
+stage and rule identity. A request blocking decision terminates dispatch before
+group rate accounting, scheduling, credential hydration, lease/hold creation, or
+Provider contact. For successful non-stream Chat responses, Gateway evaluates the
+Provider body through the same lease-bound RPC before delivery. A response block
+replaces the body with HTTP 400 `content_policy_violation` while normal Provider
+usage still completes the lease and the policy response is retained for exact
+idempotency replay. Unknown policy evaluation fails closed with HTTP 503 and does
+not expose the Provider body. Streaming response moderation and external
+classifiers remain future contracts.
 
 A request begins `held`. Gateway must persist `forwarded` before contacting a
 Provider and records `output_started` after its first successful client write. The

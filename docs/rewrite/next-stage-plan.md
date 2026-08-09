@@ -2,7 +2,7 @@
 
 ## Checkpoint
 
-The next stage starts from Platform `0f45128`, Gateway `20d0b85`, and read-only
+The next stage starts from Platform `713f5c0`, Gateway `e7f6184`, and read-only
 reference `sub2api@43ec48d`.
 
 The greenfield baseline now starts from empty volumes, uses PostgreSQL as authority,
@@ -60,6 +60,15 @@ through the clean Gateway runtime image, including exactly-once
 lease/usage/hold/ledger settlement; long-connection/backpressure soak, remaining
 boundaries, the worker/multi-silo matrix, and multi-instance scenarios are still
 open.
+The current source-built `scalaapi-response-policy-20260809` gate applies and
+replays 29 migration records from empty volumes, proves Garnet-authenticated
+request routing, staged request/response policy, the full Provider fault matrix,
+media persistence, audited reconciliation, and exactly-once restart billing. A
+response block withholds Provider output but still commits the normal Provider
+usage debit and stores an exact client-facing 400 replay. Content rule creation
+returns its persisted identity, and the Provider mock forces headers before the
+zero-byte disconnect fixture so the intended 503 classification is deterministic.
+
 Provider OAuth credentials now use encrypted versioned state with a single-account
 refresh lease, compare-and-set completion, bounded error evidence, and scheduler
 backoff. Regular dispatch recovery and media polling share one HTTPS-by-default,
@@ -121,18 +130,43 @@ concurrency, and idempotent group spend remain covered by the Grain suite; HTTP
 group CRUD validation, distributed rate-window contention, and multi-Silo fallback
 fault evidence remain release work.
 
-The first `SEC-01` runtime slice is now active at Gateway `20d0b85` and Platform
-`0f45128`. The canonical dispatch contract carries bounded request content, and
-Platform applies active scope-aware `log`/`block` rules after authentication and
-capability checks but before scheduler, hold, lease, or Provider activity. Matches
-are written to `content_audit_logs`; blocked requests receive a dedicated HTTP 400
-error and the source smoke asserts zero leases. Migration 027 constrains rule
-actions/status/pattern length. The next security work is response-side enforcement,
-Unicode and classifier fixtures, alerting, rule-change propagation, and browser
-authorization evidence; the domain remains `partial` until those are automated.
+The `SEC-01` runtime slice is active at Gateway `e7f6184` and Platform `6fc76f3`.
+The canonical dispatch contract carries bounded request and response content.
+Platform applies request `log`/`block` rules before scheduler/lease activity and
+response rules after Provider validation but before non-stream delivery. Both stages
+write rule-linked audits; request blocks create no lease, while response blocks hide
+the Provider body, preserve one normal usage debit, and replay the client-facing
+400. Migration 028 adds stage constraints and idempotent stage logging. The domain
+remains `partial` until streaming response enforcement, Unicode/normalization and
+classifier fixtures, alerting, rule-change propagation, and browser authorization
+evidence are automated.
 
-This stage contains no compatibility, cutover, dual-write, CDC, snapshot import,
-old-key import, ID preservation, status mapping, or business-data migration work.
+## Next implementation slice
+
+1. Finish `SEC-01` for streaming responses. Define a bounded buffering/windowing
+   policy that can withhold unsafe chunks before client delivery, emit a terminal
+   policy error on denial, and preserve the existing unknown-charge/late-usage
+   settlement semantics on cancellation or classifier failure. Add protocol tests
+   for OpenAI Chat/Responses, Anthropic, and Gemini SSE fixtures.
+2. Add a source-owned content normalizer and classifier contract. Normalize Unicode
+   (including confusable and decomposed forms) before matching, version the rule
+   evaluator, and fail closed when an external classifier is unavailable. Add rule
+   update propagation, bounded audit snippets, and sensitive-content redaction tests.
+3. Add operator and browser evidence. Exercise Admin rule stage/update/delete with
+   fresh identity, authorization, audit, and cache invalidation; add Admin/User Web
+   browser tests for policy management and the user-visible policy error contract.
+4. Close release reliability gates in parallel: Provider golden request/response
+   fixtures, long WebSocket/backpressure soak, multi-Gateway/multi-Silo contention,
+   Garnet TLS/outage/rebuild, PostgreSQL/Garnet recovery, and backup/restore drills.
+   Every scenario must run from empty volumes or an explicitly created fixture and
+   must make the top-level command non-zero on failure.
+
+Exit for this stage: streaming and non-stream policy decisions are deterministic,
+audited, fail closed, and replay-safe; all current 58 inventory domains have an
+API/state machine, automated test, and source-built runtime evidence for their
+claimed status. This stage contains no compatibility, cutover, dual-write, CDC,
+snapshot import, old-key import, ID preservation, status mapping, or business-data
+migration work.
 
 ## Objective
 
@@ -243,15 +277,14 @@ Implemented in this package:
   usage debit; the Podman harness starts an exited container explicitly before
   waiting for settlement.
 
-Next implementation slice:
+Earlier reliability follow-up (now covered by the current gate):
 
 - Exercise every remaining hook independently with replay assertions for duplicate
   completion, abort, expiry, projection replacement, and process restart. Platform
   dispatch retry and active-lease recovery are proven for regular Chat, while
   Gateway source tests and the full-stack smoke cover the same policy for realtime.
-  The next gate is long-connection/backpressure soak, replay after restart,
-  remaining Gateway crash boundaries, and multi-silo recovery before promoting the
-  billing slice.
+  Long-connection/backpressure soak, replay-after-restart, remaining Gateway crash
+  boundaries, and multi-silo recovery are carried into the release gates below.
 
 Remaining package deliverables:
 
@@ -278,7 +311,7 @@ terminal event before treating Provider EOF as complete, classifies timeout/EOF 
 incomplete (including Photon incomplete chunked-body `-1/errno=0`), treats
 zero/error client writes as cancellation, records bounded
 disconnect/cancellation reasons, and prevents Gateway failover or normal usage
-settlement for ambiguous partial streams. These behaviors are covered by 106 Gateway
+settlement for ambiguous partial streams. These behaviors are covered by 114 Gateway
 CTest cases. Platform smoke proves Provider disconnect, disconnect-before-output,
 malformed-usage, invalid content type, downstream client cancellation, and streaming
 429/500 rejection outcomes with the expected hold/debit behavior. Exact

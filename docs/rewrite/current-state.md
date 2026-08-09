@@ -10,16 +10,16 @@ read-only requirements reference and is excluded from builds and runtime.
 
 | Repository | Commit | Worktree | Role |
 | --- | --- | --- | --- |
-| `gateway` | `20d0b85` | clean | C++ HTTP/WebSocket edge, protocol parsing/conversion, fail-closed OpenAI/Gemini model catalog and Anthropic token-count response validation, bounded Embeddings and Responses validation, streaming, strict Provider media contracts, bounded transport timers, normalized Provider availability errors, shared retryable Platform transport policy, durable usage delivery, authenticated Garnet projections, and bounded request-body context for pre-dispatch content policy |
-| `platform` | `0f45128` | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, Provider mock contracts, rotating identity/session/TOTP/OAuth state, API-key policy and audit, versioned runtime configuration, persistent scheduling and lease/hold/ledger state, audited operator reconciliation, media/object lifecycle, and source-owned pre-dispatch content-policy evaluation with no-lease rejection evidence |
+| `gateway` | `e7f6184` | clean | C++ HTTP/WebSocket edge, protocol parsing/conversion, fail-closed OpenAI/Gemini model catalog and Anthropic token-count response validation, bounded Embeddings and Responses validation, streaming, strict Provider media contracts, bounded transport timers, normalized Provider availability errors, shared retryable Platform transport policy, durable usage delivery, authenticated Garnet projections, bounded request/response content-policy RPC evaluation, and fail-closed response delivery |
+| `platform` | `713f5c0` | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, Provider mock contracts, rotating identity/session/TOTP/OAuth state, API-key policy and audit, versioned runtime configuration, persistent scheduling and lease/hold/ledger state, audited operator reconciliation, media/object lifecycle, staged request/response content-policy evaluation, and deterministic stream-disconnect fixtures |
 | `sub2api` | `43ec48d` | read-only clean | Requirements catalogue only; never a runtime or compatibility dependency |
 
 The current tracked inventory is:
 
-- Gateway: 52 production C++ source/header files, 10 test source files, and 111
+- Gateway: 52 production C++ source/header files, 10 test source files, and 114
   CTest cases.
 - Platform: 90 hand-written production C# files, 3 generated Cap'n Proto C#
-  files, 38 test/benchmark C# files, and 161 tests: 69 Grain, 37 Host, 18 Admin,
+  files, 38 test/benchmark C# files, and 162 tests: 69 Grain, 38 Host, 18 Admin,
   and 37 Provider mock tests.
 - Product surface: 119 direct Admin API route declarations, 45 product tables,
   20 SQLSugar entity types, 23 Admin Web TypeScript/TSX files and 11 page views,
@@ -54,12 +54,16 @@ current-source runtime evidence.
   rotate/revoke paths persist the same policy projection and append actor-scoped
   audit events; denied capability requests are recorded with a request ID and no
   plaintext key material.
-- Gateway transmits a bounded request body in the revision-3 dispatch contract.
-  Platform evaluates active, scope-aware `log`/`block` rules after authentication
-  and capability authorization but before scheduling, lease creation, or Provider
-  contact. Matches are durably audited; a block returns a dedicated HTTP 400
-  `content_policy_violation` and creates no hold or lease. Response-side policy,
-  richer classifiers, alerting, and browser workflows remain open.
+- Gateway transmits bounded request and non-stream response bodies in the
+  revision-3 dispatch contract. Platform evaluates active, scope-aware `log`/`block`
+  rules after authentication and capability authorization but before scheduling,
+  lease creation, or Provider contact. Response rules run after Provider validation
+  and before successful non-stream output is delivered. Matches are durably audited;
+  request and response blocks return dedicated HTTP 400 `content_policy_violation`
+  errors. Response policy errors do not release the Provider usage lease: normal
+  Provider usage settles once and the client-facing policy error is stored for exact
+  idempotency replay. Streaming response moderation, richer classifiers, alerting,
+  and browser workflows remain open.
 - S3-compatible storage owns media bytes. PostgreSQL owns media metadata,
   authorization, object keys, ETags, sizes, and lifecycle state.
 - All business money is `decimal`; PostgreSQL uses `NUMERIC`; the RPC boundary
@@ -266,11 +270,11 @@ current-source runtime evidence.
 
 ### Bootstrap and deployment
 
-- The direct source migrator applied product migrations 001-027 to a temporary
-  empty PostgreSQL 17 database and skipped all 27 on replay, including the native
-  content rule constraints/index. Compose additionally installs Orleans support
-  and now requires 28 total migration records; that full empty-stack run remains
-  pending for this checkpoint. No source database, snapshot, old key, CDC table,
+- The direct source migrator applied product migrations 001-028 to a temporary
+  empty PostgreSQL 17 database and skipped all 28 on replay. The migrator image
+  copies the complete migration directory, so new forward migrations cannot be
+  silently omitted. The current empty-stack gate applied and replayed 29 records
+  including Orleans support. No source database, snapshot, old key, CDC table,
   or compatibility mapping is required.
 - `deploy/stack` independently starts PostgreSQL, authenticated Garnet, MinIO,
   Provider mock, Platform, Gateway, Admin API, Admin Web, and User Web. Image digests pin the
@@ -287,15 +291,15 @@ current-source runtime evidence.
 
 ## Current verification evidence
 
-At Platform `0f45128` and Gateway `20d0b85`:
+At Platform `713f5c0` and Gateway `e7f6184`:
 
-- Gateway built locally and passed 111/111 CTest cases, including deterministic
+- Gateway built locally and passed 114/114 CTest cases, including deterministic
   fault-hook claim/repeat behavior, terminal SSE detection, provider EOF
   classification, incomplete chunked-body disconnect classification, zero-length
   client-write cancellation, and bounded Provider pre-header stream timeout
   handling plus independent inter-chunk and total-stream timeout scenarios.
-- Platform Release test/build passed with 0 warnings and 0 errors: 161/161 tests,
-  including 37 Host tests, 69 Grain tests, 18 Admin tests, and 37 Provider mock
+- Platform Release test/build passed with 0 warnings and 0 errors: 162/162 tests,
+  including 38 Host tests, 69 Grain tests, 18 Admin tests, and 37 Provider mock
   tests. Admin coverage
   includes PostgreSQL-backed TOTP replay, backup-code consumption, lockout,
   recovery, OAuth provider/redirect/verifier binding, one-time state consumption,
@@ -307,12 +311,14 @@ At Platform `0f45128` and Gateway `20d0b85`:
   coverage additionally includes real ASP.NET HTTP contract tests through the
   Platform token client for rotation, revoked grants, malformed JSON, and bounded
   oversized responses.
-- SEC-01 now has executable pre-dispatch evidence: the canonical Cap'n Proto
-  contract carries the bounded request body, Platform evaluates active scoped
-  rules before lease creation, PostgreSQL Host tests cover block audit, scope
-  isolation, and fail-closed size limits, and the source smoke asserts one block
-  audit with zero request leases. Response-side enforcement and runtime browser
-  evidence remain unimplemented, so the domain is `partial` rather than complete.
+- SEC-01 now has executable request and non-stream response evidence: the canonical
+  Cap'n Proto contract carries bounded request/response policy content, Platform
+  evaluates active scoped rules before lease creation or before successful output,
+  PostgreSQL Host tests cover stage isolation and idempotent audit logging, and the
+  source smoke asserts request no-lease blocking plus response output withholding
+  with normal usage settlement and exact 400 replay. Streaming response enforcement,
+  classifiers, alerts, and runtime browser evidence remain open, so the domain is
+  still `partial`.
 - AUTH-01 coverage includes email/password boundary tests, PostgreSQL-backed login
   identity/IP lockout and success reset tests, independent-IP accounting,
   registration-IP lockout, migration schema assertions, and duplicate insert
@@ -535,10 +541,16 @@ At Platform `0f45128` and Gateway `20d0b85`:
   public 503/provider_unavailable responses and released every no-charge hold.
 - Garnet authentication returned `PONG`; asynchronous media bootstrapped the empty
   MinIO bucket and a signed URL downloaded the expected 67-byte object.
-- The smoke command exited zero and its cleanup trap removed only its containers and
-  temporary volumes. No `scalaapi-smoke-0830` container, volume, network, or tagged
-  image remained after the run. The host retained only the named `apitf_*` baseline
-  volumes and baseline images needed for this development machine.
+- The latest `scalaapi-response-policy-20260809` smoke command exited zero. It
+  applied 29 empty-volume migration records and skipped all 29 on replay, proved
+  request and response content-policy paths, the complete Provider fault matrix,
+  Garnet-authenticated routing, media persistence, reconciliation, operator
+  settlement/replay, and post-restart billing. The response policy scenario hid
+  Provider output while recording one audit, completed lease, committed hold,
+  usage event/log, NUMERIC debit, and replayed client-facing HTTP 400 exactly.
+  The cleanup removed every project container, temporary volume/network, and
+  `scalaapi-response-policy-20260809_*` image. Only the named `apitf_*` baseline
+  development resources and `scalaapi-gateway:dev` remain.
 
 Detailed gate results and residual coverage are maintained in `verification.md`.
 
@@ -551,7 +563,7 @@ Detailed gate results and residual coverage are maintained in `verification.md`.
   quota grants and future affiliate effects still need explicit authority contracts.
 - Gateway now classifies client cancellation and incomplete SSE as unknown-charge
   outcomes, records disconnect/cancellation reasons, and prevents failover after
-  output or partial Provider output. The source-level behavior is covered by 104
+  output or partial Provider output. The source-level behavior is covered by 114
   CTest cases; the empty-stack gate now proves Provider partial-SSE disconnect,
   disconnect-before-output, malformed-usage retention, and bounded pre-header
   timeout handling with no usage/debit.
