@@ -54,13 +54,16 @@ public sealed class ContentPolicyServiceTests
         }
         finally
         {
-            await using var cleanup = dataSource.CreateCommand("""
-                DELETE FROM content_audit_logs WHERE request_id = $1;
-                DELETE FROM content_audit_rules WHERE pattern = $2;
-                """);
-            cleanup.Parameters.AddWithValue(requestId);
-            cleanup.Parameters.AddWithValue(blockPattern);
-            await cleanup.ExecuteNonQueryAsync();
+            await using (var cleanupLogs = dataSource.CreateCommand(
+                "DELETE FROM content_audit_logs WHERE request_id = $1"))
+            {
+                cleanupLogs.Parameters.AddWithValue(requestId);
+                await cleanupLogs.ExecuteNonQueryAsync();
+            }
+            await using var cleanupRule = dataSource.CreateCommand(
+                "DELETE FROM content_audit_rules WHERE pattern = $1");
+            cleanupRule.Parameters.AddWithValue(blockPattern);
+            await cleanupRule.ExecuteNonQueryAsync();
         }
     }
 
