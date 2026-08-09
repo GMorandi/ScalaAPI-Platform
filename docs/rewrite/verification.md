@@ -2,7 +2,7 @@
 
 ## Current evidence
 
-The latest source snapshot is Gateway `3da0d33`, Platform and User Web `44d2096`.
+The latest source snapshot is Gateway `3da0d33`, Platform/Admin Web `9ba7e14`, and User Web `44d2096`.
 The SEC-01 slice now extends the single revision-3 Cap'n Proto contract with
 bounded request and response content and a dedicated response-evaluation method.
 Platform evaluates request rules before scheduling and non-stream response rules
@@ -96,6 +96,13 @@ retryable object state without changing the settled operation or lease. A later
 valid `HEAD` restores `object_status=stored` and clears the error. Object
 listing/orphan cleanup, restore, cancellation/restart, and full MinIO lifecycle
 evidence remain open.
+
+Platform `9ba7e14` adds the Admin Web reconciliation workflow on top of the
+existing authenticated API. Operators can filter open/resolved incidents, run a
+manual reconciliation, and submit a reason plus explicit evidence for settle or
+release. The page sends a fresh `Idempotency-Key` for each command and handles
+accepted, duplicate, and conflict responses; browser automation and the broader
+operations dashboard remain open.
 
 The policy operations slice at Platform `9fb449c` adds migration 030. Platform
 `caa719e` serializes revision publication across workers, and `7fca582` adds the
@@ -278,7 +285,7 @@ supersedes them where commit, image, or late-usage results differ.
 | API-key authenticated audit smoke | `scalaapi-api-key-audit-verified`, exit 0 | Admin token reads a filtered denied event by key hash, receives actor/action metadata without plaintext-key fields, and the complete empty-volume Garnet/Provider/restart/reconciliation/MinIO matrix remains green |
 | Realtime smoke client | `python3 deploy/stack/realtime_smoke.py` passed against Release `Provider.Mock`; `bash -n deploy/stack/smoke.sh` and `git diff --check` passed | Validates HTTP/1.1 upgrade, masked session input, deterministic session/usage frames, close handling, and full-stack exactly-once lease/usage/hold/ledger settlement using the clean Gateway image |
 | Platform Release build | Passed, 0 warnings and 0 errors | Includes Platform Host, Admin API, migrator, Provider mock, and benchmark assembly |
-| Admin Web | Typecheck and production build passed | Provider account form supports static headers and OAuth refresh metadata/replacement while list/details expose health but not stored secrets; browser tests are not configured |
+| Admin Web | Platform `9ba7e14`; typecheck and production build passed | Provider account form supports static headers and OAuth refresh metadata/replacement while list/details expose health but not stored secrets; the reconciliation page filters incidents, runs manual checks, and submits evidence-backed settle/release commands with fresh idempotency keys; browser tests are not configured |
 | User Web | `npm run typecheck` and `npm run build` passed in `user-web` at `ad6ac20` | Independent Solid client covers auth, OAuth callback, password recovery with action-link hydration, email verification with action-link hydration, dashboard announcements/read tracking, scoped usage, API keys, active-plan subscription purchase/cancel/renew with reserved/remaining quota, redeem codes, referral summary, profile, TOTP setup/verify/disable, and Passkey registration/revocation/sign-in option conversion; browser tests, real authenticator ceremony, mail receipt, and backup-code sign-in remain |
 | Provider OAuth credential refresh | Grain, Host, and Provider Mock tests pass for a single-account refresh lease, concurrent exclusion, CAS completion, rotated token/header hydration, safe metadata updates, persisted bounded failure/backoff, HTTPS-only token endpoint, bounded form response, secret-free errors, and real HTTP rotation/revocation/malformed/oversized response contracts. The `scalaapi-oauth-refresh-20260809` empty-stack gate proves an expired seeded credential rotates to version 2 before a billable Chat dispatch and never appears in Admin details | Add provider-specific parameters, refresh audit history, multi-Silo contention, and real provider adapter fixtures |
 | Scheduler benchmark dry run | 4/4, exit 0; no-match negative probe exits 1 | Dependency injection and child-result propagation pass; not performance evidence |

@@ -2,7 +2,7 @@
 
 ## Checkpoint
 
-The next stage starts from Platform and User Web `44d2096`, Gateway `3da0d33`, and read-only
+The next stage starts from Platform/Admin Web `9ba7e14`, User Web `44d2096`, Gateway `3da0d33`, and read-only
 reference `sub2api@43ec48d`.
 
 The greenfield baseline now starts from empty volumes, uses PostgreSQL as authority,
@@ -164,6 +164,11 @@ stored media, retries missing/mismatched/transient metadata, and restores a row 
 `stored` after the object becomes valid without changing the settled operation or
 lease. Object listing/orphan cleanup, restore, cancellation/restart, and full
 MinIO lifecycle evidence remain explicit follow-on gates.
+Platform `9ba7e14` adds the first Admin Web operator workflow for this authority:
+open/resolved incident filters, a manual reconciliation trigger, and
+evidence-backed settle/release submission with a fresh idempotency key per command.
+Browser authorization, operator audit visibility, and the wider monitor/backup
+surface remain separate release gates.
 Migration `023-auth-oauth-states.sql` now adds one-time OAuth state with S256 PKCE:
 the Admin start flow returns provider-bound state/verifier/challenge material,
 PostgreSQL stores only hashes, and callback consumption binds the exact redirect URI
