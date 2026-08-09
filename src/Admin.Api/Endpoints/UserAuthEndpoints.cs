@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using System.Security.Cryptography;
+using Microsoft.AspNetCore.WebUtilities;
 using OtpNet;
 using SqlSugar;
 using Orleans;
@@ -14,7 +15,10 @@ namespace ScalaAPI.Admin.Endpoints;
 public record RegisterRequest(string Email, string Password, string? DisplayName);
 public record UserLoginRequest(string Email, string Password, string? TotpCode);
 public record RefreshRequest(string RefreshToken);
-public record OAuthCallbackRequest(string Provider, string Code, string RedirectUri);
+public record OAuthCallbackRequest(string Provider, string Code, string RedirectUri,
+    string State, string CodeVerifier);
+public record OAuthStartResponse(string Provider, string RedirectUri, string State,
+    string CodeVerifier, string CodeChallenge, string AuthorizationUrl, DateTime ExpiresAt);
 public record TotpSetupResponse(string Secret, string QrUri);
 public record TotpVerifyRequest(string Code);
 public record PasswordResetRequest(string Email);
@@ -300,12 +304,54 @@ public static class UserAuthEndpoints
                 : Results.BadRequest(new { error = "Invalid or expired verification token" });
         });
 
+        auth.MapGet("/oauth/{provider}/start", async (string provider, string redirectUri,
+            OAuthStateService states, IConfiguration config, CancellationToken ct) =>
+        {
+            var normalizedProvider = OAuthStateService.NormalizeProvider(provider);
+            var normalizedRedirect = OAuthStateService.NormalizeRedirectUri(redirectUri);
+            if (normalizedProvider is null || normalizedRedirect is null)
+                return Results.BadRequest(new { error = "Unsupported provider or redirect URI" });
+
+            var configProvider = normalizedProvider == "github" ? "GitHub" : "Google";
+            var clientId = config[$"OAuth:{configProvider}:ClientId"];
+            if (string.IsNullOrWhiteSpace(clientId))
+                return Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
+
+            var issued = await states.IssueAsync(normalizedProvider, normalizedRedirect, ct);
+            if (issued is null) return Results.BadRequest(new { error = "Invalid OAuth request" });
+            var parameters = new Dictionary<string, string?>
+            {
+                ["client_id"] = clientId,
+                ["redirect_uri"] = issued.RedirectUri,
+                ["response_type"] = "code",
+                ["state"] = issued.State,
+                ["code_challenge"] = issued.CodeChallenge,
+                ["code_challenge_method"] = "S256",
+            };
+            var authorizationUrl = normalizedProvider == "github"
+                ? QueryHelpers.AddQueryString("https://github.com/login/oauth/authorize", parameters)
+                : QueryHelpers.AddQueryString("https://accounts.google.com/o/oauth2/v2/auth",
+                    parameters.Concat(new Dictionary<string, string?>
+                    {
+                        ["scope"] = "openid email profile",
+                    }));
+            return Results.Ok(new OAuthStartResponse(issued.Provider, issued.RedirectUri,
+                issued.State, issued.CodeVerifier, issued.CodeChallenge, authorizationUrl,
+                issued.ExpiresAt));
+        });
+
         auth.MapPost("/oauth/callback", async (OAuthCallbackRequest req, ISqlSugarClient db,
             IConfiguration config, IHttpClientFactory httpFactory,
             ListingRepository registry, AuthSessionService sessions, IClusterClient client,
-            AccountingStore accounting, HttpContext http) =>
+            AccountingStore accounting, OAuthStateService states, HttpContext http) =>
         {
-            var (email, oauthId) = await ExchangeOAuthCode(req, config, httpFactory);
+            var state = await states.ConsumeAsync(req.Provider, req.State, req.RedirectUri,
+                req.CodeVerifier, http.RequestAborted);
+            if (!state.Accepted)
+                return Results.BadRequest(new { error = $"oauth_state_{state.Status.ToString().ToLowerInvariant()}" });
+
+            var (email, oauthId) = await ExchangeOAuthCode(req, config, httpFactory,
+                http.RequestAborted);
             if (email is null)
                 return Results.BadRequest(new { error = "OAuth exchange failed" });
 
@@ -474,7 +520,8 @@ public static class UserAuthEndpoints
     }
 
     private static async Task<(string? Email, string? OAuthId)> ExchangeOAuthCode(
-        OAuthCallbackRequest req, IConfiguration config, IHttpClientFactory httpFactory)
+        OAuthCallbackRequest req, IConfiguration config, IHttpClientFactory httpFactory,
+        CancellationToken ct)
     {
         var client = httpFactory.CreateClient();
 
@@ -485,19 +532,20 @@ public static class UserAuthEndpoints
 
             var tokenResp = await client.PostAsJsonAsync(
                 "https://github.com/login/oauth/access_token",
-                new { client_id = clientId, client_secret = clientSecret, code = req.Code });
-            var tokenData = await tokenResp.Content.ReadFromJsonAsync<Dictionary<string, string>>();
+                new { client_id = clientId, client_secret = clientSecret, code = req.Code,
+                    redirect_uri = req.RedirectUri, code_verifier = req.CodeVerifier }, ct);
+            var tokenData = await tokenResp.Content.ReadFromJsonAsync<Dictionary<string, string>>(ct);
             if (tokenData is null || !tokenData.TryGetValue("access_token", out var accessToken))
                 return (null, null);
 
             client.DefaultRequestHeaders.Authorization =
                 new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", accessToken);
             client.DefaultRequestHeaders.UserAgent.ParseAdd("ScalaAPI");
-            var userResp = await client.GetAsync("https://api.github.com/user/emails");
-            var emails = await userResp.Content.ReadFromJsonAsync<List<GitHubEmail>>();
-            var primary = emails?.FirstOrDefault(e => e.Primary)?.Email;
-            var userResp2 = await client.GetAsync("https://api.github.com/user");
-            var userData = await userResp2.Content.ReadFromJsonAsync<Dictionary<string, object>>();
+            var userResp = await client.GetAsync("https://api.github.com/user/emails", ct);
+            var emails = await userResp.Content.ReadFromJsonAsync<List<GitHubEmail>>(ct);
+            var primary = emails?.FirstOrDefault(e => e.Primary && e.Verified)?.Email;
+            var userResp2 = await client.GetAsync("https://api.github.com/user", ct);
+            var userData = await userResp2.Content.ReadFromJsonAsync<Dictionary<string, object>>(ct);
             var id = userData?.GetValueOrDefault("id")?.ToString();
 
             return (primary, id);
@@ -516,15 +564,16 @@ public static class UserAuthEndpoints
                     ["code"] = req.Code,
                     ["grant_type"] = "authorization_code",
                     ["redirect_uri"] = req.RedirectUri,
+                    ["code_verifier"] = req.CodeVerifier,
                 }));
-            var tokenData = await tokenResp.Content.ReadFromJsonAsync<Dictionary<string, string>>();
+            var tokenData = await tokenResp.Content.ReadFromJsonAsync<Dictionary<string, string>>(ct);
             if (tokenData is null || !tokenData.TryGetValue("access_token", out var accessToken))
                 return (null, null);
 
             client.DefaultRequestHeaders.Authorization =
                 new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", accessToken);
-            var userResp = await client.GetAsync("https://www.googleapis.com/oauth2/v2/userinfo");
-            var userData = await userResp.Content.ReadFromJsonAsync<Dictionary<string, object>>();
+            var userResp = await client.GetAsync("https://www.googleapis.com/oauth2/v2/userinfo", ct);
+            var userData = await userResp.Content.ReadFromJsonAsync<Dictionary<string, object>>(ct);
             var email = userData?.GetValueOrDefault("email")?.ToString();
             var id = userData?.GetValueOrDefault("id")?.ToString();
 
