@@ -25,7 +25,7 @@ if ! command -v "$container_cli" >/dev/null 2>&1; then
     echo "Container CLI '$container_cli' was not found" >&2
     exit 2
 fi
-for command_name in curl jq; do
+for command_name in curl jq python3; do
     if ! command -v "$command_name" >/dev/null 2>&1; then
         echo "$command_name is required" >&2
         exit 2
@@ -123,6 +123,8 @@ platform_dispatch_fault_request_id="smoke-platform-dispatch-fault-${suffix}"
 platform_dispatch_fault_idempotency_key="smoke-platform-dispatch-fault-idem-${suffix}"
 platform_dispatch_retry_request_id="smoke-platform-dispatch-retry-${suffix}"
 platform_dispatch_retry_idempotency_key="smoke-platform-dispatch-retry-idem-${suffix}"
+realtime_request_id="smoke-realtime-${suffix}"
+realtime_idempotency_key="smoke-realtime-idem-${suffix}"
 fault_request_prefix="smoke-fault-${suffix}"
 media_idempotency_key="smoke-media-idem-${suffix}"
 chat_price_version="smoke-chat-${suffix}-v1"
@@ -825,6 +827,29 @@ assert_equals "$(jq -cS . <<<"$chat_response")" "$(jq -cS . <<<"$chat_replay")" 
     "Idempotent chat replay body"
 assert_equals "1" "$(db_query "SELECT count(*) FROM request_idempotency WHERE idempotency_key = '$chat_idempotency_key';")" \
     "Idempotent chat lease count"
+
+python3 "$stack_dir/realtime_smoke.py" "$gateway_url" "$api_key" \
+    "$realtime_request_id" "$realtime_idempotency_key"
+realtime_lease_settled() {
+    [[ "$(db_query "SELECT count(*) FROM request_leases WHERE request_id = '$realtime_request_id' AND status = 'completed';")" == "1" ]]
+}
+wait_for "realtime lease settlement" 30 realtime_lease_settled
+realtime_lease_summary="$(db_query "
+WITH target_lease AS (
+    SELECT lease_token, request_id, status, final_cost_usd
+    FROM request_leases
+    WHERE request_id = '$realtime_request_id'
+)
+SELECT
+  (SELECT count(*) FROM target_lease) || '|' ||
+  (SELECT count(*) FROM target_lease WHERE status = 'completed') || '|' ||
+  (SELECT count(*) FROM usage_events u JOIN target_lease l USING (lease_token)) || '|' ||
+  (SELECT count(*) FROM usage_logs u JOIN target_lease l USING (lease_token)) || '|' ||
+  (SELECT count(*) FROM balance_holds h JOIN target_lease l USING (lease_token) WHERE h.status = 'committed') || '|' ||
+  (SELECT count(*) FROM balance_ledger b JOIN target_lease l USING (lease_token)
+   WHERE b.entry_type = 'usage_debit' AND b.amount = -l.final_cost_usd);")"
+assert_equals "1|1|1|1|1|1" "$realtime_lease_summary" \
+    "Realtime lease settlement"
 
 echo "Restarting Platform and verifying a new billable request"
 recreate_service platform-silo
