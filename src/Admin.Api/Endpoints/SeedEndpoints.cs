@@ -116,15 +116,26 @@ public static class SeedEndpoints
     }
 
     private sealed record MockProviderProfile(string Name, string Platform,
-        string[] SupportedModels)
+        string[] SupportedModels, string? Scenario = null)
     {
         public AccountUpsert Account() => new(
             Name, Platform, "api_key", "http://provider-mock:8081",
             Priority: 1, Concurrency: 8, LoadFactor: 1, RateMultiplier: 1m,
             Schedulable: true,
-            Credentials: new Dictionary<string, string> { ["api_key"] = "scalaapi-mock-key" },
+            Credentials: Credentials(),
             ModelMapping: new Dictionary<string, string>(), SupportedModels,
             ProxyUrl: null, TlsFingerprint: false);
+
+        private Dictionary<string, string> Credentials()
+        {
+            var credentials = new Dictionary<string, string>
+            {
+                ["api_key"] = "scalaapi-mock-key",
+            };
+            if (!string.IsNullOrWhiteSpace(Scenario))
+                credentials["X-Provider-Scenario"] = Scenario;
+            return credentials;
+        }
 
         public GroupUpsert Group(long accountId) => new(
             Platform, 1m, IsExclusive: false, DailyLimitUsd: null,
@@ -142,12 +153,14 @@ public static class SeedEndpoints
 
     private static readonly (string Scenario, MockProviderProfile Profile)[] FaultProfiles =
     [
-        ("429", new("scalaapi-provider-mock-fault-429", "openai", ["gpt-4o"])),
-        ("500", new("scalaapi-provider-mock-fault-500", "openai", ["gpt-4o"])),
-        ("timeout", new("scalaapi-provider-mock-fault-timeout", "openai", ["gpt-4o"])),
-        ("disconnect", new("scalaapi-provider-mock-fault-disconnect", "openai", ["gpt-4o"])),
-        ("client_disconnect", new("scalaapi-provider-mock-fault-client-disconnect", "openai", ["gpt-4o"])),
-        ("malformed_usage", new("scalaapi-provider-mock-fault-malformed-usage", "openai", ["gpt-4o"])),
-        ("invalid_content_type", new("scalaapi-provider-mock-fault-invalid-content-type", "openai", ["gpt-4o"])),
+        ("429", new("scalaapi-provider-mock-fault-429", "openai", ["gpt-4o"], "429")),
+        ("500", new("scalaapi-provider-mock-fault-500", "openai", ["gpt-4o"], "500")),
+        ("timeout", new("scalaapi-provider-mock-fault-timeout", "openai", ["gpt-4o"], "timeout")),
+        ("disconnect", new("scalaapi-provider-mock-fault-disconnect", "openai", ["gpt-4o"], "disconnect")),
+        ("disconnect_stream", new("scalaapi-provider-mock-fault-disconnect-stream", "openai", ["gpt-4o"], "disconnect")),
+        ("disconnect_after_usage", new("scalaapi-provider-mock-fault-disconnect-after-usage", "openai", ["gpt-4o"], "disconnect_after_usage")),
+        ("client_disconnect", new("scalaapi-provider-mock-fault-client-disconnect", "openai", ["gpt-4o"], "client_disconnect")),
+        ("malformed_usage", new("scalaapi-provider-mock-fault-malformed-usage", "openai", ["gpt-4o"], "malformed_usage")),
+        ("invalid_content_type", new("scalaapi-provider-mock-fault-invalid-content-type", "openai", ["gpt-4o"], "invalid_content_type")),
     ];
 }

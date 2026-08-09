@@ -393,6 +393,28 @@ app.MapPost("/v1/chat/completions", async (HttpContext context, CancellationToke
             await context.Response.Body.FlushAsync(cancellationToken);
             context.Abort();
             return;
+        case "disconnect_after_usage":
+            if (stream)
+            {
+                context.Response.StatusCode = StatusCodes.Status200OK;
+                context.Response.ContentType = "text/event-stream";
+                await context.Response.WriteAsync(
+                    $"data: {{\"id\":\"{requestId}\",\"object\":\"chat.completion.chunk\",\"model\":\"{model}\",\"choices\":[{{\"index\":0,\"delta\":{{\"content\":\"partial\"}},\"finish_reason\":null}}]}}\n\n",
+                    cancellationToken);
+                await context.Response.Body.FlushAsync(cancellationToken);
+                await Task.Delay(TimeSpan.FromMilliseconds(100), cancellationToken);
+                await context.Response.WriteAsync(
+                    $"data: {{\"id\":\"{requestId}\",\"object\":\"chat.completion.chunk\",\"model\":\"{model}\",\"choices\":[{{\"index\":0,\"delta\":{{}},\"finish_reason\":\"stop\"}}],\"usage\":{{\"prompt_tokens\":7,\"completion_tokens\":5,\"total_tokens\":12}}}}\n\n",
+                    cancellationToken);
+                await context.Response.Body.FlushAsync(cancellationToken);
+                // End the HTTP body without sending the terminal [DONE]
+                // marker. The usage frame is durable evidence even though
+                // the Provider stream is truncated at EOF.
+                return;
+            }
+            context.Response.StatusCode = StatusCodes.Status200OK;
+            context.Abort();
+            return;
         case "disconnect_before_output":
             if (stream)
             {
@@ -401,6 +423,7 @@ app.MapPost("/v1/chat/completions", async (HttpContext context, CancellationToke
                 // A zero-length response closes deterministically without a
                 // terminal SSE event; the Gateway must retain the hold.
                 context.Response.ContentLength = 0;
+                context.Abort();
                 return;
             }
             context.Response.StatusCode = StatusCodes.Status200OK;

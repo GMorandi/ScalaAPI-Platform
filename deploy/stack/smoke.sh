@@ -334,6 +334,65 @@ SELECT
     : "$response_body"
 }
 
+run_chat_stream_late_usage() {
+    local scenario=$1
+    local scenario_api_key=$2
+    local curl_timeout=${3:-25}
+    local request_id="${fault_request_prefix}-stream-${scenario}"
+    local idempotency_key="${request_id}-idem"
+    local request_body
+    local response
+    local response_status
+    local fault_state
+    local lease_count
+
+    request_body="$(jq -cn --arg scenario "$scenario" \
+        '{model:"gpt-4o",messages:[{role:"user",content:"greenfield late usage matrix"}],stream:true,user:("scalaapi-mock:" + $scenario)}')"
+    set +e
+    response="$(curl -sS --max-time "$curl_timeout" --write-out $'\n%{http_code}' \
+        "$gateway_url/v1/chat/completions" \
+        -H "Authorization: Bearer $scenario_api_key" \
+        -H "Content-Type: application/json" \
+        -H "X-Request-ID: $request_id" \
+        -H "Idempotency-Key: $idempotency_key" \
+        --data "$request_body")"
+    set -e
+    response_status="${response##*$'\n'}"
+    [[ -n "$response_status" ]] || response_status=000
+    assert_one_of "000|200|503" "$response_status" \
+        "Provider streaming $scenario truncated response status"
+
+    late_usage_settled() {
+        [[ "$(db_query "SELECT count(*) FROM request_leases WHERE request_id = '$request_id' AND status = 'completed';")" == "1" ]]
+    }
+    wait_for "Provider $scenario late usage settlement" 30 late_usage_settled
+    fault_state="$(db_query "
+WITH target_leases AS (
+  SELECT lease_token, request_id, status
+  FROM request_leases
+  WHERE request_id = '$request_id'
+)
+SELECT
+  (SELECT count(*) FROM target_leases) || '|' ||
+  (SELECT count(*) FROM target_leases WHERE status = 'completed') || '|' ||
+  (SELECT count(*) FROM target_leases WHERE status = 'reconciliation_needed') || '|' ||
+  (SELECT count(*) FROM balance_holds h JOIN target_leases l USING (lease_token)) || '|' ||
+  (SELECT count(*) FROM balance_holds h JOIN target_leases l USING (lease_token) WHERE h.status = 'committed') || '|' ||
+  (SELECT count(*) FROM balance_holds h JOIN target_leases l USING (lease_token) WHERE h.status = 'active') || '|' ||
+  (SELECT count(*) FROM usage_events u JOIN target_leases l ON l.request_id = u.request_id) || '|' ||
+  (SELECT count(*) FROM usage_logs u JOIN target_leases l ON l.request_id = u.request_id) || '|' ||
+  (SELECT count(*) FROM balance_ledger b JOIN target_leases l USING (lease_token)) || '|' ||
+  (SELECT count(*) FROM request_idempotency WHERE idempotency_key = '$idempotency_key' AND status = 'completed');")"
+    lease_count="${fault_state%%|*}"
+    if (( lease_count < 1 )); then
+        echo "Provider $scenario did not create a lease" >&2
+        return 1
+    fi
+    assert_equals "$lease_count|$lease_count|0|$lease_count|$lease_count|0|$lease_count|$lease_count|$lease_count|1" \
+        "$fault_state" "Provider $scenario late usage billing invariants"
+    echo "PASS: Provider $scenario -> HTTP $response_status (usage settled after stream truncation)"
+}
+
 run_chat_stream_rejection() {
     local scenario=$1
     local scenario_api_key=$2
@@ -426,13 +485,17 @@ fault_timeout_group_id="$(jq -er '.scenarios[] | select(.scenario == "timeout") 
     <<<"$fault_seed_response")"
 fault_disconnect_group_id="$(jq -er '.scenarios[] | select(.scenario == "disconnect") | .group_id' \
     <<<"$fault_seed_response")"
+fault_disconnect_stream_group_id="$(jq -er '.scenarios[] | select(.scenario == "disconnect_stream") | .group_id' \
+    <<<"$fault_seed_response")"
+fault_disconnect_after_usage_group_id="$(jq -er '.scenarios[] | select(.scenario == "disconnect_after_usage") | .group_id' \
+    <<<"$fault_seed_response")"
 fault_client_disconnect_group_id="$(jq -er '.scenarios[] | select(.scenario == "client_disconnect") | .group_id' \
     <<<"$fault_seed_response")"
 fault_malformed_group_id="$(jq -er '.scenarios[] | select(.scenario == "malformed_usage") | .group_id' \
     <<<"$fault_seed_response")"
 fault_invalid_content_type_group_id="$(jq -er '.scenarios[] | select(.scenario == "invalid_content_type") | .group_id' \
     <<<"$fault_seed_response")"
-assert_equals "7" "$(jq -er '.scenarios | length' <<<"$fault_seed_response")" \
+assert_equals "9" "$(jq -er '.scenarios | length' <<<"$fault_seed_response")" \
     "Seeded fault scenario count"
 
 register_response="$(admin_request POST /auth/register \
@@ -446,10 +509,12 @@ allowed_groups="$(jq -cn \
     --argjson fault500 "$fault_500_group_id" \
     --argjson timeout "$fault_timeout_group_id" \
     --argjson disconnect "$fault_disconnect_group_id" \
+    --argjson disconnectStream "$fault_disconnect_stream_group_id" \
+    --argjson disconnectAfterUsage "$fault_disconnect_after_usage_group_id" \
     --argjson clientDisconnect "$fault_client_disconnect_group_id" \
     --argjson malformed "$fault_malformed_group_id" \
     --argjson invalidContentType "$fault_invalid_content_type_group_id" \
-    '[$openai,$fault429,$fault500,$timeout,$disconnect,$clientDisconnect,$malformed,$invalidContentType]')"
+    '[$openai,$fault429,$fault500,$timeout,$disconnect,$disconnectStream,$disconnectAfterUsage,$clientDisconnect,$malformed,$invalidContentType]')"
 admin_request PUT "/admin/users/$user_id" \
     "$(jq -cn --argjson groups "$allowed_groups" \
         '{role:"user",concurrency:4,rpmLimit:0,allowedGroups:$groups}')" \
@@ -495,6 +560,8 @@ fault_429_api_key="$(create_api_key "$fault_429_group_id")"
 fault_500_api_key="$(create_api_key "$fault_500_group_id")"
 fault_timeout_api_key="$(create_api_key "$fault_timeout_group_id")"
 fault_disconnect_api_key="$(create_api_key "$fault_disconnect_group_id")"
+fault_disconnect_stream_api_key="$(create_api_key "$fault_disconnect_stream_group_id")"
+fault_disconnect_after_usage_api_key="$(create_api_key "$fault_disconnect_after_usage_group_id")"
 fault_client_disconnect_api_key="$(create_api_key "$fault_client_disconnect_group_id")"
 fault_malformed_api_key="$(create_api_key "$fault_malformed_group_id")"
 fault_invalid_content_type_api_key="$(create_api_key "$fault_invalid_content_type_group_id")"
@@ -606,8 +673,9 @@ run_chat_fault "disconnect" "$fault_disconnect_api_key" "503" "provider_unavaila
 run_chat_fault "timeout" "$fault_timeout_api_key" "502" "-" "40" "reconciliation_needed"
 run_chat_stream_rejection "500" "$fault_500_api_key"
 run_chat_stream_rejection "429" "$fault_429_api_key"
-run_chat_stream_fault "disconnect" "$fault_disconnect_api_key"
+run_chat_stream_fault "disconnect" "$fault_disconnect_stream_api_key" "70"
 run_chat_stream_fault "disconnect_before_output" "$fault_disconnect_api_key"
+run_chat_stream_late_usage "disconnect_after_usage" "$fault_disconnect_after_usage_api_key"
 run_chat_stream_fault "client_disconnect" "$fault_client_disconnect_api_key" "2"
 run_chat_stream_fault "malformed_usage" "$fault_malformed_api_key"
 run_chat_stream_fault "invalid_content_type" "$fault_invalid_content_type_api_key"
@@ -739,5 +807,5 @@ echo "PASS: terminal lease, hold, usage, ledger, and outbox invariants"
 echo "PASS: account/ledger/hold/Grain reconciliation with audited operator resolution"
 echo "PASS: idempotent response replay without duplicate billing"
 echo "PASS: new billable requests after Platform and Gateway restarts"
-echo "PASS: isolated 429/500 no-charge and malformed/disconnect/timeout/content-type unknown-charge failures"
+echo "PASS: isolated 429/500 no-charge, truncated-stream late usage settlement, and unknown-charge failures"
 echo "PASS: S3-compatible bucket bootstrap, object persistence, and signed download ($media_size bytes)"
