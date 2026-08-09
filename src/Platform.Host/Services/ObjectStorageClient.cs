@@ -7,9 +7,18 @@ namespace ScalaAPI.Host.Services;
 public sealed record ObjectStoragePutResult(
     string ObjectKey, string ETag, long Size, string ContentType, string DownloadUrl);
 
+public sealed record ObjectStorageHeadResult(
+    bool Exists, string ETag, long Size, string ContentType);
+
+public interface IMediaObjectStorage
+{
+    Task<ObjectStorageHeadResult> HeadAsync(string objectKey,
+        CancellationToken ct = default);
+}
+
 // A small S3-compatible client keeps object ownership in MinIO/Garnet-free
 // infrastructure without adding a provider-specific SDK to the control plane.
-public sealed class ObjectStorageClient
+public sealed class ObjectStorageClient : IMediaObjectStorage
 {
     private readonly HttpClient _http;
     private readonly ILogger<ObjectStorageClient> _logger;
@@ -74,6 +83,29 @@ public sealed class ObjectStorageClient
         var body = await response.Content.ReadAsStringAsync(ct);
         throw new InvalidOperationException(
             $"Object storage DELETE failed with {(int)response.StatusCode}: {body[..Math.Min(body.Length, 512)]}");
+    }
+
+    public async Task<ObjectStorageHeadResult> HeadAsync(string objectKey,
+        CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(objectKey))
+            return new(false, "", 0, "");
+        await EnsureBucketAsync(ct);
+        using var response = await SendSignedAsync(HttpMethod.Head,
+            ObjectPath(objectKey), [], null, ct);
+        if (response.StatusCode == HttpStatusCode.NotFound)
+            return new(false, "", 0, "");
+        if (!response.IsSuccessStatusCode)
+        {
+            var body = await response.Content.ReadAsStringAsync(ct);
+            throw new InvalidOperationException(
+                $"Object storage HEAD failed with {(int)response.StatusCode}: {body[..Math.Min(body.Length, 512)]}");
+        }
+        return new(
+            true,
+            response.Headers.ETag?.Tag?.Trim('"') ?? "",
+            response.Content.Headers.ContentLength ?? 0,
+            response.Content.Headers.ContentType?.MediaType ?? "");
     }
 
     public string PresignGet(string objectKey, TimeSpan lifetime)

@@ -129,6 +129,8 @@ builder.Services.AddSingleton<AccountingStore>();
 builder.Services.AddSingleton<IAccountingProjectionRepairer, OrleansAccountingProjectionRepairer>();
 builder.Services.AddSingleton<AccountingReconciliationService>();
 builder.Services.AddHttpClient<ObjectStorageClient>();
+builder.Services.AddSingleton<IMediaObjectStorage>(sp =>
+    sp.GetRequiredService<ObjectStorageClient>());
 builder.Services.AddSingleton<RequestLeaseStore>();
 builder.Services.AddSingleton<MediaOperationStore>();
 var classifierEndpoint = builder.Configuration["ContentClassifier:Endpoint"];
@@ -162,6 +164,7 @@ builder.Services.AddHostedService<LeaseOutboxHostedService>();
 builder.Services.AddHostedService<AccountingProjectionHostedService>();
 builder.Services.AddHostedService<AccountingReconciliationHostedService>();
 builder.Services.AddHostedService<MediaOperationHostedService>();
+builder.Services.AddHostedService<MediaObjectReconciliationService>();
 builder.Services.AddHostedService<ContentPolicyPropagationHostedService>();
 
 var app = builder.Build();

@@ -10,7 +10,8 @@ public sealed record MediaOperation(
     int Progress, string OutputMetadata, string OutputUrl, string ContentType,
     string Error, bool CancelRequested, int Attempts, DateTime ExpiresAt,
     DateTime? NextPollAt, DateTime? LastPolledAt, string ObjectKey,
-    string ObjectETag, long ObjectSize, string ObjectStatus, string ObjectError);
+    string ObjectETag, long ObjectSize, string ObjectStatus, string ObjectError,
+    DateTime? ObjectVerifiedAt, int ObjectReconcileAttempts, DateTime? ObjectNextCheckAt);
 
 public sealed record MediaCreateResult(MediaOperation Operation, bool Created, bool Conflict);
 
@@ -26,7 +27,8 @@ public sealed class MediaOperationStore(
         output_url, content_type, COALESCE(error::text, ''), cancel_requested,
         attempts, expires_at, next_poll_at, last_polled_at
         , object_key, object_etag, object_size, object_status,
-        COALESCE(object_error::text, '')
+        COALESCE(object_error::text, ''), object_verified_at,
+        object_reconcile_attempts, object_next_check_at
         """;
     private const string OperationProjection = """
         operation.operation_id, operation.idempotency_key, operation.request_fingerprint,
@@ -38,7 +40,8 @@ public sealed class MediaOperationStore(
         operation.cancel_requested, operation.attempts, operation.expires_at,
         operation.next_poll_at, operation.last_polled_at, operation.object_key,
         operation.object_etag, operation.object_size, operation.object_status,
-        COALESCE(operation.object_error::text, '')
+        COALESCE(operation.object_error::text, ''), operation.object_verified_at,
+        operation.object_reconcile_attempts, operation.object_next_check_at
         """;
 
     public async Task<MediaCreateResult> CreateOrGetAsync(long apiKeyId, long accountId,
@@ -295,6 +298,68 @@ public sealed class MediaOperationStore(
         return result;
     }
 
+    public async Task<IReadOnlyList<MediaOperation>> ClaimObjectReconciliationBatchAsync(
+        int limit, CancellationToken ct = default)
+    {
+        await using var connection = await dataSource.OpenConnectionAsync(ct);
+        await using var transaction = await connection.BeginTransactionAsync(
+            IsolationLevel.ReadCommitted, ct);
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = $"""
+            WITH due AS (
+                SELECT operation_id
+                FROM media_operations
+                WHERE status = 'succeeded'
+                  AND object_status IN ('stored', 'failed')
+                  AND object_key <> ''
+                  AND (object_next_check_at IS NULL OR object_next_check_at <= now())
+                ORDER BY COALESCE(object_next_check_at, updated_at), updated_at
+                FOR UPDATE SKIP LOCKED
+                LIMIT $1
+            )
+            UPDATE media_operations AS operation
+            SET object_reconcile_attempts = operation.object_reconcile_attempts + 1,
+                object_next_check_at = now() + interval '5 minutes',
+                updated_at = now()
+            FROM due
+            WHERE operation.operation_id = due.operation_id
+            RETURNING {OperationProjection}
+            """;
+        command.Parameters.AddWithValue(Math.Clamp(limit, 1, 100));
+        var result = new List<MediaOperation>();
+        await using var reader = await command.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct)) result.Add(Read(reader));
+        await reader.DisposeAsync();
+        await transaction.CommitAsync(ct);
+        return result;
+    }
+
+    public async Task<MediaOperation?> RecordObjectVerificationAsync(
+        MediaOperation operation, bool valid, string? error = null,
+        CancellationToken ct = default)
+    {
+        await using var command = dataSource.CreateCommand($"""
+            UPDATE media_operations
+            SET object_status = CASE WHEN $3 THEN 'stored' ELSE 'failed' END,
+                object_error = CASE WHEN $3 THEN NULL ELSE $4::jsonb END,
+                object_verified_at = now(),
+                object_next_check_at = now() + CASE WHEN $3
+                    THEN interval '1 hour' ELSE interval '5 minutes' END,
+                updated_at = now()
+            WHERE api_key_id = $1 AND operation_id = $2
+              AND status = 'succeeded' AND object_key = $5
+            RETURNING {Projection}
+            """);
+        command.Parameters.AddWithValue(operation.ApiKeyId);
+        command.Parameters.AddWithValue(operation.OperationId);
+        command.Parameters.AddWithValue(valid);
+        command.Parameters.AddWithValue((object?)error ?? "{}");
+        command.Parameters.AddWithValue(operation.ObjectKey);
+        await using var reader = await command.ExecuteReaderAsync(ct);
+        return await reader.ReadAsync(ct) ? Read(reader) : null;
+    }
+
     public async Task<MediaOperation?> RecordPollFailureAsync(MediaOperation operation,
         string error, CancellationToken ct = default)
     {
@@ -324,5 +389,7 @@ public sealed class MediaOperationStore(
         reader.GetString(15), reader.GetBoolean(16), reader.GetInt32(17), reader.GetDateTime(18),
         reader.IsDBNull(19) ? null : reader.GetDateTime(19),
         reader.IsDBNull(20) ? null : reader.GetDateTime(20), reader.GetString(21),
-        reader.GetString(22), reader.GetInt64(23), reader.GetString(24), reader.GetString(25));
+        reader.GetString(22), reader.GetInt64(23), reader.GetString(24), reader.GetString(25),
+        reader.IsDBNull(26) ? null : reader.GetDateTime(26), reader.GetInt32(27),
+        reader.IsDBNull(28) ? null : reader.GetDateTime(28));
 }
