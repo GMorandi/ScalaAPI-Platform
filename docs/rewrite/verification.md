@@ -2,13 +2,19 @@
 
 ## Current evidence
 
-The latest source snapshot is Gateway `9c7171f` and Platform `da62f74`.
+The latest source snapshot is Gateway `9c7171f` and Platform `48c3ddd`.
 The current source-built project `scalaapi-oauth-refresh-20260809` passed the
 full empty-volume gate after correcting the smoke DTO path to `.oAuth`: a seeded
 expired `mock-access-v1` credential rotated over real HTTP to version 2 before
 the first Chat dispatch, the request settled once, and Admin details remained
 secret-free. The cleanup trap removed all project resources and temporary image
 tags; the named `apitf_*` development resources were retained.
+The Platform `48c3ddd` policy slice passes the full 126-test suite and Release
+build with zero warnings: API-key scope normalization and projection tests pass,
+unknown scopes are rejected, capability denials are classified before scheduling,
+and migration/schema checks require the new scope, expiry, and append-only audit
+state. Authenticated Admin/user HTTP audit rows and denied-capability rows are
+not yet part of the empty-stack smoke gate.
 Gateway CTest is 104/104. The complete empty-volume gate passed in
 `scalaapi-realtime-smoke-20260809` with the 22-migration double-run,
 Garnet-authenticated request path, realtime WebSocket settlement, nine
@@ -96,7 +102,7 @@ supersedes them where commit, image, or late-usage results differ.
 | Provider OAuth credential refresh | Grain, Host, and Provider Mock tests pass for a single-account refresh lease, concurrent exclusion, CAS completion, rotated token/header hydration, safe metadata updates, persisted bounded failure/backoff, HTTPS-only token endpoint, bounded form response, secret-free errors, and real HTTP rotation/revocation/malformed/oversized response contracts. The `scalaapi-oauth-refresh-20260809` empty-stack gate proves an expired seeded credential rotates to version 2 before a billable Chat dispatch and never appears in Admin details | Add provider-specific parameters, refresh audit history, multi-Silo contention, and real provider adapter fixtures |
 | Scheduler benchmark dry run | 4/4, exit 0; no-match negative probe exits 1 | Dependency injection and child-result propagation pass; not performance evidence |
 | Contract generation and digest | Canonical and Gateway vendor schemas match; fixed-scale pricing round-trip passed; official Cap'n Proto 1.0.2 commit `1a0e12c0` plus local `capnpc-csharp` 1.3.118 regenerated all three C# files byte-identically; an intentional drift probe exited 1 with a unified diff | Platform's single-repository generated-output gate is blocking; atomic cross-private-repository schema release coordination remains |
-| PostgreSQL migrator | A fresh PostgreSQL volume applied one Orleans schema plus product migrations 001-024, including `022-auth-totp-state.sql`, `023-auth-oauth-states.sql`, and `024-provider-credential-refresh-audit.sql`, then observed all twenty-five as `skip` on an explicit second run, exit 0 | No source database, CDC, compatibility table, snapshot, or old key used |
+| PostgreSQL migrator | A fresh PostgreSQL volume applied one Orleans schema plus product migrations 001-025, including `022-auth-totp-state.sql`, `023-auth-oauth-states.sql`, `024-provider-credential-refresh-audit.sql`, and `025-api-key-policy-audit.sql`, then observed all twenty-six as `skip` on an explicit second run, exit 0 | No source database, CDC, compatibility table, snapshot, or old key used |
 | Empty-volume Compose gate | `deploy/stack/smoke.sh` passed from Platform `9320320` and Gateway `9c7171f` in unique project `scalaapi-oauth-refresh-20260809`; the clean Gateway image was built with the immutable Photon pin and full FetchContent history. The stack applied all 25 migrations (including the Orleans schema), skipped all 25 on the second run, authenticated Garnet, rotated the expired OAuth seed before Chat dispatch, persisted one secret-free succeeded refresh audit row, settled/replayed Chat and realtime WebSocket, exercised restart/recovery and the Provider matrix, resolved one incident, and persisted/downloaded the MinIO object | Source-owned gate proves ordered accounts, evidence-backed holds, exactly-once recovery including dispatch retry and outbox claim reclaim, realtime usage settlement, OAuth rotation and audit over the mock HTTP contract, safe never-forwarded expiry, late usage settlement, actual client cancellation retention, and nine unknown-charge incidents with eight remaining open after one decision. Hosted CI, runtime WebSocket soak, multi-instance recovery, and cross-protocol automation remain |
 | Garnet smoke | Auth, PING, SET/GET, PX, INCR, DEL passed | Official digest; no Redis or embedded server |
 | Garnet outage/recovery | Platform readiness 503 then 200 | Automatic TCP reconnect verified |

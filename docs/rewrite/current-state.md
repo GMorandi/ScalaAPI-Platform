@@ -11,14 +11,14 @@ read-only requirements reference and is excluded from builds and runtime.
 | Repository | Commit | Worktree | Role |
 | --- | --- | --- | --- |
 | `gateway` | `9c7171f` | clean | C++ HTTP/WebSocket edge, protocol parsing/conversion, streaming, strict Provider media contracts, bounded stream header/client timeouts, distinct inter-chunk/total timer tests, normalized Provider availability errors, shared retryable Platform transport policy for HTTP and realtime dispatch, Photon WebSocket URL normalization, transport/evidence, charge-aware failover, durable usage delivery, authenticated Garnet projections, deterministic fault boundaries, and late-usage settlement from truncated SSE |
-| `platform` | `da62f74` | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, identity/TOTP and OAuth PKCE abuse state, Provider OAuth credential refresh and secret-free audit history, bounded token-endpoint timeout classification, scheduling, evidence-backed leases/holds/ledger, audited operator resolution, restart-safe active-lease dispatch recovery, media lifecycle, Admin API/Web/User Web, HTTP/SSE/realtime and OAuth Provider mock fixtures, dependency-free full-stack smoke assertions, verified Gateway image override support, migrations, deterministic Platform/Gateway fault boundaries, and Garnet deployment gates |
+| `platform` | `48c3ddd` | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, identity/TOTP and OAuth PKCE abuse state, Provider OAuth credential refresh and secret-free audit history, API-key scopes/expiry and denial audit, bounded token-endpoint timeout classification, scheduling, evidence-backed leases/holds/ledger, audited operator resolution, restart-safe active-lease dispatch recovery, media lifecycle, Admin API/Web/User Web, HTTP/SSE/realtime and OAuth Provider mock fixtures, dependency-free full-stack smoke assertions, verified Gateway image override support, migrations, deterministic Platform/Gateway fault boundaries, and Garnet deployment gates |
 | `sub2api` | `43ec48d` | read-only clean | Requirements catalogue only; never a runtime or compatibility dependency |
 
 The current tracked inventory is:
 
 - Gateway: 52 production C++ source/header files, 10 test source files, and 104
   CTest cases.
-- Platform: 86 hand-written production C# files, 3 generated Cap'n Proto C#
+- Platform: 88 hand-written production C# files, 3 generated Cap'n Proto C#
   files, 33 test/benchmark C# files, and 126 tests: 59 Grain, 34 Host, 9 Admin,
   and 24 Provider mock tests.
 - Product surface: 119 direct Admin API route declarations, 45 product tables,
@@ -48,6 +48,12 @@ current-source runtime evidence.
 - Garnet is the only distributed cache/projection service. Both products use
   authenticated external TCP clients with optional TLS and no embedded RESP
   server, Microsoft.Garnet package, Redis process, image, or fallback.
+- API keys carry a normalized capability scope set and an optional millisecond
+  expiry in the Orleans authority. Platform rejects an unauthorized capability
+  before scheduling or creating a balance hold. Admin and user create/update/
+  rotate/revoke paths persist the same policy projection and append actor-scoped
+  audit events; denied capability requests are recorded with a request ID and no
+  plaintext key material.
 - S3-compatible storage owns media bytes. PostgreSQL owns media metadata,
   authorization, object keys, ETags, sizes, and lifecycle state.
 - All business money is `decimal`; PostgreSQL uses `NUMERIC`; the RPC boundary
@@ -219,9 +225,9 @@ current-source runtime evidence.
 
 ### Bootstrap and deployment
 
-- The active migrator applies Orleans support plus migrations 001-024 to an empty
-  PostgreSQL database and rejects checksum drift. A second execution skips all 25
-  files. No source database, snapshot, old key, CDC table, or compatibility mapping
+- The active migrator applies Orleans support plus migrations 001-025 to an empty
+  PostgreSQL database and rejects checksum drift. A second execution skips all 26
+  migration files (Orleans support plus 001-025). No source database, snapshot, old key, CDC table, or compatibility mapping
   is required.
 - `deploy/stack` independently starts PostgreSQL, authenticated Garnet, MinIO,
   Provider mock, Platform, Gateway, Admin API, Admin Web, and User Web. Image digests pin the
@@ -238,7 +244,7 @@ current-source runtime evidence.
 
 ## Current verification evidence
 
-At Platform `da62f74` and Gateway `9c7171f`:
+At Platform `48c3ddd` and Gateway `9c7171f`:
 
 - Gateway built locally and passed 104/104 CTest cases, including deterministic
   fault-hook claim/repeat behavior, terminal SSE detection, provider EOF
@@ -257,6 +263,12 @@ At Platform `da62f74` and Gateway `9c7171f`:
   coverage additionally includes real ASP.NET HTTP contract tests through the
   Platform token client for rotation, revoked grants, malformed JSON, and bounded
   oversized responses.
+- API-key policy tests pass in the 62-case Grain suite: scope normalization,
+  unknown-scope rejection, explicit projection round-trip, capability allow/deny,
+  and expiry rejection. The schema gate requires `user_api_keys.scopes`,
+  `expires_at_ms`, and the append-only `api_key_audit_events` table. The runtime
+  container now includes migration `025-api-key-policy-audit.sql`; authenticated
+  HTTP audit-row and denied-capability empty-stack assertions remain a release gate.
 - Admin Web and User Web typecheck and production builds passed; Admin Web now
   manages static/OAuth Provider credentials without reading stored secrets. The User Web
   build includes password recovery, email verification, authenticator security,

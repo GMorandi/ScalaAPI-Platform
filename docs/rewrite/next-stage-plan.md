@@ -2,7 +2,7 @@
 
 ## Checkpoint
 
-The next stage starts from Platform `da62f74`, Gateway `9c7171f`, and read-only
+The next stage starts from Platform `48c3ddd`, Gateway `9c7171f`, and read-only
 reference `sub2api@43ec48d`.
 
 The greenfield baseline now starts from empty volumes, uses PostgreSQL as authority,
@@ -120,7 +120,7 @@ Accounting authority completed at `c15b53b`, reconciliation foundation at
 `fddba62`, dispatch evidence at `6bfb974`/`84634d1`, audited resolution at
 `0559659`, and deterministic fault boundaries at `1cad5b7`/`30b8c2b`/`8c3d2e0`,
 with current streaming/empty-stack evidence in Gateway `9c7171f` and Platform
-`da62f74`:
+`48c3ddd`:
 
 - Added one per-user `accounting_accounts` authority with NUMERIC posted balance
   and monotonically increasing ledger version.
@@ -235,7 +235,7 @@ an open incident can be resolved only through the audited settle/release contrac
 
 ## Work package 2: cancellation and streaming failure semantics
 
-Progress in Gateway `9c7171f` and Platform `da62f74`: the streaming pipe now requires a source protocol
+Progress in Gateway `9c7171f` and Platform `48c3ddd`: the streaming pipe now requires a source protocol
 terminal event before treating Provider EOF as complete, classifies timeout/EOF as
 incomplete (including Photon incomplete chunked-body `-1/errno=0`), treats
 zero/error client writes as cancellation, records bounded
@@ -289,7 +289,7 @@ state, terminal lease, hold, usage, debit, idempotency, and reconciliation outco
 
 ## Work package 3: Provider and protocol contract fixtures
 
-The generic Provider OAuth runtime slice is complete at Platform `da62f74`:
+The generic Provider OAuth runtime slice is complete at Platform `48c3ddd`:
 the source-owned mock endpoint, real HTTP Platform-client contract tests, and
 `scalaapi-oauth-refresh-20260809` empty-stack assertion prove an expired encrypted
 credential rotates to version 2 before dispatch, settles once, and remains secret
@@ -300,10 +300,10 @@ Deliverables:
 
 - Add explicit OpenAI/Anthropic/Gemini token parameter profiles and provider
   revocation/rotation behavior; never introduce legacy credential-map conventions.
-- Persist secret-free refresh attempt/audit evidence and test multi-Silo lease
-  contention, refresh failure recovery, and provider-specific revocation. The
-  generic timeout, malformed/oversized response, and revoked-grant profiles are
-  already covered by the mock HTTP contract tests.
+- The secret-free refresh attempt/audit history and generic timeout,
+  malformed/oversized response, and revoked-grant profiles are complete. Add
+  provider-specific revocation/rotation profiles and test multi-Silo lease
+  contention and refresh failure recovery.
 - Version golden fixtures for OpenAI Chat request/response, tools, streaming events,
   usage, finish reasons, status codes, headers, and safe error bodies.
 - Cover same-protocol and cross-protocol normalization at the Gateway boundary.
@@ -321,6 +321,32 @@ Exit: fixtures are deterministic, run without external Providers, cover every
 Chat success/failure branch used by the deployment gate, and each supported
 provider profile has a versioned golden request/response/error fixture with
 refresh audit and multi-Silo evidence.
+
+## Current P0 slice: API-key authorization boundary
+
+Platform `48c3ddd` now treats API-key policy as a new product contract. A key
+stores a normalized set of Gateway capability scopes (`messages`, `responses`,
+`embeddings`, media, realtime, and the provider-specific model capabilities) and
+an optional millisecond expiry. Platform checks the requested capability after
+authentication but before idempotency, scheduler selection, account concurrency,
+or balance-hold creation. Expiry is classified separately from an unknown key;
+media control operations resolve their durable operation type before applying the
+matching scope.
+
+Admin and user create/update/rotate/revoke paths write the same scope/expiry
+projection and append actor, action, scope, and reason data to the new
+`api_key_audit_events` table. Runtime scope denials append a bounded audit event
+with request ID and never persist plaintext credentials. The 62-case Grain suite,
+schema assertion, Release build, and full 126-test Platform run pass. The slice
+intentionally remains `partial` until authenticated HTTP replay/concurrency tests
+and an empty-stack proof show that denied requests create no lease, hold, or
+provider call and that policy audit rows survive restart.
+
+Exit: one Admin create/update/revoke flow and one user rotate flow are exercised
+against a fresh PostgreSQL/Garnet stack; a scoped key is allowed for exactly one
+capability and rejected for another before scheduling; an expired key returns the
+expired error; repeated policy commands are serialized; and the audit query shows
+actor, action, scope, expiry, capability, and request ID without key material.
 
 ## Work package 4: Garnet and cluster resilience
 
