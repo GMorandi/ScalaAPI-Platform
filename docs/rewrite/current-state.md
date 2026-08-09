@@ -10,8 +10,8 @@ read-only requirements reference and is excluded from builds and runtime.
 
 | Repository | Commit | Worktree | Role |
 | --- | --- | --- | --- |
-| `gateway` | `de77ccb` | clean | C++ HTTP/WebSocket edge, protocol parsing/conversion, streaming, strict Provider media contracts, bounded stream header/client timeouts, distinct inter-chunk/total timer tests, normalized Provider availability errors, shared retryable Platform transport policy for HTTP and realtime dispatch, transport/evidence, charge-aware failover, durable usage delivery, authenticated Garnet projections, deterministic fault boundaries, and late-usage settlement from truncated SSE |
-| `platform` | `2572587` | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, identity, scheduling, evidence-backed leases/holds/ledger, audited operator resolution, restart-safe active-lease dispatch recovery, media lifecycle, Admin API/Web, HTTP/SSE and realtime Provider mock fixtures, dependency-free realtime full-stack smoke assertions, migrations, deterministic Platform/Gateway fault boundaries, and Garnet deployment gates |
+| `gateway` | `9c7171f` | clean | C++ HTTP/WebSocket edge, protocol parsing/conversion, streaming, strict Provider media contracts, bounded stream header/client timeouts, distinct inter-chunk/total timer tests, normalized Provider availability errors, shared retryable Platform transport policy for HTTP and realtime dispatch, Photon WebSocket URL normalization, transport/evidence, charge-aware failover, durable usage delivery, authenticated Garnet projections, deterministic fault boundaries, and late-usage settlement from truncated SSE |
+| `platform` | `dd23bb4` | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, identity, scheduling, evidence-backed leases/holds/ledger, audited operator resolution, restart-safe active-lease dispatch recovery, media lifecycle, Admin API/Web, HTTP/SSE and realtime Provider mock fixtures, dependency-free realtime full-stack smoke assertions, verified Gateway image override support, migrations, deterministic Platform/Gateway fault boundaries, and Garnet deployment gates |
 | `sub2api` | `43ec48d` | read-only clean | Requirements catalogue only; never a runtime or compatibility dependency |
 
 The current tracked inventory is:
@@ -200,7 +200,7 @@ current-source runtime evidence.
 
 ## Current verification evidence
 
-At Platform `2572587` and Gateway `de77ccb`:
+At Platform `dd23bb4` and Gateway `9c7171f`:
 
 - Gateway built locally and passed 104/104 CTest cases, including deterministic
   fault-hook claim/repeat behavior, terminal SSE detection, provider EOF
@@ -213,13 +213,15 @@ At Platform `2572587` and Gateway `de77ccb`:
   settle/release, replay/conflict behavior, and concurrent resolution serialization.
 - Admin Web typecheck and production build passed.
 - `deploy/stack/realtime_smoke.py` passed against a real Release `Provider.Mock`
-  process: it completed the HTTP/1.1 WebSocket upgrade, sent a masked
+  process and through the full Gateway -> Platform -> Provider path. The clean
+  Gateway runtime image was built from the immutable Photon commit
+  `4dd457013c48d17c571fd6d2aa87199ae4c25d4f` after disabling shallow FetchContent
+  checkout (the upstream does not advertise that commit on a discoverable ref).
+  The realtime probe completed the HTTP/1.1 upgrade, sent a masked
   `session.update`, validated deterministic `session.created` and `response.done`
-  usage frames, and closed cleanly. `deploy/stack/smoke.sh` now invokes this
-  client and requires exactly one completed realtime lease, usage event, usage
-  log, committed hold, and `usage_debit` ledger entry; the full Gateway-to-
-  Platform runtime assertion remains pending because the pinned Photon commit
-  cannot currently produce a clean Gateway image.
+  usage frames, and settled exactly one lease, usage event, usage log, committed
+  hold, and `usage_debit` ledger row. `GATEWAY_IMAGE` now lets Compose reuse this
+  verified runtime image while the default path still builds from source.
 - The current-source empty-stack project `scalaapi-gateway-recovery-0907` ran with
   `GATEWAY_FAULT_HOOK=gateway.after_provider_completion` and a 15-second lease TTL.
   Gateway returned an empty transport reply, persisted its one-shot marker,
@@ -262,10 +264,16 @@ At Platform `2572587` and Gateway `de77ccb`:
   lease, and the Provider request settled exactly one lease, usage event, usage
   log, and NUMERIC debit. The complete matrix passed with nine unknown-charge
   incidents, one audited operator settlement, and eight remaining open incidents.
-  This smoke used a temporary runtime image assembled from the verified local
-  Gateway build because the pinned Photon commit is no longer available for a
-  clean Gateway image build; all temporary containers, volumes, networks, and
-  image tags were removed after evidence capture.
+  This smoke used a clean runtime image built from the pinned Photon commit with
+  `GIT_SHALLOW=FALSE`; all temporary containers, volumes, networks, and image
+  tags were removed after evidence capture.
+- The latest isolated project `scalaapi-realtime-smoke-20260809` reused the clean
+  Gateway image `localhost/scalaapi-gateway-realtime-fix-1786253644`. The complete
+  gate passed the 22-migration double run, Garnet-authenticated Chat/replay,
+  realtime WebSocket settlement, Platform/Gateway restart requests, the Provider
+  failure matrix, audited reconciliation, and MinIO signed media persistence.
+  Its cleanup trap removed the project containers, volumes, network, and all
+  stack-specific resources; only named `apitf_*` development resources remain.
 - Scheduler benchmark integrity dry run executed all 4 selected child benchmarks
   and returned zero. It is a failure-propagation check, not performance evidence.
 - `deploy/stack/smoke.sh` built current sibling sources in isolated Podman
@@ -345,7 +353,7 @@ Detailed gate results and residual coverage are maintained in `verification.md`.
   disconnect-before-output, malformed-usage retention, and bounded pre-header
   timeout handling with no usage/debit.
   The empty-stack gate now proves actual downstream socket cancellation as well;
-  Gateway commit `de77ccb` preserves valid Provider usage observed before
+  Gateway commit `9c7171f` preserves valid Provider usage observed before
   truncated SSE EOF, settles it through the existing durable outbox path, and
   retries transient Platform dispatch loss under the same request identity.
   The same source line normalizes Provider
@@ -359,9 +367,9 @@ Detailed gate results and residual coverage are maintained in `verification.md`.
   settlement. The current source gate also proves Gateway termination before
   dispatch with safe held expiry and after Provider completion with retention of its
   forwarded lease/hold for reconciliation. Platform dispatch retry and active
-  lease recovery now pass; realtime dispatch retry is covered by Gateway source
-  tests, while runtime WebSocket Provider soak, multi-instance hook assertions,
-  and a reproducible clean Gateway image build remain.
+  lease recovery now pass; realtime dispatch retry and full-stack realtime
+  settlement are covered by source and empty-stack evidence, while runtime
+  WebSocket soak and multi-instance hook assertions remain.
 - Garnet authentication, outage/reconnect, rebuild, and invalidation flush have
   evidence; TLS plus concurrent multi-Gateway/multi-Silo behavior is not a release
   gate yet.

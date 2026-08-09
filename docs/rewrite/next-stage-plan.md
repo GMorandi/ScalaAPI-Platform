@@ -2,7 +2,7 @@
 
 ## Checkpoint
 
-The next stage starts from Platform `2572587`, Gateway `de77ccb`, and read-only
+The next stage starts from Platform `dd23bb4`, Gateway `9c7171f`, and read-only
 reference `sub2api@43ec48d`.
 
 The greenfield baseline now starts from empty volumes, uses PostgreSQL as authority,
@@ -55,7 +55,9 @@ Gateway retries it with bounded backoff under the existing deadline, and Platfor
 rebuilds the original active lease target after process loss. The Chat smoke proves
 one lease, usage event, usage log, and debit after this recovery. The shared
 Gateway source policy now covers HTTP and realtime dispatch retry with the same
-identity and bounded backoff; runtime WebSocket Provider soak, remaining
+identity and bounded backoff. The full empty-stack realtime probe now passes
+through the clean Gateway runtime image, including exactly-once
+lease/usage/hold/ledger settlement; long-connection/backpressure soak, remaining
 boundaries, the worker/multi-silo matrix, and multi-instance scenarios are still
 open.
 
@@ -85,8 +87,8 @@ failed assertion makes the top-level command non-zero.
 Accounting authority completed at `c15b53b`, reconciliation foundation at
 `fddba62`, dispatch evidence at `6bfb974`/`84634d1`, audited resolution at
 `0559659`, and deterministic fault boundaries at `1cad5b7`/`30b8c2b`/`8c3d2e0`,
-with current streaming/empty-stack evidence in Gateway `de77ccb` and Platform
-`5528b06`:
+with current streaming/empty-stack evidence in Gateway `9c7171f` and Platform
+`dd23bb4`:
 
 - Added one per-user `accounting_accounts` authority with NUMERIC posted balance
   and monotonically increasing ledger version.
@@ -162,7 +164,8 @@ Implemented in this package:
   Platform rebuilds the active lease target; the request settles one lease, usage
   event, usage log, and NUMERIC debit. The full matrix passes. The smoke uses a
   temporary runtime image assembled from the verified local Gateway build because
-  the pinned Photon commit is unavailable for a clean image build.
+  the pinned Photon commit is fetched with shallow checkout disabled because the
+  upstream does not advertise it on a discoverable ref.
 - Added explicit `Orleans:SingleSiloRecovery` for the development smoke path and
   a Podman-compatible harness restart. The source smoke proved
   `platform.before_settlement_commit`, `platform.after_settlement_commit`, and
@@ -175,10 +178,9 @@ Next implementation slice:
 - Exercise every remaining hook independently with replay assertions for duplicate
   completion, abort, expiry, projection replacement, and process restart. Platform
   dispatch retry and active-lease recovery are proven for regular Chat, while
-  Gateway source tests cover the same policy for realtime. The Provider WebSocket
-  fixture and dependency-free client are now checked in; run the full-stack
-  realtime invocation, then add long-connection/backpressure soak, replay after
-  restart, remaining Gateway hooks, and multi-silo recovery before promoting the
+  Gateway source tests and the full-stack smoke cover the same policy for realtime.
+  The next gate is long-connection/backpressure soak, replay after restart,
+  remaining Gateway crash boundaries, and multi-silo recovery before promoting the
   billing slice.
 
 Remaining package deliverables:
@@ -200,7 +202,7 @@ an open incident can be resolved only through the audited settle/release contrac
 
 ## Work package 2: cancellation and streaming failure semantics
 
-Progress in Gateway `de77ccb` and Platform `2572587`: the streaming pipe now requires a source protocol
+Progress in Gateway `9c7171f` and Platform `dd23bb4`: the streaming pipe now requires a source protocol
 terminal event before treating Provider EOF as complete, classifies timeout/EOF as
 incomplete (including Photon incomplete chunked-body `-1/errno=0`), treats
 zero/error client writes as cancellation, records bounded
