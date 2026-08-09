@@ -17,6 +17,14 @@ public sealed class ContentPolicyPropagationService(
     public async Task<ContentPolicyPropagationResult> PropagateOnceAsync(
         string workerId, CancellationToken ct = default)
     {
+        await using var lockConnection = await dataSource.OpenConnectionAsync(ct);
+        await using var lockTransaction = await lockConnection.BeginTransactionAsync(ct);
+        await using (var lockCommand = new NpgsqlCommand(
+            "SELECT pg_advisory_xact_lock(785349201)", lockConnection, lockTransaction))
+        {
+            await lockCommand.ExecuteNonQueryAsync(ct);
+        }
+
         var events = await ClaimAsync(workerId, ct);
         var propagated = 0;
         var failed = 0;
@@ -42,6 +50,7 @@ public sealed class ContentPolicyPropagationService(
             }
         }
 
+        await lockTransaction.CommitAsync(ct);
         return new ContentPolicyPropagationResult(events.Count, propagated, failed);
     }
 
