@@ -11,17 +11,17 @@ read-only requirements reference and is excluded from builds and runtime.
 | Repository | Commit | Worktree | Role |
 | --- | --- | --- | --- |
 | `gateway` | `9c7171f` | clean | C++ HTTP/WebSocket edge, protocol parsing/conversion, streaming, strict Provider media contracts, bounded stream header/client timeouts, distinct inter-chunk/total timer tests, normalized Provider availability errors, shared retryable Platform transport policy for HTTP and realtime dispatch, Photon WebSocket URL normalization, transport/evidence, charge-aware failover, durable usage delivery, authenticated Garnet projections, deterministic fault boundaries, and late-usage settlement from truncated SSE |
-| `platform` | `713bfdd` | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, identity/TOTP abuse state, scheduling, evidence-backed leases/holds/ledger, audited operator resolution, restart-safe active-lease dispatch recovery, media lifecycle, Admin API/Web, HTTP/SSE and realtime Provider mock fixtures, dependency-free realtime full-stack smoke assertions, verified Gateway image override support, migrations, deterministic Platform/Gateway fault boundaries, and Garnet deployment gates |
+| `platform` | `ea0e7f2` | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, identity/TOTP and OAuth PKCE abuse state, scheduling, evidence-backed leases/holds/ledger, audited operator resolution, restart-safe active-lease dispatch recovery, media lifecycle, Admin API/Web, HTTP/SSE and realtime Provider mock fixtures, dependency-free realtime full-stack smoke assertions, verified Gateway image override support, migrations, deterministic Platform/Gateway fault boundaries, and Garnet deployment gates |
 | `sub2api` | `43ec48d` | read-only clean | Requirements catalogue only; never a runtime or compatibility dependency |
 
 The current tracked inventory is:
 
 - Gateway: 52 production C++ source/header files, 10 test source files, and 104
   CTest cases.
-- Platform: 82 hand-written production C# files, 3 generated Cap'n Proto C#
-  files, 27 test/benchmark C# files, and 99 tests: 57 Grain, 30 Host, 6 Admin,
+- Platform: 83 hand-written production C# files, 3 generated Cap'n Proto C#
+  files, 28 test/benchmark C# files, and 101 tests: 57 Grain, 30 Host, 8 Admin,
   and 6 Provider mock tests.
-- Product surface: 116 direct Admin API route declarations, 44 product tables,
+- Product surface: 117 direct Admin API route declarations, 45 product tables,
   20 SQLSugar entity types, 23 Admin Web TypeScript/TSX files, and 11 page views.
 - Reference scope: approximately 612 Sub2API route registrations, 39 concrete
   Ent schemas, 82 Vue view/component files, and 240 migrations. These are scope
@@ -126,6 +126,12 @@ current-source runtime evidence.
   atomically, and disable never accepts a backup code. Real PostgreSQL Admin tests
   cover cross-instance lockout, recovery, replay, one-time backup use, and atomic
   disable behavior.
+- OAuth start and callback flows issue S256 PKCE material and persist only hashed
+  state/verifier values. Callback consumption is bound to the normalized provider
+  and exact redirect URI, serialized by PostgreSQL, expires after ten minutes, and
+  cannot be replayed. Real Admin tests cover provider/redirect/verifier mismatch,
+  one-time consumption, persisted consumed state, and expiry; external provider
+  adapters and account-link/browser tests remain open.
 - Users, groups, Provider accounts, encrypted credentials, scheduling, sticky
   routing, rate/concurrency policy, and versioned pricing are represented as
   Orleans aggregates with PostgreSQL operational records where implemented.
@@ -187,8 +193,8 @@ current-source runtime evidence.
 
 ### Bootstrap and deployment
 
-- The active migrator applies Orleans support plus migrations 001-022 to an empty
-  PostgreSQL database and rejects checksum drift. A second execution skips all 23
+- The active migrator applies Orleans support plus migrations 001-023 to an empty
+  PostgreSQL database and rejects checksum drift. A second execution skips all 24
   files. No source database, snapshot, old key, CDC table, or compatibility mapping
   is required.
 - `deploy/stack` independently starts PostgreSQL, authenticated Garnet, MinIO,
@@ -206,17 +212,18 @@ current-source runtime evidence.
 
 ## Current verification evidence
 
-At Platform `713bfdd` and Gateway `9c7171f`:
+At Platform `ea0e7f2` and Gateway `9c7171f`:
 
 - Gateway built locally and passed 104/104 CTest cases, including deterministic
   fault-hook claim/repeat behavior, terminal SSE detection, provider EOF
   classification, incomplete chunked-body disconnect classification, zero-length
   client-write cancellation, and bounded Provider pre-header stream timeout
   handling plus independent inter-chunk and total-stream timeout scenarios.
-- Platform Release test/build passed with 0 warnings and 0 errors: 99/99 tests,
+- Platform Release test/build passed with 0 warnings and 0 errors: 101/101 tests,
   including 30 Host tests against a fresh real PostgreSQL schema. Admin coverage
-  includes PostgreSQL-backed TOTP replay, backup-code consumption, lockout, and
-  recovery. Host coverage
+  includes PostgreSQL-backed TOTP replay, backup-code consumption, lockout,
+  recovery, OAuth provider/redirect/verifier binding, one-time state consumption,
+  and expiry. Host coverage
   includes deterministic fault-hook configuration plus atomic operator
   settle/release, replay/conflict behavior, and concurrent resolution serialization.
 - Admin Web typecheck and production build passed.
