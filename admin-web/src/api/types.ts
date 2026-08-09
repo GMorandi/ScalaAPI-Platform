@@ -17,6 +17,10 @@ export interface Account {
   loadFactor: number;
   status: string;
   supportedModels: string[];
+  credentialExpiresAt: number | null;
+  credentialStatus: string;
+  credentialVersion: number;
+  credentialRefreshError: string | null;
 }
 
 export interface Group {

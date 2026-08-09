@@ -38,6 +38,7 @@ export default function AccountsList() {
             <th class="py-2 px-2">Platform</th>
             <th class="py-2 px-2">Priority</th>
             <th class="py-2 px-2">Load</th>
+            <th class="py-2 px-2">Credential</th>
             <th class="py-2 px-2">{t("common.status")}</th>
             <th class="py-2 px-2">{t("common.actions")}</th>
           </tr>
@@ -51,6 +52,7 @@ export default function AccountsList() {
                 <td class="py-2 px-2">{acc.platform}</td>
                 <td class="py-2 px-2">{acc.priority}</td>
                 <td class="py-2 px-2">{acc.currentLoad}/{acc.concurrency}</td>
+                <td class="py-2 px-2"><span class={acc.credentialStatus === "refresh_error" ? "text-red-600" : "text-gray-600 dark:text-gray-300"}>{acc.credentialStatus}{acc.credentialVersion > 0 ? ` v${acc.credentialVersion}` : ""}</span></td>
                 <td class="py-2 px-2">
                   <span class={`rounded px-1.5 py-0.5 text-xs ${acc.status === "active" ? "bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300" : "bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300"}`}>
                     {acc.status}

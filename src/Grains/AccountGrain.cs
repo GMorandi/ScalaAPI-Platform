@@ -109,6 +109,21 @@ public class AccountGrain : Grain, IAccountGrain
             s.ProxyUrl, s.TlsFingerprint, s.ModelMapping));
     }
 
+    public Task<AccountDetails> GetDetails()
+    {
+        var s = _state.State;
+        var oauth = s.OAuth is null ? null : new ProviderOAuthCredentialProjection(
+            s.OAuth.TokenEndpoint, s.OAuth.ClientId, s.OAuth.ExpiresAtUnixSeconds,
+            s.OAuth.HeaderName, s.OAuth.HeaderScheme, s.OAuth.Scope,
+            s.OAuth.Version, s.OAuth.LastRefreshedAtUnixSeconds,
+            s.OAuth.LastRefreshError);
+        return Task.FromResult(new AccountDetails(
+            s.Id, s.Name, s.Platform, s.Type, s.BaseUrl, s.Priority,
+            s.Concurrency, s.LoadFactor, s.RateMultiplier, s.Schedulable,
+            s.Credentials.Count > 0, new(s.ModelMapping), [.. s.SupportedModels],
+            s.ProxyUrl, s.TlsFingerprint, oauth));
+    }
+
     public async Task<ProviderOAuthRefreshLease> BeginOAuthRefresh(
         long nowUnixSeconds, int refreshSkewSeconds, int leaseSeconds)
     {
@@ -257,7 +272,8 @@ public class AccountGrain : Grain, IAccountGrain
         s.LoadFactor = input.LoadFactor;
         s.RateMultiplier = input.RateMultiplier;
         s.Schedulable = input.Schedulable;
-        s.Credentials = ProtectCredentials(input.Credentials);
+        if (input.Credentials.Count > 0)
+            s.Credentials = ProtectCredentials(input.Credentials);
         s.ModelMapping = input.ModelMapping;
         s.SupportedModels = input.SupportedModels;
         s.ProxyUrl = input.ProxyUrl;
@@ -279,7 +295,8 @@ public class AccountGrain : Grain, IAccountGrain
         s.LoadFactor = input.LoadFactor;
         s.RateMultiplier = input.RateMultiplier;
         s.Schedulable = input.Schedulable;
-        s.Credentials = ProtectCredentials(input.Credentials);
+        if (input.Credentials.Count > 0)
+            s.Credentials = ProtectCredentials(input.Credentials);
         s.ModelMapping = input.ModelMapping;
         s.SupportedModels = input.SupportedModels;
         s.ProxyUrl = input.ProxyUrl;

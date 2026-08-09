@@ -23,6 +23,21 @@ public record AccountCredentials(
     bool TlsFingerprint, Dictionary<string, string> ModelMapping);
 
 [GenerateSerializer]
+public record ProviderOAuthCredentialProjection(
+    string TokenEndpoint, string ClientId, long ExpiresAtUnixSeconds,
+    string HeaderName, string HeaderScheme, string? Scope,
+    int Version, long? LastRefreshedAtUnixSeconds, string? LastRefreshError);
+
+[GenerateSerializer]
+public record AccountDetails(
+    long Id, string Name, string Platform, string Type, string BaseUrl,
+    int Priority, int Concurrency, int LoadFactor, decimal RateMultiplier,
+    bool Schedulable, bool HasStaticCredentials,
+    Dictionary<string, string> ModelMapping, string[] SupportedModels,
+    string? ProxyUrl, bool TlsFingerprint,
+    ProviderOAuthCredentialProjection? OAuth);
+
+[GenerateSerializer]
 public record ProviderOAuthCredential(
     string TokenEndpoint, string ClientId, string ClientSecret,
     string RefreshToken, string AccessToken, long ExpiresAtUnixSeconds,
@@ -53,6 +68,7 @@ public record AccountUpsert(
 public interface IAccountGrain : IGrainWithIntegerKey
 {
     Task<AccountProjection> GetProjection();
+    Task<AccountDetails> GetDetails();
     Task<AccountCredentials> Hydrate();
     Task<ProviderOAuthRefreshLease> BeginOAuthRefresh(
         long nowUnixSeconds, int refreshSkewSeconds, int leaseSeconds);

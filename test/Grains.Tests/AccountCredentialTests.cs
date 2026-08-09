@@ -18,6 +18,16 @@ public class AccountCredentialTests(ClusterFixture fixture)
         var hydrated = await grain.Hydrate();
 
         Assert.Equal("Bearer upstream-secret", hydrated.AuthHeaders["Authorization"]);
+
+        await grain.Update(new AccountUpsert(
+            "renamed-account", "openai", "api-key", "https://upstream.example",
+            2, 3, 1, 1, true, new(), new(), ["model-a"], null, false));
+        var afterMetadataUpdate = await grain.Hydrate();
+        var details = await grain.GetDetails();
+
+        Assert.Equal("Bearer upstream-secret", afterMetadataUpdate.AuthHeaders["Authorization"]);
+        Assert.True(details.HasStaticCredentials);
+        Assert.Equal("renamed-account", details.Name);
     }
 
     [Fact]
@@ -48,12 +58,22 @@ public class AccountCredentialTests(ClusterFixture fixture)
         var credentials = await grain.Hydrate();
         var projection = await grain.GetProjection();
         var fresh = await grain.BeginOAuthRefresh(now, 120, 30);
+        var details = await grain.GetDetails();
 
         Assert.Equal("Bearer access-new", credentials.AuthHeaders["Authorization"]);
         Assert.Equal("oauth", projection.CredentialStatus);
         Assert.Equal(2, projection.CredentialVersion);
         Assert.Null(projection.CredentialRefreshError);
         Assert.Equal("fresh", fresh.Status);
+        Assert.NotNull(details.OAuth);
+        Assert.Equal("https://identity.example/token", details.OAuth.TokenEndpoint);
+        Assert.Equal("client-id", details.OAuth.ClientId);
+
+        await grain.Update(new AccountUpsert(
+            "oauth-account-renamed", "openai", "oauth", "https://upstream.example",
+            1, 2, 1, 1, true, new(), new(), ["model-a"], null, false));
+        Assert.Equal("Bearer access-new",
+            (await grain.Hydrate()).AuthHeaders["Authorization"]);
     }
 
     [Fact]

@@ -27,13 +27,13 @@ public static class AccountEndpoints
         group.MapGet("/{id:long}", async (long id, IClusterClient client) =>
         {
             var grain = client.GetGrain<IAccountGrain>(id);
-            var projection = await grain.GetProjection();
-            return Results.Ok(projection);
+            var details = await grain.GetDetails();
+            return Results.Ok(details);
         });
 
         group.MapPost("/", async (AccountCreateRequest req, IClusterClient client, ListingRepository repo) =>
         {
-            var validation = Validate(req);
+            var validation = Validate(req, requireOAuth: true);
             if (validation is not null) return Results.BadRequest(new { error = validation });
             var allocator = client.GetGrain<IIdAllocatorGrain>("account");
             var id = await allocator.Next();
@@ -49,9 +49,12 @@ public static class AccountEndpoints
 
         group.MapPut("/{id:long}", async (long id, AccountCreateRequest req, IClusterClient client) =>
         {
-            var validation = Validate(req);
-            if (validation is not null) return Results.BadRequest(new { error = validation });
             var grain = client.GetGrain<IAccountGrain>(id);
+            var existing = await grain.GetDetails();
+            var validation = Validate(req,
+                requireOAuth: string.Equals(req.Type, "oauth", StringComparison.OrdinalIgnoreCase)
+                    && existing.OAuth is null);
+            if (validation is not null) return Results.BadRequest(new { error = validation });
             await grain.Update(new AccountUpsert(
                 req.Name, req.Platform, req.Type, req.BaseUrl,
                 req.Priority, req.Concurrency, req.LoadFactor, req.RateMultiplier,
@@ -76,7 +79,7 @@ public static class AccountEndpoints
         });
     }
 
-    private static string? Validate(AccountCreateRequest req)
+    private static string? Validate(AccountCreateRequest req, bool requireOAuth)
     {
         if (string.IsNullOrWhiteSpace(req.Name) || string.IsNullOrWhiteSpace(req.Platform)
             || string.IsNullOrWhiteSpace(req.BaseUrl))
@@ -84,9 +87,15 @@ public static class AccountEndpoints
         if (!Uri.TryCreate(req.BaseUrl, UriKind.Absolute, out var baseUri)
             || baseUri.Scheme is not ("http" or "https"))
             return "Base URL must be absolute HTTP or HTTPS";
+        if (req.Credentials.Count > 32
+            || req.Credentials.Any(item => !IsHeaderName(item.Key)
+                || item.Value.Length > 4096
+                || item.Value.IndexOfAny(['\r', '\n']) >= 0))
+            return "Static credential headers are invalid";
         if (!string.Equals(req.Type, "oauth", StringComparison.OrdinalIgnoreCase))
             return null;
-        if (req.OAuth is null) return "OAuth configuration is required";
+        if (req.OAuth is null)
+            return requireOAuth ? "OAuth configuration is required" : null;
         if (!Uri.TryCreate(req.OAuth.TokenEndpoint, UriKind.Absolute, out var tokenUri)
             || tokenUri.Scheme is not ("http" or "https"))
             return "OAuth token endpoint must be absolute HTTP or HTTPS";
