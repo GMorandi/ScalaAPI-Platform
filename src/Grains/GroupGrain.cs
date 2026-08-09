@@ -25,14 +25,13 @@ public class GroupState
     [Id(15)] public decimal DailySpendUsd { get; set; }
     [Id(16)] public string DailySpendDate { get; set; } = "";
     [Id(17)] public HashSet<string> AppliedLeases { get; set; } = [];
+    [Id(18)] public long RpmWindowStart { get; set; }
+    [Id(19)] public int RpmCount { get; set; }
 }
 
 public class GroupGrain : Grain, IGroupGrain
 {
     private readonly IPersistentState<GroupState> _state;
-    private int _rpmCount;
-    private long _rpmWindowStart;
-
     public GroupGrain([PersistentState("group", "postgres")] IPersistentState<GroupState> state)
     {
         _state = state;
@@ -60,12 +59,7 @@ public class GroupGrain : Grain, IGroupGrain
         var s = _state.State;
         if (!s.ModelRoutingEnabled) return Task.FromResult(Array.Empty<long>());
 
-        foreach (var (pattern, ids) in s.ModelRouting)
-        {
-            if (MatchesPattern(model, pattern))
-                return Task.FromResult(ids);
-        }
-        return Task.FromResult(Array.Empty<long>());
+        return Task.FromResult(FindMatchingRoute(s.ModelRouting, model)?.Value ?? []);
     }
 
     public Task<long[]> GetMemberAccountIds() => Task.FromResult(_state.State.MemberAccountIds);
@@ -79,16 +73,13 @@ public class GroupGrain : Grain, IGroupGrain
         var upstreamModel = model;
         if (s.ModelRoutingEnabled)
         {
-            foreach (var (pattern, _) in s.ModelRouting)
+            var match = FindMatchingRoute(s.ModelRouting, model);
+            if (match is not null)
             {
-                if (MatchesPattern(model, pattern))
-                {
-                    var mapped = pattern.Contains(':')
-                        ? pattern[(pattern.IndexOf(':') + 1)..]
-                        : model;
-                    upstreamModel = mapped;
-                    break;
-                }
+                var mapped = match.Value.Key.Contains(':')
+                    ? match.Value.Key[(match.Value.Key.IndexOf(':') + 1)..]
+                    : model;
+                upstreamModel = mapped;
             }
         }
 
@@ -113,7 +104,12 @@ public class GroupGrain : Grain, IGroupGrain
         if (s.PeakMultiplier.HasValue && s.PeakStartHour.HasValue && s.PeakEndHour.HasValue)
         {
             var hour = now.Hour;
-            if (hour >= s.PeakStartHour.Value && hour < s.PeakEndHour.Value)
+            var start = s.PeakStartHour.Value;
+            var end = s.PeakEndHour.Value;
+            var inPeak = start < end
+                ? hour >= start && hour < end
+                : start > end && (hour >= start || hour < end);
+            if (inPeak)
                 return Task.FromResult(s.PeakMultiplier.Value);
         }
         return Task.FromResult(s.RateMultiplier);
@@ -128,19 +124,21 @@ public class GroupGrain : Grain, IGroupGrain
         return Task.FromResult(s.DailySpendUsd);
     }
 
-    public Task<bool> CheckAndRecordRpm()
+    public async Task<bool> CheckAndRecordRpm()
     {
-        var limit = _state.State.RpmLimit;
-        if (limit <= 0) return Task.FromResult(true);
+        var s = _state.State;
+        var limit = s.RpmLimit;
+        if (limit <= 0) return true;
         var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-        if (now - _rpmWindowStart >= 60_000)
+        if (s.RpmWindowStart <= 0 || now - s.RpmWindowStart >= 60_000)
         {
-            _rpmCount = 0;
-            _rpmWindowStart = now;
+            s.RpmCount = 0;
+            s.RpmWindowStart = now;
         }
-        if (_rpmCount >= limit) return Task.FromResult(false);
-        _rpmCount++;
-        return Task.FromResult(true);
+        if (s.RpmCount >= limit) return false;
+        s.RpmCount++;
+        await _state.WriteStateAsync();
+        return true;
     }
 
     public async Task RecordSpend(decimal amount)
@@ -183,6 +181,20 @@ public class GroupGrain : Grain, IGroupGrain
             throw;
         }
     }
+
+    private static KeyValuePair<string, long[]>? FindMatchingRoute(
+        IReadOnlyDictionary<string, long[]> routes, string model)
+    {
+        return routes
+            .Where(entry => MatchesPattern(model, entry.Key))
+            .OrderByDescending(entry => PatternRank(entry.Key))
+            .ThenByDescending(entry => entry.Key.Length)
+            .Select(entry => (KeyValuePair<string, long[]>?)entry)
+            .FirstOrDefault();
+    }
+
+    private static int PatternRank(string pattern) =>
+        pattern == "*" ? 0 : pattern.EndsWith('*') ? 1 : 2;
 
     private static bool MatchesPattern(string model, string pattern)
     {

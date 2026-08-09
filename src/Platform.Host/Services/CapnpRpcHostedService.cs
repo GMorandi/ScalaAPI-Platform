@@ -639,34 +639,50 @@ public class DispatchService
             return DispatchResult.Rejected("noAccount", "Requested provider is not enabled for this group");
         }
         var selectedGroupId = auth.GroupId;
-        var selectedRateMultiplier = auth.RateMultiplier;
+        var selectedRateMultiplier = await groupGrain.GetEffectiveMultiplier(DateTimeOffset.UtcNow);
         var selection = await schedulerGrain.Select(new SelectRequest(
             req.RequestedModel, req.SessionHash, req.RequestId,
             req.MetadataUserId, req.ExcludedAccountIds, req.Endpoint,
             capability, req.ForcePlatform));
 
-        if (selection.Outcome == SelectionOutcome.Rejected && groupProj.FallbackGroupId.HasValue)
+        var attemptedGroups = new HashSet<long> { auth.GroupId };
+        var currentProjection = groupProj;
+        while (selection.Outcome == SelectionOutcome.Rejected
+            && currentProjection.FallbackGroupId is long fallbackId
+            && attemptedGroups.Add(fallbackId))
         {
-            selectedGroupId = groupProj.FallbackGroupId.Value;
-            var fallbackGroup = _cluster.GetGrain<IGroupGrain>(selectedGroupId);
+            selectedGroupId = fallbackId;
+            var fallbackGroup = _cluster.GetGrain<IGroupGrain>(fallbackId);
             var fallbackProjection = await fallbackGroup.GetAuthProjection();
             if (!string.Equals(fallbackProjection.Status, "active", StringComparison.OrdinalIgnoreCase))
             {
-                return DispatchResult.Rejected("noAccount", "Fallback group is disabled");
+                selection = new SelectionResult(SelectionOutcome.Rejected,
+                    null, null, null, "Fallback group is disabled");
+                currentProjection = fallbackProjection;
+                continue;
             }
             if (fallbackProjection.DailyLimitUsd.HasValue &&
                 await fallbackGroup.GetDailySpend() >= fallbackProjection.DailyLimitUsd.Value)
             {
-                return DispatchResult.Rejected("quotaExhausted", "Fallback group daily limit reached");
+                selection = new SelectionResult(SelectionOutcome.Rejected,
+                    null, null, null, "Fallback group daily limit reached");
+                currentProjection = fallbackProjection;
+                continue;
             }
             if (!await fallbackGroup.CheckAndRecordRpm())
-                return DispatchResult.Rejected("rpmExceeded", "Fallback group RPM limit reached");
+            {
+                selection = new SelectionResult(SelectionOutcome.Rejected,
+                    null, null, null, "Fallback group RPM limit reached");
+                currentProjection = fallbackProjection;
+                continue;
+            }
             selectedRateMultiplier = await fallbackGroup.GetEffectiveMultiplier(DateTimeOffset.UtcNow);
             var fallbackScheduler = _cluster.GetGrain<ISchedulerGrain>(selectedGroupId);
             selection = await fallbackScheduler.Select(new SelectRequest(
                 req.RequestedModel, req.SessionHash, req.RequestId,
                 req.MetadataUserId, req.ExcludedAccountIds, req.Endpoint,
                 capability, req.ForcePlatform));
+            currentProjection = fallbackProjection;
         }
 
         if (selection.Outcome == SelectionOutcome.Rejected)

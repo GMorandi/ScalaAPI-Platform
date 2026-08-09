@@ -56,6 +56,20 @@ public class GroupGrainTests
     }
 
     [Fact]
+    public async Task GetRoutingAccountIds_PrefersExactThenLongestPrefix()
+    {
+        var grain = GetGrain(4011);
+        await grain.Create(new GroupUpsert(
+            "openai", 1.0m, false, null, false, null, true,
+            new() { ["*"] = [10], ["gpt*"] = [20], ["gpt-4o"] = [30] },
+            [10, 20, 30], 0, null, null, null));
+
+        Assert.Equal(new long[] { 30 }, await grain.GetRoutingAccountIds("gpt-4o"));
+        Assert.Equal(new long[] { 20 }, await grain.GetRoutingAccountIds("gpt-4o-mini"));
+        Assert.Equal(new long[] { 10 }, await grain.GetRoutingAccountIds("claude-sonnet"));
+    }
+
+    [Fact]
     public async Task GetRoutingAccountIds_Disabled_ReturnsEmpty()
     {
         var grain = GetGrain(4004);
@@ -79,6 +93,46 @@ public class GroupGrainTests
 
         Assert.Equal(2.5m, await grain.GetEffectiveMultiplier(peakTime));
         Assert.Equal(1.0m, await grain.GetEffectiveMultiplier(offPeakTime));
+    }
+
+    [Fact]
+    public async Task GetEffectiveMultiplier_SupportsOvernightPeakHours()
+    {
+        var grain = GetGrain(4012);
+        await grain.Create(new GroupUpsert(
+            "openai", 1.0m, false, null, false, null, false, new(), [], 0, 2.5m, 22, 6));
+
+        Assert.Equal(2.5m,
+            await grain.GetEffectiveMultiplier(new DateTimeOffset(2026, 1, 15, 23, 0, 0, TimeSpan.Zero)));
+        Assert.Equal(2.5m,
+            await grain.GetEffectiveMultiplier(new DateTimeOffset(2026, 1, 16, 3, 0, 0, TimeSpan.Zero)));
+        Assert.Equal(1.0m,
+            await grain.GetEffectiveMultiplier(new DateTimeOffset(2026, 1, 16, 12, 0, 0, TimeSpan.Zero)));
+    }
+
+    [Fact]
+    public async Task CheckAndRecordRpm_EnforcesLimit()
+    {
+        var grain = GetGrain(4013);
+        await grain.Create(new GroupUpsert(
+            "openai", 1.0m, false, null, false, null, false, new(), [], 2, null, null, null));
+
+        Assert.True(await grain.CheckAndRecordRpm());
+        Assert.True(await grain.CheckAndRecordRpm());
+        Assert.False(await grain.CheckAndRecordRpm());
+    }
+
+    [Fact]
+    public async Task RecordLeaseSpend_IsIdempotent()
+    {
+        var grain = GetGrain(4014);
+        await grain.Create(new GroupUpsert(
+            "openai", 1.0m, false, null, false, null, false, new(), [], 0, null, null, null));
+
+        await grain.RecordLeaseSpend("lease-4014", 1.25m);
+        await grain.RecordLeaseSpend("lease-4014", 1.25m);
+
+        Assert.Equal(1.25m, await grain.GetDailySpend());
     }
 
     [Fact]
