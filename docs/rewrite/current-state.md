@@ -11,7 +11,7 @@ read-only requirements reference and is excluded from builds and runtime.
 | Repository | Commit | Worktree | Role |
 | --- | --- | --- | --- |
 | `gateway` | `297b131` | clean | C++ HTTP/WebSocket edge, protocol parsing/conversion, streaming, strict Provider media contracts, bounded stream header/client timeouts, distinct inter-chunk/total timer tests, normalized Provider availability errors, transport/evidence, charge-aware failover, durable usage delivery, authenticated Garnet projections, deterministic fault boundaries, and late-usage settlement from truncated SSE |
-| `platform` | `74b5798` | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, identity, scheduling, evidence-backed leases/holds/ledger, audited operator resolution, media lifecycle, Admin API/Web, Provider mock, migrations, deterministic fault boundaries, and Garnet deployment gates |
+| `platform` | `fe21ccd` | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, identity, scheduling, evidence-backed leases/holds/ledger, audited operator resolution, media lifecycle, Admin API/Web, Provider mock, migrations, deterministic fault boundaries, and Garnet deployment gates |
 | `sub2api` | `43ec48d` | read-only clean | Requirements catalogue only; never a runtime or compatibility dependency |
 
 The current tracked inventory is:
@@ -96,7 +96,8 @@ current-source runtime evidence.
   retires non-retryable terminal reports instead of blocking forever.
 - Gateway and Platform expose opt-in, one-shot deterministic fault hooks at
   dispatch, Provider completion, settlement commit, and outbox acknowledgement.
-  Hooks persist a claim marker so a restarted process does not crash repeatedly.
+  Hooks persist a claim marker so a restarted process does not crash repeatedly;
+  the smoke harness proves Platform pre-commit, post-commit, and pre-ack recovery.
 
 ### Identity and control plane
 
@@ -183,7 +184,7 @@ current-source runtime evidence.
 
 ## Current verification evidence
 
-At Platform `74b5798` and Gateway `297b131`:
+At Platform `fe21ccd` and Gateway `297b131`:
 
 - Gateway built locally and passed 102/102 CTest cases, including deterministic
   fault-hook claim/repeat behavior, terminal SSE detection, provider EOF
@@ -280,11 +281,11 @@ Detailed gate results and residual coverage are maintained in `verification.md`.
   connection resets and scheduler exhaustion to `503/provider_unavailable`; bounded
   timeout and malformed protocol cases remain `502/provider_protocol_error`; the
   timer distinctions are pinned by Gateway `18083f9`.
-- One source smoke now proves the Platform pre-settlement-commit crash boundary,
-  Gateway reconnect/backoff recovery, durable usage replay, and exactly-once
-  settlement. The remaining dispatch, Provider-completion, post-commit, Gateway,
-  and outbox-acknowledgement hook matrix still needs independent runtime
-  assertions, including hold/idempotency reconciliation and multi-instance recovery.
+- Source smoke now proves Platform pre-settlement-commit, post-settlement-commit,
+  and pre-outbox-acknowledgement crash boundaries, Gateway reconnect/backoff
+  recovery, durable usage replay, and exactly-once settlement. The remaining
+  dispatch, Provider-completion, Gateway, and multi-instance hook matrix still
+  needs independent runtime assertions, including hold/idempotency reconciliation.
 - Garnet authentication, outage/reconnect, rebuild, and invalidation flush have
   evidence; TLS plus concurrent multi-Gateway/multi-Silo behavior is not a release
   gate yet.
