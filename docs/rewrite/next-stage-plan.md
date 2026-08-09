@@ -2,7 +2,7 @@
 
 ## Checkpoint
 
-The next stage starts from Platform `1325ecd`, Gateway `1574d42`, and read-only
+The next stage starts from Platform `b0d7ee2`, Gateway `6c43e5d`, and read-only
 reference `sub2api@43ec48d`.
 
 The greenfield baseline now starts from empty volumes, uses PostgreSQL as authority,
@@ -37,9 +37,11 @@ classification, and client-cancellation classification. The empty stack proves
 Provider disconnect, disconnect-before-output, malformed-usage, timeout before
 response headers, and actual downstream client-cancellation and invalid-content-type
 SSE retention with nine total unknown-charge incidents. The pre-header timeout now
-returns a bounded 502/provider_protocol_error and retains its hold; public error
-normalization, final-usage/replay reconciliation, distinct inter-chunk/total stream
-timers, the remaining hook matrix, and multi-instance scenarios are still open.
+returns a bounded 502/provider_protocol_error and retains its hold; direct and
+zero-output Provider resets now return 503/provider_unavailable, while partial SSE
+resets retain their unknown-charge hold. Final-usage/replay reconciliation, distinct
+inter-chunk/total stream timers, the remaining hook matrix, and multi-instance
+scenarios are still open.
 
 This stage contains no compatibility, cutover, dual-write, CDC, snapshot import,
 old-key import, ID preservation, status mapping, or business-data migration work.
@@ -67,8 +69,8 @@ failed assertion makes the top-level command non-zero.
 Accounting authority completed at `c15b53b`, reconciliation foundation at
 `fddba62`, dispatch evidence at `6bfb974`/`84634d1`, audited resolution at
 `0559659`, and deterministic fault boundaries at `1cad5b7`/`30b8c2b`/`8c3d2e0`,
-with current streaming/empty-stack evidence in Gateway `1574d42` and Platform
-`1325ecd`:
+with current streaming/empty-stack evidence in Gateway `6c43e5d` and Platform
+`b0d7ee2`:
 
 - Added one per-user `accounting_accounts` authority with NUMERIC posted balance
   and monotonically increasing ledger version.
@@ -154,7 +156,7 @@ an open incident can be resolved only through the audited settle/release contrac
 
 ## Work package 2: cancellation and streaming failure semantics
 
-Progress in Gateway `1574d42` and Platform `1325ecd`: the streaming pipe now requires a source protocol
+Progress in Gateway `6c43e5d` and Platform `b0d7ee2`: the streaming pipe now requires a source protocol
 terminal event before treating Provider EOF as complete, classifies timeout/EOF as
 incomplete (including Photon incomplete chunked-body `-1/errno=0`), treats
 zero/error client writes as cancellation, records bounded
@@ -165,8 +167,10 @@ malformed-usage, invalid content type, downstream client cancellation, and strea
 429/500 rejection outcomes with the expected hold/debit behavior. Exact
 `text/event-stream` media type validation rejects JSON or lookalike media types
 before client output and retains the authorized hold as unknown charge.
-The package is not closed until the public 502/503 contract and final-usage/replay
-behavior are proven through Platform. Actual downstream client socket cancellation
+The public Provider availability contract is now closed for direct and zero-output
+resets: Gateway returns `503/provider_unavailable`, dispatch wait exhaustion uses the
+same body, and bounded timeout/malformed protocol cases remain `502/provider_protocol_error`.
+The package is not closed until final-usage/replay behavior is proven through Platform. Actual downstream client socket cancellation
 is now proven from an empty stack: the Provider emits one SSE event, a short-lived
 client closes before the delayed second write, and the lease remains
   `reconciliation_needed` with its hold and idempotency key retained. A no-header
@@ -176,9 +180,9 @@ client closes before the delayed second write, and the lease remains
 
 Deliverables:
 
-- Normalize direct-reset 502 versus post-cooldown 503 into one documented public
-  status, error type, and safe non-empty body. Freeze retryable/non-retryable mapping
-  before adding protocol fixtures.
+- Keep the normalized direct-reset and dispatch-exhaustion `503/provider_unavailable`
+  contract stable while adding protocol-wide golden fixtures. Freeze its
+  retryable/non-retryable mapping before extending adapters.
 - Propagate client cancellation through the HTTP/SSE transport and stop retrying as
   soon as any response bytes have reached the client. Gateway source behavior and
   stack-level socket/reconciliation evidence now pass; add replay and final-usage

@@ -10,8 +10,8 @@ read-only requirements reference and is excluded from builds and runtime.
 
 | Repository | Commit | Worktree | Role |
 | --- | --- | --- | --- |
-| `gateway` | `1574d42` | clean | C++ HTTP/WebSocket edge, protocol parsing/conversion, streaming, strict Provider media contracts, bounded stream header/client timeouts, transport/evidence, charge-aware failover, durable usage delivery, authenticated Garnet projections, deterministic fault boundaries, and fail-closed cancellation/partial-SSE handling |
-| `platform` | `1325ecd` | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, identity, scheduling, evidence-backed leases/holds/ledger, audited operator resolution, media lifecycle, Admin API/Web, Provider mock, migrations, deterministic fault boundaries, and deployment gates |
+| `gateway` | `6c43e5d` | clean | C++ HTTP/WebSocket edge, protocol parsing/conversion, streaming, strict Provider media contracts, bounded stream header/client timeouts, normalized Provider availability errors, transport/evidence, charge-aware failover, durable usage delivery, authenticated Garnet projections, deterministic fault boundaries, and fail-closed cancellation/partial-SSE handling |
+| `platform` | `b0d7ee2` | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, identity, scheduling, evidence-backed leases/holds/ledger, audited operator resolution, media lifecycle, Admin API/Web, Provider mock, migrations, deterministic fault boundaries, and deployment gates |
 | `sub2api` | `43ec48d` | read-only clean | Requirements catalogue only; never a runtime or compatibility dependency |
 
 The current tracked inventory is:
@@ -74,13 +74,17 @@ current-source runtime evidence.
   streaming client record `output_started`. If evidence persistence fails before
   transport, Gateway fails closed without contacting the Provider.
 - Only an actual Provider response with a 4xx/5xx status proves an explicit
-  no-charge rejection and permits release/failover. Transport loss, a synthesized
-  502, malformed usage, conversion failure, and media persistence failure are
-  unknown-charge outcomes and do not fail over.
+  no-charge rejection and permits release/failover. Transport loss is exposed as
+  `503/provider_unavailable`; bounded timeouts, malformed payloads, conversion
+  failure, and media persistence failure use `502/provider_protocol_error` or a
+  more specific 502 contract. All remain unknown-charge outcomes and do not fail
+  over.
 - Successful payload-bearing 2xx responses are checked before usage extraction.
-  Body read failure, an empty 2xx payload, or malformed JSON becomes a retryable
-  protocol error; an upstream disconnect can no longer escape as a zero-token
-  200 response. Streaming requests reject a non-SSE success before client output.
+  A Provider connection reset before headers, during a non-stream body, or during
+  an incomplete SSE is `503/provider_unavailable`; bounded timeout and malformed
+  protocol cases remain `502/provider_protocol_error`. An upstream disconnect can
+  no longer escape as a zero-token 200 response. Streaming requests reject a
+  non-SSE success before client output.
   SSE completion now requires the source protocol's terminal event (`[DONE]`,
   `message_stop`, `response.completed`, or a finish reason); EOF/timeout before
   that event is an incomplete Provider stream and retains the charge hold. A
@@ -176,7 +180,7 @@ current-source runtime evidence.
 
 ## Current verification evidence
 
-At Platform `1325ecd` and Gateway `1574d42`:
+At Platform `b0d7ee2` and Gateway `6c43e5d`:
 
 - Gateway built locally and passed 99/99 CTest cases, including deterministic
   fault-hook claim/repeat behavior, terminal SSE detection, provider EOF
@@ -191,14 +195,14 @@ At Platform `1325ecd` and Gateway `1574d42`:
 - Scheduler benchmark integrity dry run executed all 4 selected child benchmarks
   and returned zero. It is a failure-propagation check, not performance evidence.
 - `deploy/stack/smoke.sh` built current sibling sources in the isolated Podman
-  project `scalaapi-smoke-before-settle-0815`, created new volumes, applied all
+  project `scalaapi-smoke-error-contract-0819`, created new volumes, applied all
   22 migrations, and observed all 22 skip on the second migrator run. Source-built
-  image IDs were Platform `d0ae432e0d7a291a1331b1267753784a3986d31cff0d03e3ab87156af88623c1`,
-  Admin API `bc97cd5211d8896cba8432bffc35a90e43e32d8c33a5fa78c1cad80fea8e7273`,
-  Gateway `778396ecaa3a98932c48003fe2965dc4b3525504bb6198bfb7728f0920a4518e`,
-  Provider mock `440beb3d8c7d39adf252f82fa1c7a3bfb3aabef2c07c9a4b5e0749b7341e3832`,
-  migrator `0cc37aea501a7ab18ba126396c57fe774a1e2ead87f1dbc7a62d10d1bfaec2a3`,
-  and Admin Web `ca947ebe46fed653b68f55ecfcdf70e5e316c1354b0b3d4b11c9e8855dc1c906`.
+  image IDs were Platform `cd29af81cc716cb142990642a5de64e66ca4f4f7f5c6bd0a8da45035ec94d792`,
+  Admin API `9aff6f079122951522cb3e4eaf5883bd08fc0cdc9f7839cb16ecf93e35e01aab`,
+  Gateway `6fe2265b56de932bece631a5c5fbd49bac110b88128160170cb89d39dfba1580`,
+  Provider mock `5f6a4737219f0ae894e4a95bce7610d8d51e8d796bd8cdb002c9fa3b96d6926a`,
+  migrator `88cfa8e7f22d0f8e7d37d3a69ea576ddc0a54997b758209e7507f553459bb3b3`,
+  and Admin Web `8a8064cc761eefc35605b029a656afba3fad00cf0555c702dd44eae9d6c9a615`.
   The smoke intentionally crashed Platform once before settlement commit; the
   harness observed the exit, explicitly started the same container, replayed the
   Gateway usage outbox after reconnect, and preserved one debit. It also replaced
@@ -208,7 +212,9 @@ At Platform `1325ecd` and Gateway `1574d42`:
   headers, partial SSE disconnect, invalid streaming content type, and a real
   downstream client timeout after the first SSE event. The pre-header timeout
   returned bounded HTTP 502 with `provider_protocol_error`, retained one hold, and
-  did not fail over. One incident was settled through the Admin API, replayed as
+  did not fail over. Direct non-stream and zero-output streaming resets returned
+  HTTP 503 with `provider_unavailable`; partial SSE resets are retained as
+  unknown-charge even when the client observes a transport-level 000. One incident was settled through the Admin API, replayed as
   `duplicate`, and the next reconciliation retained eight remaining open
   unknown-charge incidents.
 - The clean-stack Admin API funded a new zero-balance user once. Exact replay
@@ -242,10 +248,10 @@ At Platform `1325ecd` and Gateway `1574d42`:
 - Garnet authentication returned `PONG`; asynchronous media bootstrapped the empty
   MinIO bucket and a signed URL downloaded the expected 67-byte object.
 - The smoke command exited zero and its cleanup trap removed only its containers and
-  temporary volumes. The exact `scalaapi-smoke-before-settle-0815_*` image tags and
-  earlier diagnostic smoke tags were then removed explicitly; no smoke project
-  container, volume, or tagged image remained. The host retained only the three named
-  `apitf_*` baseline volumes and the Garnet base image.
+  temporary volumes. The exact `scalaapi-smoke-error-contract-0819_*` image tags
+  and networks were removed explicitly after evidence capture; no 0819 smoke
+  project container, volume, network, or tagged image remained. The host retained
+  only the three named `apitf_*` baseline volumes and the Garnet base image.
 
 Detailed gate results and residual coverage are maintained in `verification.md`.
 
@@ -263,11 +269,10 @@ Detailed gate results and residual coverage are maintained in `verification.md`.
   disconnect-before-output, malformed-usage retention, and bounded pre-header
   timeout handling with no usage/debit.
   The empty-stack gate now proves actual downstream socket cancellation as well;
-  final usage/reconciliation fixtures for a truncated stream remain.
-  A direct
-  transport reset currently returns 502 while scheduler exhaustion after the same
-  reset can return 503; the next error-contract slice must normalize the public
-  status and body.
+  final usage/reconciliation fixtures for a truncated stream remain. Gateway
+  commit `6c43e5d` and smoke assertion commit `b0d7ee2` now normalize Provider
+  connection resets and scheduler exhaustion to `503/provider_unavailable`; bounded
+  timeout and malformed protocol cases remain `502/provider_protocol_error`.
 - One source smoke now proves the Platform pre-settlement-commit crash boundary,
   Gateway reconnect/backoff recovery, durable usage replay, and exactly-once
   settlement. The remaining dispatch, Provider-completion, post-commit, Gateway,
