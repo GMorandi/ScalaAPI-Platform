@@ -11,7 +11,7 @@ read-only requirements reference and is excluded from builds and runtime.
 | Repository | Commit | Worktree | Role |
 | --- | --- | --- | --- |
 | `gateway` | `9c7171f` | clean | C++ HTTP/WebSocket edge, protocol parsing/conversion, streaming, strict Provider media contracts, bounded stream header/client timeouts, distinct inter-chunk/total timer tests, normalized Provider availability errors, shared retryable Platform transport policy for HTTP and realtime dispatch, Photon WebSocket URL normalization, transport/evidence, charge-aware failover, durable usage delivery, authenticated Garnet projections, deterministic fault boundaries, and late-usage settlement from truncated SSE |
-| `platform` | `ea0e7f2` | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, identity/TOTP and OAuth PKCE abuse state, scheduling, evidence-backed leases/holds/ledger, audited operator resolution, restart-safe active-lease dispatch recovery, media lifecycle, Admin API/Web, HTTP/SSE and realtime Provider mock fixtures, dependency-free realtime full-stack smoke assertions, verified Gateway image override support, migrations, deterministic Platform/Gateway fault boundaries, and Garnet deployment gates |
+| `platform` | `b047445` | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, identity/TOTP and OAuth PKCE abuse state, scheduling, evidence-backed leases/holds/ledger, audited operator resolution, restart-safe active-lease dispatch recovery, media lifecycle, Admin API/Web/User Web, HTTP/SSE and realtime Provider mock fixtures, dependency-free realtime full-stack smoke assertions, verified Gateway image override support, migrations, deterministic Platform/Gateway fault boundaries, and Garnet deployment gates |
 | `sub2api` | `43ec48d` | read-only clean | Requirements catalogue only; never a runtime or compatibility dependency |
 
 The current tracked inventory is:
@@ -19,16 +19,17 @@ The current tracked inventory is:
 - Gateway: 52 production C++ source/header files, 10 test source files, and 104
   CTest cases.
 - Platform: 83 hand-written production C# files, 3 generated Cap'n Proto C#
-  files, 28 test/benchmark C# files, and 101 tests: 57 Grain, 30 Host, 8 Admin,
+  files, 29 test/benchmark C# files, and 102 tests: 57 Grain, 30 Host, 9 Admin,
   and 6 Provider mock tests.
-- Product surface: 117 direct Admin API route declarations, 45 product tables,
-  20 SQLSugar entity types, 23 Admin Web TypeScript/TSX files, and 11 page views.
+- Product surface: 119 direct Admin API route declarations, 45 product tables,
+  20 SQLSugar entity types, 23 Admin Web TypeScript/TSX files and 11 page views,
+  plus 13 User Web TypeScript/TSX files and 8 user views.
 - Reference scope: approximately 612 Sub2API route registrations, 39 concrete
   Ent schemas, 82 Vue view/component files, and 240 migrations. These are scope
   signals, not parity percentages or migration targets.
 
-The 58-domain inventory remains 2 `implemented`, 37 `partial`, 10 `skeleton`,
-and 9 `missing`. A route, table, mock response, or manual probe does not promote a
+The 58-domain inventory remains 2 `implemented`, 40 `partial`, 10 `skeleton`,
+and 6 `missing`. A route, table, mock response, or manual probe does not promote a
 domain; promotion requires a defined contract/state machine, automated tests, and
 current-source runtime evidence.
 
@@ -132,6 +133,12 @@ current-source runtime evidence.
   cannot be replayed. Real Admin tests cover provider/redirect/verifier mismatch,
   one-time consumption, persisted consumed state, and expiry; external provider
   adapters and account-link/browser tests remain open.
+- The User Web is a separate Solid client with registration/login, OAuth callback,
+  refresh-aware sessions, balance and recent usage overview, scoped usage history,
+  API key create/rotate/revoke, payment orders, subscriptions, profile editing,
+  and password change. It is served independently from Admin Web and uses only the
+  new `/auth` and `/user` contracts; recovery, TOTP setup UX, redeem/affiliate flows,
+  and browser automation remain open.
 - Users, groups, Provider accounts, encrypted credentials, scheduling, sticky
   routing, rate/concurrency policy, and versioned pricing are represented as
   Orleans aggregates with PostgreSQL operational records where implemented.
@@ -198,7 +205,7 @@ current-source runtime evidence.
   files. No source database, snapshot, old key, CDC table, or compatibility mapping
   is required.
 - `deploy/stack` independently starts PostgreSQL, authenticated Garnet, MinIO,
-  Provider mock, Platform, Gateway, Admin API, and Admin Web. Image digests pin the
+  Provider mock, Platform, Gateway, Admin API, Admin Web, and User Web. Image digests pin the
   infrastructure services.
 - The stack uses `restart: on-failure`; the Podman Compose 1.6 smoke harness also
   explicitly starts the exited Platform container when a fault hook is enabled.
@@ -212,21 +219,21 @@ current-source runtime evidence.
 
 ## Current verification evidence
 
-At Platform `ea0e7f2` and Gateway `9c7171f`:
+At Platform `b047445` and Gateway `9c7171f`:
 
 - Gateway built locally and passed 104/104 CTest cases, including deterministic
   fault-hook claim/repeat behavior, terminal SSE detection, provider EOF
   classification, incomplete chunked-body disconnect classification, zero-length
   client-write cancellation, and bounded Provider pre-header stream timeout
   handling plus independent inter-chunk and total-stream timeout scenarios.
-- Platform Release test/build passed with 0 warnings and 0 errors: 101/101 tests,
+- Platform Release test/build passed with 0 warnings and 0 errors: 102/102 tests,
   including 30 Host tests against a fresh real PostgreSQL schema. Admin coverage
   includes PostgreSQL-backed TOTP replay, backup-code consumption, lockout,
   recovery, OAuth provider/redirect/verifier binding, one-time state consumption,
   and expiry. Host coverage
   includes deterministic fault-hook configuration plus atomic operator
   settle/release, replay/conflict behavior, and concurrent resolution serialization.
-- Admin Web typecheck and production build passed.
+- Admin Web and User Web typecheck and production builds passed.
 - `deploy/stack/realtime_smoke.py` passed against a real Release `Provider.Mock`
   process and through the full Gateway -> Platform -> Provider path. The clean
   Gateway runtime image was built from the immutable Photon commit
@@ -391,11 +398,11 @@ Detailed gate results and residual coverage are maintained in `verification.md`.
 - Hosted CI cannot currently check out the private sibling repository with the
   default per-repository token. The local cross-repository smoke must become a
   blocking release workflow with a read-only checkout boundary.
-- Provider adapters beyond the mock, protocol golden fixtures, User Web, browser
+- Provider adapters beyond the mock, protocol golden fixtures, User Web browser
   tests for auth recovery/TOTP UX, Passkeys, full commercial coupling, audit/observability,
   HA, load/soak, backup/restore, and signed rollback remain partial or missing.
-- Admin Web has a blocking type/build gate but no browser runner. There is no User
-  Web implementation.
+- Admin Web and User Web have blocking type/build gates but no browser runner;
+  recovery, payment, and account-management browser scenarios remain.
 
 ## Historical boundary and acceptance rule
 
