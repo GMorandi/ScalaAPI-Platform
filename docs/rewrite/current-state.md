@@ -11,7 +11,7 @@ read-only requirements reference and is excluded from builds and runtime.
 | Repository | Commit | Worktree | Role |
 | --- | --- | --- | --- |
 | `gateway` | `52a0035` | clean | C++ HTTP/WebSocket edge, protocol parsing/conversion, streaming, strict Provider media contracts, bounded stream header/client timeouts, distinct inter-chunk/total timer tests, normalized Provider availability errors, shared retryable Platform transport policy for HTTP and realtime dispatch, Photon WebSocket URL normalization, transport/evidence, charge-aware failover, durable usage delivery, authenticated Garnet projections, deterministic fault boundaries, late-usage settlement from truncated SSE, and HTTP 403 capability-denial mapping |
-| `platform` | `bbd77a4` | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, identity/TOTP and OAuth PKCE abuse state, Provider OAuth credential refresh and secret-free audit history, API-key scopes/expiry and denial audit, typed JSONB policy projections, bounded token-endpoint timeout classification, scheduling, evidence-backed leases/holds/ledger, audited operator resolution, restart-safe active-lease dispatch recovery, media lifecycle, Admin API/Web/User Web, HTTP/SSE/realtime and OAuth Provider mock fixtures, dependency-free full-stack smoke assertions, verified Gateway image override support, migrations, deterministic Platform/Gateway fault boundaries, and Garnet deployment gates |
+| `platform` | `a1936c0` | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, rotating single-use auth sessions with replay/revocation evidence, identity/TOTP and OAuth PKCE abuse state, Provider OAuth credential refresh and secret-free audit history, API-key scopes/expiry and denial audit, typed JSONB policy projections, bounded token-endpoint timeout classification, scheduling, evidence-backed leases/holds/ledger, audited operator resolution, restart-safe active-lease dispatch recovery, media lifecycle, Admin API/Web/User Web, HTTP/SSE/realtime and OAuth Provider mock fixtures, dependency-free full-stack smoke assertions, verified Gateway image override support, migrations, deterministic Platform/Gateway fault boundaries, and Garnet deployment gates |
 | `sub2api` | `43ec48d` | read-only clean | Requirements catalogue only; never a runtime or compatibility dependency |
 
 The current tracked inventory is:
@@ -19,7 +19,7 @@ The current tracked inventory is:
 - Gateway: 52 production C++ source/header files, 10 test source files, and 104
   CTest cases.
 - Platform: 88 hand-written production C# files, 3 generated Cap'n Proto C#
-  files, 33 test/benchmark C# files, and 126 tests: 59 Grain, 34 Host, 9 Admin,
+  files, 33 test/benchmark C# files, and 129 tests: 59 Grain, 34 Host, 12 Admin,
   and 24 Provider mock tests.
 - Product surface: 119 direct Admin API route declarations, 45 product tables,
   20 SQLSugar entity types, 23 Admin Web TypeScript/TSX files and 11 page views,
@@ -125,6 +125,10 @@ current-source runtime evidence.
 - Registration, password login, OAuth identity records, rotating hashed refresh
   sessions, logout, per-session revoke, password reset, email verification,
   profile/password update, and password-confirmed soft account deletion exist.
+  Auth-session tests prove PostgreSQL row locking permits only one concurrent
+  refresh winner, the old token cannot replay, replaced and logged-out access
+  tokens fail session validation, and expired sessions reject both access and
+  refresh paths; the source Compose gate covers the same HTTP lifecycle.
 - API keys support create, list, rotate, revoke, hash-only persistence, registry
   projection, absolute quota, and independent 5-hour/day/week spend windows.
 - TOTP setup, verification, login backup-code use, and disable flows now share a
@@ -244,15 +248,15 @@ current-source runtime evidence.
 
 ## Current verification evidence
 
-At Platform `bbd77a4` and Gateway `52a0035`:
+At Platform `a1936c0` and Gateway `52a0035`:
 
 - Gateway built locally and passed 104/104 CTest cases, including deterministic
   fault-hook claim/repeat behavior, terminal SSE detection, provider EOF
   classification, incomplete chunked-body disconnect classification, zero-length
   client-write cancellation, and bounded Provider pre-header stream timeout
   handling plus independent inter-chunk and total-stream timeout scenarios.
-- Platform Release test/build passed with 0 warnings and 0 errors: 126/126 tests,
-  including 33 Host tests and 59 Grain tests. Admin coverage
+- Platform Release test/build passed with 0 warnings and 0 errors: 129/129 tests,
+  including 34 Host tests and 59 Grain tests. Admin coverage
   includes PostgreSQL-backed TOTP replay, backup-code consumption, lockout,
   recovery, OAuth provider/redirect/verifier binding, one-time state consumption,
   and expiry. Host coverage
