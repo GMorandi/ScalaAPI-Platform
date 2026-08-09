@@ -2,7 +2,7 @@
 
 ## Checkpoint
 
-The next stage starts from Platform `b0d7ee2`, Gateway `18083f9`, and read-only
+The next stage starts from Platform `74b5798`, Gateway `297b131`, and read-only
 reference `sub2api@43ec48d`.
 
 The greenfield baseline now starts from empty volumes, uses PostgreSQL as authority,
@@ -40,8 +40,10 @@ SSE retention with nine total unknown-charge incidents. The pre-header timeout n
 returns a bounded 502/provider_protocol_error and retains its hold; direct and
 zero-output Provider resets now return 503/provider_unavailable, while partial SSE
 resets retain their unknown-charge hold. Gateway CTest now independently proves the
-inter-chunk and total-stream timers. Final-usage/replay reconciliation, the remaining
-hook matrix, and multi-instance scenarios are still open.
+inter-chunk and total-stream timers. The `disconnect_after_usage` profile emits valid
+usage and ends before `[DONE]`; the empty-stack gate settles it exactly once through
+the durable outbox. Replay after process failure, the remaining hook matrix, and
+multi-instance scenarios are still open.
 
 This stage contains no compatibility, cutover, dual-write, CDC, snapshot import,
 old-key import, ID preservation, status mapping, or business-data migration work.
@@ -69,8 +71,8 @@ failed assertion makes the top-level command non-zero.
 Accounting authority completed at `c15b53b`, reconciliation foundation at
 `fddba62`, dispatch evidence at `6bfb974`/`84634d1`, audited resolution at
 `0559659`, and deterministic fault boundaries at `1cad5b7`/`30b8c2b`/`8c3d2e0`,
-with current streaming/empty-stack evidence in Gateway `18083f9` and Platform
-`b0d7ee2`:
+with current streaming/empty-stack evidence in Gateway `297b131` and Platform
+`74b5798`:
 
 - Added one per-user `accounting_accounts` authority with NUMERIC posted balance
   and monotonically increasing ledger version.
@@ -156,12 +158,12 @@ an open incident can be resolved only through the audited settle/release contrac
 
 ## Work package 2: cancellation and streaming failure semantics
 
-Progress in Gateway `18083f9` and Platform `b0d7ee2`: the streaming pipe now requires a source protocol
+Progress in Gateway `297b131` and Platform `74b5798`: the streaming pipe now requires a source protocol
 terminal event before treating Provider EOF as complete, classifies timeout/EOF as
 incomplete (including Photon incomplete chunked-body `-1/errno=0`), treats
 zero/error client writes as cancellation, records bounded
 disconnect/cancellation reasons, and prevents Gateway failover or normal usage
-settlement for ambiguous partial streams. These behaviors are covered by 99 Gateway
+settlement for ambiguous partial streams. These behaviors are covered by 102 Gateway
 CTest cases. Platform smoke proves Provider disconnect, disconnect-before-output,
 malformed-usage, invalid content type, downstream client cancellation, and streaming
 429/500 rejection outcomes with the expected hold/debit behavior. Exact
@@ -171,7 +173,7 @@ The public Provider availability contract and distinct inter-chunk/total timer
 contract are now closed for direct and zero-output
 resets: Gateway returns `503/provider_unavailable`, dispatch wait exhaustion uses the
 same body, and bounded timeout/malformed protocol cases remain `502/provider_protocol_error`.
-The package is not closed until final-usage/replay behavior is proven through Platform. Actual downstream client socket cancellation
+Final-usage settlement after a truncated stream is now proven through Platform. Actual downstream client socket cancellation
 is now proven from an empty stack: the Provider emits one SSE event, a short-lived
 client closes before the delayed second write, and the lease remains
   `reconciliation_needed` with its hold and idempotency key retained. A no-header
@@ -186,9 +188,9 @@ Deliverables:
   inter-chunk/total timer tests pass; freeze the retryable/non-retryable mapping
   before extending adapters.
 - Propagate client cancellation through the HTTP/SSE transport and stop retrying as
-  soon as any response bytes have reached the client. Gateway source behavior and
-  stack-level socket/reconciliation evidence now pass; add replay and final-usage
-  assertions for a truncated stream.
+  soon as any response bytes have reached the client. Gateway source behavior,
+  stack-level socket/reconciliation evidence, and usage-before-EOF settlement now
+  pass; add replay-after-restart assertions for the truncated-stream outbox.
 - Cancellation before `forwarded` evidence may expire/abort and release without a
   usage debit. Once Provider transport has been authorized, absence of client output
   does not prove no charge: continue collecting final usage when possible or enter
@@ -197,9 +199,9 @@ Deliverables:
   disconnect after partial output, malformed usage, invalid content type, and established-SSE status
   retention now pass in the empty-stack gate, as do streaming 429/500 no-charge
   rejections. The no-header timeout and separate inter-chunk/total stream timers are
-  now covered; add protocol-wide assertions and final-usage behavior for a truncated
-  stream. Actual client disconnect and invalid content type are covered by the
-  current fault matrix.
+  now covered; usage-before-EOF behavior is covered by the late-usage profile. Add
+  protocol-wide assertions for the remaining adapters. Actual client disconnect and
+  invalid content type are covered by the current fault matrix.
 - Add bounded-buffer/backpressure assertions and verify that partial output cannot
   be replayed as a complete response or retried against another account.
 
