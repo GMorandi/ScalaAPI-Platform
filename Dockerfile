@@ -31,32 +31,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends libgssapi-krb5-
     && rm -rf /var/lib/apt/lists/*
 COPY --from=build /app/migrate ./migrate
 COPY deploy/orleans-postgres-schema.sql ./migrations/000-orleans.sql
-COPY deploy/migrations/001-baseline.sql ./migrations/001-baseline.sql
-COPY deploy/migrations/002-product-invariants.sql ./migrations/002-product-invariants.sql
-COPY deploy/migrations/003-entity-registry.sql ./migrations/003-entity-registry.sql
-COPY deploy/migrations/004-auth-sessions.sql ./migrations/004-auth-sessions.sql
-COPY deploy/migrations/005-lease-ledger.sql ./migrations/005-lease-ledger.sql
-COPY deploy/migrations/006-durable-holds.sql ./migrations/006-durable-holds.sql
-COPY deploy/migrations/007-request-idempotency.sql ./migrations/007-request-idempotency.sql
-COPY deploy/migrations/008-redeem-code-atomicity.sql ./migrations/008-redeem-code-atomicity.sql
-COPY deploy/migrations/009-password-reset-tokens.sql ./migrations/009-password-reset-tokens.sql
-COPY deploy/migrations/010-email-verification.sql ./migrations/010-email-verification.sql
-COPY deploy/migrations/011-idempotency-response-replay.sql ./migrations/011-idempotency-response-replay.sql
-COPY deploy/migrations/012-lease-pricing-snapshots.sql ./migrations/012-lease-pricing-snapshots.sql
-COPY deploy/migrations/013-payment-webhooks.sql ./migrations/013-payment-webhooks.sql
-COPY deploy/migrations/014-subscription-lifecycle.sql ./migrations/014-subscription-lifecycle.sql
-COPY deploy/migrations/015-payment-webhook-recovery.sql ./migrations/015-payment-webhook-recovery.sql
-COPY deploy/migrations/016-media-object-storage.sql ./migrations/016-media-object-storage.sql
-COPY deploy/migrations/017-administrative-balance-effects.sql ./migrations/017-administrative-balance-effects.sql
-COPY deploy/migrations/018-accounting-authority.sql ./migrations/018-accounting-authority.sql
-COPY deploy/migrations/019-accounting-reconciliation.sql ./migrations/019-accounting-reconciliation.sql
-COPY deploy/migrations/020-lease-dispatch-evidence.sql ./migrations/020-lease-dispatch-evidence.sql
-COPY deploy/migrations/021-reconciliation-resolutions.sql ./migrations/021-reconciliation-resolutions.sql
-COPY deploy/migrations/022-auth-totp-state.sql ./migrations/022-auth-totp-state.sql
-COPY deploy/migrations/023-auth-oauth-states.sql ./migrations/023-auth-oauth-states.sql
-COPY deploy/migrations/024-provider-credential-refresh-audit.sql ./migrations/024-provider-credential-refresh-audit.sql
-COPY deploy/migrations/025-api-key-policy-audit.sql ./migrations/025-api-key-policy-audit.sql
-COPY deploy/migrations/026-auth-abuse-counters.sql ./migrations/026-auth-abuse-counters.sql
+COPY deploy/migrations/ ./migrations/
 ENTRYPOINT ["dotnet", "migrate/Db.Migrator.dll", "/app/migrations"]
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS provider-mock
