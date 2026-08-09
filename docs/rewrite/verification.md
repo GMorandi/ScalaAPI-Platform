@@ -58,6 +58,12 @@ settlement, and eight remaining open incidents. This smoke used a temporary
 runtime image assembled from the verified local Gateway build because the
 pinned Photon commit is unavailable for a clean Gateway image build; all
 temporary resources and tags were removed.
+The Platform `5528b06` Provider.Mock local WebSocket probe also passed: a real
+HTTP/1.1 upgrade to `/v1/responses`, masked `session.update` input, deterministic
+`session.created` and `response.done` usage frames (7 input/5 output), and a
+clean close all completed successfully. This validates the source-owned
+fixture; Gateway-to-Provider forwarding, settlement, and long-connection soak
+remain in the full-stack gate.
 The older detailed rows below retain prior checkpoint evidence; this snapshot
 supersedes them where commit, image, or late-usage results differ.
 
