@@ -1093,8 +1093,8 @@ public static class PlatformEndpoints
         {
             if (!TryNormalizeContentRule(req, out var rule, out var error))
                 return Results.BadRequest(new { error });
-            await db.Insertable(rule).ExecuteCommandAsync();
-            return Results.Ok(new { id = rule.Id });
+            var id = await db.Insertable(rule).ExecuteReturnBigIdentityAsync();
+            return Results.Ok(new { id });
         });
 
         group.MapPut("/rules/{id}", async (long id, ContentAuditRuleRequest req, ISqlSugarClient db) =>
