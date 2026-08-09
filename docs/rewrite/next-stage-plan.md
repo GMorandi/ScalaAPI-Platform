@@ -2,7 +2,7 @@
 
 ## Checkpoint
 
-The next stage starts from Platform `dd23bb4`, Gateway `9c7171f`, and read-only
+The next stage starts from Platform `713bfdd`, Gateway `9c7171f`, and read-only
 reference `sub2api@43ec48d`.
 
 The greenfield baseline now starts from empty volumes, uses PostgreSQL as authority,
@@ -60,6 +60,10 @@ through the clean Gateway runtime image, including exactly-once
 lease/usage/hold/ledger settlement; long-connection/backpressure soak, remaining
 boundaries, the worker/multi-silo matrix, and multi-instance scenarios are still
 open.
+The current identity slice adds migration `022-auth-totp-state.sql`: TOTP
+time-step replay, backup-code consumption, five-failure lockout, and lockout
+recovery are transactionally tested across two service instances. Endpoint/browser
+recovery UX and the remaining identity providers are still open.
 
 This stage contains no compatibility, cutover, dual-write, CDC, snapshot import,
 old-key import, ID preservation, status mapping, or business-data migration work.
@@ -88,7 +92,7 @@ Accounting authority completed at `c15b53b`, reconciliation foundation at
 `fddba62`, dispatch evidence at `6bfb974`/`84634d1`, audited resolution at
 `0559659`, and deterministic fault boundaries at `1cad5b7`/`30b8c2b`/`8c3d2e0`,
 with current streaming/empty-stack evidence in Gateway `9c7171f` and Platform
-`dd23bb4`:
+`713bfdd`:
 
 - Added one per-user `accounting_accounts` authority with NUMERIC posted balance
   and monotonically increasing ledger version.
@@ -191,7 +195,8 @@ Remaining package deliverables:
 - Add a blocking negative probe for each new fault hook so a swallowed child failure or
   missing scenario makes the top-level gate non-zero.
 
-Dependencies: migrations 018-021 accounting authority/reconciliation/evidence,
+Dependencies: migrations 018-022 accounting authority/reconciliation/evidence and
+TOTP abuse state,
 versioned ledger effects, durable holds, response replay, settlement/projection
 outboxes, persisted incident identity, and the audited resolution transaction.
 
@@ -202,7 +207,7 @@ an open incident can be resolved only through the audited settle/release contrac
 
 ## Work package 2: cancellation and streaming failure semantics
 
-Progress in Gateway `9c7171f` and Platform `dd23bb4`: the streaming pipe now requires a source protocol
+Progress in Gateway `9c7171f` and Platform `713bfdd`: the streaming pipe now requires a source protocol
 terminal event before treating Provider EOF as complete, classifies timeout/EOF as
 incomplete (including Photon incomplete chunked-body `-1/errno=0`), treats
 zero/error client writes as cancellation, records bounded
@@ -366,7 +371,7 @@ Then expand the remaining 58-domain work in this order:
    Gemini generation, model catalogue/token counting, and cross-protocol fixtures.
 2. Complete Provider OAuth/credential refresh, price/quota adapters, media recovery,
    and object reconciliation/restore.
-3. Complete identity hardening, TOTP, Passkeys, OAuth binding, User Web, API-key,
+3. Complete identity hardening beyond the TOTP state machine, Passkeys, OAuth binding, User Web, API-key,
    usage, order, subscription, and recovery workflows with browser tests.
 4. Complete payment adapters/reconciliation/refunds, subscription workers, redeem,
    affiliate, notification, and commercial audit flows.
