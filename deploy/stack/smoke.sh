@@ -313,6 +313,9 @@ run_chat_stream_fault() {
     # Once SSE headers have reached the client, a truncated stream may retain
     # the original 200 status even though the lease is deliberately unknown.
     if [[ "$scenario" == "disconnect_before_output" ]]; then
+        # The Gateway may expose a transport-level close (curl 000) while its
+        # upstream client waits out the truncated body read; both outcomes
+        # preserve the same unknown-charge lease semantics.
         assert_equals "503" "$response_status" \
             "Provider streaming $scenario availability response status"
     elif [[ "$scenario" == "disconnect" ]]; then
@@ -672,6 +675,68 @@ if jq -e 'has("key") or (.items[0] | has("key"))' <<<"$scoped_audit_response" >/
     echo "API-key audit response exposed key material" >&2
     exit 1
 fi
+
+scoped_update_body="$(jq -cn --argjson user "$user_id" --argjson group "$openai_group_id" \
+    '{userId:$user,groupId:$group,quota:100,expiresAt:null,ipWhitelist:[],ipBlacklist:[],rateLimit5h:0,rateLimit1d:0,rateLimit7d:0,scopes:["chat_completions"]}')"
+ownership_guard_status="$(compose exec -T admin-api curl -sS -o /dev/null -w '%{http_code}' \
+    -X PUT -H 'Content-Type: application/json' -H "Authorization: Bearer $admin_token" \
+    --data "$(jq --argjson other_user "$((user_id + 1))" '.userId = $other_user' <<<"$scoped_update_body")" \
+    "http://127.0.0.1:5001/admin/apikeys/$scoped_api_key_hash")"
+assert_equals "400" "$ownership_guard_status" "API-key ownership update guard"
+scoped_update_status="$(compose exec -T admin-api curl -sS -o /dev/null -w '%{http_code}' \
+    -X PUT -H 'Content-Type: application/json' -H "Authorization: Bearer $admin_token" \
+    --data "$scoped_update_body" \
+    "http://127.0.0.1:5001/admin/apikeys/$scoped_api_key_hash")"
+assert_equals "204" "$scoped_update_status" "Admin API-key policy update"
+scoped_updated_request_id="smoke-scoped-updated-${suffix}"
+scoped_updated_response="$(curl -fsS --max-time 20 "$gateway_url/v1/chat/completions" \
+    -H "Authorization: Bearer $scoped_api_key" -H "Content-Type: application/json" \
+    -H "X-Request-ID: $scoped_updated_request_id" \
+    -H "Idempotency-Key: ${scoped_updated_request_id}-idem" \
+    --data '{"model":"gpt-4o","messages":[{"role":"user","content":"updated scope"}],"stream":false}')"
+jq -e '.choices[0].message.content == "mock response"' <<<"$scoped_updated_response" >/dev/null
+scoped_revoke_status="$(compose exec -T admin-api curl -sS -o /dev/null -w '%{http_code}' \
+    -X DELETE -H "Authorization: Bearer $admin_token" \
+    "http://127.0.0.1:5001/admin/apikeys/$scoped_api_key_hash")"
+assert_equals "204" "$scoped_revoke_status" "Admin API-key revoke"
+scoped_revoked_result="$(curl -sS --max-time 20 --write-out $'\n%{http_code}' \
+    "$gateway_url/v1/chat/completions" \
+    -H "Authorization: Bearer $scoped_api_key" -H "Content-Type: application/json" \
+    -H "X-Request-ID: smoke-scoped-revoked-${suffix}" \
+    -H "Idempotency-Key: smoke-scoped-revoked-idem-${suffix}" \
+    --data '{"model":"gpt-4o","messages":[{"role":"user","content":"revoked"}],"stream":false}')"
+assert_equals "401" "${scoped_revoked_result##*$'\n'}" "Revoked API key HTTP status"
+assert_equals "1|1|1" "$(db_query "
+SELECT
+  (SELECT count(*) FROM api_key_audit_events WHERE api_key_id = $scoped_api_key_id AND action = 'updated') || '|' ||
+  (SELECT count(*) FROM api_key_audit_events WHERE api_key_id = $scoped_api_key_id AND action = 'revoked') || '|' ||
+  (SELECT count(*) FROM request_leases WHERE request_id = '$scoped_updated_request_id' AND status = 'completed');")" \
+    "Admin API-key update/revoke audit and lease invariants"
+
+user_relogin_response="$(admin_request POST /auth/login \
+    "$(jq -cn --arg email "$user_email" --arg password "$user_password" \
+        '{email:$email,password:$password}')")"
+self_service_token="$(jq -er '.token' <<<"$user_relogin_response")"
+self_key_response="$(admin_request POST /user/apikeys/ \
+    "$(jq -cn --argjson group "$openai_group_id" \
+        '{name:"self-rotation-smoke",groupId:$group,quota:100,scopes:["chat_completions"]}')" \
+    "$self_service_token")"
+self_key_id="$(jq -er '.id' <<<"$self_key_response")"
+self_rotated_response="$(admin_request POST "/user/apikeys/$self_key_id/rotate" '' "$self_service_token")"
+self_rotated_id="$(jq -er '.id' <<<"$self_rotated_response")"
+self_rotated_key="$(jq -er '.key' <<<"$self_rotated_response")"
+if [[ "$self_rotated_key" != sk-* || "$self_rotated_id" == "$self_key_id" ]]; then
+    echo "User API-key rotation did not issue a distinct key" >&2
+    exit 1
+fi
+assert_equals "revoked|active|1|1" "$(db_query "
+SELECT
+  (SELECT status FROM user_api_keys WHERE id = $self_key_id) || '|' ||
+  (SELECT status FROM user_api_keys WHERE id = $self_rotated_id) || '|' ||
+  (SELECT count(*) FROM api_key_audit_events WHERE api_key_id = (SELECT api_key_id FROM user_api_keys WHERE id = $self_rotated_id) AND action = 'rotated') || '|' ||
+  (SELECT count(*) FROM api_key_audit_events WHERE api_key_id = $self_key_id AND action = 'revoked');")" \
+    "User API-key rotation state and audit invariants"
+echo "PASS: authenticated API-key audit, Admin update/revoke, and user rotation"
 echo "PASS: scoped API key denies chat capability with audited 403 and no lease"
 fault_429_api_key="$(create_api_key "$fault_429_group_id")"
 fault_500_api_key="$(create_api_key "$fault_500_group_id")"
