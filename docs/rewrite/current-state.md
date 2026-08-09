@@ -10,13 +10,13 @@ read-only requirements reference and is excluded from builds and runtime.
 
 | Repository | Commit | Worktree | Role |
 | --- | --- | --- | --- |
-| `gateway` | `eb5734f` | clean | C++ HTTP/WebSocket edge, protocol parsing/conversion, streaming, strict Provider media contracts, bounded stream header/client timeouts, distinct inter-chunk/total timer tests, normalized Provider availability errors, retryable Platform transport errors with bounded dispatch retry, transport/evidence, charge-aware failover, durable usage delivery, authenticated Garnet projections, deterministic fault boundaries, and late-usage settlement from truncated SSE |
-| `platform` | `90597b8` | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, identity, scheduling, evidence-backed leases/holds/ledger, audited operator resolution, restart-safe active-lease dispatch recovery, media lifecycle, Admin API/Web, Provider mock, migrations, deterministic Platform/Gateway fault boundaries, and Garnet deployment gates |
+| `gateway` | `de77ccb` | clean | C++ HTTP/WebSocket edge, protocol parsing/conversion, streaming, strict Provider media contracts, bounded stream header/client timeouts, distinct inter-chunk/total timer tests, normalized Provider availability errors, shared retryable Platform transport policy for HTTP and realtime dispatch, transport/evidence, charge-aware failover, durable usage delivery, authenticated Garnet projections, deterministic fault boundaries, and late-usage settlement from truncated SSE |
+| `platform` | `5528b06` | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, identity, scheduling, evidence-backed leases/holds/ledger, audited operator resolution, restart-safe active-lease dispatch recovery, media lifecycle, Admin API/Web, HTTP/SSE and realtime Provider mock fixtures, migrations, deterministic Platform/Gateway fault boundaries, and Garnet deployment gates |
 | `sub2api` | `43ec48d` | read-only clean | Requirements catalogue only; never a runtime or compatibility dependency |
 
 The current tracked inventory is:
 
-- Gateway: 52 production C++ source/header files, 10 test source files, and 102
+- Gateway: 52 production C++ source/header files, 10 test source files, and 104
   CTest cases.
 - Platform: 81 hand-written production C# files, 3 generated Cap'n Proto C#
   files, 26 test/benchmark C# files, and 95 tests: 57 Grain, 28 Host, 4 Admin,
@@ -109,6 +109,9 @@ current-source runtime evidence.
   request and public idempotency identity. Platform looks up the durable request
   lease and rebuilds its upstream target after restart, so a lost response resumes
   the existing active lease instead of creating a second lease or charge.
+- The same retry policy is used before opening a realtime WebSocket: transient
+  Platform loss receives bounded backoff under the dispatch deadline, while the
+  first client event, request ID, and public idempotency key remain unchanged.
 
 ### Identity and control plane
 
@@ -161,7 +164,9 @@ current-source runtime evidence.
   Gemini JSON/SSE paths, models, embeddings, token count, sync media, pollable
   image/video tasks, and faults for 429, 500, timeout, disconnect, malformed usage,
   invalid stream content, downstream client cancellation, and a truncated stream
-  that emits usage before EOF.
+  that emits usage before EOF. Its Responses endpoint also accepts a WebSocket
+  realtime session, emits deterministic `session.created` and `response.done`
+  usage frames, and waits for the Gateway to close the session.
 - Normalized OpenAI Chat input can select a fault without private headers. A
   protected seed endpoint creates nine independent fault accounts/groups so one
   scheduler cooldown cannot mask another scenario; account credentials also pin
@@ -195,9 +200,9 @@ current-source runtime evidence.
 
 ## Current verification evidence
 
-At Platform `90597b8` and Gateway `eb5734f`:
+At Platform `5528b06` and Gateway `de77ccb`:
 
-- Gateway built locally and passed 102/102 CTest cases, including deterministic
+- Gateway built locally and passed 104/104 CTest cases, including deterministic
   fault-hook claim/repeat behavior, terminal SSE detection, provider EOF
   classification, incomplete chunked-body disconnect classification, zero-length
   client-write cancellation, and bounded Provider pre-header stream timeout
@@ -327,12 +332,12 @@ Detailed gate results and residual coverage are maintained in `verification.md`.
   quota grants and future affiliate effects still need explicit authority contracts.
 - Gateway now classifies client cancellation and incomplete SSE as unknown-charge
   outcomes, records disconnect/cancellation reasons, and prevents failover after
-  output or partial Provider output. The source-level behavior is covered by 102
+  output or partial Provider output. The source-level behavior is covered by 104
   CTest cases; the empty-stack gate now proves Provider partial-SSE disconnect,
   disconnect-before-output, malformed-usage retention, and bounded pre-header
   timeout handling with no usage/debit.
   The empty-stack gate now proves actual downstream socket cancellation as well;
-  Gateway commit `eb5734f` preserves valid Provider usage observed before
+  Gateway commit `de77ccb` preserves valid Provider usage observed before
   truncated SSE EOF, settles it through the existing durable outbox path, and
   retries transient Platform dispatch loss under the same request identity.
   The same source line normalizes Provider
@@ -346,9 +351,9 @@ Detailed gate results and residual coverage are maintained in `verification.md`.
   settlement. The current source gate also proves Gateway termination before
   dispatch with safe held expiry and after Provider completion with retention of its
   forwarded lease/hold for reconciliation. Platform dispatch retry and active
-  lease recovery now pass; realtime/other Gateway dispatch retry paths,
-  multi-instance hook assertions, and a reproducible clean Gateway image build
-  remain.
+  lease recovery now pass; realtime dispatch retry is covered by Gateway source
+  tests, while runtime WebSocket Provider soak, multi-instance hook assertions,
+  and a reproducible clean Gateway image build remain.
 - Garnet authentication, outage/reconnect, rebuild, and invalidation flush have
   evidence; TLS plus concurrent multi-Gateway/multi-Silo behavior is not a release
   gate yet.
