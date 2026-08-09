@@ -2,7 +2,7 @@
 
 ## Checkpoint
 
-The next stage starts from Platform `a9073d7`, Gateway `297b131`, and read-only
+The next stage starts from Platform `8368d77`, Gateway `297b131`, and read-only
 reference `sub2api@43ec48d`.
 
 The greenfield baseline now starts from empty volumes, uses PostgreSQL as authority,
@@ -45,9 +45,11 @@ inter-chunk and total-stream timers. The `disconnect_after_usage` profile emits 
 usage and ends before `[DONE]`; the empty-stack gate settles it exactly once through
 the durable outbox. The latest source smoke also crashes Gateway after Provider
 completion, restarts the same container, and retains the forwarded lease/hold as
-one reconciliation incident without a debit. Gateway before Provider dispatch
-now safely expires the unforwarded held lease; the remaining boundaries, the
-worker/multi-silo matrix, and multi-instance scenarios are still open.
+one reconciliation incident without a debit. Gateway before Provider dispatch and
+Platform before Provider dispatch now safely expire their unforwarded held leases
+after the same container is restarted; the worker reclaim path, remaining
+boundaries, the worker/multi-silo matrix, and multi-instance scenarios are still
+open.
 
 This stage contains no compatibility, cutover, dual-write, CDC, snapshot import,
 old-key import, ID preservation, status mapping, or business-data migration work.
@@ -76,7 +78,7 @@ Accounting authority completed at `c15b53b`, reconciliation foundation at
 `fddba62`, dispatch evidence at `6bfb974`/`84634d1`, audited resolution at
 `0559659`, and deterministic fault boundaries at `1cad5b7`/`30b8c2b`/`8c3d2e0`,
 with current streaming/empty-stack evidence in Gateway `297b131` and Platform
-`a9073d7`:
+`8368d77`:
 
 - Added one per-user `accounting_accounts` authority with NUMERIC posted balance
   and monotonically increasing ledger version.
@@ -138,6 +140,11 @@ Implemented in this package:
 - The `scalaapi-gateway-dispatch-recovery-0911` source smoke terminates Gateway
   before Provider dispatch, explicitly starts the same container, and proves
   safe `held -> expired` cleanup with released hold/idempotency and no incident.
+- The `scalaapi-platform-dispatch-recovery-0912` source smoke terminates Platform
+  after creating the SQL lease/hold but before returning the dispatch target,
+  explicitly starts the same container, and proves the same safe `held -> expired`
+  cleanup with released hold/idempotency and no incident. Its failure probe uses
+  `curl -f` so a Gateway-wrapped HTTP error cannot be mistaken for success.
 - Added explicit `Orleans:SingleSiloRecovery` for the development smoke path and
   a Podman-compatible harness restart. The source smoke proved
   `platform.before_settlement_commit`, `platform.after_settlement_commit`, and
@@ -149,9 +156,10 @@ Next implementation slice:
 
 - Exercise every remaining hook independently with replay assertions for duplicate
   completion, abort, expiry, worker reclaim, projection replacement, and process
-  restart. Gateway before-provider-dispatch and after-provider-completion recovery
-  are now proven; next cover Platform dispatch/worker boundaries, remaining
-  Gateway hooks, and multi-silo recovery before promoting the billing slice.
+  restart. Platform and Gateway before-provider-dispatch plus Gateway
+  after-provider-completion recovery are now proven; next cover Platform worker
+  reclaim/dispatch retries, remaining Gateway hooks, and multi-silo recovery before
+  promoting the billing slice.
 
 Remaining package deliverables:
 
@@ -172,7 +180,7 @@ an open incident can be resolved only through the audited settle/release contrac
 
 ## Work package 2: cancellation and streaming failure semantics
 
-Progress in Gateway `297b131` and Platform `a9073d7`: the streaming pipe now requires a source protocol
+Progress in Gateway `297b131` and Platform `8368d77`: the streaming pipe now requires a source protocol
 terminal event before treating Provider EOF as complete, classifies timeout/EOF as
 incomplete (including Photon incomplete chunked-body `-1/errno=0`), treats
 zero/error client writes as cancellation, records bounded
