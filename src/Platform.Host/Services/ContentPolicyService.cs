@@ -1,4 +1,5 @@
 using System.Text;
+using ScalaAPI.Data.Content;
 using Npgsql;
 
 namespace ScalaAPI.Host.Services;
@@ -10,16 +11,20 @@ public enum ContentPolicyStage
 }
 
 public sealed record ContentPolicyMatch(long RuleId, string Pattern, string Action,
-    string? Scope, ContentPolicyStage Stage);
+    string? Scope, ContentPolicyStage Stage, string EvaluatorVersion,
+    string Classifier, bool RedactContent);
 
 public sealed record ContentPolicyDecision(bool Allowed, string Code,
-    IReadOnlyList<ContentPolicyMatch> Matches)
+    IReadOnlyList<ContentPolicyMatch> Matches, long PolicyRevision = 1,
+    string EvaluatorVersion = ContentPolicyEvaluator.Version, bool Retryable = false)
 {
     public static ContentPolicyDecision Passed(IReadOnlyList<ContentPolicyMatch> matches) =>
         new(true, "", matches);
 
     public static ContentPolicyDecision Blocked(string code,
-        IReadOnlyList<ContentPolicyMatch> matches) => new(false, code, matches);
+        IReadOnlyList<ContentPolicyMatch> matches, long policyRevision = 1,
+        bool retryable = false) => new(false, code, matches, policyRevision,
+        ContentPolicyEvaluator.Version, retryable);
 }
 
 /// <summary>
@@ -29,9 +34,11 @@ public sealed record ContentPolicyDecision(bool Allowed, string Code,
 /// </summary>
 public sealed class ContentPolicyService(
     NpgsqlDataSource dataSource,
-    ILogger<ContentPolicyService> logger)
+    ILogger<ContentPolicyService> logger,
+    IContentClassifier? classifier = null)
 {
     public const int MaxBodyBytes = 128 * 1024;
+    private readonly IContentClassifier _classifier = classifier ?? new DefaultContentClassifier();
 
     public async Task<ContentPolicyDecision> EvaluateAsync(
         long userId,
@@ -54,8 +61,11 @@ public sealed class ContentPolicyService(
 
         await using var connection = await dataSource.OpenConnectionAsync(ct);
         await using var transaction = await connection.BeginTransactionAsync(ct);
+        var (policyRevision, defaultEvaluatorVersion) = await ReadPolicyStateAsync(
+            connection, transaction, ct);
         await using var rulesCommand = new NpgsqlCommand("""
-            SELECT id, pattern, action_type, scope
+            SELECT id, pattern, action_type, scope, evaluator_version, classifier,
+                   redact_content
             FROM content_audit_rules
             WHERE status = 'active' AND pattern <> ''
               AND (stage = $1 OR stage = 'both')
@@ -64,6 +74,9 @@ public sealed class ContentPolicyService(
         rulesCommand.Parameters.AddWithValue(StageValue(stage));
 
         var matches = new List<ContentPolicyMatch>();
+        var normalizedBody = ContentPolicyEvaluator.Normalize(body);
+        var failureCode = "";
+        var retryable = false;
         await using (var reader = await rulesCommand.ExecuteReaderAsync(ct))
         {
             while (await reader.ReadAsync(ct))
@@ -73,13 +86,42 @@ public sealed class ContentPolicyService(
                     continue;
 
                 var pattern = reader.GetString(1);
-                if (body.Contains(pattern, StringComparison.OrdinalIgnoreCase))
+                var evaluatorVersion = reader.IsDBNull(4)
+                    ? defaultEvaluatorVersion : reader.GetString(4);
+                var classifierName = reader.IsDBNull(5)
+                    ? "local" : reader.GetString(5);
+                var redactContent = !reader.IsDBNull(6) && reader.GetBoolean(6);
+                if (!ContentPolicyEvaluator.IsSupported(evaluatorVersion))
                 {
-                    var action = string.Equals(reader.GetString(2), "block",
-                        StringComparison.OrdinalIgnoreCase) ? "block" : "log";
+                    failureCode = "content_policy_evaluator_unsupported";
+                    retryable = true;
                     matches.Add(new ContentPolicyMatch(
-                        reader.GetInt64(0), pattern, action, scope, stage));
+                        reader.GetInt64(0), pattern, "block", scope, stage,
+                        evaluatorVersion, classifierName, redactContent));
+                    continue;
                 }
+
+                var classifierResult = await _classifier.EvaluateAsync(
+                    classifierName, normalizedBody,
+                    ContentPolicyEvaluator.Normalize(pattern), ct);
+                if (classifierResult.Outcome == ContentClassifierOutcome.Unavailable)
+                {
+                    failureCode = classifierResult.Code;
+                    retryable = true;
+                    matches.Add(new ContentPolicyMatch(
+                        reader.GetInt64(0), pattern, "block", scope, stage,
+                        evaluatorVersion, classifierName, redactContent));
+                    continue;
+                }
+
+                if (classifierResult.Outcome != ContentClassifierOutcome.Match)
+                    continue;
+
+                var action = string.Equals(reader.GetString(2), "block",
+                    StringComparison.OrdinalIgnoreCase) ? "block" : "log";
+                matches.Add(new ContentPolicyMatch(
+                    reader.GetInt64(0), pattern, action, scope, stage,
+                    evaluatorVersion, classifierName, redactContent));
             }
         }
 
@@ -87,8 +129,10 @@ public sealed class ContentPolicyService(
         {
             await using var logCommand = new NpgsqlCommand("""
                 INSERT INTO content_audit_logs(
-                    user_id, request_id, matched_rule, rule_id, stage, action, content_snippet)
-                VALUES ($1, NULLIF($2, ''), $3, $4, $5, $6, $7)
+                    user_id, request_id, matched_rule, rule_id, stage, action,
+                    content_snippet, evaluator_version, classifier, content_redacted,
+                    policy_revision)
+                VALUES ($1, NULLIF($2, ''), $3, $4, $5, $6, $7, $8, $9, $10, $11)
                 ON CONFLICT (request_id, rule_id, stage)
                     WHERE request_id IS NOT NULL AND rule_id IS NOT NULL
                 DO NOTHING
@@ -99,15 +143,38 @@ public sealed class ContentPolicyService(
             logCommand.Parameters.AddWithValue(match.RuleId);
             logCommand.Parameters.AddWithValue(StageValue(stage));
             logCommand.Parameters.AddWithValue(match.Action);
-            logCommand.Parameters.AddWithValue(Snippet(body));
+            logCommand.Parameters.AddWithValue(match.RedactContent
+                ? "[REDACTED]" : Snippet(body));
+            logCommand.Parameters.AddWithValue(match.EvaluatorVersion);
+            logCommand.Parameters.AddWithValue(match.Classifier);
+            logCommand.Parameters.AddWithValue(match.RedactContent);
+            logCommand.Parameters.AddWithValue(policyRevision);
             await logCommand.ExecuteNonQueryAsync(ct);
         }
 
         await transaction.CommitAsync(ct);
         var blocked = matches.Any(match => match.Action == "block");
+        if (failureCode.Length > 0)
+            return ContentPolicyDecision.Blocked(failureCode, matches,
+                policyRevision, retryable);
         return blocked
-            ? ContentPolicyDecision.Blocked("content_policy_blocked", matches)
-            : ContentPolicyDecision.Passed(matches);
+            ? ContentPolicyDecision.Blocked("content_policy_blocked", matches, policyRevision)
+            : new ContentPolicyDecision(true, "", matches, policyRevision,
+                defaultEvaluatorVersion);
+    }
+
+    private static async Task<(long Revision, string EvaluatorVersion)> ReadPolicyStateAsync(
+        NpgsqlConnection connection, NpgsqlTransaction transaction, CancellationToken ct)
+    {
+        await using var command = new NpgsqlCommand("""
+            SELECT revision, evaluator_version
+            FROM content_policy_state
+            WHERE id = 1
+            """, connection, transaction);
+        await using var reader = await command.ExecuteReaderAsync(ct);
+        return await reader.ReadAsync(ct)
+            ? (reader.GetInt64(0), reader.GetString(1))
+            : (1, ContentPolicyEvaluator.Version);
     }
 
     private static bool ScopeMatches(string? scope, string endpoint, string capability)

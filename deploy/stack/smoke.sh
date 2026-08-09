@@ -494,10 +494,10 @@ wait_for "Admin API readiness" 60 compose exec -T admin-api \
 wait_for "User Web readiness" 60 curl -fsS "$user_web_url/" >/dev/null
 
 migration_count="$(db_query "SELECT count(*) FROM schema_migrations;")"
-assert_equals "29" "$migration_count" "Applied migration count"
+assert_equals "30" "$migration_count" "Applied migration count"
 second_migration_output="$(compose run --rm migrate 2>&1)"
 second_skip_count="$(grep -cE 'skip .+\.sql' <<<"$second_migration_output" || true)"
-assert_equals "29" "$second_skip_count" "Idempotent migrator skip count"
+assert_equals "30" "$second_skip_count" "Idempotent migrator skip count"
 
 login_response="$(admin_request POST /admin/auth/login \
     "$(jq -cn --arg username "$ADMIN_USERNAME" --arg password "$ADMIN_PASSWORD" \
@@ -839,6 +839,34 @@ admin_request POST /admin/pricing/versions \
 
 sleep 6
 chat_body='{"model":"gpt-4o","messages":[{"role":"user","content":"greenfield compose smoke"}],"stream":false}'
+unicode_policy_request_id="smoke-unicode-policy-${suffix}"
+unicode_policy_rule="$(admin_request POST /admin/content-audit/rules \
+    '{"pattern":"sensitive","actionType":"block","scope":"chat_completions","status":"active","stage":"request","redactContent":true}' \
+    "$admin_token")"
+unicode_policy_rule_id="$(jq -er '.id' <<<"$unicode_policy_rule")"
+unicode_policy_body="$(jq -cn \
+    '{model:"gpt-4o",messages:[{role:"user",content:"ＳｅＮѕіtіνｅ request"}],stream:false}')"
+unicode_policy_response="$(curl -sS --max-time 20 --write-out $'\n%{http_code}' \
+    "$gateway_url/v1/chat/completions" \
+    -H "Authorization: Bearer $api_key" \
+    -H "Content-Type: application/json" \
+    -H "X-Request-ID: $unicode_policy_request_id" \
+    -H "Idempotency-Key: ${unicode_policy_request_id}-idem" \
+    --data "$unicode_policy_body")"
+assert_equals "400" "${unicode_policy_response##*$'\n'}" \
+    "Unicode-normalized request policy status"
+jq -e '.error.type == "content_policy_violation"' \
+    <<<"${unicode_policy_response%$'\n'*}" >/dev/null
+assert_equals "1|[REDACTED]|unicode-confusable-v1|true|0" "$(db_query "
+SELECT
+  (SELECT count(*) FROM content_audit_logs WHERE request_id = '$unicode_policy_request_id' AND action = 'block' AND classifier = 'local') || '|' ||
+  (SELECT max(content_snippet) FROM content_audit_logs WHERE request_id = '$unicode_policy_request_id') || '|' ||
+  (SELECT max(evaluator_version) FROM content_audit_logs WHERE request_id = '$unicode_policy_request_id') || '|' ||
+  (SELECT coalesce(bool_or(content_redacted), false) FROM content_audit_logs WHERE request_id = '$unicode_policy_request_id') || '|' ||
+  (SELECT count(*) FROM request_leases WHERE request_id = '$unicode_policy_request_id');")" \
+  "Unicode normalization, redaction, and request no-lease invariants"
+admin_request DELETE "/admin/content-audit/rules/$unicode_policy_rule_id" "" "$admin_token" >/dev/null
+echo "PASS: versioned Unicode normalization and redacted request audit"
 response_policy_pattern="mock response"
 response_policy_request_id="smoke-response-policy-${suffix}"
 response_policy_idempotency_key="${response_policy_request_id}-idem"
@@ -894,6 +922,42 @@ SELECT
   (SELECT count(*) FROM request_leases WHERE request_id = '$response_policy_request_id') || '|' ||
   (SELECT count(*) FROM balance_ledger b JOIN request_leases l USING (lease_token) WHERE l.request_id = '$response_policy_request_id' AND b.entry_type = 'usage_debit');")" \
     "Response content policy replay idempotency"
+
+external_policy_request_id="smoke-external-classifier-${suffix}"
+external_policy_rule="$(admin_request POST /admin/content-audit/rules \
+    '{"pattern":"external-classifier-marker","actionType":"block","scope":"chat_completions","status":"active","stage":"response","classifier":"external","redactContent":true}' \
+    "$admin_token")"
+external_policy_rule_id="$(jq -er '.id' <<<"$external_policy_rule")"
+external_policy_body="$(jq -cn --arg marker "$suffix" \
+    '{model:"gpt-4o",messages:[{role:"user",content:("external classifier " + $marker)}],stream:false}')"
+external_policy_response="$(curl -sS --max-time 20 --write-out $'\n%{http_code}' \
+    "$gateway_url/v1/chat/completions" \
+    -H "Authorization: Bearer $api_key" \
+    -H "Content-Type: application/json" \
+    -H "X-Request-ID: $external_policy_request_id" \
+    -H "Idempotency-Key: ${external_policy_request_id}-idem" \
+    --data "$external_policy_body")"
+assert_equals "503" "${external_policy_response##*$'\n'}" \
+    "Unavailable external classifier fail-closed status"
+jq -e '.error.type == "content_policy_unavailable"' \
+    <<<"${external_policy_response%$'\n'*}" >/dev/null
+external_policy_state=""
+for attempt in $(seq 1 30); do
+    external_policy_state="$(db_query "
+SELECT
+  (SELECT count(*) FROM content_audit_logs WHERE request_id = '$external_policy_request_id' AND classifier = 'external' AND content_redacted) || '|' ||
+  (SELECT max(content_snippet) FROM content_audit_logs WHERE request_id = '$external_policy_request_id' AND classifier = 'external') || '|' ||
+  (SELECT count(*) FROM request_leases WHERE request_id = '$external_policy_request_id' AND status = 'completed') || '|' ||
+  (SELECT count(*) FROM usage_events WHERE request_id = '$external_policy_request_id') || '|' ||
+  (SELECT count(*) FROM balance_ledger b JOIN request_leases l USING (lease_token) WHERE l.request_id = '$external_policy_request_id' AND b.entry_type = 'usage_debit') || '|' ||
+  (SELECT count(*) FROM request_idempotency WHERE idempotency_key = '${external_policy_request_id}-idem' AND status = 'completed' AND response_status_code = 503);")"
+    [[ "$external_policy_state" == "1|[REDACTED]|1|1|1|1" ]] && break
+    sleep 1
+done
+assert_equals "1|[REDACTED]|1|1|1|1" "$external_policy_state" \
+    "External classifier fail-closed audit and normal settlement invariants"
+admin_request DELETE "/admin/content-audit/rules/$external_policy_rule_id" "" "$admin_token" >/dev/null
+echo "PASS: unavailable external classifier failed closed with redacted audit"
 
 response_stream_policy_request_id="smoke-response-stream-policy-${suffix}"
 response_stream_policy_idempotency_key="${response_stream_policy_request_id}-idem"
@@ -1480,7 +1544,7 @@ if [[ "$garnet_probe" != *PONG* ]]; then
     exit 1
 fi
 
-echo "PASS: 29 empty-volume migrations and second-run idempotency"
+echo "PASS: 30 empty-volume migrations and second-run idempotency"
 echo "PASS: idempotent administrative funding, audit, conflict, and overdraft guards"
 echo "PASS: Garnet-authenticated Gateway -> Platform -> Provider mock request"
 echo "PASS: terminal lease, hold, usage, ledger, and outbox invariants"

@@ -403,6 +403,15 @@ public class ContentAuditRuleEntity
     [SugarColumn(ColumnName = "stage")]
     public string Stage { get; set; } = "request";
 
+    [SugarColumn(ColumnName = "evaluator_version")]
+    public string EvaluatorVersion { get; set; } = "unicode-confusable-v1";
+
+    [SugarColumn(ColumnName = "classifier")]
+    public string Classifier { get; set; } = "local";
+
+    [SugarColumn(ColumnName = "redact_content")]
+    public bool RedactContent { get; set; }
+
     [SugarColumn(ColumnName = "created_at")]
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }
@@ -433,6 +442,18 @@ public class ContentAuditLogEntity
 
     [SugarColumn(ColumnName = "content_snippet", IsNullable = true, ColumnDataType = "text")]
     public string? ContentSnippet { get; set; }
+
+    [SugarColumn(ColumnName = "evaluator_version")]
+    public string EvaluatorVersion { get; set; } = "unicode-confusable-v1";
+
+    [SugarColumn(ColumnName = "classifier")]
+    public string Classifier { get; set; } = "local";
+
+    [SugarColumn(ColumnName = "content_redacted")]
+    public bool ContentRedacted { get; set; }
+
+    [SugarColumn(ColumnName = "policy_revision")]
+    public long PolicyRevision { get; set; } = 1;
 
     [SugarColumn(ColumnName = "created_at")]
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;

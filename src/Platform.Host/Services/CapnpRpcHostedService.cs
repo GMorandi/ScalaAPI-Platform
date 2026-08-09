@@ -1036,7 +1036,8 @@ public class DispatchService
         var match = decision.Matches.FirstOrDefault(item => item.Action == "block");
         return ContentPolicyRpcResult.Blocked(
             decision.Code, match?.RuleId ?? 0,
-            "Provider response was withheld by the active content policy");
+            "Provider response was withheld by the active content policy",
+            decision.Retryable);
     }
 
     public async Task<MediaOperationRpcResult> HandleMediaOperation(
@@ -1327,8 +1328,8 @@ public sealed record ContentPolicyRpcResult(
 {
     public static ContentPolicyRpcResult Passed() => new(true, true, false, "", 0, "");
     public static ContentPolicyRpcResult Blocked(
-        string code, long ruleId, string message) =>
-        new(true, false, false, code, ruleId, message);
+        string code, long ruleId, string message, bool retryable = false) =>
+        new(true, false, retryable, code, ruleId, message);
     public static ContentPolicyRpcResult Error(
         string code, string message, bool retryable = false) =>
         new(false, false, retryable, code, 0, message);

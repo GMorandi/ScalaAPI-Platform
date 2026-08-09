@@ -9,6 +9,7 @@ using MimeKit;
 using Npgsql;
 using SqlSugar;
 using ScalaAPI.Data.Entities;
+using ScalaAPI.Data.Content;
 using ScalaAPI.Admin.Data;
 using ScalaAPI.Data.Accounting;
 using ScalaAPI.Data.Repositories;
@@ -1094,6 +1095,7 @@ public static class PlatformEndpoints
             if (!TryNormalizeContentRule(req, out var rule, out var error))
                 return Results.BadRequest(new { error });
             var id = await db.Insertable(rule).ExecuteReturnBigIdentityAsync();
+            await BumpContentPolicyRevisionAsync(db);
             return Results.Ok(new { id });
         });
 
@@ -1103,14 +1105,22 @@ public static class PlatformEndpoints
                 return Results.BadRequest(new { error });
             rule.Id = id;
             var updated = await db.Updateable(rule)
-                .UpdateColumns(x => new { x.Pattern, x.ActionType, x.Scope, x.Status, x.Stage })
+                .UpdateColumns(x => new
+                {
+                    x.Pattern, x.ActionType, x.Scope, x.Status, x.Stage,
+                    x.EvaluatorVersion, x.Classifier, x.RedactContent
+                })
                 .ExecuteCommandAsync();
-            return updated == 0 ? Results.NotFound() : Results.Ok();
+            if (updated == 0) return Results.NotFound();
+            await BumpContentPolicyRevisionAsync(db);
+            return Results.Ok();
         });
 
         group.MapDelete("/rules/{id}", async (long id, ISqlSugarClient db) =>
         {
-            await db.Deleteable<ContentAuditRuleEntity>().Where(x => x.Id == id).ExecuteCommandAsync();
+            var deleted = await db.Deleteable<ContentAuditRuleEntity>()
+                .Where(x => x.Id == id).ExecuteCommandAsync();
+            if (deleted > 0) await BumpContentPolicyRevisionAsync(db);
             return Results.Ok();
         });
 
@@ -1134,12 +1144,17 @@ public static class PlatformEndpoints
                 ? "response" : "request";
             var rules = await db.Queryable<ContentAuditRuleEntity>()
                 .Where(x => x.Status == "active").ToListAsync();
+            var policyRevision = await ReadContentPolicyRevisionAsync(db);
+            var normalizedContent = ContentPolicyEvaluator.Normalize(req.Content);
 
             var matches = new List<ContentAuditMatch>();
             foreach (var rule in rules)
             {
                 if (rule.Stage != "both" && rule.Stage != stage) continue;
-                if (req.Content.Contains(rule.Pattern, StringComparison.OrdinalIgnoreCase))
+                var classifierMatch = rule.Classifier == "local"
+                    && ContentPolicyEvaluator.Contains(normalizedContent, rule.Pattern);
+                var classifierUnavailable = rule.Classifier != "local";
+                if (classifierMatch || classifierUnavailable)
                 {
                     matches.Add(new ContentAuditMatch(rule.Id, rule.Pattern, rule.ActionType));
 
@@ -1148,9 +1163,16 @@ public static class PlatformEndpoints
                         UserId = req.UserId,
                         RequestId = req.RequestId,
                         MatchedRule = rule.Pattern,
+                        RuleId = rule.Id,
                         Stage = stage,
-                        Action = rule.ActionType,
-                        ContentSnippet = req.Content.Length > 200 ? req.Content[..200] : req.Content,
+                        Action = classifierUnavailable ? "block" : rule.ActionType,
+                        ContentSnippet = rule.RedactContent
+                            ? "[REDACTED]"
+                            : req.Content.Length > 200 ? req.Content[..200] : req.Content,
+                        EvaluatorVersion = rule.EvaluatorVersion,
+                        Classifier = rule.Classifier,
+                        ContentRedacted = rule.RedactContent,
+                        PolicyRevision = policyRevision,
                         CreatedAt = DateTime.UtcNow,
                     };
                     await db.Insertable(log).ExecuteCommandAsync();
@@ -1171,10 +1193,20 @@ public static class PlatformEndpoints
         var stage = string.IsNullOrWhiteSpace(request.Stage)
             ? "request" : request.Stage.Trim().ToLowerInvariant();
         var scope = string.IsNullOrWhiteSpace(request.Scope) ? null : request.Scope.Trim();
+        var evaluatorVersion = string.IsNullOrWhiteSpace(request.EvaluatorVersion)
+            ? ContentPolicyEvaluator.Version : request.EvaluatorVersion.Trim();
+        var classifier = string.IsNullOrWhiteSpace(request.Classifier)
+            ? "local" : request.Classifier.Trim().ToLowerInvariant();
         if (pattern.Length is < 1 or > 512)
         {
             rule = new();
             error = "pattern_length_invalid";
+            return false;
+        }
+        if (ContentPolicyEvaluator.Normalize(pattern).Length == 0)
+        {
+            rule = new();
+            error = "pattern_normalization_empty";
             return false;
         }
         if (action is not ("log" or "block"))
@@ -1195,6 +1227,18 @@ public static class PlatformEndpoints
             error = "stage_invalid";
             return false;
         }
+        if (!ContentPolicyEvaluator.IsSupported(evaluatorVersion))
+        {
+            rule = new();
+            error = "evaluator_version_invalid";
+            return false;
+        }
+        if (classifier is not ("local" or "external"))
+        {
+            rule = new();
+            error = "classifier_invalid";
+            return false;
+        }
         if (scope is not null && (scope.Length > 128 || scope.Any(char.IsWhiteSpace)))
         {
             rule = new();
@@ -1208,10 +1252,30 @@ public static class PlatformEndpoints
             Scope = scope,
             Status = status,
             Stage = stage,
+            EvaluatorVersion = evaluatorVersion,
+            Classifier = classifier,
+            RedactContent = request.RedactContent,
             CreatedAt = DateTime.UtcNow,
         };
         error = "";
         return true;
+    }
+
+    private static async Task BumpContentPolicyRevisionAsync(ISqlSugarClient db)
+    {
+        await db.Ado.ExecuteCommandAsync("""
+            UPDATE content_policy_state
+            SET revision = revision + 1, updated_at = now()
+            WHERE id = 1
+            """);
+    }
+
+    private static async Task<long> ReadContentPolicyRevisionAsync(ISqlSugarClient db)
+    {
+        var value = await db.Ado.GetScalarAsync("""
+            SELECT revision FROM content_policy_state WHERE id = 1
+            """);
+        return value is null || value == DBNull.Value ? 1 : Convert.ToInt64(value);
     }
 
     private static void MapProxies(WebApplication app)
@@ -1445,6 +1509,8 @@ public static class PlatformEndpoints
     private record ContentCheckRequest(string Content, long UserId, string? RequestId,
         string? Stage);
     private record ContentAuditRuleRequest(string? Pattern, string? ActionType,
-        string? Scope, string? Status, string? Stage);
+        string? Scope, string? Status, string? Stage,
+        string? EvaluatorVersion = null, string? Classifier = null,
+        bool RedactContent = false);
     private record ContentAuditMatch(long Id, string Pattern, string ActionType);
 }

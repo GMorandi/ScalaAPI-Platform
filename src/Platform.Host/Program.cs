@@ -124,6 +124,7 @@ builder.Services.AddSingleton<AccountingReconciliationService>();
 builder.Services.AddHttpClient<ObjectStorageClient>();
 builder.Services.AddSingleton<RequestLeaseStore>();
 builder.Services.AddSingleton<MediaOperationStore>();
+builder.Services.AddSingleton<IContentClassifier, DefaultContentClassifier>();
 builder.Services.AddSingleton<ContentPolicyService>();
 builder.Services.AddSingleton<DispatchService>();
 builder.Services.AddHostedService<LeaseOutboxHostedService>();

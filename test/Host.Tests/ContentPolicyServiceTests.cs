@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging.Abstractions;
 using Npgsql;
+using ScalaAPI.Data.Content;
 using ScalaAPI.Host.Services;
 using Xunit;
 
@@ -7,6 +8,17 @@ namespace ScalaAPI.Host.Tests;
 
 public sealed class ContentPolicyServiceTests
 {
+    [Fact]
+    public void UnicodeEvaluatorMatchesCompatibilityAndConfusableForms()
+    {
+        Assert.True(ContentPolicyEvaluator.Contains(
+            "ＳｅＮѕіtіνｅ content", "sensitive"));
+        Assert.Equal("sensitive", ContentPolicyEvaluator.Normalize("ＳeNѕіtіνe"));
+        Assert.True(ContentPolicyEvaluator.Contains("cafe\u0301", "café"));
+        Assert.DoesNotContain('\u200b', ContentPolicyEvaluator.Normalize("sen\u200bsitive"));
+        Assert.True(ContentPolicyEvaluator.IsSupported(ContentPolicyEvaluator.Version));
+    }
+
     [Fact]
     public async Task BlockRuleIsEvaluatedBeforeDispatchAndAudited()
     {
@@ -173,6 +185,69 @@ public sealed class ContentPolicyServiceTests
             Assert.True(await reader.ReadAsync());
             Assert.Equal(1L, reader.GetInt64(0));
             Assert.Equal("response", reader.GetString(1));
+        }
+        finally
+        {
+            await using (var cleanupLogs = dataSource.CreateCommand(
+                "DELETE FROM content_audit_logs WHERE request_id = $1"))
+            {
+                cleanupLogs.Parameters.AddWithValue(requestId);
+                await cleanupLogs.ExecuteNonQueryAsync();
+            }
+            await using var cleanupRule = dataSource.CreateCommand(
+                "DELETE FROM content_audit_rules WHERE pattern = $1");
+            cleanupRule.Parameters.AddWithValue(pattern);
+            await cleanupRule.ExecuteNonQueryAsync();
+        }
+    }
+
+    [Fact]
+    public async Task ExternalClassifierUnavailableFailsClosedAndRedactsAuditContent()
+    {
+        var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
+        if (string.IsNullOrWhiteSpace(connectionString)) return;
+
+        var suffix = Guid.NewGuid().ToString("N");
+        var requestId = $"content-policy-external:{suffix}";
+        var pattern = $"sensitive-{suffix}";
+        await using var dataSource = NpgsqlDataSource.Create(connectionString);
+        try
+        {
+            await using (var command = dataSource.CreateCommand("""
+                INSERT INTO content_audit_rules(
+                    pattern, action_type, scope, status, stage, classifier, redact_content)
+                VALUES ($1, 'block', 'chat_completions', 'active', 'response', 'external', true)
+                """))
+            {
+                command.Parameters.AddWithValue(pattern);
+                await command.ExecuteNonQueryAsync();
+            }
+
+            var service = new ContentPolicyService(
+                dataSource, NullLogger<ContentPolicyService>.Instance);
+            var decision = await service.EvaluateAsync(9_500_003L, requestId,
+                "chat_completions", "chat_completions", ContentPolicyStage.Response,
+                $"Provider payload contains {pattern}");
+
+            Assert.False(decision.Allowed);
+            Assert.True(decision.Retryable);
+            Assert.Equal("content_policy_classifier_unavailable", decision.Code);
+            Assert.Equal(ContentPolicyEvaluator.Version, decision.EvaluatorVersion);
+
+            await using var verify = dataSource.CreateCommand("""
+                SELECT action, content_snippet, content_redacted, classifier,
+                       evaluator_version, policy_revision
+                FROM content_audit_logs WHERE request_id = $1
+                """);
+            verify.Parameters.AddWithValue(requestId);
+            await using var reader = await verify.ExecuteReaderAsync();
+            Assert.True(await reader.ReadAsync());
+            Assert.Equal("block", reader.GetString(0));
+            Assert.Equal("[REDACTED]", reader.GetString(1));
+            Assert.True(reader.GetBoolean(2));
+            Assert.Equal("external", reader.GetString(3));
+            Assert.Equal(ContentPolicyEvaluator.Version, reader.GetString(4));
+            Assert.True(reader.GetInt64(5) > 0);
         }
         finally
         {
