@@ -1,4 +1,5 @@
 using Orleans;
+using ScalaAPI.Data.Provider;
 using ScalaAPI.Admin.Data;
 using ScalaAPI.Admin.Models;
 using ScalaAPI.Grains.Interfaces;
@@ -29,6 +30,30 @@ public static class AccountEndpoints
             var grain = client.GetGrain<IAccountGrain>(id);
             var details = await grain.GetDetails();
             return Results.Ok(details);
+        });
+
+        group.MapGet("/{id:long}/credential-refresh-attempts", async (
+            long id, ProviderCredentialRefreshAuditStore audit, string? outcome,
+            string? source, int page = 1, int size = 50, CancellationToken ct = default) =>
+        {
+            if (!string.IsNullOrWhiteSpace(outcome)
+                && outcome.Trim() is not ("succeeded" or "failed"))
+                return Results.BadRequest(new { error = "outcome must be succeeded or failed" });
+            if (!string.IsNullOrWhiteSpace(source)
+                && source.Trim() is not ("dispatch" or "media"))
+                return Results.BadRequest(new { error = "source must be dispatch or media" });
+
+            page = Math.Max(1, page);
+            size = Math.Clamp(size, 1, 200);
+            var normalizedOutcome = string.IsNullOrWhiteSpace(outcome)
+                ? null : outcome.Trim();
+            var normalizedSource = string.IsNullOrWhiteSpace(source)
+                ? null : source.Trim();
+            var items = await audit.ListAsync(id, page, size,
+                normalizedOutcome, normalizedSource, ct);
+            var total = await audit.CountAsync(id, normalizedOutcome,
+                normalizedSource, ct);
+            return Results.Ok(new { items, total, page, size });
         });
 
         group.MapPost("/", async (AccountCreateRequest req, IClusterClient client, ListingRepository repo) =>

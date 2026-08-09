@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Orleans;
+using ScalaAPI.Data.Provider;
 using ScalaAPI.Grains.Interfaces;
 
 namespace ScalaAPI.Host.Services;
@@ -114,7 +115,8 @@ public sealed class ProviderCredentialRefreshService(
     IClusterClient cluster,
     ProviderTokenEndpointClient tokenClient,
     IConfiguration configuration,
-    ILogger<ProviderCredentialRefreshService> logger)
+    ILogger<ProviderCredentialRefreshService> logger,
+    ProviderCredentialRefreshAuditStore auditStore)
 {
     private readonly int refreshSkewSeconds = Math.Clamp(configuration.GetValue(
         "ProviderCredentials:RefreshSkewSeconds", 120), 0, 3600);
@@ -124,8 +126,9 @@ public sealed class ProviderCredentialRefreshService(
         configuration.GetValue("ProviderCredentials:RefreshWaitMilliseconds", 2000), 0, 10_000));
 
     public async Task<AccountCredentials> GetFreshAsync(long accountId,
-        CancellationToken ct = default)
+        CancellationToken ct = default, string source = "dispatch")
     {
+        source = source is "media" ? "media" : "dispatch";
         var grain = cluster.GetGrain<IAccountGrain>(accountId);
         var deadline = DateTime.UtcNow + waitTimeout;
         while (true)
@@ -148,6 +151,9 @@ public sealed class ProviderCredentialRefreshService(
             if (lease.Status != "acquired" || string.IsNullOrWhiteSpace(lease.LeaseId))
                 throw new ProviderCredentialsUnavailableException("oauth_refresh_state_invalid");
 
+            var attemptId = Guid.NewGuid();
+            var startedAt = DateTime.UtcNow;
+            var endpointHost = EndpointHost(lease.TokenEndpoint);
             try
             {
                 var refreshed = await tokenClient.RefreshAsync(lease, ct);
@@ -155,6 +161,8 @@ public sealed class ProviderCredentialRefreshService(
                         refreshed.AccessToken, refreshed.RefreshToken,
                         refreshed.ExpiresAtUnixSeconds, refreshed.TokenType))
                     continue;
+                await RecordAuditAsync(attemptId, accountId, source, lease.Version,
+                    lease.Version + 1, "succeeded", null, endpointHost, startedAt);
                 logger.LogInformation(
                     "Refreshed OAuth credential for account {AccountId} to version {Version}",
                     accountId, lease.Version + 1);
@@ -166,10 +174,41 @@ public sealed class ProviderCredentialRefreshService(
                     ? ex.Message : "oauth_token_endpoint_unavailable";
                 await grain.FailOAuthRefresh(lease.LeaseId, code,
                     DateTimeOffset.UtcNow.AddSeconds(30).ToUnixTimeMilliseconds());
+                await RecordAuditAsync(attemptId, accountId, source, lease.Version,
+                    null, "failed", code, endpointHost, startedAt);
                 logger.LogWarning("OAuth credential refresh failed for account {AccountId}: {Code}",
                     accountId, code);
                 throw new ProviderCredentialsUnavailableException(code);
             }
         }
+    }
+
+    private async Task RecordAuditAsync(Guid attemptId, long accountId, string source,
+        int versionBefore, int? versionAfter, string outcome, string? errorCode,
+        string endpointHost, DateTime startedAt)
+    {
+        var completedAt = DateTime.UtcNow;
+        var duration = Math.Clamp(
+            (int)Math.Max(0, (completedAt - startedAt).TotalMilliseconds), 0, 900_000);
+        try
+        {
+            await auditStore.RecordAsync(attemptId, accountId, source, versionBefore,
+                versionAfter, outcome, errorCode, endpointHost, startedAt, completedAt,
+                duration, CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex,
+                "OAuth refresh audit write failed for account {AccountId}, attempt {AttemptId}",
+                accountId, attemptId);
+        }
+    }
+
+    private static string EndpointHost(string? endpoint)
+    {
+        return Uri.TryCreate(endpoint, UriKind.Absolute, out var uri)
+            && !string.IsNullOrWhiteSpace(uri.Host)
+            ? uri.Host[..Math.Min(uri.Host.Length, 253)]
+            : "invalid";
     }
 }

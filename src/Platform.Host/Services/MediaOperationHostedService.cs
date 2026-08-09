@@ -52,7 +52,8 @@ public sealed class MediaOperationHostedService(
     {
         try
         {
-            var accountCredentials = await credentials.GetFreshAsync(operation.AccountId, ct);
+            var accountCredentials = await credentials.GetFreshAsync(
+                operation.AccountId, ct, "media");
             var path = PollPath(operation);
             if (string.IsNullOrEmpty(path))
             {

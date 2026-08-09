@@ -481,10 +481,10 @@ wait_for "Admin API readiness" 60 compose exec -T admin-api \
 wait_for "User Web readiness" 60 curl -fsS "$user_web_url/" >/dev/null
 
 migration_count="$(db_query "SELECT count(*) FROM schema_migrations;")"
-assert_equals "24" "$migration_count" "Applied migration count"
+assert_equals "25" "$migration_count" "Applied migration count"
 second_migration_output="$(compose run --rm migrate 2>&1)"
 second_skip_count="$(grep -cE 'skip .+\.sql' <<<"$second_migration_output" || true)"
-assert_equals "24" "$second_skip_count" "Idempotent migrator skip count"
+assert_equals "25" "$second_skip_count" "Idempotent migrator skip count"
 
 login_response="$(admin_request POST /admin/auth/login \
     "$(jq -cn --arg username "$ADMIN_USERNAME" --arg password "$ADMIN_PASSWORD" \
@@ -791,6 +791,13 @@ if grep -Eq 'mock-(access|refresh)|mock-secret' <<<"$oauth_account"; then
     exit 1
 fi
 echo "PASS: Expired Provider OAuth credential refreshed before dispatch and secrets stayed private"
+oauth_audit="$(admin_request GET "/admin/accounts/$openai_account_id/credential-refresh-attempts?outcome=succeeded&source=dispatch" '' "$admin_token")"
+assert_equals "1|1|2|succeeded" "$(jq -r '[.total, (.items | length), .items[0].versionAfter, .items[0].outcome] | @tsv' <<<"$oauth_audit" | tr '\t' '|')" \
+    "Provider OAuth refresh audit persisted without secret material"
+if grep -Eq 'mock-(access|refresh)|mock-secret' <<<"$oauth_audit"; then
+    echo "Provider OAuth refresh audit exposed secret material" >&2
+    exit 1
+fi
 
 chat_settled() {
     [[ "$(db_query "SELECT count(*) FROM request_leases WHERE request_id = '$chat_request_id' AND status = 'completed' AND final_cost_usd > 0 AND pricing_version = '$chat_price_version';")" == "1" ]]
@@ -1048,7 +1055,7 @@ if [[ "$garnet_probe" != *PONG* ]]; then
     exit 1
 fi
 
-echo "PASS: 24 empty-volume migrations and second-run idempotency"
+echo "PASS: 25 empty-volume migrations and second-run idempotency"
 echo "PASS: idempotent administrative funding, audit, conflict, and overdraft guards"
 echo "PASS: Garnet-authenticated Gateway -> Platform -> Provider mock request"
 echo "PASS: terminal lease, hold, usage, ledger, and outbox invariants"

@@ -7,6 +7,7 @@ using ScalaAPI.Admin.Endpoints;
 using ScalaAPI.Admin.Payments;
 using ScalaAPI.Data.Repositories;
 using ScalaAPI.Data.Accounting;
+using ScalaAPI.Data.Provider;
 using Npgsql;
 using System.IdentityModel.Tokens.Jwt;
 
@@ -53,6 +54,7 @@ builder.Services.AddHttpClient("platform-internal", client =>
     client.Timeout = TimeSpan.FromSeconds(15);
 });
 builder.Services.AddSingleton(NpgsqlDataSource.Create(pgConnection));
+builder.Services.AddSingleton<ProviderCredentialRefreshAuditStore>();
 builder.Services.AddSingleton<AuthSessionService>();
 builder.Services.AddSingleton<TimeProvider>(TimeProvider.System);
 builder.Services.AddSingleton<TotpVerificationService>();

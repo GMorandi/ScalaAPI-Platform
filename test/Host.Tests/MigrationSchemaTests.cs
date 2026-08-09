@@ -53,6 +53,9 @@ public sealed class MigrationSchemaTests
                 "locked_until", "last_accepted_step", "updated_at"],
             ["auth_oauth_states"] = ["state_hash", "provider", "redirect_uri", "verifier_hash",
                 "expires_at", "consumed_at", "created_at"],
+            ["provider_credential_refresh_attempts"] = ["id", "attempt_id", "account_id",
+                "source", "version_before", "version_after", "outcome", "error_code",
+                "token_endpoint_host", "started_at", "completed_at", "duration_ms"],
             ["payment_webhook_events"] = ["provider", "event_id", "event_type", "payload_hash", "status", "attempts", "next_attempt_at"],
             ["subscription_events"] = ["subscription_id", "user_id", "event_type", "idempotency_key", "payload"],
             ["user_subscriptions"] = ["user_id", "plan_id", "status", "idempotency_key", "renewal_at", "quota_granted_usd", "quota_used_usd"]

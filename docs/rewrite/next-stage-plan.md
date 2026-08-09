@@ -223,7 +223,7 @@ Remaining package deliverables:
 - Add a blocking negative probe for each new fault hook so a swallowed child failure or
   missing scenario makes the top-level gate non-zero.
 
-Dependencies: migrations 018-023 accounting authority/reconciliation/evidence,
+Dependencies: migrations 018-024 accounting authority/reconciliation/evidence,
 TOTP abuse state, and OAuth PKCE state,
 versioned ledger effects, durable holds, response replay, settlement/projection
 outboxes, persisted incident identity, and the audited resolution transaction.

@@ -54,6 +54,7 @@ COPY deploy/migrations/020-lease-dispatch-evidence.sql ./migrations/020-lease-di
 COPY deploy/migrations/021-reconciliation-resolutions.sql ./migrations/021-reconciliation-resolutions.sql
 COPY deploy/migrations/022-auth-totp-state.sql ./migrations/022-auth-totp-state.sql
 COPY deploy/migrations/023-auth-oauth-states.sql ./migrations/023-auth-oauth-states.sql
+COPY deploy/migrations/024-provider-credential-refresh-audit.sql ./migrations/024-provider-credential-refresh-audit.sql
 ENTRYPOINT ["dotnet", "migrate/Db.Migrator.dll", "/app/migrations"]
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS provider-mock

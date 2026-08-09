@@ -18,8 +18,8 @@ The current tracked inventory is:
 
 - Gateway: 52 production C++ source/header files, 10 test source files, and 104
   CTest cases.
-- Platform: 85 hand-written production C# files, 3 generated Cap'n Proto C#
-  files, 32 test/benchmark C# files, and 124 tests: 59 Grain, 33 Host, 9 Admin,
+- Platform: 86 hand-written production C# files, 3 generated Cap'n Proto C#
+  files, 33 test/benchmark C# files, and 125 tests: 59 Grain, 34 Host, 9 Admin,
   and 23 Provider mock tests.
 - Product surface: 119 direct Admin API route declarations, 45 product tables,
   20 SQLSugar entity types, 23 Admin Web TypeScript/TSX files and 11 page views,
@@ -154,7 +154,10 @@ current-source runtime evidence.
   adapter requires HTTPS by default, bounds responses, validates header material,
   and never includes Provider response bodies in errors. Admin reads expose only
   non-secret refresh health; the account form supports explicit static-header and
-  OAuth modes while retaining encrypted secrets on metadata-only edits.
+  OAuth modes while retaining encrypted secrets on metadata-only edits. Every
+  acquired refresh attempt appends a non-secret PostgreSQL audit row with source,
+  version transition, bounded outcome code, endpoint host, and duration; Admin can
+  page and filter that history by account, source, and outcome.
 - Admin can publish/close effective price versions. New leases snapshot version
   identity and every NUMERIC unit rate, so mutable configuration cannot reprice an
   existing request.
@@ -216,8 +219,8 @@ current-source runtime evidence.
 
 ### Bootstrap and deployment
 
-- The active migrator applies Orleans support plus migrations 001-023 to an empty
-  PostgreSQL database and rejects checksum drift. A second execution skips all 24
+- The active migrator applies Orleans support plus migrations 001-024 to an empty
+  PostgreSQL database and rejects checksum drift. A second execution skips all 25
   files. No source database, snapshot, old key, CDC table, or compatibility mapping
   is required.
 - `deploy/stack` independently starts PostgreSQL, authenticated Garnet, MinIO,
@@ -242,7 +245,7 @@ At Platform `1ffe357` and Gateway `9c7171f`:
   classification, incomplete chunked-body disconnect classification, zero-length
   client-write cancellation, and bounded Provider pre-header stream timeout
   handling plus independent inter-chunk and total-stream timeout scenarios.
-- Platform Release test/build passed with 0 warnings and 0 errors: 124/124 tests,
+- Platform Release test/build passed with 0 warnings and 0 errors: 125/125 tests,
   including 33 Host tests and 59 Grain tests. Admin coverage
   includes PostgreSQL-backed TOTP replay, backup-code consumption, lockout,
   recovery, OAuth provider/redirect/verifier binding, one-time state consumption,
@@ -275,7 +278,7 @@ At Platform `1ffe357` and Gateway `9c7171f`:
   the mock OAuth HTTP endpoint, succeeded, and settled one NUMERIC debit. The
   Admin account-details response reported version 2 and a future expiry without
   exposing access, refresh, or client-secret material. The same run passed the
-  Garnet-authenticated stack, 24-migration double run, restart/recovery, Provider
+  Garnet-authenticated stack, 25-migration double run, restart/recovery, Provider
   failure matrix, reconciliation, and MinIO assertions; its cleanup trap removed
   all project containers, volumes, network, and stack image tags.
 - The current-source empty-stack project `scalaapi-gateway-recovery-0907` ran with

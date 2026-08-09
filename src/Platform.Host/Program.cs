@@ -1,5 +1,6 @@
 using ScalaAPI.Host.Services;
 using ScalaAPI.Data.Accounting;
+using ScalaAPI.Data.Provider;
 using Npgsql;
 using System.Security.Cryptography;
 
@@ -115,6 +116,7 @@ builder.Services.AddSingleton<ScalaAPI.Grains.Interfaces.IInvalidationService>(s
 builder.Services.AddSingleton<ModelPricingService>();
 builder.Services.AddHostedService<PricingRefreshHostedService>();
 builder.Services.AddSingleton(NpgsqlDataSource.Create(pgConnection));
+builder.Services.AddSingleton<ProviderCredentialRefreshAuditStore>();
 builder.Services.AddSingleton<FaultInjection>();
 builder.Services.AddSingleton<AccountingStore>();
 builder.Services.AddSingleton<IAccountingProjectionRepairer, OrleansAccountingProjectionRepairer>();
