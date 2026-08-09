@@ -6,6 +6,7 @@ using ScalaAPI.Grains.Interfaces;
 using System.Buffers.Binary;
 using System.Net.Sockets;
 using System.Text.Json;
+using Npgsql;
 using Capnp;
 using CapnpGen;
 
@@ -498,6 +499,7 @@ public class DispatchService
     private readonly GarnetWriteThroughService _garnet;
     private readonly ILogger<DispatchService> _logger;
     private readonly FaultInjection _faults;
+    private readonly NpgsqlDataSource _dataSource;
     private readonly TimeSpan _leaseTtl;
     private readonly decimal _maxReservationUsd;
 
@@ -507,6 +509,7 @@ public class DispatchService
                            ModelPricingService pricing,
                            AuthProjectionCache authCache, GarnetWriteThroughService garnet,
                            ProviderCredentialRefreshService credentials,
+                           NpgsqlDataSource dataSource,
                            IConfiguration configuration,
                            ILogger<DispatchService> logger,
                            FaultInjection faults)
@@ -518,6 +521,7 @@ public class DispatchService
         _pricing = pricing;
         _authCache = authCache;
         _credentials = credentials;
+        _dataSource = dataSource;
         _garnet = garnet;
         _logger = logger;
         _faults = faults;
@@ -547,12 +551,22 @@ public class DispatchService
                     status = auth.Status,
                     rate_multiplier = (double)auth.RateMultiplier,
                     rpm_limit = auth.RpmLimit,
+                    scopes = auth.Scopes,
                 }));
             }
         }
         catch (Exception ex)
         {
-            return DispatchResult.Rejected("invalidKey", ex.Message);
+            return DispatchResult.Rejected(ClassifyAuthFailure(ex), ex.Message);
+        }
+
+        var requestedCapability = string.IsNullOrWhiteSpace(req.Capability)
+            ? req.Endpoint : req.Capability;
+        if (!ApiKeyScopes.Allows(auth.Scopes, requestedCapability))
+        {
+            await RecordDeniedScopeAsync(auth, requestedCapability, req.RequestId);
+            return DispatchResult.Rejected("unsupportedCapability",
+                $"API key is not authorized for capability '{requestedCapability}'");
         }
 
         var isMediaOperation = req.Operation is "images_generations_async" or "images_edits_async"
@@ -823,6 +837,37 @@ public class DispatchService
         }
     }
 
+    private static string ClassifyAuthFailure(Exception exception) =>
+        exception.Message.Contains("expired", StringComparison.OrdinalIgnoreCase)
+            ? "expired" : "invalidKey";
+
+    private async Task RecordDeniedScopeAsync(AuthResult auth, string capability, string requestId)
+    {
+        try
+        {
+            await using var command = _dataSource.CreateCommand("""
+                INSERT INTO api_key_audit_events
+                    (api_key_id, user_id, actor_user_id, action, scopes,
+                     capability, reason, request_id)
+                VALUES ($1, $2, $3, 'denied', $4::jsonb, $5, $6, $7)
+                """);
+            command.Parameters.AddWithValue(auth.ApiKeyId);
+            command.Parameters.AddWithValue(auth.UserId);
+            command.Parameters.AddWithValue(auth.UserId);
+            command.Parameters.AddWithValue(JsonSerializer.Serialize(auth.Scopes));
+            command.Parameters.AddWithValue(capability);
+            command.Parameters.AddWithValue("scope_denied");
+            command.Parameters.AddWithValue(requestId);
+            await command.ExecuteNonQueryAsync();
+        }
+        catch (Exception exception)
+        {
+            _logger.LogWarning(exception,
+                "Unable to persist API key scope denial for {ApiKeyId} and {RequestId}",
+                auth.ApiKeyId, requestId);
+        }
+    }
+
     private async Task<DispatchResult?> RecoverExistingDispatchAsync(
         DispatchRequest req, AuthResult auth, RequestLease? lease)
     {
@@ -910,6 +955,13 @@ public class DispatchService
         catch
         {
             return MediaOperationRpcResult.Error(401, "authentication_error", "Invalid API key");
+        }
+
+        if (!ApiKeyScopes.Allows(auth.Scopes, "images_async"))
+        {
+            await RecordDeniedScopeAsync(auth, "images_async", req.RequestId);
+            return MediaOperationRpcResult.Error(403, "unsupported_capability",
+                "API key is not authorized for media operations");
         }
 
         MediaOperation? operation;

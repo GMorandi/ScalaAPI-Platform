@@ -517,4 +517,10 @@ public class UserApiKeyEntity
 
     [SugarColumn(ColumnName = "last_used_at", IsNullable = true)]
     public DateTime? LastUsedAt { get; set; }
+
+    [SugarColumn(ColumnName = "scopes", ColumnDataType = "jsonb")]
+    public string Scopes { get; set; } = "[\"*\"]";
+
+    [SugarColumn(ColumnName = "expires_at_ms", IsNullable = true)]
+    public long? ExpiresAtMs { get; set; }
 }

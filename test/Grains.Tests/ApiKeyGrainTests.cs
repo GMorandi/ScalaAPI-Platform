@@ -70,6 +70,22 @@ public class ApiKeyGrainTests
     }
 
     [Fact]
+    public void Scopes_NormalizeAndValidateKnownCapabilities()
+    {
+        var scopes = ApiKeyScopes.Normalize([" Responses ", "responses", "models"]);
+
+        Assert.Equal(["responses", "models"], scopes);
+        Assert.True(ApiKeyScopes.Allows(scopes, "responses"));
+        Assert.False(ApiKeyScopes.Allows(scopes, "images_sync"));
+    }
+
+    [Fact]
+    public void Scopes_RejectUnknownCapability()
+    {
+        Assert.Throws<ArgumentException>(() => ApiKeyScopes.Normalize(["legacy-v1"]));
+    }
+
+    [Fact]
     public async Task Create_SetsVersionToOne()
     {
         var grain = GetGrain(1001);
@@ -128,6 +144,25 @@ public class ApiKeyGrainTests
         Assert.Equal(3001, result.GroupId);
         Assert.Equal("anthropic", result.Platform);
         Assert.Equal("active", result.Status);
+    }
+
+    [Fact]
+    public async Task Validate_ReturnsExplicitScopes()
+    {
+        var user = _cluster.GrainFactory.GetGrain<IUserGrain>(2060);
+        await user.Create(new UserCreate("user", 1, 0, [3060]));
+        await user.ApplyBalanceSnapshot(1, 50.0m);
+        var group = _cluster.GrainFactory.GetGrain<IGroupGrain>(3060);
+        await group.Create(new GroupUpsert("openai", 1.0m, false, null, false, null,
+            false, new(), [], 0, null, null, null));
+        var grain = GetGrain(1060);
+        await grain.Create(new ApiKeyUpsert(2060, 3060, 10m, null, [], [], 0, 0, 0,
+            ["responses", "models"]));
+
+        var result = await grain.Validate(new AuthRequest("10.0.0.1", "req-scopes"));
+
+        Assert.Equal(["responses", "models"], result.Scopes);
+        Assert.Equal(["responses", "models"], (await grain.GetConfig()).Scopes);
     }
 
     [Fact]

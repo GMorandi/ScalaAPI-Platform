@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using MailKit.Net.Smtp;
 using MimeKit;
@@ -57,15 +58,27 @@ public static class PlatformEndpoints
                 .Where(x => x.UserEmail == email)
                 .OrderByDescending(x => x.CreatedAt)
                 .ToListAsync();
-            return Results.Ok(new { keys = keys.Select(k => new { k.Id, k.KeyPrefix, k.Name, k.Status, k.CreatedAt, k.LastUsedAt }) });
+            return Results.Ok(new { keys = keys.Select(k => new
+            {
+                k.Id, k.KeyPrefix, k.Name, k.Status, k.CreatedAt, k.LastUsedAt,
+                scopes = ParseScopes(k.Scopes), expires_at = k.ExpiresAtMs,
+            }) });
         });
 
         group.MapPost("/", async (ClaimsPrincipal principal, ISqlSugarClient db,
-            IClusterClient client, ListingRepository registry, ApiKeySelfServiceRequest req) =>
+            IClusterClient client, ListingRepository registry, ApiKeyAuditStore audit,
+            ApiKeySelfServiceRequest req) =>
         {
             var email = principal.Identity?.Name ?? "";
             var user = await db.Queryable<UserAccountEntity>().Where(x => x.Email == email).FirstAsync();
             if (user is null) return Results.Unauthorized();
+            if (!ScalaAPI.Admin.Auth.AuthClaims.TryGetUserId(principal, out var actorId))
+                return Results.Unauthorized();
+            string[] scopes;
+            try { scopes = ApiKeyScopes.Normalize(req.Scopes); }
+            catch (ArgumentException ex) { return Results.BadRequest(new { error = ex.Message }); }
+            if (!IsFutureExpiry(req.ExpiresAt))
+                return Results.BadRequest(new { error = "expires_at must be in the future" });
             var userGrain = client.GetGrain<IUserGrain>(user.Id);
             var projection = await userGrain.GetAuthProjection();
             long? groupId = req.GroupId ?? projection.AllowedGroups.FirstOrDefault();
@@ -81,7 +94,7 @@ public static class PlatformEndpoints
             await grain.Create(new ApiKeyUpsert(
                 user.Id, groupId.Value, req.Quota ?? 0, req.ExpiresAt,
                 req.IpWhitelist ?? [], req.IpBlacklist ?? [],
-                req.RateLimit5h ?? 0, req.RateLimit1d ?? 0, req.RateLimit7d ?? 0), apiKeyId);
+                req.RateLimit5h ?? 0, req.RateLimit1d ?? 0, req.RateLimit7d ?? 0, scopes), apiKeyId);
 
             var entity = new UserApiKeyEntity
             {
@@ -92,38 +105,49 @@ public static class PlatformEndpoints
                 ApiKeyId = apiKeyId,
                 Status = "active",
                 CreatedAt = DateTime.UtcNow,
+                Scopes = JsonSerializer.Serialize(scopes),
+                ExpiresAtMs = req.ExpiresAt,
             };
             await db.Insertable(entity).ExecuteCommandAsync();
             entity.Id = Convert.ToInt64(await db.Ado.GetScalarAsync(
                 "SELECT id FROM user_api_keys WHERE key_hash = @hash",
                 new SugarParameter("@hash", keyHash)));
             await registry.RegisterString("apiKey", keyHash, apiKeyId);
+            await audit.RecordAsync(apiKeyId, user.Id, actorId, "created", scopes, req.ExpiresAt);
 
             return Results.Ok(new { id = entity.Id, key = rawKey, message = "Store this key securely, it cannot be retrieved again" });
         });
 
         group.MapDelete("/{id}", async (long id, ClaimsPrincipal principal, ISqlSugarClient db,
-            IClusterClient client, ListingRepository registry) =>
+            IClusterClient client, ListingRepository registry, ApiKeyAuditStore audit) =>
         {
             var email = principal.Identity?.Name ?? "";
             var key = await db.Queryable<UserApiKeyEntity>()
                 .Where(x => x.Id == id && x.UserEmail == email).FirstAsync();
             if (key is null) return Results.NotFound();
+            if (!ScalaAPI.Admin.Auth.AuthClaims.TryGetUserId(principal, out var actorId))
+                return Results.Unauthorized();
+            var config = await client.GetGrain<IApiKeyGrain>(key.KeyHash).GetConfig();
             await client.GetGrain<IApiKeyGrain>(key.KeyHash).Revoke();
             await db.Updateable<UserApiKeyEntity>().SetColumns(x => x.Status == "revoked")
                 .Where(x => x.Id == id && x.UserEmail == email).ExecuteCommandAsync();
             await registry.Unregister("apiKey", key.KeyHash);
+            await audit.RecordAsync(key.ApiKeyId, config.UserId, actorId, "revoked",
+                config.Scopes, config.ExpiresAt, reason: "user revoke");
             return Results.Ok(new { message = "Key revoked" });
         });
 
         group.MapPost("/{id:long}/rotate", async (long id, ClaimsPrincipal principal,
-            ISqlSugarClient db, IClusterClient client, ListingRepository registry) =>
+            ISqlSugarClient db, IClusterClient client, ListingRepository registry,
+            ApiKeyAuditStore audit) =>
         {
             var email = principal.Identity?.Name ?? "";
             var old = await db.Queryable<UserApiKeyEntity>()
                 .Where(x => x.Id == id && x.UserEmail == email && x.Status == "active")
                 .FirstAsync();
             if (old is null) return Results.NotFound();
+            if (!ScalaAPI.Admin.Auth.AuthClaims.TryGetUserId(principal, out var actorId))
+                return Results.Unauthorized();
 
             var config = await client.GetGrain<IApiKeyGrain>(old.KeyHash).GetConfig();
             var rawKey = $"sk-{Convert.ToHexString(RandomNumberGenerator.GetBytes(24)).ToLowerInvariant()}";
@@ -134,7 +158,7 @@ public static class PlatformEndpoints
             await client.GetGrain<IApiKeyGrain>(keyHash).Create(new ApiKeyUpsert(
                 config.UserId, config.GroupId, config.Quota, config.ExpiresAt,
                 config.IpWhitelist, config.IpBlacklist,
-                config.RateLimit5h, config.RateLimit1d, config.RateLimit7d), apiKeyId);
+                config.RateLimit5h, config.RateLimit1d, config.RateLimit7d, config.Scopes), apiKeyId);
 
             var replacement = new UserApiKeyEntity
             {
@@ -145,6 +169,8 @@ public static class PlatformEndpoints
                 ApiKeyId = apiKeyId,
                 Status = "active",
                 CreatedAt = DateTime.UtcNow,
+                Scopes = JsonSerializer.Serialize(config.Scopes),
+                ExpiresAtMs = config.ExpiresAt,
             };
             await db.Insertable(replacement).ExecuteCommandAsync();
             replacement.Id = Convert.ToInt64(await db.Ado.GetScalarAsync(
@@ -156,6 +182,10 @@ public static class PlatformEndpoints
             await db.Updateable<UserApiKeyEntity>().SetColumns(x => x.Status == "revoked")
                 .Where(x => x.Id == old.Id && x.UserEmail == email).ExecuteCommandAsync();
             await registry.Unregister("apiKey", old.KeyHash);
+            await audit.RecordAsync(apiKeyId, config.UserId, actorId, "rotated",
+                config.Scopes, config.ExpiresAt, reason: "user rotation");
+            await audit.RecordAsync(old.ApiKeyId, config.UserId, actorId, "revoked",
+                config.Scopes, config.ExpiresAt, reason: "rotation replaced previous key");
 
             return Results.Ok(new
             {
@@ -1310,7 +1340,17 @@ public static class PlatformEndpoints
     private record ApiKeySelfServiceRequest(
         string? Name, long? GroupId, decimal? Quota, long? ExpiresAt,
         string[]? IpWhitelist, string[]? IpBlacklist,
-        decimal? RateLimit5h, decimal? RateLimit1d, decimal? RateLimit7d);
+        decimal? RateLimit5h, decimal? RateLimit1d, decimal? RateLimit7d,
+        string[]? Scopes);
+
+    private static string[] ParseScopes(string? json)
+    {
+        try { return ApiKeyScopes.Normalize(JsonSerializer.Deserialize<string[]>(json ?? "[\"*\"]")); }
+        catch (JsonException) { return [ApiKeyScopes.Wildcard]; }
+    }
+
+    private static bool IsFutureExpiry(long? expiresAt) =>
+        !expiresAt.HasValue || expiresAt.Value > DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
     private record RedeemRequest(string Code);
     private record ChannelCheckRequest(long AccountId, string Status, int LatencyMs, string? Error);
     private record RestoreRequest(string BackupId);

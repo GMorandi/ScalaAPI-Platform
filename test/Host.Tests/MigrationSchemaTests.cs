@@ -14,7 +14,9 @@ public sealed class MigrationSchemaTests
         var required = new Dictionary<string, string[]>(StringComparer.Ordinal)
         {
             ["user_accounts"] = ["id", "email", "status", "role", "email_verified", "email_verified_at"],
-            ["user_api_keys"] = ["id", "key_hash", "status"],
+            ["user_api_keys"] = ["id", "key_hash", "status", "scopes", "expires_at_ms"],
+            ["api_key_audit_events"] = ["id", "api_key_id", "user_id", "actor_user_id",
+                "action", "scopes", "expires_at_ms", "capability", "reason", "request_id", "created_at"],
             ["accounts"] = ["id", "name", "platform", "credentials", "status"],
             ["groups"] = ["id", "name", "platform", "status"],
             ["request_leases"] = ["lease_token", "request_id", "hold_amount", "status",

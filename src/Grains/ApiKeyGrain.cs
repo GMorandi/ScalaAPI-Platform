@@ -28,6 +28,7 @@ public class ApiKeyState
     [Id(17)] public long Window1dStart { get; set; }
     [Id(18)] public long Window7dStart { get; set; }
     [Id(19)] public HashSet<string> AppliedLeases { get; set; } = [];
+    [Id(20)] public string[] Scopes { get; set; } = [ApiKeyScopes.Wildcard];
 }
 
 public class ApiKeyGrain : Grain, IApiKeyGrain
@@ -87,7 +88,8 @@ public class ApiKeyGrain : Grain, IApiKeyGrain
         return new AuthResult(
             s.ApiKeyId, s.UserId, s.GroupId, group.Platform, s.Status,
             s.Quota, s.QuotaUsed, group.RateMultiplier,
-            user.Concurrency, user.RpmLimit, s.Version, user, group);
+            user.Concurrency, user.RpmLimit, s.Version,
+            ApiKeyScopes.Normalize(s.Scopes), user, group);
     }
 
     public Task<long> GetVersion() => Task.FromResult(_state.State.Version);
@@ -98,7 +100,8 @@ public class ApiKeyGrain : Grain, IApiKeyGrain
         return Task.FromResult(new ApiKeyConfig(
             s.UserId, s.GroupId, s.Quota, s.ExpiresAt,
             s.IpWhitelist, s.IpBlacklist,
-            s.RateLimit5h, s.RateLimit1d, s.RateLimit7d));
+            s.RateLimit5h, s.RateLimit1d, s.RateLimit7d,
+            ApiKeyScopes.Normalize(s.Scopes)));
     }
 
     public Task<ApiKeyProjection> GetProjection()
@@ -106,7 +109,7 @@ public class ApiKeyGrain : Grain, IApiKeyGrain
         var s = _state.State;
         return Task.FromResult(new ApiKeyProjection(
             s.ApiKeyId, s.UserId, s.GroupId, s.Status, s.Version,
-            s.Quota, s.QuotaUsed, s.ExpiresAt));
+            s.Quota, s.QuotaUsed, s.ExpiresAt, ApiKeyScopes.Normalize(s.Scopes)));
     }
 
     public async Task AddUsage(decimal usd)
@@ -178,6 +181,7 @@ public class ApiKeyGrain : Grain, IApiKeyGrain
         s.RateLimit5h = input.RateLimit5h;
         s.RateLimit1d = input.RateLimit1d;
         s.RateLimit7d = input.RateLimit7d;
+        s.Scopes = ApiKeyScopes.Normalize(input.Scopes);
         s.Version = 1;
         await _state.WriteStateAsync();
         _invalidation.NotifyChange("apiKey", this.GetPrimaryKeyString());
@@ -195,6 +199,7 @@ public class ApiKeyGrain : Grain, IApiKeyGrain
         s.RateLimit5h = input.RateLimit5h;
         s.RateLimit1d = input.RateLimit1d;
         s.RateLimit7d = input.RateLimit7d;
+        s.Scopes = ApiKeyScopes.Normalize(input.Scopes);
         s.Version++;
         await _state.WriteStateAsync();
         _invalidation.NotifyChange("apiKey", this.GetPrimaryKeyString());

@@ -24,7 +24,8 @@ public record UserCreateRequest(
 public record ApiKeyCreateRequest(
     long UserId, long GroupId, decimal Quota,
     long? ExpiresAt, string[] IpWhitelist, string[] IpBlacklist,
-    decimal RateLimit5h, decimal RateLimit1d, decimal RateLimit7d);
+    decimal RateLimit5h, decimal RateLimit1d, decimal RateLimit7d,
+    string[]? Scopes = null);
 
 public record StatusRequest(string Status);
 public record BalanceRequest(decimal Delta, string Reason);

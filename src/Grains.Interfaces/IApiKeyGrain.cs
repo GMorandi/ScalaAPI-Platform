@@ -16,6 +16,7 @@ public record AuthResult(
     int Concurrency,
     int RpmLimit,
     long Version,
+    string[] Scopes,
     UserProjection User,
     GroupProjection Group);
 
@@ -34,18 +35,20 @@ public record GroupProjection(
 public record ApiKeyUpsert(
     long UserId, long GroupId, decimal Quota,
     long? ExpiresAt, string[] IpWhitelist, string[] IpBlacklist,
-    decimal RateLimit5h, decimal RateLimit1d, decimal RateLimit7d);
+    decimal RateLimit5h, decimal RateLimit1d, decimal RateLimit7d,
+    string[]? Scopes = null);
 
 [GenerateSerializer]
 public record ApiKeyConfig(
     long UserId, long GroupId, decimal Quota, long? ExpiresAt,
     string[] IpWhitelist, string[] IpBlacklist,
-    decimal RateLimit5h, decimal RateLimit1d, decimal RateLimit7d);
+    decimal RateLimit5h, decimal RateLimit1d, decimal RateLimit7d,
+    string[] Scopes);
 
 [GenerateSerializer]
 public record ApiKeyProjection(
     long ApiKeyId, long UserId, long GroupId, string Status, long Version,
-    decimal Quota, decimal QuotaUsed, long? ExpiresAt);
+    decimal Quota, decimal QuotaUsed, long? ExpiresAt, string[] Scopes);
 
 public interface IApiKeyGrain : IGrainWithStringKey
 {
