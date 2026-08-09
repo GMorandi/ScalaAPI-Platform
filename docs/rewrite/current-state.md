@@ -364,6 +364,11 @@ At Platform `075d95b` and Gateway `52a0035`:
   failure matrix, audited reconciliation, and MinIO signed media persistence.
   Its cleanup trap removed the project containers, volumes, network, and all
   stack-specific resources; only named `apitf_*` development resources remain.
+- The current-source project `scalaapi-scheduling-verified` repeated the full
+  26-migration empty-volume gate after the group scheduling change. Garnet,
+  rotating sessions, OAuth refresh, realtime settlement, restart recovery, the
+  Provider fault matrix, audited reconciliation, and MinIO signed persistence all
+  passed; its containers, volumes, network, and temporary image tags were removed.
 - Scheduler benchmark integrity dry run executed all 4 selected child benchmarks
   and returned zero. It is a failure-propagation check, not performance evidence.
 - `deploy/stack/smoke.sh` built current sibling sources in isolated Podman

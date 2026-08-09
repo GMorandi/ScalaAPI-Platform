@@ -14,6 +14,12 @@ expired `mock-access-v1` credential rotated over real HTTP to version 2 before
 the first Chat dispatch, the request settled once, and Admin details remained
 secret-free. The cleanup trap removed all project resources and temporary image
 tags; the named `apitf_*` development resources were retained.
+The current source project `scalaapi-scheduling-verified` also passed the full
+26-migration empty-volume gate with authenticated Garnet, rotating auth sessions,
+OAuth refresh, realtime settlement, Platform/Gateway restart recovery, the complete
+Provider fault matrix, audited reconciliation, and MinIO signed object persistence.
+Its cleanup removed all containers, volumes, networks, and stack-specific image tags;
+only the named `apitf_*` development resources remain.
 The Platform `075d95b` scheduling/policy slice passes the full 136-test suite and Release
 build with zero warnings: API-key scope normalization and projection tests pass,
 unknown scopes are rejected, capability denials are classified before scheduling,
