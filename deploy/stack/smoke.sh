@@ -99,7 +99,8 @@ export OBJECT_STORAGE_PUBLIC_ENDPOINT="http://127.0.0.1:${OBJECT_STORAGE_PORT}"
 export GATEWAY_PORT="${SMOKE_GATEWAY_PORT:-28080}"
 export ADMIN_WEB_PORT="${SMOKE_ADMIN_WEB_PORT:-23000}"
 export GATEWAY_CORES="${SMOKE_GATEWAY_CORES:-2}"
-if [[ -n "${GATEWAY_FAULT_HOOK:-}" && -z "${DISPATCH_LEASE_TTL_SECONDS:-}" ]]; then
+if [[ -n "${GATEWAY_FAULT_HOOK:-}${PLATFORM_FAULT_HOOK:-}" &&
+      -z "${DISPATCH_LEASE_TTL_SECONDS:-}" ]]; then
     export DISPATCH_LEASE_TTL_SECONDS=15
 fi
 export DISPATCH_LEASE_TTL_SECONDS="${DISPATCH_LEASE_TTL_SECONDS:-360}"
@@ -118,6 +119,8 @@ gateway_restart_request_id="smoke-gateway-restart-${suffix}"
 gateway_restart_idempotency_key="smoke-gateway-restart-idem-${suffix}"
 gateway_fault_request_id="smoke-gateway-fault-${suffix}"
 gateway_fault_idempotency_key="smoke-gateway-fault-idem-${suffix}"
+platform_dispatch_fault_request_id="smoke-platform-dispatch-fault-${suffix}"
+platform_dispatch_fault_idempotency_key="smoke-platform-dispatch-fault-idem-${suffix}"
 fault_request_prefix="smoke-fault-${suffix}"
 media_idempotency_key="smoke-media-idem-${suffix}"
 chat_price_version="smoke-chat-${suffix}-v1"
@@ -125,6 +128,7 @@ media_price_version="smoke-media-${suffix}-v1"
 balance_idempotency_key="smoke-balance-${suffix}"
 gateway_hook_unknown_incidents=0
 gateway_hook_safe_expiry=0
+platform_dispatch_fault_safe_expiry=0
 
 wait_for() {
     local description=$1
@@ -588,6 +592,55 @@ admin_request POST /admin/pricing/versions \
 
 sleep 6
 chat_body='{"model":"gpt-4o","messages":[{"role":"user","content":"greenfield compose smoke"}],"stream":false}'
+start_platform_after_fault() {
+    # Podman Compose may leave an exited container stopped even with
+    # restart: on-failure. Start the same container so the SQL lease and
+    # fault marker survive the recovery boundary.
+    compose start platform-silo >/dev/null
+    wait_for "Platform recovery after fault hook" 90 compose exec -T platform-silo \
+        curl -fsS http://127.0.0.1:5000/ready >/dev/null
+}
+
+platform_dispatch_fault_claimed() {
+    compose exec -T platform-silo test -f \
+        /var/run/scalaapi/fault-hooks/platform-before-provider-dispatch.claimed
+}
+
+platform_dispatch_fault_lease_safely_expired() {
+    [[ "$(db_query "
+        SELECT count(*) FROM request_leases l
+        WHERE l.request_id = '$platform_dispatch_fault_request_id'
+          AND l.status = 'expired'
+          AND NOT EXISTS (SELECT 1 FROM usage_events u WHERE u.lease_token = l.lease_token)
+          AND NOT EXISTS (SELECT 1 FROM usage_logs u WHERE u.lease_token = l.lease_token)
+          AND EXISTS (SELECT 1 FROM balance_holds h
+                      WHERE h.lease_token = l.lease_token AND h.status = 'released')
+          AND EXISTS (SELECT 1 FROM request_idempotency i
+                      WHERE i.idempotency_key = '$platform_dispatch_fault_idempotency_key'
+                        AND i.status = 'expired');")" == "1" ]]
+}
+
+if [[ "${PLATFORM_FAULT_HOOK:-}" == "platform.before_provider_dispatch" ]]; then
+    set +e
+    curl -fsS --max-time 30 "$gateway_url/v1/chat/completions" \
+        -H "Authorization: Bearer $api_key" -H "Content-Type: application/json" \
+        -H "X-Request-ID: $platform_dispatch_fault_request_id" \
+        -H "Idempotency-Key: $platform_dispatch_fault_idempotency_key" \
+        --data "$chat_body" >/dev/null
+    platform_dispatch_fault_exit=$?
+    set -e
+    if (( platform_dispatch_fault_exit == 0 )); then
+        echo "Platform before-provider-dispatch hook did not fail the request" >&2
+        exit 1
+    fi
+    start_platform_after_fault
+    wait_for "Platform before-provider-dispatch marker" 30 platform_dispatch_fault_claimed
+    wait_for "Platform before-provider-dispatch safe expiry" 60 \
+        platform_dispatch_fault_lease_safely_expired
+    platform_dispatch_fault_safe_expiry=1
+    echo "PASS: Platform before-provider-dispatch crash safely expired one held lease"
+fi
+
 start_gateway_after_fault() {
     # Podman Compose may leave an exited container stopped even with
     # restart: on-failure. Start the same container so its durable marker and
@@ -672,15 +725,6 @@ chat_settled() {
     [[ "$(db_query "SELECT count(*) FROM request_leases WHERE request_id = '$chat_request_id' AND status = 'completed' AND final_cost_usd > 0 AND pricing_version = '$chat_price_version';")" == "1" ]]
 }
 
-start_platform_after_fault() {
-    # Podman Compose does not consistently restart an exited container when
-    # `up` is called against an existing project. Start the existing container
-    # explicitly so the durable outbox can replay after the crash.
-    compose start platform-silo >/dev/null
-    wait_for "Platform recovery after fault hook" 90 compose exec -T platform-silo \
-        curl -fsS http://127.0.0.1:5000/ready >/dev/null
-}
-
 # Settlement and outbox hooks terminate the Platform process after the request
 # has reached a durable boundary. Observe that exit before waiting for the
 # terminal row, then start the same container so the persisted outbox can run.
@@ -705,7 +749,8 @@ fi
 wait_for "chat settlement" 30 chat_settled
 
 if [[ -n "${PLATFORM_FAULT_HOOK:-}" && \
-      "${PLATFORM_FAULT_HOOK}" != "platform.before_settlement_commit" ]]; then
+      "${PLATFORM_FAULT_HOOK}" != "platform.before_settlement_commit" && \
+      "${PLATFORM_FAULT_HOOK}" != "platform.before_provider_dispatch" ]]; then
     start_platform_after_fault
 fi
 
@@ -914,5 +959,8 @@ if (( gateway_hook_unknown_incidents > 0 )); then
 fi
 if (( gateway_hook_safe_expiry > 0 )); then
     echo "PASS: Gateway fault hook recovery and safe held-lease expiry"
+fi
+if (( platform_dispatch_fault_safe_expiry > 0 )); then
+    echo "PASS: Platform fault hook recovery and safe held-lease expiry"
 fi
 echo "PASS: S3-compatible bucket bootstrap, object persistence, and signed download ($media_size bytes)"
