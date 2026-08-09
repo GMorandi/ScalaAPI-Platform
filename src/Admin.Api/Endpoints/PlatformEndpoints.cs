@@ -1056,27 +1056,27 @@ public static class PlatformEndpoints
     {
         var group = app.MapGroup("/admin/channel-monitors").RequireAuthorization("AdminOnly");
 
-        group.MapGet("/", async (ISqlSugarClient db, long? accountId, int page = 1, int size = 50) =>
+        group.MapGet("/", async (ChannelMonitorStore monitors, long? accountId,
+            int page = 1, int size = 50, CancellationToken ct = default) =>
         {
-            var query = db.Queryable<ChannelMonitorEntity>();
-            if (accountId.HasValue) query = query.Where(x => x.AccountId == accountId.Value);
-            var items = await query.OrderByDescending(x => x.CheckedAt)
-                .Skip((page - 1) * size).Take(size).ToListAsync();
+            var items = await monitors.ListAsync(accountId, page, size, ct);
             return Results.Ok(new { items });
         });
 
-        group.MapPost("/check", async (ISqlSugarClient db, ChannelCheckRequest req) =>
+        group.MapPost("/check", async (ChannelMonitorStore monitors,
+            ChannelCheckRequest req, ClaimsPrincipal principal, HttpRequest request,
+            CancellationToken ct) =>
         {
-            var record = new ChannelMonitorEntity
+            if (!ScalaAPI.Admin.Auth.AuthClaims.TryGetUserId(principal, out var actorId))
+                return Results.Unauthorized();
+            var result = await monitors.RecordAsync(actorId, req,
+                request.HttpContext.Connection.RemoteIpAddress?.ToString(), ct);
+            return result.Status switch
             {
-                AccountId = req.AccountId,
-                Status = req.Status,
-                LatencyMs = req.LatencyMs,
-                LastError = req.Error,
-                CheckedAt = DateTime.UtcNow,
+                ChannelMonitorWriteStatus.Invalid => Results.BadRequest(new { error = result.Error }),
+                ChannelMonitorWriteStatus.AccountNotFound => Results.NotFound(),
+                _ => Results.Ok(new { id = result.Id }),
             };
-            await db.Insertable(record).ExecuteCommandAsync();
-            return Results.Ok(new { id = record.Id });
         });
     }
 
@@ -1655,7 +1655,6 @@ public static class PlatformEndpoints
     private static bool IsFutureExpiry(long? expiresAt) =>
         !expiresAt.HasValue || expiresAt.Value > DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
     private record RedeemRequest(string Code);
-    private record ChannelCheckRequest(long AccountId, string Status, int LatencyMs, string? Error);
     private record RestoreRequest(string BackupId);
     private record EmailRequest(string To, string Subject, string Body, Dictionary<string, string>? TemplateVars);
     private record ReferralRecordRequest(

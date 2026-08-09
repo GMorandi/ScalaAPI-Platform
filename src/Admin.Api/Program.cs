@@ -60,6 +60,7 @@ builder.Services.AddSingleton<ApiKeyAuditStore>();
 builder.Services.AddSingleton<OpsMetricsStore>();
 builder.Services.AddSingleton<AuditLogStore>();
 builder.Services.AddSingleton<NetworkProfileStore>();
+builder.Services.AddSingleton<ChannelMonitorStore>();
 builder.Services.AddSingleton<AuthSessionService>();
 builder.Services.AddSingleton<AuthAbuseService>();
 builder.Services.AddSingleton<TimeProvider>(TimeProvider.System);
