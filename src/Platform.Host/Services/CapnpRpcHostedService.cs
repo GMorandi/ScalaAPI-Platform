@@ -494,6 +494,7 @@ public class DispatchService
     private readonly ObjectStorageClient _objectStorage;
     private readonly ModelPricingService _pricing;
     private readonly AuthProjectionCache _authCache;
+    private readonly ProviderCredentialRefreshService _credentials;
     private readonly GarnetWriteThroughService _garnet;
     private readonly ILogger<DispatchService> _logger;
     private readonly FaultInjection _faults;
@@ -505,6 +506,7 @@ public class DispatchService
                            ObjectStorageClient objectStorage,
                            ModelPricingService pricing,
                            AuthProjectionCache authCache, GarnetWriteThroughService garnet,
+                           ProviderCredentialRefreshService credentials,
                            IConfiguration configuration,
                            ILogger<DispatchService> logger,
                            FaultInjection faults)
@@ -515,6 +517,7 @@ public class DispatchService
         _objectStorage = objectStorage;
         _pricing = pricing;
         _authCache = authCache;
+        _credentials = credentials;
         _garnet = garnet;
         _logger = logger;
         _faults = faults;
@@ -681,7 +684,7 @@ public class DispatchService
         var leaseCreated = false;
         try
         {
-            var creds = await accountGrain.Hydrate();
+            var creds = await _credentials.GetFreshAsync(accountId);
             await accountGrain.RecordRpm();
 
             var mappedModel = creds.ModelMapping.GetValueOrDefault(
@@ -833,7 +836,7 @@ public class DispatchService
         try
         {
             var accountGrain = _cluster.GetGrain<IAccountGrain>(lease.AccountId);
-            var creds = await accountGrain.Hydrate();
+            var creds = await _credentials.GetFreshAsync(lease.AccountId);
             var capability = string.IsNullOrWhiteSpace(req.Capability) ? req.Endpoint : req.Capability;
             var mappedModel = string.IsNullOrWhiteSpace(lease.UpstreamModel)
                 ? req.RequestedModel : lease.UpstreamModel;

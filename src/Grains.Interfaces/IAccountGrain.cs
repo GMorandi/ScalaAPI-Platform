@@ -12,13 +12,28 @@ public record AccountProjection(
     int Concurrency, int CurrentLoad, bool Schedulable,
     decimal RateMultiplier, int LoadFactor, string Status,
     long? RateLimitResetAt, long? OverloadUntil,
-    long? TempUnschedulableUntil, string[] SupportedModels);
+    long? TempUnschedulableUntil, string[] SupportedModels,
+    long? CredentialExpiresAt = null, string CredentialStatus = "static",
+    int CredentialVersion = 0, string? CredentialRefreshError = null);
 
 [GenerateSerializer]
 public record AccountCredentials(
     long Id, string Platform, string Type, string BaseUrl,
     Dictionary<string, string> AuthHeaders, string? ProxyUrl,
     bool TlsFingerprint, Dictionary<string, string> ModelMapping);
+
+[GenerateSerializer]
+public record ProviderOAuthCredential(
+    string TokenEndpoint, string ClientId, string ClientSecret,
+    string RefreshToken, string AccessToken, long ExpiresAtUnixSeconds,
+    string HeaderName = "Authorization", string HeaderScheme = "Bearer",
+    string? Scope = null);
+
+[GenerateSerializer]
+public record ProviderOAuthRefreshLease(
+    string Status, string? LeaseId, int Version, string? TokenEndpoint,
+    string? ClientId, string? ClientSecret, string? RefreshToken,
+    string? Scope, string? Error);
 
 [GenerateSerializer]
 public record SlotResult(bool Acquired, string? LeaseToken, int CurrentLoad, int MaxConcurrency);
@@ -32,12 +47,18 @@ public record AccountUpsert(
     int Priority, int Concurrency, int LoadFactor, decimal RateMultiplier,
     bool Schedulable, Dictionary<string, string> Credentials,
     Dictionary<string, string> ModelMapping, string[] SupportedModels,
-    string? ProxyUrl, bool TlsFingerprint);
+    string? ProxyUrl, bool TlsFingerprint,
+    ProviderOAuthCredential? OAuth = null);
 
 public interface IAccountGrain : IGrainWithIntegerKey
 {
     Task<AccountProjection> GetProjection();
     Task<AccountCredentials> Hydrate();
+    Task<ProviderOAuthRefreshLease> BeginOAuthRefresh(
+        long nowUnixSeconds, int refreshSkewSeconds, int leaseSeconds);
+    Task<bool> CompleteOAuthRefresh(string leaseId, string accessToken,
+        string? refreshToken, long expiresAtUnixSeconds, string tokenType);
+    Task FailOAuthRefresh(string leaseId, string error, long retryAfterUnixMilliseconds);
     Task<SlotResult> TryAcquireSlot(string requestId, int maxConcurrency);
     Task<SlotResult> TryAcquireSlot(string leaseToken, DateTime expiresAt, int maxConcurrency);
     Task ReleaseSlot(string requestId);

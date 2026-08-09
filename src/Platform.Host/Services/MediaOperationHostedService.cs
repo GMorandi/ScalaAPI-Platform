@@ -1,14 +1,12 @@
 using System.Net;
 using System.Text.Json;
-using Orleans;
-using ScalaAPI.Grains.Interfaces;
 
 namespace ScalaAPI.Host.Services;
 
 public sealed class MediaOperationHostedService(
     MediaOperationStore store,
     RequestLeaseStore leases,
-    IClusterClient cluster,
+    ProviderCredentialRefreshService credentials,
     ObjectStorageClient objectStorage,
     ILogger<MediaOperationHostedService> logger) : BackgroundService
 {
@@ -54,7 +52,7 @@ public sealed class MediaOperationHostedService(
     {
         try
         {
-            var credentials = await cluster.GetGrain<IAccountGrain>(operation.AccountId).Hydrate();
+            var accountCredentials = await credentials.GetFreshAsync(operation.AccountId, ct);
             var path = PollPath(operation);
             if (string.IsNullOrEmpty(path))
             {
@@ -64,15 +62,15 @@ public sealed class MediaOperationHostedService(
             }
 
             using var handler = new HttpClientHandler();
-            if (!string.IsNullOrWhiteSpace(credentials.ProxyUrl))
+            if (!string.IsNullOrWhiteSpace(accountCredentials.ProxyUrl))
             {
-                handler.Proxy = new WebProxy(credentials.ProxyUrl);
+                handler.Proxy = new WebProxy(accountCredentials.ProxyUrl);
                 handler.UseProxy = true;
             }
             using var client = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(30) };
             using var request = new HttpRequestMessage(HttpMethod.Get,
-                credentials.BaseUrl.TrimEnd('/') + path);
-            foreach (var (name, value) in credentials.AuthHeaders)
+                accountCredentials.BaseUrl.TrimEnd('/') + path);
+            foreach (var (name, value) in accountCredentials.AuthHeaders)
                 request.Headers.TryAddWithoutValidation(name, value);
 
             using var response = await client.SendAsync(request,

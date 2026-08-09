@@ -1,3 +1,5 @@
+using ScalaAPI.Grains.Interfaces;
+
 namespace ScalaAPI.Admin.Models;
 
 public record AccountCreateRequest(
@@ -5,7 +7,8 @@ public record AccountCreateRequest(
     int Priority, int Concurrency, int LoadFactor, decimal RateMultiplier,
     bool Schedulable, Dictionary<string, string> Credentials,
     Dictionary<string, string> ModelMapping, string[] SupportedModels,
-    string? ProxyUrl, bool TlsFingerprint);
+    string? ProxyUrl, bool TlsFingerprint,
+    ProviderOAuthCredential? OAuth = null);
 
 public record GroupCreateRequest(
     string Platform, decimal RateMultiplier, bool IsExclusive,

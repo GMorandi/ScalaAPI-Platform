@@ -27,6 +27,26 @@ public class AccountState
     [Id(16)] public string[] SupportedModels { get; set; } = [];
     [Id(17)] public string? ProxyUrl { get; set; }
     [Id(18)] public bool TlsFingerprint { get; set; }
+    [Id(19)] public ProviderOAuthState? OAuth { get; set; }
+}
+
+[GenerateSerializer]
+public class ProviderOAuthState
+{
+    [Id(0)] public string TokenEndpoint { get; set; } = "";
+    [Id(1)] public string ClientId { get; set; } = "";
+    [Id(2)] public string ClientSecret { get; set; } = "";
+    [Id(3)] public string RefreshToken { get; set; } = "";
+    [Id(4)] public string AccessToken { get; set; } = "";
+    [Id(5)] public long ExpiresAtUnixSeconds { get; set; }
+    [Id(6)] public string HeaderName { get; set; } = "Authorization";
+    [Id(7)] public string HeaderScheme { get; set; } = "Bearer";
+    [Id(8)] public string? Scope { get; set; }
+    [Id(9)] public int Version { get; set; } = 1;
+    [Id(10)] public string? RefreshLeaseId { get; set; }
+    [Id(11)] public long RefreshLeaseUntilUnixSeconds { get; set; }
+    [Id(12)] public long? LastRefreshedAtUnixSeconds { get; set; }
+    [Id(13)] public string? LastRefreshError { get; set; }
 }
 
 public class AccountGrain : Grain, IAccountGrain
@@ -65,17 +85,98 @@ public class AccountGrain : Grain, IAccountGrain
             s.Id, s.Name, s.Platform, s.Priority, s.Concurrency,
             _activeSlots.Count, schedulable, s.RateMultiplier,
             s.LoadFactor, s.Status, s.RateLimitResetAt,
-            s.OverloadUntil, s.TempUnschedulableUntil, s.SupportedModels));
+            s.OverloadUntil, s.TempUnschedulableUntil, s.SupportedModels,
+            s.OAuth?.ExpiresAtUnixSeconds,
+            s.OAuth is null ? "static"
+                : s.OAuth.LastRefreshError is null ? "oauth" : "refresh_error",
+            s.OAuth?.Version ?? 0, s.OAuth?.LastRefreshError));
     }
 
     public Task<AccountCredentials> Hydrate()
     {
         var s = _state.State;
+        var headers = s.Credentials.ToDictionary(kv => kv.Key,
+            kv => _credentialProtector.Unprotect(kv.Value));
+        if (s.OAuth is not null)
+        {
+            var accessToken = _credentialProtector.Unprotect(s.OAuth.AccessToken);
+            headers[s.OAuth.HeaderName] = string.IsNullOrWhiteSpace(s.OAuth.HeaderScheme)
+                ? accessToken : $"{s.OAuth.HeaderScheme} {accessToken}";
+        }
         return Task.FromResult(new AccountCredentials(
             s.Id, s.Platform, s.Type, s.BaseUrl,
-            s.Credentials.ToDictionary(kv => kv.Key,
-                kv => _credentialProtector.Unprotect(kv.Value)),
+            headers,
             s.ProxyUrl, s.TlsFingerprint, s.ModelMapping));
+    }
+
+    public async Task<ProviderOAuthRefreshLease> BeginOAuthRefresh(
+        long nowUnixSeconds, int refreshSkewSeconds, int leaseSeconds)
+    {
+        var oauth = _state.State.OAuth;
+        if (oauth is null)
+            return new("static", null, 0, null, null, null, null, null, null);
+        if (oauth.ExpiresAtUnixSeconds > nowUnixSeconds + Math.Max(0, refreshSkewSeconds))
+            return new("fresh", null, oauth.Version, null, null, null, null, null, null);
+        if (!string.IsNullOrWhiteSpace(oauth.RefreshLeaseId)
+            && oauth.RefreshLeaseUntilUnixSeconds > nowUnixSeconds)
+            return new("in_progress", null, oauth.Version, null, null, null, null, null, null);
+        if (!Uri.TryCreate(oauth.TokenEndpoint, UriKind.Absolute, out _)
+            || string.IsNullOrWhiteSpace(oauth.ClientId)
+            || string.IsNullOrWhiteSpace(oauth.RefreshToken))
+        {
+            oauth.LastRefreshError = "invalid_oauth_configuration";
+            await _state.WriteStateAsync();
+            return new("invalid", null, oauth.Version, null, null, null, null, null,
+                oauth.LastRefreshError);
+        }
+
+        oauth.RefreshLeaseId = Guid.NewGuid().ToString("N");
+        oauth.RefreshLeaseUntilUnixSeconds = nowUnixSeconds + Math.Clamp(leaseSeconds, 5, 120);
+        await _state.WriteStateAsync();
+        return new("acquired", oauth.RefreshLeaseId, oauth.Version, oauth.TokenEndpoint,
+            oauth.ClientId, UnprotectOptional(oauth.ClientSecret),
+            _credentialProtector.Unprotect(oauth.RefreshToken), oauth.Scope, null);
+    }
+
+    public async Task<bool> CompleteOAuthRefresh(string leaseId, string accessToken,
+        string? refreshToken, long expiresAtUnixSeconds, string tokenType)
+    {
+        var oauth = _state.State.OAuth;
+        if (oauth is null || string.IsNullOrWhiteSpace(accessToken)
+            || accessToken.IndexOfAny(['\r', '\n']) >= 0
+            || expiresAtUnixSeconds <= DateTimeOffset.UtcNow.AddSeconds(30).ToUnixTimeSeconds()
+            || !string.Equals(oauth.RefreshLeaseId, leaseId, StringComparison.Ordinal))
+            return false;
+
+        oauth.AccessToken = _credentialProtector.Protect(accessToken);
+        if (!string.IsNullOrWhiteSpace(refreshToken))
+            oauth.RefreshToken = _credentialProtector.Protect(refreshToken);
+        oauth.ExpiresAtUnixSeconds = expiresAtUnixSeconds;
+        oauth.HeaderScheme = string.IsNullOrWhiteSpace(tokenType) ? "Bearer" : tokenType;
+        oauth.Version++;
+        oauth.LastRefreshedAtUnixSeconds = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        oauth.LastRefreshError = null;
+        oauth.RefreshLeaseId = null;
+        oauth.RefreshLeaseUntilUnixSeconds = 0;
+        _state.State.TempUnschedulableUntil = null;
+        await _state.WriteStateAsync();
+        _invalidation.NotifyChange("account", _state.State.Id.ToString());
+        return true;
+    }
+
+    public async Task FailOAuthRefresh(string leaseId, string error,
+        long retryAfterUnixMilliseconds)
+    {
+        var oauth = _state.State.OAuth;
+        if (oauth is null || !string.Equals(oauth.RefreshLeaseId, leaseId, StringComparison.Ordinal))
+            return;
+        oauth.RefreshLeaseId = null;
+        oauth.RefreshLeaseUntilUnixSeconds = 0;
+        oauth.LastRefreshError = string.IsNullOrWhiteSpace(error)
+            ? "credential_refresh_failed" : error[..Math.Min(error.Length, 200)];
+        _state.State.TempUnschedulableUntil = retryAfterUnixMilliseconds;
+        await _state.WriteStateAsync();
+        _invalidation.NotifyChange("account", _state.State.Id.ToString());
     }
 
     public Task<SlotResult> TryAcquireSlot(string requestId, int maxConcurrency)
@@ -161,6 +262,7 @@ public class AccountGrain : Grain, IAccountGrain
         s.SupportedModels = input.SupportedModels;
         s.ProxyUrl = input.ProxyUrl;
         s.TlsFingerprint = input.TlsFingerprint;
+        s.OAuth = ProtectOAuth(input.OAuth);
         await _state.WriteStateAsync();
         _invalidation.NotifyChange("account", s.Id.ToString());
     }
@@ -182,6 +284,10 @@ public class AccountGrain : Grain, IAccountGrain
         s.SupportedModels = input.SupportedModels;
         s.ProxyUrl = input.ProxyUrl;
         s.TlsFingerprint = input.TlsFingerprint;
+        if (input.OAuth is not null)
+            s.OAuth = ProtectOAuth(input.OAuth);
+        else if (!string.Equals(input.Type, "oauth", StringComparison.OrdinalIgnoreCase))
+            s.OAuth = null;
         await _state.WriteStateAsync();
         _invalidation.NotifyChange("account", s.Id.ToString());
     }
@@ -204,4 +310,26 @@ public class AccountGrain : Grain, IAccountGrain
         IReadOnlyDictionary<string, string> credentials) =>
         credentials.ToDictionary(kv => kv.Key,
             kv => _credentialProtector.Protect(kv.Value));
+
+    private ProviderOAuthState? ProtectOAuth(ProviderOAuthCredential? input) => input is null
+        ? null
+        : new ProviderOAuthState
+        {
+            TokenEndpoint = input.TokenEndpoint,
+            ClientId = input.ClientId,
+            ClientSecret = ProtectOptional(input.ClientSecret),
+            RefreshToken = _credentialProtector.Protect(input.RefreshToken),
+            AccessToken = _credentialProtector.Protect(input.AccessToken),
+            ExpiresAtUnixSeconds = input.ExpiresAtUnixSeconds,
+            HeaderName = string.IsNullOrWhiteSpace(input.HeaderName)
+                ? "Authorization" : input.HeaderName,
+            HeaderScheme = input.HeaderScheme,
+            Scope = input.Scope,
+        };
+
+    private string ProtectOptional(string value) => string.IsNullOrEmpty(value)
+        ? "" : _credentialProtector.Protect(value);
+
+    private string UnprotectOptional(string value) => string.IsNullOrEmpty(value)
+        ? "" : _credentialProtector.Unprotect(value);
 }
