@@ -1428,68 +1428,63 @@ public static class PlatformEndpoints
     {
         var group = app.MapGroup("/admin/proxies").RequireAuthorization("AdminOnly");
 
-        group.MapGet("/", async (ISqlSugarClient db, int page = 1, int size = 50) =>
+        group.MapGet("/", async (NetworkProfileStore profiles, int page = 1, int size = 50,
+            CancellationToken ct = default) =>
         {
-            var items = await db.Queryable<ProxyEntity>()
-                .OrderByDescending(x => x.CreatedAt)
-                .Skip((page - 1) * size).Take(size).ToListAsync();
+            var items = await profiles.ListProxiesAsync(page, size, ct);
             return Results.Ok(new { items });
         });
 
-        group.MapPost("/", async (ProxyEntity req, ISqlSugarClient db) =>
+        group.MapPost("/", async (ProxyProfileInput req, NetworkProfileStore profiles,
+            ClaimsPrincipal principal, HttpRequest request, CancellationToken ct) =>
         {
-            req.CreatedAt = DateTime.UtcNow;
-            await db.Insertable(req).ExecuteCommandAsync();
-            return Results.Ok(new { id = req.Id });
+            if (!ScalaAPI.Admin.Auth.AuthClaims.TryGetUserId(principal, out var actorId))
+                return Results.Unauthorized();
+            var result = await profiles.CreateProxyAsync(actorId, req,
+                request.HttpContext.Connection.RemoteIpAddress?.ToString(), ct);
+            return result.Status == NetworkProfileStatus.Invalid
+                ? Results.BadRequest(new { error = result.Error })
+                : Results.Ok(new { id = result.Id });
         });
 
-        group.MapPut("/{id}", async (long id, ProxyEntity req, ISqlSugarClient db) =>
+        group.MapPut("/{id}", async (long id, ProxyProfileInput req,
+            NetworkProfileStore profiles, ClaimsPrincipal principal, HttpRequest request,
+            CancellationToken ct) =>
         {
-            req.Id = id;
-            await db.Updateable(req)
-                .UpdateColumns(x => new { x.Name, x.Type, x.Host, x.Port, x.Username, x.Password, x.Status })
-                .ExecuteCommandAsync();
-            return Results.Ok();
-        });
-
-        group.MapDelete("/{id}", async (long id, ISqlSugarClient db) =>
-        {
-            await db.Deleteable<ProxyEntity>().Where(x => x.Id == id).ExecuteCommandAsync();
-            return Results.Ok();
-        });
-
-        group.MapPost("/{id}/test", async (long id, ISqlSugarClient db, IHttpClientFactory httpFactory) =>
-        {
-            var proxy = await db.Queryable<ProxyEntity>().Where(x => x.Id == id).FirstAsync();
-            if (proxy is null) return Results.NotFound();
-
-            try
+            if (!ScalaAPI.Admin.Auth.AuthClaims.TryGetUserId(principal, out var actorId))
+                return Results.Unauthorized();
+            var result = await profiles.UpdateProxyAsync(actorId, id, req,
+                request.HttpContext.Connection.RemoteIpAddress?.ToString(), ct);
+            return result.Status switch
             {
-                var handler = new HttpClientHandler
-                {
-                    Proxy = new System.Net.WebProxy($"http://{proxy.Host}:{proxy.Port}"),
-                    UseProxy = true,
-                };
-                if (!string.IsNullOrEmpty(proxy.Username))
-                    handler.Proxy.Credentials = new System.Net.NetworkCredential(proxy.Username, proxy.Password);
+                NetworkProfileStatus.NotFound => Results.NotFound(),
+                NetworkProfileStatus.Invalid => Results.BadRequest(new { error = result.Error }),
+                _ => Results.Ok(new { id = result.Id }),
+            };
+        });
 
-                using var client = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(10) };
-                var sw = Stopwatch.StartNew();
-                var resp = await client.GetAsync("https://httpbin.org/ip");
-                sw.Stop();
+        group.MapDelete("/{id}", async (long id, NetworkProfileStore profiles,
+            ClaimsPrincipal principal, HttpRequest request, CancellationToken ct) =>
+        {
+            if (!ScalaAPI.Admin.Auth.AuthClaims.TryGetUserId(principal, out var actorId))
+                return Results.Unauthorized();
+            var result = await profiles.DeleteProxyAsync(actorId, id,
+                request.HttpContext.Connection.RemoteIpAddress?.ToString(), ct);
+            return result.Status == NetworkProfileStatus.NotFound
+                ? Results.NotFound() : Results.Ok(new { id = result.Id });
+        });
 
-                proxy.LatencyMs = (int)sw.ElapsedMilliseconds;
-                proxy.Status = resp.IsSuccessStatusCode ? "healthy" : "degraded";
-                await db.Updateable(proxy).UpdateColumns(x => new { x.LatencyMs, x.Status }).ExecuteCommandAsync();
-
-                return Results.Ok(new { status = proxy.Status, latency_ms = proxy.LatencyMs });
-            }
-            catch (Exception ex)
-            {
-                proxy.Status = "unreachable";
-                await db.Updateable(proxy).UpdateColumns(x => x.Status).ExecuteCommandAsync();
-                return Results.Ok(new { status = "unreachable", error = ex.Message });
-            }
+        group.MapPost("/{id}/test", async (long id, NetworkProfileStore profiles,
+            ClaimsPrincipal principal, HttpRequest request, CancellationToken ct) =>
+        {
+            if (!ScalaAPI.Admin.Auth.AuthClaims.TryGetUserId(principal, out var actorId))
+                return Results.Unauthorized();
+            var result = await profiles.TestProxyAsync(actorId, id,
+                request.HttpContext.Connection.RemoteIpAddress?.ToString(), ct);
+            return result.Status == NetworkProfileStatus.NotFound
+                ? Results.NotFound()
+                : Results.Ok(new { status = result.Health, latency_ms = result.LatencyMs,
+                    error = result.Error });
         });
     }
 
@@ -1497,33 +1492,49 @@ public static class PlatformEndpoints
     {
         var group = app.MapGroup("/admin/tls-fingerprints").RequireAuthorization("AdminOnly");
 
-        group.MapGet("/", async (ISqlSugarClient db) =>
+        group.MapGet("/", async (NetworkProfileStore profiles, CancellationToken ct = default) =>
         {
-            var items = await db.Queryable<TlsFingerprintProfileEntity>()
-                .OrderByDescending(x => x.CreatedAt).ToListAsync();
+            var items = await profiles.ListTlsAsync(ct);
             return Results.Ok(new { items });
         });
 
-        group.MapPost("/", async (TlsFingerprintProfileEntity req, ISqlSugarClient db) =>
+        group.MapPost("/", async (TlsFingerprintProfileInput req, NetworkProfileStore profiles,
+            ClaimsPrincipal principal, HttpRequest request, CancellationToken ct) =>
         {
-            req.CreatedAt = DateTime.UtcNow;
-            await db.Insertable(req).ExecuteCommandAsync();
-            return Results.Ok(new { id = req.Id });
+            if (!ScalaAPI.Admin.Auth.AuthClaims.TryGetUserId(principal, out var actorId))
+                return Results.Unauthorized();
+            var result = await profiles.CreateTlsAsync(actorId, req,
+                request.HttpContext.Connection.RemoteIpAddress?.ToString(), ct);
+            return result.Status == NetworkProfileStatus.Invalid
+                ? Results.BadRequest(new { error = result.Error })
+                : Results.Ok(new { id = result.Id });
         });
 
-        group.MapPut("/{id}", async (long id, TlsFingerprintProfileEntity req, ISqlSugarClient db) =>
+        group.MapPut("/{id}", async (long id, TlsFingerprintProfileInput req,
+            NetworkProfileStore profiles, ClaimsPrincipal principal, HttpRequest request,
+            CancellationToken ct) =>
         {
-            req.Id = id;
-            await db.Updateable(req)
-                .UpdateColumns(x => new { x.Name, x.Ja3Hash, x.Ja4Hash, x.CipherSuites, x.Status })
-                .ExecuteCommandAsync();
-            return Results.Ok();
+            if (!ScalaAPI.Admin.Auth.AuthClaims.TryGetUserId(principal, out var actorId))
+                return Results.Unauthorized();
+            var result = await profiles.UpdateTlsAsync(actorId, id, req,
+                request.HttpContext.Connection.RemoteIpAddress?.ToString(), ct);
+            return result.Status switch
+            {
+                NetworkProfileStatus.NotFound => Results.NotFound(),
+                NetworkProfileStatus.Invalid => Results.BadRequest(new { error = result.Error }),
+                _ => Results.Ok(new { id = result.Id }),
+            };
         });
 
-        group.MapDelete("/{id}", async (long id, ISqlSugarClient db) =>
+        group.MapDelete("/{id}", async (long id, NetworkProfileStore profiles,
+            ClaimsPrincipal principal, HttpRequest request, CancellationToken ct) =>
         {
-            await db.Deleteable<TlsFingerprintProfileEntity>().Where(x => x.Id == id).ExecuteCommandAsync();
-            return Results.Ok();
+            if (!ScalaAPI.Admin.Auth.AuthClaims.TryGetUserId(principal, out var actorId))
+                return Results.Unauthorized();
+            var result = await profiles.DeleteTlsAsync(actorId, id,
+                request.HttpContext.Connection.RemoteIpAddress?.ToString(), ct);
+            return result.Status == NetworkProfileStatus.NotFound
+                ? Results.NotFound() : Results.Ok(new { id = result.Id });
         });
     }
 
