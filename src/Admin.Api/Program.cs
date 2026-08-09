@@ -64,6 +64,7 @@ builder.Services.AddSingleton<NetworkProfileStore>();
 builder.Services.AddSingleton<ChannelMonitorStore>();
 builder.Services.AddSingleton<PasskeyStore>();
 builder.Services.AddSingleton<MaintenanceStore>();
+builder.Services.AddSingleton<AnnouncementStore>();
 builder.Services.AddSingleton<IMetadataService, EmptyPasskeyMetadataService>();
 builder.Services.AddSingleton<Fido2>(sp =>
 {
@@ -140,6 +141,7 @@ app.MapSeedEndpoints();
 app.MapUserAuthEndpoints();
 app.MapPasskeyEndpoints();
 app.MapMaintenanceEndpoints();
+app.MapAnnouncementEndpoints();
 app.MapPlatformEndpoints();
 
 app.MapGet("/live", () => Results.Ok(new { status = "live" })).AllowAnonymous();
