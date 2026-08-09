@@ -288,9 +288,21 @@ run_chat_stream_fault() {
     [[ -n "$response_status" ]] || response_status=000
     # Once SSE headers have reached the client, a truncated stream may retain
     # the original 200 status even though the lease is deliberately unknown.
-    assert_one_of "000|200|499|502|503" "$response_status" \
-        "Provider streaming $scenario response status"
-    if [[ "$scenario" == "timeout" || "$scenario" == "invalid_content_type" ]]; then
+    if [[ "$scenario" == "disconnect_before_output" ]]; then
+        assert_equals "503" "$response_status" \
+            "Provider streaming $scenario availability response status"
+    elif [[ "$scenario" == "disconnect" ]]; then
+        # Once partial SSE bytes have reached the client, curl may observe a
+        # clean 200 stream, a normalized 503, or a transport-level 000 close.
+        assert_one_of "000|200|503" "$response_status" \
+            "Provider streaming $scenario availability response status"
+    else
+        assert_one_of "000|200|499|502|503" "$response_status" \
+            "Provider streaming $scenario response status"
+    fi
+    if [[ "$scenario" == "disconnect_before_output" ]]; then
+        jq -e '.error.type == "provider_unavailable"' <<<"$response_body" >/dev/null
+    elif [[ "$scenario" == "timeout" || "$scenario" == "invalid_content_type" ]]; then
         jq -e '.error.type == "provider_protocol_error"' <<<"$response_body" >/dev/null
     fi
 
@@ -588,9 +600,9 @@ echo "Running isolated Provider failure matrix"
 run_chat_fault "500" "$fault_500_api_key" "503" "provider_unavailable" "20" "aborted"
 run_chat_fault "429" "$fault_429_api_key" "503" "provider_unavailable" "20" "aborted"
 run_chat_fault "malformed_usage" "$fault_malformed_api_key" "502" "provider_error" "20" "reconciliation_needed"
-# A reset can terminate in the transport (502) or after the account cooldown
-# exhausts dispatch waiting (503). Both outcomes retain the hold for reconciliation.
-run_chat_fault "disconnect" "$fault_disconnect_api_key" "502|503" "-" "40" "reconciliation_needed"
+# Provider connection resets use one public availability error whether they are
+# observed directly or after dispatch exhausts the account cooldown.
+run_chat_fault "disconnect" "$fault_disconnect_api_key" "503" "provider_unavailable" "40" "reconciliation_needed"
 run_chat_fault "timeout" "$fault_timeout_api_key" "502" "-" "40" "reconciliation_needed"
 run_chat_stream_rejection "500" "$fault_500_api_key"
 run_chat_stream_rejection "429" "$fault_429_api_key"
