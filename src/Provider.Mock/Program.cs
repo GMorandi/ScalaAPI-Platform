@@ -1,9 +1,15 @@
 using System.Text.Json;
+using System.Net.WebSockets;
+using System.Text;
 using ScalaAPI.Provider.Mock;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.WebHost.UseUrls("http://0.0.0.0:8081");
 var app = builder.Build();
+app.UseWebSockets(new WebSocketOptions
+{
+    KeepAliveInterval = TimeSpan.FromSeconds(15),
+});
 
 app.MapGet("/health", () => Results.Ok(new { status = "ok", provider = "scalaapi-mock" }));
 
@@ -44,6 +50,85 @@ app.MapGet("/v1beta/models/{model}", (string model) => Results.Ok(new
     outputTokenLimit = 8_192,
     supportedGenerationMethods = new[] { "generateContent", "streamGenerateContent" }
 }));
+
+app.MapGet("/v1/responses", async (HttpContext context, CancellationToken cancellationToken) =>
+{
+    if (!context.WebSockets.IsWebSocketRequest)
+    {
+        context.Response.StatusCode = StatusCodes.Status426UpgradeRequired;
+        return;
+    }
+
+    using var socket = await context.WebSockets.AcceptWebSocketAsync();
+    var buffer = new byte[64 * 1024];
+    var firstFrame = new StringBuilder();
+    WebSocketReceiveResult received;
+    do
+    {
+        received = await socket.ReceiveAsync(buffer, cancellationToken);
+        if (received.MessageType == WebSocketMessageType.Close)
+        {
+            if (socket.State == WebSocketState.CloseReceived)
+                await socket.CloseAsync(WebSocketCloseStatus.NormalClosure, "closed", cancellationToken);
+            return;
+        }
+        if (received.MessageType is not (WebSocketMessageType.Text or WebSocketMessageType.Binary))
+            continue;
+        firstFrame.Append(Encoding.UTF8.GetString(buffer, 0, received.Count));
+    } while (!received.EndOfMessage);
+
+    var model = "gpt-4o";
+    try
+    {
+        using var document = JsonDocument.Parse(firstFrame.ToString());
+        var root = document.RootElement;
+        if (root.TryGetProperty("session", out var session)
+            && session.ValueKind == JsonValueKind.Object
+            && session.TryGetProperty("model", out var sessionModel)
+            && sessionModel.ValueKind == JsonValueKind.String)
+            model = sessionModel.GetString() ?? model;
+    }
+    catch (JsonException)
+    {
+        await socket.CloseAsync(WebSocketCloseStatus.InvalidPayloadData,
+            "first realtime event must be JSON", cancellationToken);
+        return;
+    }
+
+    async Task SendAsync(object payload)
+    {
+        var json = JsonSerializer.Serialize(payload);
+        await socket.SendAsync(Encoding.UTF8.GetBytes(json), WebSocketMessageType.Text,
+            endOfMessage: true, cancellationToken);
+    }
+
+    await SendAsync(new
+    {
+        type = "session.created",
+        session = new { id = "mock-realtime-session", model }
+    });
+    await SendAsync(new
+    {
+        type = "response.done",
+        response = new
+        {
+            id = "mock-realtime-response",
+            status = "completed",
+            usage = new { input_tokens = 7, output_tokens = 5 }
+        }
+    });
+
+    while (socket.State == WebSocketState.Open && !cancellationToken.IsCancellationRequested)
+    {
+        received = await socket.ReceiveAsync(buffer, cancellationToken);
+        if (received.MessageType == WebSocketMessageType.Close)
+        {
+            if (socket.State == WebSocketState.CloseReceived)
+                await socket.CloseAsync(WebSocketCloseStatus.NormalClosure, "closed", cancellationToken);
+            break;
+        }
+    }
+});
 
 app.MapPost("/v1/embeddings", async (HttpContext context, CancellationToken cancellationToken) =>
 {
