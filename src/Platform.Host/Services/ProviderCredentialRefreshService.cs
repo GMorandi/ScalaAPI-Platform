@@ -42,11 +42,40 @@ public sealed class ProviderTokenEndpointClient(HttpClient client, IConfiguratio
         {
             Content = new FormUrlEncodedContent(fields),
         };
-        using var response = await client.SendAsync(request,
-            HttpCompletionOption.ResponseHeadersRead, ct);
+        HttpResponseMessage response;
+        try
+        {
+            response = await client.SendAsync(request,
+                HttpCompletionOption.ResponseHeadersRead, ct);
+        }
+        catch (Exception ex) when (!ct.IsCancellationRequested
+            && ex is OperationCanceledException or IOException)
+        {
+            throw new ProviderCredentialsUnavailableException(
+                "oauth_token_endpoint_unavailable");
+        }
+        using (response)
+        {
+            return await ParseResponseAsync(response, ct);
+        }
+    }
+
+    private static async Task<ProviderTokenRefreshResult> ParseResponseAsync(
+        HttpResponseMessage response, CancellationToken ct)
+    {
         if (response.Content.Headers.ContentLength is > MaxResponseBytes)
             throw new ProviderCredentialsUnavailableException("oauth_token_response_too_large");
-        var body = await ReadBoundedAsync(response.Content, ct);
+        byte[] body;
+        try
+        {
+            body = await ReadBoundedAsync(response.Content, ct);
+        }
+        catch (Exception ex) when (!ct.IsCancellationRequested
+            && ex is OperationCanceledException or IOException)
+        {
+            throw new ProviderCredentialsUnavailableException(
+                "oauth_token_endpoint_unavailable");
+        }
         if (!response.IsSuccessStatusCode)
             throw new ProviderCredentialsUnavailableException(
                 $"oauth_token_endpoint_status_{(int)response.StatusCode}");
@@ -168,7 +197,11 @@ public sealed class ProviderCredentialRefreshService(
                     accountId, lease.Version + 1);
                 return await grain.Hydrate();
             }
-            catch (Exception ex) when (ex is not OperationCanceledException)
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
             {
                 var code = ex is ProviderCredentialsUnavailableException
                     ? ex.Message : "oauth_token_endpoint_unavailable";

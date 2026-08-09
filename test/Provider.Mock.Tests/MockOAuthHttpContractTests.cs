@@ -46,14 +46,26 @@ public sealed class MockOAuthHttpContractTests :
         Assert.DoesNotContain(refreshToken, error.ToString());
     }
 
-    private ProviderTokenEndpointClient CreateClient()
+    [Fact]
+    public async Task PlatformClientClassifiesMockTimeoutWithoutLeakingPayload()
+    {
+        var client = CreateClient(TimeSpan.FromMilliseconds(100));
+        var error = await Assert.ThrowsAsync<ProviderCredentialsUnavailableException>(
+            () => client.RefreshAsync(Lease("mock-refresh-timeout")));
+
+        Assert.Equal("oauth_token_endpoint_unavailable", error.Message);
+    }
+
+    private ProviderTokenEndpointClient CreateClient(TimeSpan? timeout = null)
     {
         var configuration = new ConfigurationBuilder().AddInMemoryCollection(
             new Dictionary<string, string?>
             {
                 ["ProviderCredentials:AllowInsecureTokenEndpoints"] = "true",
             }).Build();
-        return new ProviderTokenEndpointClient(factory.CreateClient(), configuration);
+        var httpClient = factory.CreateClient();
+        if (timeout is not null) httpClient.Timeout = timeout.Value;
+        return new ProviderTokenEndpointClient(httpClient, configuration);
     }
 
     private static ProviderOAuthRefreshLease Lease(string refreshToken) => new(
