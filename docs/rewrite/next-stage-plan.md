@@ -2,7 +2,7 @@
 
 ## Checkpoint
 
-The next stage starts from Platform `5a4fb36`, Gateway `3da0d33`, and read-only
+The next stage starts from Platform `f06cccc`, Gateway `3da0d33`, and read-only
 reference `sub2api@43ec48d`.
 
 The greenfield baseline now starts from empty volumes, uses PostgreSQL as authority,

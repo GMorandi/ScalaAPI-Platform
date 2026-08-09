@@ -11,7 +11,7 @@ read-only requirements reference and is excluded from builds and runtime.
 | Repository | Commit | Worktree | Role |
 | --- | --- | --- | --- |
 | `gateway` | `3da0d33` | clean | C++ HTTP/WebSocket edge, protocol parsing/conversion, versioned OpenAI Chat/Responses, Anthropic Messages, and Gemini request/response/SSE golden contracts, full pairwise provider request/response/error matrix assertions, fail-closed model catalog and token-count validation, bounded Embeddings and Responses validation, streaming, strict Provider media contracts, bounded transport timers, normalized Provider availability errors, shared retryable Platform transport policy, durable usage delivery, authenticated Garnet projections, bounded request/response content-policy RPC evaluation, event-boundary streaming response moderation, and fail-closed response delivery including retryable classifier outages |
-| `platform` | `5a4fb36` | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, Provider mock contracts, rotating identity/session/TOTP/OAuth state, native Passkey/WebAuthn ceremonies, API-key policy and audit, versioned runtime configuration, persistent scheduling and lease/hold/ledger state, audited operator reconciliation, atomic audited referral rewards, authenticated and audited operational metrics, bounded redacted audit queries/exports, encrypted proxy and validated TLS profile administration, audited bounded channel monitor checks, media/object lifecycle, staged request/response content-policy evaluation with versioned Unicode normalization, bounded source-owned external classifier adapter, durable policy revision propagation through Garnet, operational alert evidence, and redacted audits |
+| `platform` | `f06cccc` | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, Provider mock contracts, rotating identity/session/TOTP/OAuth state, native Passkey/WebAuthn ceremonies, API-key policy and audit, versioned runtime configuration, persistent scheduling and lease/hold/ledger state, audited operator reconciliation, atomic audited referral rewards, authenticated and audited operational metrics, bounded redacted audit queries/exports, encrypted proxy and validated TLS profile administration, audited bounded channel monitor checks, media/object lifecycle, staged request/response content-policy evaluation with versioned Unicode normalization, bounded source-owned external classifier adapter, durable policy revision propagation through Garnet, operational alert evidence, and redacted audits |
 | `sub2api` | `43ec48d` | read-only clean | Requirements catalogue only; never a runtime or compatibility dependency |
 
 The current tracked inventory is:
@@ -346,7 +346,7 @@ current-source runtime evidence.
 
 ## Current verification evidence
 
-At Platform `5a4fb36` and Gateway `3da0d33`:
+At Platform `f06cccc` and Gateway `3da0d33`:
 
 - Gateway built locally and passed 125/125 CTest cases, including deterministic
   fault-hook claim/repeat behavior, terminal SSE detection, provider EOF
