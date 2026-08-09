@@ -14,6 +14,38 @@ app.UseWebSockets(new WebSocketOptions
 
 app.MapGet("/health", () => Results.Ok(new { status = "ok", provider = "scalaapi-mock" }));
 
+app.MapGet("/v1/pricing", () => Results.Ok(new
+{
+    provider = "scalaapi-mock",
+    data = new[]
+    {
+        new
+        {
+            model = "gpt-4o",
+            input_usd_per_million = 2.50m,
+            output_usd_per_million = 10m,
+            cache_read_usd_per_million = 1.25m,
+            cache_write_usd_per_million = 0m,
+        },
+        new
+        {
+            model = "claude-sonnet-4",
+            input_usd_per_million = 3m,
+            output_usd_per_million = 15m,
+            cache_read_usd_per_million = 0.30m,
+            cache_write_usd_per_million = 3.75m,
+        },
+        new
+        {
+            model = "gemini-2.5-flash",
+            input_usd_per_million = 0.15m,
+            output_usd_per_million = 0.60m,
+            cache_read_usd_per_million = 0m,
+            cache_write_usd_per_million = 0m,
+        },
+    },
+}));
+
 app.MapGet("/oauth/authorize", (HttpRequest request) =>
 {
     if (!string.Equals(request.Query["response_type"], "code", StringComparison.Ordinal)

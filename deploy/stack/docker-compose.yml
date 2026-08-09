@@ -90,6 +90,8 @@ services:
       ContentClassifier__Endpoint: ${CONTENT_CLASSIFIER_ENDPOINT:-http://provider-mock:8081/v1/classifier/evaluate}
       ContentClassifier__TimeoutMs: ${CONTENT_CLASSIFIER_TIMEOUT_MS:-750}
       Dispatch__LeaseTtlSeconds: ${DISPATCH_LEASE_TTL_SECONDS:-360}
+      Pricing__AllowInsecureProviderEndpoints: ${PRICING_ALLOW_INSECURE_PROVIDER_ENDPOINTS:-true}
+      Pricing__Providers__mock__Endpoint: ${PRICING_PROVIDER_MOCK_ENDPOINT:-http://provider-mock:8081/v1/pricing}
       FaultInjection__Hook: ${PLATFORM_FAULT_HOOK:-}
       FaultInjection__MarkerDirectory: ${PLATFORM_FAULT_MARKER_DIR:-/var/run/scalaapi/fault-hooks}
       FaultInjection__Repeat: ${PLATFORM_FAULT_REPEAT:-false}

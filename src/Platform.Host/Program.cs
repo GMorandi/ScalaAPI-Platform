@@ -115,6 +115,13 @@ builder.Services.AddSingleton<ScalaAPI.Grains.Interfaces.IInvalidationService>(s
 // Dispatch service (bridges Cap'n Proto RPC to Orleans grains)
 builder.Services.AddSingleton<ModelPricingService>();
 builder.Services.AddHostedService<PricingRefreshHostedService>();
+builder.Services.AddHttpClient<ProviderPricingCatalogClient>(client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(10);
+    client.MaxResponseContentBufferSize = 128 * 1024;
+});
+builder.Services.AddSingleton<ProviderPricingRefreshService>();
+builder.Services.AddHostedService<ProviderPricingRefreshHostedService>();
 builder.Services.AddSingleton(NpgsqlDataSource.Create(pgConnection));
 builder.Services.AddSingleton<ProviderCredentialRefreshAuditStore>();
 builder.Services.AddSingleton<FaultInjection>();

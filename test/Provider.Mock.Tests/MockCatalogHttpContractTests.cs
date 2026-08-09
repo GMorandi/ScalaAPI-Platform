@@ -40,6 +40,23 @@ public sealed class MockCatalogHttpContractTests :
     }
 
     [Fact]
+    public async Task PricingCatalogReturnsBoundedDecimalQuotes()
+    {
+        using var client = factory.CreateClient();
+        using var response = await client.GetAsync("/v1/pricing");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var quotes = document.RootElement.GetProperty("data").EnumerateArray().ToArray();
+        Assert.Equal(3, quotes.Length);
+        Assert.Contains(quotes, quote => quote.GetProperty("model").GetString() == "gpt-4o");
+        Assert.All(quotes, quote =>
+        {
+            Assert.True(quote.GetProperty("input_usd_per_million").GetDecimal() >= 0m);
+            Assert.True(quote.GetProperty("output_usd_per_million").GetDecimal() >= 0m);
+        });
+    }
+
+    [Fact]
     public async Task CountTokensReturnsPositiveDeterministicUsage()
     {
         using var client = factory.CreateClient();
