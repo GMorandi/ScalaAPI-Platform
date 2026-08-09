@@ -86,6 +86,7 @@ services:
       Garnet__ServerName: ${GARNET_SERVER_NAME:-garnet}
       Security__MasterKey: ${SECURITY_MASTER_KEY:?SECURITY_MASTER_KEY is required}
       ProviderMock__BaseUrl: http://provider-mock:8081
+      Dispatch__LeaseTtlSeconds: ${DISPATCH_LEASE_TTL_SECONDS:-360}
       FaultInjection__Hook: ${PLATFORM_FAULT_HOOK:-}
       FaultInjection__MarkerDirectory: ${PLATFORM_FAULT_MARKER_DIR:-/var/run/scalaapi/fault-hooks}
       FaultInjection__Repeat: ${PLATFORM_FAULT_REPEAT:-false}

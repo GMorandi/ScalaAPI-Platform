@@ -99,6 +99,10 @@ export OBJECT_STORAGE_PUBLIC_ENDPOINT="http://127.0.0.1:${OBJECT_STORAGE_PORT}"
 export GATEWAY_PORT="${SMOKE_GATEWAY_PORT:-28080}"
 export ADMIN_WEB_PORT="${SMOKE_ADMIN_WEB_PORT:-23000}"
 export GATEWAY_CORES="${SMOKE_GATEWAY_CORES:-2}"
+if [[ -n "${GATEWAY_FAULT_HOOK:-}" && -z "${DISPATCH_LEASE_TTL_SECONDS:-}" ]]; then
+    export DISPATCH_LEASE_TTL_SECONDS=15
+fi
+export DISPATCH_LEASE_TTL_SECONDS="${DISPATCH_LEASE_TTL_SECONDS:-360}"
 if [[ -n "${PLATFORM_FAULT_HOOK:-}" ]]; then
     export ORLEANS_SINGLE_SILO_RECOVERY=true
 fi
@@ -112,11 +116,14 @@ platform_restart_request_id="smoke-platform-restart-${suffix}"
 platform_restart_idempotency_key="smoke-platform-restart-idem-${suffix}"
 gateway_restart_request_id="smoke-gateway-restart-${suffix}"
 gateway_restart_idempotency_key="smoke-gateway-restart-idem-${suffix}"
+gateway_fault_request_id="smoke-gateway-fault-${suffix}"
+gateway_fault_idempotency_key="smoke-gateway-fault-idem-${suffix}"
 fault_request_prefix="smoke-fault-${suffix}"
 media_idempotency_key="smoke-media-idem-${suffix}"
 chat_price_version="smoke-chat-${suffix}-v1"
 media_price_version="smoke-media-${suffix}-v1"
 balance_idempotency_key="smoke-balance-${suffix}"
+gateway_hook_unknown_incidents=0
 
 wait_for() {
     local description=$1
@@ -293,8 +300,8 @@ run_chat_stream_fault() {
             "Provider streaming $scenario availability response status"
     elif [[ "$scenario" == "disconnect" ]]; then
         # Once partial SSE bytes have reached the client, curl may observe a
-        # clean 200 stream, a normalized 503, or a transport-level 000 close.
-        assert_one_of "000|200|503" "$response_status" \
+        # clean 200 stream, a normalized 503/502, or a transport-level 000 close.
+        assert_one_of "000|200|502|503" "$response_status" \
             "Provider streaming $scenario availability response status"
     else
         assert_one_of "000|200|499|502|503" "$response_status" \
@@ -580,6 +587,50 @@ admin_request POST /admin/pricing/versions \
 
 sleep 6
 chat_body='{"model":"gpt-4o","messages":[{"role":"user","content":"greenfield compose smoke"}],"stream":false}'
+start_gateway_after_fault() {
+    # Podman Compose may leave an exited container stopped even with
+    # restart: on-failure. Start the same container so its durable marker and
+    # Gateway usage outbox volume are preserved across the recovery boundary.
+    compose start gateway >/dev/null
+    wait_for "Gateway recovery after fault hook" 90 curl -fsS "$gateway_url/ready" >/dev/null
+}
+
+gateway_fault_claimed() {
+    compose exec -T gateway test -f \
+        /var/lib/scalaapi/fault-hooks/gateway-after-provider-completion.claimed
+}
+
+gateway_fault_lease_reconciled() {
+    [[ "$(db_query "
+        SELECT count(*) FROM request_leases l
+        WHERE l.request_id = '$gateway_fault_request_id'
+          AND l.status = 'reconciliation_needed'
+          AND NOT EXISTS (SELECT 1 FROM usage_events u WHERE u.lease_token = l.lease_token)
+          AND NOT EXISTS (SELECT 1 FROM usage_logs u WHERE u.lease_token = l.lease_token)
+          AND EXISTS (SELECT 1 FROM balance_holds h
+                      WHERE h.lease_token = l.lease_token AND h.status = 'active');")" == "1" ]]
+}
+
+if [[ "${GATEWAY_FAULT_HOOK:-}" == "gateway.after_provider_completion" ]]; then
+    set +e
+    curl -sS --max-time 30 "$gateway_url/v1/chat/completions" \
+        -H "Authorization: Bearer $api_key" -H "Content-Type: application/json" \
+        -H "X-Request-ID: $gateway_fault_request_id" \
+        -H "Idempotency-Key: $gateway_fault_idempotency_key" \
+        --data "$chat_body" >/dev/null
+    gateway_fault_exit=$?
+    set -e
+    if (( gateway_fault_exit == 0 )); then
+        echo "Gateway after-provider-completion hook did not fail the request" >&2
+        exit 1
+    fi
+    start_gateway_after_fault
+    wait_for "Gateway after-provider-completion marker" 30 gateway_fault_claimed
+    wait_for "Gateway hook lease reconciliation" 60 gateway_fault_lease_reconciled
+    gateway_hook_unknown_incidents=1
+    echo "PASS: Gateway after-provider-completion crash retained one reconciliable lease"
+fi
+
 chat_response="$(curl -fsS "$gateway_url/v1/chat/completions" \
     -H "Authorization: Bearer $api_key" -H "Content-Type: application/json" \
     -H "X-Request-ID: $chat_request_id" -H "Idempotency-Key: $chat_idempotency_key" \
@@ -725,7 +776,10 @@ SELECT
   (SELECT count(*) FROM usage_events WHERE request_id = '$chat_request_id') || '|' ||
   (SELECT count(*) FROM usage_logs WHERE request_id = '$chat_request_id') || '|' ||
   (SELECT count(*) FROM balance_ledger l JOIN request_leases r ON r.lease_token = l.lease_token WHERE r.request_id = '$chat_request_id' AND l.entry_type = 'usage_debit' AND l.amount = -r.final_cost_usd);")"
-assert_equals "0|9|9|0|0|1|1|1|1" "$terminal_state" "Terminal billing invariants"
+expected_unknown_incidents=$((9 + gateway_hook_unknown_incidents))
+expected_open_after_resolution=$((expected_unknown_incidents - 1))
+assert_equals "0|${expected_unknown_incidents}|${expected_unknown_incidents}|0|0|1|1|1|1" \
+    "$terminal_state" "Terminal billing invariants"
 
 accounting_projection_drained() {
     [[ "$(db_query "SELECT count(*) FROM accounting_projection_outbox WHERE user_id = $user_id;")" == "0" ]]
@@ -749,11 +803,11 @@ assert_equals "true|true|0" "$accounting_state" \
 reconciliation_response="$(admin_request POST /admin/reconciliation/run '{}' "$admin_token")"
 assert_equals "true" "$(jq -er '.started' <<<"$reconciliation_response")" \
     "Accounting reconciliation started"
-assert_equals "failed|9" \
+assert_equals "failed|${expected_unknown_incidents}" \
     "$(jq -r '.status + "|" + (.openIncidents | tostring)' <<<"$reconciliation_response")" \
     "Accounting reconciliation result"
 open_incidents="$(admin_request GET '/admin/reconciliation/incidents?status=open' '' "$admin_token")"
-assert_equals "9" "$(jq -er '.total' <<<"$open_incidents")" \
+assert_equals "$expected_unknown_incidents" "$(jq -er '.total' <<<"$open_incidents")" \
     "Accounting reconciliation open incident count"
 
 operator_incident_id="$(jq -er '[.items[] | select(.kind == "unknown_provider_charge")][0].id' \
@@ -781,15 +835,15 @@ operator_resolution_visible() {
     local visible
     visible="$(admin_request GET '/admin/reconciliation/incidents?status=open' '' "$admin_token")" \
         || return 1
-    [[ "$(jq -er '.total' <<<"$visible")" == "8" ]]
+    [[ "$(jq -er '.total' <<<"$visible")" == "$expected_open_after_resolution" ]]
 }
 wait_for "operator resolution visibility" 30 operator_resolution_visible
 open_after_resolution="$(admin_request GET '/admin/reconciliation/incidents?status=open' '' "$admin_token")"
-assert_equals "8" "$(jq -er '.total' <<<"$open_after_resolution")" \
+assert_equals "$expected_open_after_resolution" "$(jq -er '.total' <<<"$open_after_resolution")" \
     "Remaining unknown-charge incidents after operator settlement"
 
 reconciliation_after_resolution="$(admin_request POST /admin/reconciliation/run '{}' "$admin_token")"
-assert_equals "failed|8" \
+assert_equals "failed|${expected_open_after_resolution}" \
     "$(jq -r '.status + "|" + (.openIncidents | tostring)' <<<"$reconciliation_after_resolution")" \
     "Reconciliation after operator settlement"
 
@@ -825,4 +879,7 @@ echo "PASS: account/ledger/hold/Grain reconciliation with audited operator resol
 echo "PASS: idempotent response replay without duplicate billing"
 echo "PASS: new billable requests after Platform and Gateway restarts"
 echo "PASS: isolated 429/500 no-charge, truncated-stream late usage settlement, and unknown-charge failures"
+if (( gateway_hook_unknown_incidents > 0 )); then
+    echo "PASS: Gateway fault hook recovery and retained reconciliation evidence"
+fi
 echo "PASS: S3-compatible bucket bootstrap, object persistence, and signed download ($media_size bytes)"
