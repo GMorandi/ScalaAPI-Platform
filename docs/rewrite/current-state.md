@@ -11,7 +11,7 @@ read-only requirements reference and is excluded from builds and runtime.
 | Repository | Commit | Worktree | Role |
 | --- | --- | --- | --- |
 | `gateway` | `20d0b85` | clean | C++ HTTP/WebSocket edge, protocol parsing/conversion, fail-closed OpenAI/Gemini model catalog and Anthropic token-count response validation, bounded Embeddings and Responses validation, streaming, strict Provider media contracts, bounded transport timers, normalized Provider availability errors, shared retryable Platform transport policy, durable usage delivery, authenticated Garnet projections, and bounded request-body context for pre-dispatch content policy |
-| `platform` | `bab9d44` | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, Provider mock contracts, rotating identity/session/TOTP/OAuth state, API-key policy and audit, versioned runtime configuration, persistent scheduling and lease/hold/ledger state, audited operator reconciliation, media/object lifecycle, and source-owned pre-dispatch content-policy evaluation with no-lease rejection evidence |
+| `platform` | `0f45128` | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, Provider mock contracts, rotating identity/session/TOTP/OAuth state, API-key policy and audit, versioned runtime configuration, persistent scheduling and lease/hold/ledger state, audited operator reconciliation, media/object lifecycle, and source-owned pre-dispatch content-policy evaluation with no-lease rejection evidence |
 | `sub2api` | `43ec48d` | read-only clean | Requirements catalogue only; never a runtime or compatibility dependency |
 
 The current tracked inventory is:
@@ -287,7 +287,7 @@ current-source runtime evidence.
 
 ## Current verification evidence
 
-At Platform `bab9d44` and Gateway `20d0b85`:
+At Platform `0f45128` and Gateway `20d0b85`:
 
 - Gateway built locally and passed 111/111 CTest cases, including deterministic
   fault-hook claim/repeat behavior, terminal SSE detection, provider EOF

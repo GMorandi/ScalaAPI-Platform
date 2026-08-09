@@ -2,7 +2,7 @@
 
 ## Checkpoint
 
-The next stage starts from Platform `bab9d44`, Gateway `20d0b85`, and read-only
+The next stage starts from Platform `0f45128`, Gateway `20d0b85`, and read-only
 reference `sub2api@43ec48d`.
 
 The greenfield baseline now starts from empty volumes, uses PostgreSQL as authority,
@@ -122,7 +122,7 @@ group CRUD validation, distributed rate-window contention, and multi-Silo fallba
 fault evidence remain release work.
 
 The first `SEC-01` runtime slice is now active at Gateway `20d0b85` and Platform
-`bab9d44`. The canonical dispatch contract carries bounded request content, and
+`0f45128`. The canonical dispatch contract carries bounded request content, and
 Platform applies active scope-aware `log`/`block` rules after authentication and
 capability checks but before scheduler, hold, lease, or Provider activity. Matches
 are written to `content_audit_logs`; blocked requests receive a dedicated HTTP 400
