@@ -60,7 +60,7 @@ through the clean Gateway runtime image, including exactly-once
 lease/usage/hold/ledger settlement; long-connection/backpressure soak, remaining
 boundaries, the worker/multi-silo matrix, and multi-instance scenarios are still
 open.
-The current source-built `scalaapi-policy-20260809h` gate applies and
+The current source-built `scalaapi-policy-20260809i` gate applies and
 replays 31 migration records from empty volumes, proves Garnet-authenticated
 request routing, staged request/response policy, the versioned Unicode evaluator,
 external-classifier fail-closed handling, the full Provider fault matrix, media
@@ -86,7 +86,7 @@ outbox with expiry/retry state, publishes the revision and invalidation counter 
 Garnet, and exposes protected change history. Runtime block, classifier-unavailable,
 and unsupported-evaluator outcomes persist deterministic redacted alert evidence;
 Admin exposes filtered alert queries. Host tests cover Garnet success and retry,
-and `scalaapi-policy-20260809h` proves empty-stack propagation and alert queries.
+and `scalaapi-policy-20260809i` proves empty-stack propagation and alert queries.
 This closes the single-instance operations package, not the real classifier,
 multi-instance ordering, browser, or collector/dashboard gates.
 

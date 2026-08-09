@@ -560,7 +560,7 @@ At Platform `caa719e` and Gateway `cd475c7`:
   public 503/provider_unavailable responses and released every no-charge hold.
 - Garnet authentication returned `PONG`; asynchronous media bootstrapped the empty
   MinIO bucket and a signed URL downloaded the expected 67-byte object.
-- The latest `scalaapi-policy-20260809h` smoke command exited zero. It
+- The latest `scalaapi-policy-20260809i` smoke command exited zero. It
   applied 31 empty-volume migration records and skipped all 31 on replay, proved
   request and response content-policy paths, the complete Provider fault matrix,
   Garnet-authenticated routing, media persistence, reconciliation, operator
@@ -577,7 +577,7 @@ At Platform `caa719e` and Gateway `cd475c7`:
   The run also waited for policy-change outbox propagation, queried policy-block
   and classifier-outage alert evidence, and verified retryable Garnet propagation
   in Host tests. The cleanup removed every project container, temporary volume/
-  network, and `scalaapi-policy-20260809{d,e,f,g,h}_*` image tags. Only the named `apitf_*` baseline
+  network, and `scalaapi-policy-20260809{d,e,f,g,h,i}_*` image tags. Only the named `apitf_*` baseline
   development resources and `scalaapi-gateway:dev` remain.
 
 Detailed gate results and residual coverage are maintained in `verification.md`.
