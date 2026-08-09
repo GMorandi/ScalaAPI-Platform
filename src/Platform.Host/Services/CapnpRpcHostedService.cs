@@ -223,7 +223,8 @@ public class CapnpRpcHostedService : IHostedService
             RealtimeSession: capnpReq.RealtimeSession,
             ForcePlatform: capnpReq.ForcePlatform ?? "",
             RequestFingerprint: capnpReq.RequestFingerprint ?? "",
-            RequestQuery: capnpReq.RequestQuery ?? "");
+            RequestQuery: capnpReq.RequestQuery ?? "",
+            RequestBody: capnpReq.RequestBody ?? "");
 
         var result = (await svc.HandleDispatch(req)) with
         {
@@ -342,6 +343,7 @@ public class CapnpRpcHostedService : IHostedService
         "idempotencyReplay" => CapnpGen.RejectInfo.RejectCode.idempotencyReplay,
         "pricingUnavailable" => CapnpGen.RejectInfo.RejectCode.pricingUnavailable,
         "platformUnavailable" => CapnpGen.RejectInfo.RejectCode.platformUnavailable,
+        "contentPolicyBlocked" => CapnpGen.RejectInfo.RejectCode.contentPolicyBlocked,
         _ => CapnpGen.RejectInfo.RejectCode.invalidKey,
     };
 
@@ -500,6 +502,7 @@ public class DispatchService
     private readonly ILogger<DispatchService> _logger;
     private readonly FaultInjection _faults;
     private readonly NpgsqlDataSource _dataSource;
+    private readonly ContentPolicyService _contentPolicy;
     private readonly TimeSpan _leaseTtl;
     private readonly decimal _maxReservationUsd;
 
@@ -512,7 +515,8 @@ public class DispatchService
                            NpgsqlDataSource dataSource,
                            IConfiguration configuration,
                            ILogger<DispatchService> logger,
-                           FaultInjection faults)
+                           FaultInjection faults,
+                           ContentPolicyService contentPolicy)
     {
         _cluster = cluster;
         _leases = leases;
@@ -525,6 +529,7 @@ public class DispatchService
         _garnet = garnet;
         _logger = logger;
         _faults = faults;
+        _contentPolicy = contentPolicy;
         _leaseTtl = TimeSpan.FromSeconds(
             configuration.GetValue("Dispatch:LeaseTtlSeconds", 360));
         _maxReservationUsd = Math.Max(0.01m,
@@ -567,6 +572,17 @@ public class DispatchService
             await RecordDeniedScopeAsync(auth, requestedCapability, req.RequestId);
             return DispatchResult.Rejected("unsupportedCapability",
                 $"API key is not authorized for capability '{requestedCapability}'");
+        }
+
+        var contentDecision = await _contentPolicy.EvaluateAsync(
+            auth.UserId, req.RequestId, req.Endpoint, requestedCapability, req.RequestBody);
+        if (!contentDecision.Allowed)
+        {
+            var matched = contentDecision.Matches.FirstOrDefault(match => match.Action == "block");
+            return DispatchResult.Rejected("contentPolicyBlocked",
+                matched is null
+                    ? "Request content was rejected by the active content policy"
+                    : $"Request content matched policy rule '{matched.Pattern}'");
         }
 
         var isMediaOperation = req.Operation is "images_generations_async" or "images_edits_async"
@@ -1218,7 +1234,7 @@ public record DispatchRequest(
     string Operation = "", string InboundFormat = "", string HttpMethod = "POST",
     string RequestPath = "", string ContentType = "", string Capability = "",
     string IdempotencyKey = "", bool RealtimeSession = false, string ForcePlatform = "",
-    string RequestFingerprint = "", string RequestQuery = "");
+    string RequestFingerprint = "", string RequestQuery = "", string RequestBody = "");
 
 public record UsageReportRequest(
     string LeaseToken, int InputTokens, int OutputTokens,

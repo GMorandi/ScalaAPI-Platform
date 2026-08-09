@@ -494,10 +494,10 @@ wait_for "Admin API readiness" 60 compose exec -T admin-api \
 wait_for "User Web readiness" 60 curl -fsS "$user_web_url/" >/dev/null
 
 migration_count="$(db_query "SELECT count(*) FROM schema_migrations;")"
-assert_equals "27" "$migration_count" "Applied migration count"
+assert_equals "28" "$migration_count" "Applied migration count"
 second_migration_output="$(compose run --rm migrate 2>&1)"
 second_skip_count="$(grep -cE 'skip .+\.sql' <<<"$second_migration_output" || true)"
-assert_equals "27" "$second_skip_count" "Idempotent migrator skip count"
+assert_equals "28" "$second_skip_count" "Idempotent migrator skip count"
 
 login_response="$(admin_request POST /admin/auth/login \
     "$(jq -cn --arg username "$ADMIN_USERNAME" --arg password "$ADMIN_PASSWORD" \
@@ -687,6 +687,33 @@ SELECT
     "Administrative balance ledger invariants"
 
 api_key="$(create_api_key "$openai_group_id")"
+content_policy_pattern="greenfield-policy-${suffix}"
+content_policy_request_id="smoke-content-policy-${suffix}"
+content_policy_rule="$(admin_request POST /admin/content-audit/rules \
+    "$(jq -cn --arg pattern "$content_policy_pattern" \
+        '{pattern:$pattern,actionType:"block",scope:"chat_completions",status:"active"}')" \
+    "$admin_token")"
+content_policy_rule_id="$(jq -er '.id' <<<"$content_policy_rule")"
+content_policy_response="$(curl -sS --max-time 20 --write-out $'\n%{http_code}' \
+    "$gateway_url/v1/chat/completions" \
+    -H "Authorization: Bearer $api_key" \
+    -H "Content-Type: application/json" \
+    -H "X-Request-ID: $content_policy_request_id" \
+    -H "Idempotency-Key: ${content_policy_request_id}-idem" \
+    --data "$(jq -cn --arg pattern "$content_policy_pattern" \
+        '{model:"gpt-4o",messages:[{role:"user",content:("contains " + $pattern)}],stream:false}')")"
+assert_equals "400" "${content_policy_response##*$'\n'}" \
+    "Content policy block response status"
+jq -e '.error.type == "content_policy_violation"' \
+    <<<"${content_policy_response%$'\n'*}" >/dev/null
+assert_equals "1|0|1" "$(db_query "
+SELECT
+  (SELECT count(*) FROM content_audit_logs WHERE request_id = '$content_policy_request_id') || '|' ||
+  (SELECT count(*) FROM request_leases WHERE request_id = '$content_policy_request_id') || '|' ||
+  (SELECT count(*) FROM content_audit_logs WHERE request_id = '$content_policy_request_id' AND action = 'block');")" \
+    "Content policy audit and no-lease invariant"
+admin_request DELETE "/admin/content-audit/rules/$content_policy_rule_id" "" "$admin_token" >/dev/null
+echo "PASS: pre-dispatch content policy block, audit, and no-lease invariant"
 scoped_key_response="$(admin_request POST /admin/apikeys/ \
     "$(jq -cn --argjson user "$user_id" --argjson group "$openai_group_id" \
         '{userId:$user,groupId:$group,quota:100,expiresAt:null,scopes:["models"],ipWhitelist:[],ipBlacklist:[],rateLimit5h:0,rateLimit1d:0,rateLimit7d:0}')" \
@@ -1358,7 +1385,7 @@ if [[ "$garnet_probe" != *PONG* ]]; then
     exit 1
 fi
 
-echo "PASS: 27 empty-volume migrations and second-run idempotency"
+echo "PASS: 28 empty-volume migrations and second-run idempotency"
 echo "PASS: idempotent administrative funding, audit, conflict, and overdraft guards"
 echo "PASS: Garnet-authenticated Gateway -> Platform -> Provider mock request"
 echo "PASS: terminal lease, hold, usage, ledger, and outbox invariants"

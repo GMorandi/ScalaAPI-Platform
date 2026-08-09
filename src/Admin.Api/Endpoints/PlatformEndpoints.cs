@@ -1089,20 +1089,23 @@ public static class PlatformEndpoints
             return Results.Ok(new { items = rules });
         });
 
-        group.MapPost("/rules", async (ContentAuditRuleEntity req, ISqlSugarClient db) =>
+        group.MapPost("/rules", async (ContentAuditRuleRequest req, ISqlSugarClient db) =>
         {
-            req.CreatedAt = DateTime.UtcNow;
-            await db.Insertable(req).ExecuteCommandAsync();
-            return Results.Ok(new { id = req.Id });
+            if (!TryNormalizeContentRule(req, out var rule, out var error))
+                return Results.BadRequest(new { error });
+            await db.Insertable(rule).ExecuteCommandAsync();
+            return Results.Ok(new { id = rule.Id });
         });
 
-        group.MapPut("/rules/{id}", async (long id, ContentAuditRuleEntity req, ISqlSugarClient db) =>
+        group.MapPut("/rules/{id}", async (long id, ContentAuditRuleRequest req, ISqlSugarClient db) =>
         {
-            req.Id = id;
-            await db.Updateable(req)
+            if (!TryNormalizeContentRule(req, out var rule, out var error))
+                return Results.BadRequest(new { error });
+            rule.Id = id;
+            var updated = await db.Updateable(rule)
                 .UpdateColumns(x => new { x.Pattern, x.ActionType, x.Scope, x.Status })
                 .ExecuteCommandAsync();
-            return Results.Ok();
+            return updated == 0 ? Results.NotFound() : Results.Ok();
         });
 
         group.MapDelete("/rules/{id}", async (long id, ISqlSugarClient db) =>
@@ -1130,12 +1133,12 @@ public static class PlatformEndpoints
             var rules = await db.Queryable<ContentAuditRuleEntity>()
                 .Where(x => x.Status == "active").ToListAsync();
 
-            var matches = new List<object>();
+            var matches = new List<ContentAuditMatch>();
             foreach (var rule in rules)
             {
                 if (req.Content.Contains(rule.Pattern, StringComparison.OrdinalIgnoreCase))
                 {
-                    matches.Add(new { rule.Id, rule.Pattern, rule.ActionType });
+                    matches.Add(new ContentAuditMatch(rule.Id, rule.Pattern, rule.ActionType));
 
                     var log = new ContentAuditLogEntity
                     {
@@ -1150,9 +1153,52 @@ public static class PlatformEndpoints
                 }
             }
 
-            var blocked = matches.Any(m => m.GetType().GetProperty("ActionType")?.GetValue(m)?.ToString() == "block");
+            var blocked = matches.Any(m => m.ActionType == "block");
             return Results.Ok(new { passed = !blocked, matches });
         });
+    }
+
+    private static bool TryNormalizeContentRule(ContentAuditRuleRequest request,
+        out ContentAuditRuleEntity rule, out string error)
+    {
+        var pattern = request.Pattern?.Trim() ?? "";
+        var action = request.ActionType?.Trim().ToLowerInvariant() ?? "";
+        var status = request.Status?.Trim().ToLowerInvariant() ?? "";
+        var scope = string.IsNullOrWhiteSpace(request.Scope) ? null : request.Scope.Trim();
+        if (pattern.Length is < 1 or > 512)
+        {
+            rule = new();
+            error = "pattern_length_invalid";
+            return false;
+        }
+        if (action is not ("log" or "block"))
+        {
+            rule = new();
+            error = "action_type_invalid";
+            return false;
+        }
+        if (status is not ("active" or "disabled"))
+        {
+            rule = new();
+            error = "status_invalid";
+            return false;
+        }
+        if (scope is not null && (scope.Length > 128 || scope.Any(char.IsWhiteSpace)))
+        {
+            rule = new();
+            error = "scope_invalid";
+            return false;
+        }
+        rule = new ContentAuditRuleEntity
+        {
+            Pattern = pattern,
+            ActionType = action,
+            Scope = scope,
+            Status = status,
+            CreatedAt = DateTime.UtcNow,
+        };
+        error = "";
+        return true;
     }
 
     private static void MapProxies(WebApplication app)
@@ -1384,4 +1430,7 @@ public static class PlatformEndpoints
     private record EmailRequest(string To, string Subject, string Body, Dictionary<string, string>? TemplateVars);
     private record ReferralRecordRequest(long ReferrerUserId, long ReferredUserId, decimal BonusUsd);
     private record ContentCheckRequest(string Content, long UserId, string? RequestId);
+    private record ContentAuditRuleRequest(string? Pattern, string? ActionType,
+        string? Scope, string? Status);
+    private record ContentAuditMatch(long Id, string Pattern, string ActionType);
 }

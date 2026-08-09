@@ -1070,6 +1070,7 @@ namespace CapnpGen
             ForcePlatform = reader.ForcePlatform;
             RequestFingerprint = reader.RequestFingerprint;
             RequestQuery = reader.RequestQuery;
+            RequestBody = reader.RequestBody;
             applyDefaults();
         }
 
@@ -1097,6 +1098,7 @@ namespace CapnpGen
             writer.ForcePlatform = ForcePlatform;
             writer.RequestFingerprint = RequestFingerprint;
             writer.RequestQuery = RequestQuery;
+            writer.RequestBody = RequestBody;
         }
 
         void ICapnpSerializable.Serialize(SerializerState arg_)
@@ -1240,6 +1242,12 @@ namespace CapnpGen
             set;
         }
 
+        public string RequestBody
+        {
+            get;
+            set;
+        }
+
         public struct READER
         {
             readonly DeserializerState ctx;
@@ -1273,13 +1281,14 @@ namespace CapnpGen
             public string ForcePlatform => ctx.ReadText(14, null);
             public string RequestFingerprint => ctx.ReadText(15, null);
             public string RequestQuery => ctx.ReadText(16, null);
+            public string RequestBody => ctx.ReadText(17, null);
         }
 
         public class WRITER : SerializerState
         {
             public WRITER()
             {
-                this.SetStruct(2, 17);
+                this.SetStruct(2, 18);
             }
 
             public string ApiKeyHash
@@ -1412,6 +1421,12 @@ namespace CapnpGen
             {
                 get => this.ReadText(16, null);
                 set => this.WriteText(16, value, null);
+            }
+
+            public string RequestBody
+            {
+                get => this.ReadText(17, null);
+                set => this.WriteText(17, value, null);
             }
         }
 
@@ -1861,7 +1876,8 @@ namespace CapnpGen
             unsupportedCapability,
             idempotencyReplay,
             pricingUnavailable,
-            platformUnavailable
+            platformUnavailable,
+            contentPolicyBlocked
         }
     }
 
