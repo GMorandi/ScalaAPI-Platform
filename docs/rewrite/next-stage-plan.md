@@ -2,7 +2,7 @@
 
 ## Checkpoint
 
-The next stage starts from Platform `7fca582`, Gateway `12bf8f1`, and read-only
+The next stage starts from Platform `15cdfc0`, Gateway `12bf8f1`, and read-only
 reference `sub2api@43ec48d`.
 
 The greenfield baseline now starts from empty volumes, uses PostgreSQL as authority,
@@ -91,7 +91,7 @@ Admin exposes filtered alert queries. Host tests cover Garnet success and retry,
 and `scalaapi-classifier-20260809d` proves empty-stack propagation, classifier
 match/outage semantics, and alert queries. This closes the single-instance
 operations and source-owned adapter package, not the production classifier,
-multi-instance ordering, browser, or collector/dashboard gates.
+cross-process ordering/failure, browser, or collector/dashboard gates.
 
 Provider OAuth credentials now use encrypted versioned state with a single-account
 refresh lease, compare-and-set completion, bounded error evidence, and scheduler
@@ -154,7 +154,7 @@ concurrency, and idempotent group spend remain covered by the Grain suite; HTTP
 group CRUD validation, distributed rate-window contention, and multi-Silo fallback
 fault evidence remain release work.
 
-The `SEC-01` runtime slice is active at Gateway `12bf8f1` and Platform `7fca582`.
+The `SEC-01` runtime slice is active at Gateway `12bf8f1` and Platform `15cdfc0`.
 The canonical dispatch contract carries bounded request and response content.
 Platform applies request `log`/`block` rules before scheduler/lease activity and
 response rules after Provider validation but before non-stream delivery. Both stages
@@ -166,9 +166,10 @@ event-boundary streaming enforcement is source-tested and empty-stack verified;
 the classifier boundary uses a source-owned HTTP contract with explicit JSON fields,
 bounded request/response bytes, timeout control, and deterministic fail-closed
 status/schema/transport mappings. Migration 030 now provides durable single-instance
-change propagation and alert evidence. The domain remains `partial` until a
-production provider, multi-instance ordering, browser authorization, protocol
-golden fixtures, and long-stream metrics are automated.
+change propagation and alert evidence; Platform `15cdfc0` adds a concurrent
+two-worker PostgreSQL claim/publication assertion. The domain remains `partial`
+until a production provider, cross-process ordering/failure, browser authorization,
+and long-stream metrics are automated.
 
 ## Next implementation slice
 
@@ -178,10 +179,12 @@ golden fixtures, and long-stream metrics are automated.
    bounded-buffer overflow, cancellation, and late usage settlement under every
    stream terminal event.
 2. Extend policy revision propagation and operations to multiple Platform/Gateway
-   instances. Verify ordered outbox claims, Garnet invalidation convergence,
-   monotonic revisions under concurrent rule changes, and alert correlation after
-   worker failure or Garnet outage. The single-instance outbox, retry, and alert
-   evidence is complete in `7fca582`.
+   instances. The `15cdfc0` Host test already verifies two concurrent workers do
+   not duplicate claims or revision publication. Add separate-process ordered
+   outbox claims, Garnet invalidation convergence, monotonic revisions under
+   concurrent rule changes, and alert correlation after worker failure or Garnet
+   outage. The single-instance outbox, retry, and alert evidence is complete in
+   `15cdfc0`.
 3. Add operator and browser evidence. Exercise Admin rule management with fresh
    identity, authorization, audit, redaction, and replay checks; add Admin/User Web
    browser tests for policy management and the user-visible 400/503 policy error

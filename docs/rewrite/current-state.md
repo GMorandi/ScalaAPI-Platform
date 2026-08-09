@@ -11,7 +11,7 @@ read-only requirements reference and is excluded from builds and runtime.
 | Repository | Commit | Worktree | Role |
 | --- | --- | --- | --- |
 | `gateway` | `12bf8f1` | clean | C++ HTTP/WebSocket edge, protocol parsing/conversion, versioned OpenAI Chat/Responses, Anthropic Messages, and Gemini request/response/SSE golden contracts, fail-closed model catalog and token-count validation, bounded Embeddings and Responses validation, streaming, strict Provider media contracts, bounded transport timers, normalized Provider availability errors, shared retryable Platform transport policy, durable usage delivery, authenticated Garnet projections, bounded request/response content-policy RPC evaluation, event-boundary streaming response moderation, and fail-closed response delivery including retryable classifier outages |
-| `platform` | `7fca582` | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, Provider mock contracts, rotating identity/session/TOTP/OAuth state, API-key policy and audit, versioned runtime configuration, persistent scheduling and lease/hold/ledger state, audited operator reconciliation, media/object lifecycle, staged request/response content-policy evaluation with versioned Unicode normalization, bounded source-owned external classifier adapter, durable policy revision propagation through Garnet, operational alert evidence, and redacted audits |
+| `platform` | `15cdfc0` | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, Provider mock contracts, rotating identity/session/TOTP/OAuth state, API-key policy and audit, versioned runtime configuration, persistent scheduling and lease/hold/ledger state, audited operator reconciliation, media/object lifecycle, staged request/response content-policy evaluation with versioned Unicode normalization, bounded source-owned external classifier adapter, durable policy revision propagation through Garnet, operational alert evidence, and redacted audits |
 | `sub2api` | `43ec48d` | read-only clean | Requirements catalogue only; never a runtime or compatibility dependency |
 
 The current tracked inventory is:
@@ -19,7 +19,7 @@ The current tracked inventory is:
 - Gateway: 52 production C++ source/header files, 11 test source files, and 122
   CTest cases.
 - Platform: 94 hand-written production C# files, 3 generated Cap'n Proto C#
-  files, 41 test/benchmark C# files, and 179 tests: 69 Grain, 51 Host, 18 Admin,
+  files, 41 test/benchmark C# files, and 180 tests: 69 Grain, 52 Host, 18 Admin,
   and 41 Provider mock tests.
 - Product surface: 121 direct Admin API route declarations, 47 product tables,
   22 SQLSugar entity types, 23 Admin Web TypeScript/TSX files and 11 page views,
@@ -72,8 +72,10 @@ current-source runtime evidence.
   responses fail closed as protocol errors.
   Policy mutations are recorded in a PostgreSQL outbox, propagated to Garnet with
   expiring claims and retry evidence, and policy blocks/classifier outages create
-  deterministic alert rows queryable by Admin. Browser workflows, multi-instance
-  propagation proof, and long-stream classifier metrics remain open.
+  deterministic alert rows queryable by Admin. A Host test now runs two concurrent
+  propagation workers against one PostgreSQL outbox and proves each revision is
+  claimed and published once; cross-process Garnet failure/restart convergence,
+  browser workflows, and long-stream classifier metrics remain open.
 - S3-compatible storage owns media bytes. PostgreSQL owns media metadata,
   authorization, object keys, ETags, sizes, and lifecycle state.
 - All business money is `decimal`; PostgreSQL uses `NUMERIC`; the RPC boundary
@@ -301,7 +303,7 @@ current-source runtime evidence.
 
 ## Current verification evidence
 
-At Platform `7fca582` and Gateway `12bf8f1`:
+At Platform `15cdfc0` and Gateway `12bf8f1`:
 
 - Gateway built locally and passed 122/122 CTest cases, including deterministic
   fault-hook claim/repeat behavior, terminal SSE detection, provider EOF
@@ -311,8 +313,8 @@ At Platform `7fca582` and Gateway `12bf8f1`:
   source-owned protocol golden suite covers versioned OpenAI Chat/Responses,
   Anthropic Messages, and Gemini request/response/SSE/error fixtures plus
   cross-protocol conversion.
-- Platform Release test/build passed with 0 warnings and 0 errors: 179/179 tests,
-  including 51 Host tests, 69 Grain tests, 18 Admin tests, and 41 Provider mock
+- Platform Release test/build passed with 0 warnings and 0 errors: 180/180 tests,
+  including 52 Host tests, 69 Grain tests, 18 Admin tests, and 41 Provider mock
   tests. Admin coverage
   includes PostgreSQL-backed TOTP replay, backup-code consumption, lockout,
   recovery, OAuth provider/redirect/verifier binding, one-time state consumption,
@@ -628,7 +630,8 @@ Detailed gate results and residual coverage are maintained in `verification.md`.
   forwarded lease/hold for reconciliation. Platform dispatch retry and active
   lease recovery now pass; realtime dispatch retry and full-stack realtime
   settlement are covered by source and empty-stack evidence, while runtime
-  WebSocket soak and multi-instance hook assertions remain.
+  WebSocket soak, cross-process Garnet failure/restart, and multi-instance hook
+  assertions remain.
 - Garnet authentication, outage/reconnect, rebuild, invalidation flush, and the
   content-policy revision outbox have evidence; TLS plus concurrent
   multi-Gateway/multi-Silo ordering is not a release gate yet.
