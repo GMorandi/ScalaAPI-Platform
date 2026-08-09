@@ -10,8 +10,8 @@ read-only requirements reference and is excluded from builds and runtime.
 
 | Repository | Commit | Worktree | Role |
 | --- | --- | --- | --- |
-| `gateway` | `9c7171f` | clean | C++ HTTP/WebSocket edge, protocol parsing/conversion, streaming, strict Provider media contracts, bounded stream header/client timeouts, distinct inter-chunk/total timer tests, normalized Provider availability errors, shared retryable Platform transport policy for HTTP and realtime dispatch, Photon WebSocket URL normalization, transport/evidence, charge-aware failover, durable usage delivery, authenticated Garnet projections, deterministic fault boundaries, and late-usage settlement from truncated SSE |
-| `platform` | `48c3ddd` | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, identity/TOTP and OAuth PKCE abuse state, Provider OAuth credential refresh and secret-free audit history, API-key scopes/expiry and denial audit, bounded token-endpoint timeout classification, scheduling, evidence-backed leases/holds/ledger, audited operator resolution, restart-safe active-lease dispatch recovery, media lifecycle, Admin API/Web/User Web, HTTP/SSE/realtime and OAuth Provider mock fixtures, dependency-free full-stack smoke assertions, verified Gateway image override support, migrations, deterministic Platform/Gateway fault boundaries, and Garnet deployment gates |
+| `gateway` | `52a0035` | clean | C++ HTTP/WebSocket edge, protocol parsing/conversion, streaming, strict Provider media contracts, bounded stream header/client timeouts, distinct inter-chunk/total timer tests, normalized Provider availability errors, shared retryable Platform transport policy for HTTP and realtime dispatch, Photon WebSocket URL normalization, transport/evidence, charge-aware failover, durable usage delivery, authenticated Garnet projections, deterministic fault boundaries, late-usage settlement from truncated SSE, and HTTP 403 capability-denial mapping |
+| `platform` | `bbd77a4` | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, identity/TOTP and OAuth PKCE abuse state, Provider OAuth credential refresh and secret-free audit history, API-key scopes/expiry and denial audit, typed JSONB policy projections, bounded token-endpoint timeout classification, scheduling, evidence-backed leases/holds/ledger, audited operator resolution, restart-safe active-lease dispatch recovery, media lifecycle, Admin API/Web/User Web, HTTP/SSE/realtime and OAuth Provider mock fixtures, dependency-free full-stack smoke assertions, verified Gateway image override support, migrations, deterministic Platform/Gateway fault boundaries, and Garnet deployment gates |
 | `sub2api` | `43ec48d` | read-only clean | Requirements catalogue only; never a runtime or compatibility dependency |
 
 The current tracked inventory is:
@@ -244,7 +244,7 @@ current-source runtime evidence.
 
 ## Current verification evidence
 
-At Platform `48c3ddd` and Gateway `9c7171f`:
+At Platform `bbd77a4` and Gateway `52a0035`:
 
 - Gateway built locally and passed 104/104 CTest cases, including deterministic
   fault-hook claim/repeat behavior, terminal SSE detection, provider EOF
@@ -268,7 +268,17 @@ At Platform `48c3ddd` and Gateway `9c7171f`:
   and expiry rejection. The schema gate requires `user_api_keys.scopes`,
   `expires_at_ms`, and the append-only `api_key_audit_events` table. The runtime
   container now includes migration `025-api-key-policy-audit.sql`; authenticated
-  HTTP audit-row and denied-capability empty-stack assertions remain a release gate.
+  HTTP audit-row and denied-capability empty-stack assertions are covered by the
+  latest source-built smoke; replay/concurrency and expired-key HTTP cases remain
+  release gates.
+- The latest source-built empty-volume project `scalaapi-key-policy-verified`
+  applied all 26 migration files and observed all 26 as `skip` on a second run.
+  An API key scoped only to `models` received HTTP 403 `permission_error` for
+  Chat, produced one `api_key_audit_events` denied row, and produced zero
+  request leases. The same run passed the Garnet-authenticated Gateway ->
+  Platform -> Provider path, NUMERIC settlement/replay, realtime WebSocket,
+  restart/recovery, audited reconciliation, Provider failure matrix, and
+  S3-compatible object assertions; its cleanup trap removed the temporary stack.
 - Admin Web and User Web typecheck and production builds passed; Admin Web now
   manages static/OAuth Provider credentials without reading stored secrets. The User Web
   build includes password recovery, email verification, authenticator security,

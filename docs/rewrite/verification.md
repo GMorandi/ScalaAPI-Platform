@@ -2,19 +2,23 @@
 
 ## Current evidence
 
-The latest source snapshot is Gateway `9c7171f` and Platform `48c3ddd`.
+The latest source snapshot is Gateway `52a0035` and Platform `bbd77a4`.
+The current source-built project `scalaapi-key-policy-verified` passed the
+26-migration empty-volume gate. A key scoped only to `models` received HTTP 403
+`permission_error` for Chat, produced one denied API-key audit row, and created
+no request lease; the full accounting, restart, realtime, reconciliation,
+Provider failure, and object-storage assertions also passed.
 The current source-built project `scalaapi-oauth-refresh-20260809` passed the
 full empty-volume gate after correcting the smoke DTO path to `.oAuth`: a seeded
 expired `mock-access-v1` credential rotated over real HTTP to version 2 before
 the first Chat dispatch, the request settled once, and Admin details remained
 secret-free. The cleanup trap removed all project resources and temporary image
 tags; the named `apitf_*` development resources were retained.
-The Platform `48c3ddd` policy slice passes the full 126-test suite and Release
+The Platform `bbd77a4` policy slice passes the full 126-test suite and Release
 build with zero warnings: API-key scope normalization and projection tests pass,
 unknown scopes are rejected, capability denials are classified before scheduling,
 and migration/schema checks require the new scope, expiry, and append-only audit
-state. Authenticated Admin/user HTTP audit rows and denied-capability rows are
-not yet part of the empty-stack smoke gate.
+state. Replay/concurrency and expired-key HTTP cases remain open.
 Gateway CTest is 104/104. The complete empty-volume gate passed in
 `scalaapi-realtime-smoke-20260809` with the 22-migration double-run,
 Garnet-authenticated request path, realtime WebSocket settlement, nine

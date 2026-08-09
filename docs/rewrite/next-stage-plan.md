@@ -2,7 +2,7 @@
 
 ## Checkpoint
 
-The next stage starts from Platform `48c3ddd`, Gateway `9c7171f`, and read-only
+The next stage starts from Platform `bbd77a4`, Gateway `52a0035`, and read-only
 reference `sub2api@43ec48d`.
 
 The greenfield baseline now starts from empty volumes, uses PostgreSQL as authority,
@@ -119,8 +119,8 @@ failed assertion makes the top-level command non-zero.
 Accounting authority completed at `c15b53b`, reconciliation foundation at
 `fddba62`, dispatch evidence at `6bfb974`/`84634d1`, audited resolution at
 `0559659`, and deterministic fault boundaries at `1cad5b7`/`30b8c2b`/`8c3d2e0`,
-with current streaming/empty-stack evidence in Gateway `9c7171f` and Platform
-`48c3ddd`:
+with current streaming/empty-stack evidence in Gateway `52a0035` and Platform
+`bbd77a4`:
 
 - Added one per-user `accounting_accounts` authority with NUMERIC posted balance
   and monotonically increasing ledger version.
@@ -235,7 +235,7 @@ an open incident can be resolved only through the audited settle/release contrac
 
 ## Work package 2: cancellation and streaming failure semantics
 
-Progress in Gateway `9c7171f` and Platform `48c3ddd`: the streaming pipe now requires a source protocol
+Progress in Gateway `52a0035` and Platform `bbd77a4`: the streaming pipe now requires a source protocol
 terminal event before treating Provider EOF as complete, classifies timeout/EOF as
 incomplete (including Photon incomplete chunked-body `-1/errno=0`), treats
 zero/error client writes as cancellation, records bounded
@@ -289,7 +289,7 @@ state, terminal lease, hold, usage, debit, idempotency, and reconciliation outco
 
 ## Work package 3: Provider and protocol contract fixtures
 
-The generic Provider OAuth runtime slice is complete at Platform `48c3ddd`:
+The generic Provider OAuth runtime slice is complete at Platform `bbd77a4`:
 the source-owned mock endpoint, real HTTP Platform-client contract tests, and
 `scalaapi-oauth-refresh-20260809` empty-stack assertion prove an expired encrypted
 credential rotates to version 2 before dispatch, settles once, and remains secret
@@ -324,7 +324,7 @@ refresh audit and multi-Silo evidence.
 
 ## Current P0 slice: API-key authorization boundary
 
-Platform `48c3ddd` now treats API-key policy as a new product contract. A key
+Platform `bbd77a4` now treats API-key policy as a new product contract. A key
 stores a normalized set of Gateway capability scopes (`messages`, `responses`,
 `embeddings`, media, realtime, and the provider-specific model capabilities) and
 an optional millisecond expiry. Platform checks the requested capability after
@@ -337,10 +337,11 @@ Admin and user create/update/rotate/revoke paths write the same scope/expiry
 projection and append actor, action, scope, and reason data to the new
 `api_key_audit_events` table. Runtime scope denials append a bounded audit event
 with request ID and never persist plaintext credentials. The 62-case Grain suite,
-schema assertion, Release build, and full 126-test Platform run pass. The slice
-intentionally remains `partial` until authenticated HTTP replay/concurrency tests
-and an empty-stack proof show that denied requests create no lease, hold, or
-provider call and that policy audit rows survive restart.
+schema assertion, Release build, full 126-test Platform run, and
+`scalaapi-key-policy-verified` empty-stack proof pass. The smoke proves that
+denied requests create no lease, hold, or Provider call and that the policy
+denial audit row is persisted. The slice remains `partial` until authenticated
+HTTP replay/concurrency and expired-key cases are covered.
 
 Exit: one Admin create/update/revoke flow and one user rotate flow are exercised
 against a fresh PostgreSQL/Garnet stack; a scoped key is allowed for exactly one
