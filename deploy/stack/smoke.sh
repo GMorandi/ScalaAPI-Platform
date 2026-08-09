@@ -124,6 +124,7 @@ chat_price_version="smoke-chat-${suffix}-v1"
 media_price_version="smoke-media-${suffix}-v1"
 balance_idempotency_key="smoke-balance-${suffix}"
 gateway_hook_unknown_incidents=0
+gateway_hook_safe_expiry=0
 
 wait_for() {
     local description=$1
@@ -596,8 +597,16 @@ start_gateway_after_fault() {
 }
 
 gateway_fault_claimed() {
-    compose exec -T gateway test -f \
-        /var/lib/scalaapi/fault-hooks/gateway-after-provider-completion.claimed
+    local marker_name
+    case "${GATEWAY_FAULT_HOOK:-}" in
+        gateway.after_provider_completion)
+            marker_name=gateway-after-provider-completion.claimed ;;
+        gateway.before_provider_dispatch)
+            marker_name=gateway-before-provider-dispatch.claimed ;;
+        *)
+            return 1 ;;
+    esac
+    compose exec -T gateway test -f "/var/lib/scalaapi/fault-hooks/$marker_name"
 }
 
 gateway_fault_lease_reconciled() {
@@ -611,7 +620,22 @@ gateway_fault_lease_reconciled() {
                       WHERE h.lease_token = l.lease_token AND h.status = 'active');")" == "1" ]]
 }
 
-if [[ "${GATEWAY_FAULT_HOOK:-}" == "gateway.after_provider_completion" ]]; then
+gateway_fault_lease_safely_expired() {
+    [[ "$(db_query "
+        SELECT count(*) FROM request_leases l
+        WHERE l.request_id = '$gateway_fault_request_id'
+          AND l.status = 'expired'
+          AND NOT EXISTS (SELECT 1 FROM usage_events u WHERE u.lease_token = l.lease_token)
+          AND NOT EXISTS (SELECT 1 FROM usage_logs u WHERE u.lease_token = l.lease_token)
+          AND EXISTS (SELECT 1 FROM balance_holds h
+                      WHERE h.lease_token = l.lease_token AND h.status = 'released')
+          AND EXISTS (SELECT 1 FROM request_idempotency i
+                      WHERE i.idempotency_key = '$gateway_fault_idempotency_key'
+                        AND i.status = 'expired');")" == "1" ]]
+}
+
+if [[ "${GATEWAY_FAULT_HOOK:-}" == "gateway.after_provider_completion" ||
+      "${GATEWAY_FAULT_HOOK:-}" == "gateway.before_provider_dispatch" ]]; then
     set +e
     curl -sS --max-time 30 "$gateway_url/v1/chat/completions" \
         -H "Authorization: Bearer $api_key" -H "Content-Type: application/json" \
@@ -621,14 +645,20 @@ if [[ "${GATEWAY_FAULT_HOOK:-}" == "gateway.after_provider_completion" ]]; then
     gateway_fault_exit=$?
     set -e
     if (( gateway_fault_exit == 0 )); then
-        echo "Gateway after-provider-completion hook did not fail the request" >&2
+        echo "Gateway fault hook did not fail the request" >&2
         exit 1
     fi
     start_gateway_after_fault
-    wait_for "Gateway after-provider-completion marker" 30 gateway_fault_claimed
-    wait_for "Gateway hook lease reconciliation" 60 gateway_fault_lease_reconciled
-    gateway_hook_unknown_incidents=1
-    echo "PASS: Gateway after-provider-completion crash retained one reconciliable lease"
+    wait_for "Gateway fault hook marker" 30 gateway_fault_claimed
+    if [[ "${GATEWAY_FAULT_HOOK}" == "gateway.before_provider_dispatch" ]]; then
+        wait_for "Gateway before-provider-dispatch safe expiry" 60 gateway_fault_lease_safely_expired
+        gateway_hook_safe_expiry=1
+        echo "PASS: Gateway before-provider-dispatch crash safely expired one held lease"
+    else
+        wait_for "Gateway hook lease reconciliation" 60 gateway_fault_lease_reconciled
+        gateway_hook_unknown_incidents=1
+        echo "PASS: Gateway after-provider-completion crash retained one reconciliable lease"
+    fi
 fi
 
 chat_response="$(curl -fsS "$gateway_url/v1/chat/completions" \
@@ -881,5 +911,8 @@ echo "PASS: new billable requests after Platform and Gateway restarts"
 echo "PASS: isolated 429/500 no-charge, truncated-stream late usage settlement, and unknown-charge failures"
 if (( gateway_hook_unknown_incidents > 0 )); then
     echo "PASS: Gateway fault hook recovery and retained reconciliation evidence"
+fi
+if (( gateway_hook_safe_expiry > 0 )); then
+    echo "PASS: Gateway fault hook recovery and safe held-lease expiry"
 fi
 echo "PASS: S3-compatible bucket bootstrap, object persistence, and signed download ($media_size bytes)"
