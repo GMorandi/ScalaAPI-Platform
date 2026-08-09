@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Text.Json;
 
 namespace ScalaAPI.Provider.Mock;
@@ -25,6 +26,57 @@ internal static class MockProviderHelpers
         var length = root.GetRawText().Length;
         return Math.Clamp((length + 3) / 4, 1, 4096);
     }
+
+    public static int EmbeddingInputCount(JsonElement root)
+    {
+        if (!root.TryGetProperty("input", out var input)) return 0;
+        return input.ValueKind == JsonValueKind.Array ? input.GetArrayLength() : 1;
+    }
+
+    public static int EmbeddingDimensions(JsonElement root)
+    {
+        if (root.TryGetProperty("dimensions", out var dimensions)
+            && dimensions.ValueKind == JsonValueKind.Number
+            && dimensions.TryGetInt32(out var value))
+            return value;
+        return 4;
+    }
+
+    public static string EmbeddingEncoding(JsonElement root) =>
+        root.TryGetProperty("encoding_format", out var encoding)
+        && encoding.ValueKind == JsonValueKind.String
+            ? encoding.GetString() ?? "float"
+            : "float";
+
+    public static int EstimateEmbeddingInputTokens(JsonElement root)
+    {
+        if (!root.TryGetProperty("input", out var input)) return 0;
+        var total = input.ValueKind == JsonValueKind.Array
+            ? input.EnumerateArray().Sum(EstimateStringTokens)
+            : EstimateStringTokens(input);
+        return Math.Clamp(total, 1, 4096);
+    }
+
+    public static double[] EmbeddingValues(int inputIndex, int dimensions) =>
+        Enumerable.Range(0, dimensions)
+            .Select(dimension => Math.Round(
+                0.125 + ((inputIndex * 31 + dimension * 17) % 100) / 100.0, 6))
+            .ToArray();
+
+    public static string EmbeddingBase64(int inputIndex, int dimensions)
+    {
+        var bytes = new byte[checked(dimensions * sizeof(float))];
+        var values = EmbeddingValues(inputIndex, dimensions);
+        for (var offset = 0; offset < values.Length; offset++)
+            BinaryPrimitives.WriteInt32LittleEndian(bytes.AsSpan(offset * sizeof(float)),
+                BitConverter.SingleToInt32Bits((float)values[offset]));
+        return Convert.ToBase64String(bytes);
+    }
+
+    private static int EstimateStringTokens(JsonElement value) =>
+        value.ValueKind == JsonValueKind.String
+            ? Math.Clamp(((value.GetString()?.Length ?? 0) + 3) / 4, 1, 4096)
+            : 0;
 
     public static string Scenario(HttpContext context, JsonElement root)
     {

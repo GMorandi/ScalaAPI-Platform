@@ -224,12 +224,36 @@ app.MapGet("/v1/responses", async (HttpContext context, CancellationToken cancel
 app.MapPost("/v1/embeddings", async (HttpContext context, CancellationToken cancellationToken) =>
 {
     using var body = await MockProviderHelpers.ReadJsonAsync(context, cancellationToken);
-    var model = MockProviderHelpers.Model(body.RootElement, "text-embedding-3-small");
-    var inputTokens = MockProviderHelpers.EstimateInputTokens(body.RootElement);
+    var root = body.RootElement;
+    var model = MockProviderHelpers.Model(root, "text-embedding-3-small");
+    var scenario = MockProviderHelpers.Scenario(context, root).ToLowerInvariant();
+    if (scenario == "429")
+        return Results.Json(new { error = new { code = "mock_rate_limited" } }, statusCode: 429);
+    if (scenario == "500")
+        return Results.Json(new { error = new { code = "mock_upstream_failure" } }, statusCode: 500);
+    if (scenario == "malformed")
+        return Results.Text("{not-json", "application/json", statusCode: 200);
+
+    var inputCount = MockProviderHelpers.EmbeddingInputCount(root);
+    var dimensions = MockProviderHelpers.EmbeddingDimensions(root);
+    var encoding = MockProviderHelpers.EmbeddingEncoding(root);
+    if (inputCount is < 1 or > 2048 || dimensions is < 1 or > 8192
+        || (encoding != "float" && encoding != "base64"))
+        return Results.Json(new { error = new { code = "invalid_embedding_request" } }, statusCode: 400);
+    var responseDimensions = scenario == "invalid_response" ? dimensions + 1 : dimensions;
+    var data = Enumerable.Range(0, inputCount).Select(index => new
+    {
+        @object = "embedding",
+        index,
+        embedding = encoding == "base64"
+            ? (object)MockProviderHelpers.EmbeddingBase64(index, responseDimensions)
+            : MockProviderHelpers.EmbeddingValues(index, responseDimensions)
+    }).ToArray();
+    var inputTokens = MockProviderHelpers.EstimateEmbeddingInputTokens(root);
     return Results.Ok(new
     {
         @object = "list",
-        data = new[] { new { @object = "embedding", index = 0, embedding = new[] { 0.125, 0.25, 0.5, 0.75 } } },
+        data,
         model,
         usage = new { prompt_tokens = inputTokens, total_tokens = inputTokens }
     });

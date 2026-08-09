@@ -60,4 +60,18 @@ public sealed class MockProviderHelpersTests
 
         Assert.Equal("success", MockProviderHelpers.Scenario(context, body.RootElement));
     }
+
+    [Fact]
+    public void EmbeddingHelpersPreserveInputCountDimensionsAndEncoding()
+    {
+        using var body = JsonDocument.Parse("""
+            {"input":["hello","world"],"dimensions":3,"encoding_format":"base64"}
+            """);
+
+        Assert.Equal(2, MockProviderHelpers.EmbeddingInputCount(body.RootElement));
+        Assert.Equal(3, MockProviderHelpers.EmbeddingDimensions(body.RootElement));
+        Assert.Equal("base64", MockProviderHelpers.EmbeddingEncoding(body.RootElement));
+        Assert.Equal(16, MockProviderHelpers.EmbeddingBase64(0, 3).Length);
+        Assert.True(MockProviderHelpers.EstimateEmbeddingInputTokens(body.RootElement) > 0);
+    }
 }

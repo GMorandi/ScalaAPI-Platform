@@ -116,6 +116,12 @@ user_email="smoke-${suffix}@scalaapi.test"
 user_password="smoke-user-${suffix}-password"
 chat_request_id="smoke-chat-${suffix}"
 chat_idempotency_key="smoke-chat-idem-${suffix}"
+embedding_request_id="smoke-embeddings-${suffix}"
+embedding_idempotency_key="smoke-embeddings-idem-${suffix}"
+embedding_base64_request_id="smoke-embeddings-base64-${suffix}"
+embedding_base64_idempotency_key="smoke-embeddings-base64-idem-${suffix}"
+embedding_invalid_request_id="smoke-embeddings-invalid-${suffix}"
+embedding_invalid_idempotency_key="smoke-embeddings-invalid-idem-${suffix}"
 concurrent_request_id="smoke-chat-concurrent-${suffix}"
 concurrent_idempotency_key="smoke-chat-concurrent-idem-${suffix}"
 expired_key_request_id="smoke-expired-key-${suffix}"
@@ -134,6 +140,7 @@ realtime_idempotency_key="smoke-realtime-idem-${suffix}"
 fault_request_prefix="smoke-fault-${suffix}"
 media_idempotency_key="smoke-media-idem-${suffix}"
 chat_price_version="smoke-chat-${suffix}-v1"
+embedding_price_version="smoke-embeddings-${suffix}-v1"
 media_price_version="smoke-media-${suffix}-v1"
 balance_idempotency_key="smoke-balance-${suffix}"
 gateway_hook_unknown_incidents=0
@@ -793,6 +800,11 @@ admin_request POST /admin/pricing/versions \
         '{version:$version,model:$model,inputUsdPerMillion:2.5,outputUsdPerMillion:10,cacheReadUsdPerMillion:0,cacheWriteUsdPerMillion:1.25,effectiveFrom:$from,effectiveUntil:null}')" \
     "$admin_token" >/dev/null
 admin_request POST /admin/pricing/versions \
+    "$(jq -cn --arg version "$embedding_price_version" --arg model text-embedding-3-small \
+        --arg from "$effective_from" \
+        '{version:$version,model:$model,inputUsdPerMillion:0.1,outputUsdPerMillion:0,cacheReadUsdPerMillion:0,cacheWriteUsdPerMillion:0,effectiveFrom:$from,effectiveUntil:null}')" \
+    "$admin_token" >/dev/null
+admin_request POST /admin/pricing/versions \
     "$(jq -cn --arg version "$media_price_version" --arg model mock-image-1 \
         --arg from "$effective_from" \
         '{version:$version,model:$model,inputUsdPerMillion:0,outputUsdPerMillion:0,cacheReadUsdPerMillion:0,cacheWriteUsdPerMillion:0,effectiveFrom:$from,effectiveUntil:null}')" \
@@ -979,6 +991,38 @@ chat_response="$(curl -fsS "$gateway_url/v1/chat/completions" \
     --data "$chat_body")"
 jq -e '(.choices | length > 0) and (.usage.total_tokens > 0)' \
     <<<"$chat_response" >/dev/null
+
+embedding_response="$(curl -fsS "$gateway_url/v1/embeddings" \
+    -H "Authorization: Bearer $api_key" -H "Content-Type: application/json" \
+    -H "X-Request-ID: $embedding_request_id" -H "Idempotency-Key: $embedding_idempotency_key" \
+    --data '{"model":"text-embedding-3-small","input":["hello","world"],"dimensions":3,"encoding_format":"float"}')"
+jq -e '(.data | length == 2) and all(.data[]; (.embedding | length == 3)) and (.usage.prompt_tokens > 0) and (.usage.total_tokens > 0)' \
+    <<<"$embedding_response" >/dev/null
+
+embedding_base64_response="$(curl -fsS "$gateway_url/v1/embeddings" \
+    -H "Authorization: Bearer $api_key" -H "Content-Type: application/json" \
+    -H "X-Request-ID: $embedding_base64_request_id" -H "Idempotency-Key: $embedding_base64_idempotency_key" \
+    --data '{"model":"text-embedding-3-small","input":"hello","dimensions":2,"encoding_format":"base64"}')"
+jq -e '(.data | length == 1) and (.data[0].embedding | type == "string" and length == 12) and (.usage.total_tokens > 0)' \
+    <<<"$embedding_base64_response" >/dev/null
+
+embedding_settled() {
+    [[ "$(db_query "SELECT count(*) FROM request_leases WHERE request_id IN ('$embedding_request_id', '$embedding_base64_request_id') AND status = 'completed' AND final_cost_usd > 0 AND pricing_version = '$embedding_price_version';")" == "2" ]]
+}
+wait_for "embedding settlement" 30 embedding_settled
+echo "PASS: Embeddings input count, dimensions, float/base64 encoding, and usage settlement"
+
+embedding_invalid_response="$(curl -sS --max-time 30 --write-out $'\n%{http_code}' "$gateway_url/v1/embeddings" \
+    -H "Authorization: Bearer $api_key" -H "Content-Type: application/json" \
+    -H "X-Request-ID: $embedding_invalid_request_id" -H "Idempotency-Key: $embedding_invalid_idempotency_key" \
+    --data '{"model":"text-embedding-3-small","input":"hello","dimensions":3,"mock_scenario":"invalid_response"}')"
+assert_equals "502" "${embedding_invalid_response##*$'\n'}" "Malformed embeddings provider response status"
+jq -e '.error.type == "provider_protocol_error"' <<<"${embedding_invalid_response%$'\n'*}" >/dev/null
+embedding_invalid_reconciled() {
+    [[ "$(db_query "SELECT count(*) FROM request_leases WHERE request_id = '$embedding_invalid_request_id' AND status = 'reconciliation_needed';")" == "1" ]]
+}
+wait_for "malformed embeddings reconciliation hold" 30 embedding_invalid_reconciled
+echo "PASS: Malformed embeddings provider response retained an unknown-charge lease"
 oauth_account="$(admin_request GET "/admin/accounts/$openai_account_id" '' "$admin_token")"
 assert_equals "2|true" "$(jq -r '.oAuth.version|tostring' <<<"$oauth_account")|$(jq -r '.oAuth.expiresAtUnixSeconds > now' <<<"$oauth_account")" \
     "Expired Provider OAuth credential refreshed before dispatch"
@@ -1219,7 +1263,7 @@ SELECT
   (SELECT count(*) FROM usage_events WHERE request_id = '$chat_request_id') || '|' ||
   (SELECT count(*) FROM usage_logs WHERE request_id = '$chat_request_id') || '|' ||
   (SELECT count(*) FROM balance_ledger l JOIN request_leases r ON r.lease_token = l.lease_token WHERE r.request_id = '$chat_request_id' AND l.entry_type = 'usage_debit' AND l.amount = -r.final_cost_usd);")"
-expected_unknown_incidents=$((9 + gateway_hook_unknown_incidents))
+expected_unknown_incidents=$((10 + gateway_hook_unknown_incidents))
 expected_open_after_resolution=$((expected_unknown_incidents - 1))
 assert_equals "0|${expected_unknown_incidents}|${expected_unknown_incidents}|0|0|1|1|1|1" \
     "$terminal_state" "Terminal billing invariants"
