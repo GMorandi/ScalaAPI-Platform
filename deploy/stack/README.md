@@ -33,7 +33,10 @@ API key, Provider mock groups, and active price versions through product APIs,
 then verifies chat settlement, idempotent replay, Garnet authentication, and an
 asynchronous image stored in the S3-compatible object store. It also restarts the
 Platform and Gateway separately, sends a new billable request after each restart,
-and checks the resulting lease, hold, usage, ledger, and outbox invariants.
+and checks the resulting lease, hold, usage, ledger, and outbox invariants. The
+same gate requires `python3` and probes the realtime WebSocket path with the
+source-owned `realtime_smoke.py` client, including the Provider session/usage
+frames and exactly-once lease, usage, hold, and ledger settlement assertions.
 
 The same gate seeds independent Provider mock accounts for HTTP 429, HTTP 500,
 malformed usage, upstream disconnect, and timeout scenarios. For every scenario
