@@ -55,18 +55,19 @@ public static class ApiKeyEndpoints
                 req.UserId, req.GroupId, req.Quota, req.ExpiresAt,
                 req.IpWhitelist, req.IpBlacklist,
                 req.RateLimit5h, req.RateLimit1d, req.RateLimit7d, scopes), id);
-            var entity = new UserApiKeyEntity
-            {
-                UserEmail = user.Email,
-                KeyHash = hash,
-                KeyPrefix = plainKey[..12],
-                ApiKeyId = id,
-                Status = "active",
-                CreatedAt = DateTime.UtcNow,
-                Scopes = JsonSerializer.Serialize(scopes),
-                ExpiresAtMs = req.ExpiresAt,
-            };
-            await db.Insertable(entity).ExecuteCommandAsync();
+            await db.Ado.ExecuteCommandAsync(
+                """
+                INSERT INTO user_api_keys
+                    (api_key_id, user_email, key_hash, key_prefix, status, created_at, scopes, expires_at_ms)
+                VALUES (@apiKeyId, @email, @hash, @prefix, 'active', @created, @scopes::jsonb, @expires::bigint)
+                """,
+                new SugarParameter("@apiKeyId", id),
+                new SugarParameter("@email", user.Email),
+                new SugarParameter("@hash", hash),
+                new SugarParameter("@prefix", plainKey[..12]),
+                new SugarParameter("@created", DateTime.UtcNow),
+                new SugarParameter("@scopes", JsonSerializer.Serialize(scopes)),
+                new SugarParameter("@expires", req.ExpiresAt));
             await repo.RegisterString("apiKey", hash, id);
             await audit.RecordAsync(id, req.UserId, actorId, "created", scopes, req.ExpiresAt);
 
@@ -90,7 +91,7 @@ public static class ApiKeyEndpoints
                 req.IpWhitelist, req.IpBlacklist,
                 req.RateLimit5h, req.RateLimit1d, req.RateLimit7d, scopes));
             await db.Ado.ExecuteCommandAsync(
-                "UPDATE user_api_keys SET scopes = @scopes::jsonb, expires_at_ms = @expires WHERE key_hash = @hash",
+                "UPDATE user_api_keys SET scopes = @scopes::jsonb, expires_at_ms = @expires::bigint WHERE key_hash = @hash",
                 new SugarParameter("@scopes", JsonSerializer.Serialize(scopes)),
                 new SugarParameter("@expires", req.ExpiresAt),
                 new SugarParameter("@hash", hash));

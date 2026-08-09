@@ -15,7 +15,7 @@ public sealed class ApiKeyAuditStore(NpgsqlDataSource dataSource)
             INSERT INTO api_key_audit_events
                 (api_key_id, user_id, actor_user_id, action, scopes,
                  expires_at_ms, capability, reason, request_id)
-            VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9)
+            VALUES ($1, $2, $3, $4, $5::jsonb, $6::bigint, $7, $8, $9)
             """);
         command.Parameters.AddWithValue(apiKeyId);
         command.Parameters.AddWithValue(userId);

@@ -580,6 +580,30 @@ SELECT
     "Administrative balance ledger invariants"
 
 api_key="$(create_api_key "$openai_group_id")"
+scoped_key_response="$(admin_request POST /admin/apikeys/ \
+    "$(jq -cn --argjson user "$user_id" --argjson group "$openai_group_id" \
+        '{userId:$user,groupId:$group,quota:100,expiresAt:null,scopes:["models"],ipWhitelist:[],ipBlacklist:[],rateLimit5h:0,rateLimit1d:0,rateLimit7d:0}')" \
+    "$admin_token")"
+scoped_api_key="$(jq -er '.key' <<<"$scoped_key_response")"
+scoped_api_key_id="$(jq -er '.id' <<<"$scoped_key_response")"
+scoped_request_id="smoke-scoped-denial-${suffix}"
+scoped_denial="$(curl -sS --max-time 20 --write-out $'\n%{http_code}' \
+    "$gateway_url/v1/chat/completions" \
+    -H "Authorization: Bearer $scoped_api_key" \
+    -H "Content-Type: application/json" \
+    -H "X-Request-ID: $scoped_request_id" \
+    -H "Idempotency-Key: ${scoped_request_id}-idem" \
+    --data '{"model":"gpt-4o","messages":[{"role":"user","content":"scope denial"}],"stream":false}')"
+scoped_denial_status="${scoped_denial##*$'\n'}"
+scoped_denial_body="${scoped_denial%$'\n'*}"
+assert_equals "403" "$scoped_denial_status" "Scoped API key denied capability status"
+jq -e '.error.type == "permission_error"' <<<"$scoped_denial_body" >/dev/null
+assert_equals "1|0" "$(db_query "
+SELECT
+  (SELECT count(*) FROM api_key_audit_events WHERE api_key_id = $scoped_api_key_id AND action = 'denied' AND capability = 'chat_completions') || '|' ||
+  (SELECT count(*) FROM request_leases WHERE request_id = '$scoped_request_id');")" \
+    "Scoped API key denial audit and lease invariants"
+echo "PASS: scoped API key denies chat capability with audited 403 and no lease"
 fault_429_api_key="$(create_api_key "$fault_429_group_id")"
 fault_500_api_key="$(create_api_key "$fault_500_group_id")"
 fault_timeout_api_key="$(create_api_key "$fault_timeout_group_id")"
@@ -1055,7 +1079,7 @@ if [[ "$garnet_probe" != *PONG* ]]; then
     exit 1
 fi
 
-echo "PASS: 25 empty-volume migrations and second-run idempotency"
+echo "PASS: 26 empty-volume migrations and second-run idempotency"
 echo "PASS: idempotent administrative funding, audit, conflict, and overdraft guards"
 echo "PASS: Garnet-authenticated Gateway -> Platform -> Provider mock request"
 echo "PASS: terminal lease, hold, usage, ledger, and outbox invariants"

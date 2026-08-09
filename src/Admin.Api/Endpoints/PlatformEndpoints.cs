@@ -108,7 +108,20 @@ public static class PlatformEndpoints
                 Scopes = JsonSerializer.Serialize(scopes),
                 ExpiresAtMs = req.ExpiresAt,
             };
-            await db.Insertable(entity).ExecuteCommandAsync();
+            await db.Ado.ExecuteCommandAsync(
+                """
+                INSERT INTO user_api_keys
+                    (api_key_id, user_email, key_hash, key_prefix, name, status, created_at, scopes, expires_at_ms)
+                VALUES (@apiKeyId, @email, @hash, @prefix, @name::text, 'active', @created, @scopes::jsonb, @expires::bigint)
+                """,
+                new SugarParameter("@apiKeyId", entity.ApiKeyId),
+                new SugarParameter("@email", entity.UserEmail),
+                new SugarParameter("@hash", entity.KeyHash),
+                new SugarParameter("@prefix", entity.KeyPrefix),
+                new SugarParameter("@name", (object?)entity.Name ?? DBNull.Value),
+                new SugarParameter("@created", entity.CreatedAt),
+                new SugarParameter("@scopes", entity.Scopes),
+                new SugarParameter("@expires", (object?)entity.ExpiresAtMs ?? DBNull.Value));
             entity.Id = Convert.ToInt64(await db.Ado.GetScalarAsync(
                 "SELECT id FROM user_api_keys WHERE key_hash = @hash",
                 new SugarParameter("@hash", keyHash)));
@@ -172,7 +185,20 @@ public static class PlatformEndpoints
                 Scopes = JsonSerializer.Serialize(config.Scopes),
                 ExpiresAtMs = config.ExpiresAt,
             };
-            await db.Insertable(replacement).ExecuteCommandAsync();
+            await db.Ado.ExecuteCommandAsync(
+                """
+                INSERT INTO user_api_keys
+                    (api_key_id, user_email, key_hash, key_prefix, name, status, created_at, scopes, expires_at_ms)
+                VALUES (@apiKeyId, @email, @hash, @prefix, @name::text, 'active', @created, @scopes::jsonb, @expires::bigint)
+                """,
+                new SugarParameter("@apiKeyId", replacement.ApiKeyId),
+                new SugarParameter("@email", replacement.UserEmail),
+                new SugarParameter("@hash", replacement.KeyHash),
+                new SugarParameter("@prefix", replacement.KeyPrefix),
+                new SugarParameter("@name", (object?)replacement.Name ?? DBNull.Value),
+                new SugarParameter("@created", replacement.CreatedAt),
+                new SugarParameter("@scopes", replacement.Scopes),
+                new SugarParameter("@expires", (object?)replacement.ExpiresAtMs ?? DBNull.Value));
             replacement.Id = Convert.ToInt64(await db.Ado.GetScalarAsync(
                 "SELECT id FROM user_api_keys WHERE key_hash = @hash",
                 new SugarParameter("@hash", keyHash)));
