@@ -527,6 +527,41 @@ register_response="$(admin_request POST /auth/register \
         '{email:$email,password:$password,displayName:"Compose smoke"}')")"
 user_id="$(jq -er '.id' <<<"$register_response")"
 
+user_login_response="$(admin_request POST /auth/login \
+    "$(jq -cn --arg email "$user_email" --arg password "$user_password" \
+        '{email:$email,password:$password}')")"
+user_access_token="$(jq -er '.token' <<<"$user_login_response")"
+user_refresh_token="$(jq -er '.refresh_token' <<<"$user_login_response")"
+user_refresh_response="$(admin_request POST /auth/refresh \
+    "$(jq -cn --arg refresh "$user_refresh_token" '{refreshToken:$refresh}')")"
+rotated_access_token="$(jq -er '.token' <<<"$user_refresh_response")"
+rotated_refresh_token="$(jq -er '.refresh_token' <<<"$user_refresh_response")"
+if [[ "$rotated_refresh_token" == "$user_refresh_token" ]]; then
+    echo "Refresh rotation returned the original refresh token" >&2
+    exit 1
+fi
+refresh_replay_status="$(compose exec -T admin-api curl -sS -o /dev/null -w '%{http_code}' \
+    -X POST -H 'Content-Type: application/json' \
+    --data "$(jq -cn --arg refresh "$user_refresh_token" '{refreshToken:$refresh}')" \
+    http://127.0.0.1:5001/auth/refresh)"
+assert_equals "401" "$refresh_replay_status" "Refresh-token replay rejection"
+old_access_status="$(compose exec -T admin-api curl -sS -o /dev/null -w '%{http_code}' \
+    -H "Authorization: Bearer $user_access_token" \
+    http://127.0.0.1:5001/user/sessions)"
+assert_equals "401" "$old_access_status" "Replaced access-token rejection"
+new_access_status="$(compose exec -T admin-api curl -sS -o /dev/null -w '%{http_code}' \
+    -H "Authorization: Bearer $rotated_access_token" \
+    http://127.0.0.1:5001/user/sessions)"
+assert_equals "200" "$new_access_status" "Rotated access-token acceptance"
+logout_status="$(compose exec -T admin-api curl -sS -o /dev/null -w '%{http_code}' \
+    -X POST -H "Authorization: Bearer $rotated_access_token" \
+    http://127.0.0.1:5001/user/logout)"
+assert_equals "204" "$logout_status" "User session logout"
+logout_access_status="$(compose exec -T admin-api curl -sS -o /dev/null -w '%{http_code}' \
+    -H "Authorization: Bearer $rotated_access_token" \
+    http://127.0.0.1:5001/user/sessions)"
+assert_equals "401" "$logout_access_status" "Logged-out access-token rejection"
+
 allowed_groups="$(jq -cn \
     --argjson openai "$openai_group_id" \
     --argjson fault429 "$fault_429_group_id" \
