@@ -29,4 +29,4 @@ public record ApiKeyCreateRequest(
 
 public record StatusRequest(string Status);
 public record BalanceRequest(decimal Delta, string Reason);
-public record ConfigUpdateRequest(string Key, string Value);
+public record ConfigUpdateRequest(string Key, string Value, long? ExpectedVersion = null);

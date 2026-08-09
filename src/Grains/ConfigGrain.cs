@@ -20,14 +20,24 @@ public class ConfigGrain : Grain, IConfigGrain
         _state = state;
     }
 
-    public Task<Dictionary<string, string>> Get() => Task.FromResult(_state.State.Settings);
+    public Task<Dictionary<string, string>> Get() =>
+        Task.FromResult(new Dictionary<string, string>(_state.State.Settings));
 
-    public async Task Update(string key, string value)
+    public Task<ConfigSnapshot> GetSnapshot() => Task.FromResult(Snapshot());
+
+    public async Task<ConfigSnapshot> Update(string key, string value, long? expectedVersion = null)
     {
+        ConfigValidation.Validate(key, value);
+        if (expectedVersion.HasValue && expectedVersion.Value != _state.State.Version)
+            throw new InvalidOperationException("config_version_conflict");
         _state.State.Settings[key] = value;
         _state.State.Version++;
         await _state.WriteStateAsync();
+        return Snapshot();
     }
 
     public Task<long> GetVersion() => Task.FromResult(_state.State.Version);
+
+    private ConfigSnapshot Snapshot() => new(
+        new Dictionary<string, string>(_state.State.Settings), _state.State.Version);
 }
