@@ -400,6 +400,9 @@ public class ContentAuditRuleEntity
     [SugarColumn(ColumnName = "status")]
     public string Status { get; set; } = "active";
 
+    [SugarColumn(ColumnName = "stage")]
+    public string Stage { get; set; } = "request";
+
     [SugarColumn(ColumnName = "created_at")]
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }
@@ -418,6 +421,12 @@ public class ContentAuditLogEntity
 
     [SugarColumn(ColumnName = "matched_rule")]
     public string MatchedRule { get; set; } = "";
+
+    [SugarColumn(ColumnName = "rule_id", IsNullable = true)]
+    public long? RuleId { get; set; }
+
+    [SugarColumn(ColumnName = "stage")]
+    public string Stage { get; set; } = "request";
 
     [SugarColumn(ColumnName = "action")]
     public string Action { get; set; } = "";

@@ -33,6 +33,7 @@ public sealed class ContentPolicyServiceTests
                 dataSource, NullLogger<ContentPolicyService>.Instance);
             var decision = await service.EvaluateAsync(userId, requestId,
                 "chat_completions", "chat_completions",
+                ContentPolicyStage.Request,
                 $"hello {blockPattern} world");
 
             Assert.False(decision.Allowed);
@@ -91,7 +92,8 @@ public sealed class ContentPolicyServiceTests
             var service = new ContentPolicyService(
                 dataSource, NullLogger<ContentPolicyService>.Instance);
             var decision = await service.EvaluateAsync(9_500_001L, requestId,
-                "chat_completions", "chat_completions", pattern);
+                "chat_completions", "chat_completions",
+                ContentPolicyStage.Request, pattern);
 
             Assert.True(decision.Allowed);
             Assert.Empty(decision.Matches);
@@ -115,10 +117,75 @@ public sealed class ContentPolicyServiceTests
         var service = new ContentPolicyService(
             dataSource, NullLogger<ContentPolicyService>.Instance);
         var decision = await service.EvaluateAsync(1, "oversized", "messages", "messages",
+            ContentPolicyStage.Request,
             new string('x', ContentPolicyService.MaxBodyBytes + 1));
 
         Assert.False(decision.Allowed);
         Assert.Equal("content_policy_payload_too_large", decision.Code);
         Assert.Empty(decision.Matches);
+    }
+
+    [Fact]
+    public async Task ResponseRuleIsStageScopedAndAuditWriteIsIdempotent()
+    {
+        var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
+        if (string.IsNullOrWhiteSpace(connectionString)) return;
+
+        var suffix = Guid.NewGuid().ToString("N");
+        var requestId = $"content-policy-response:{suffix}";
+        var pattern = $"response-{suffix}";
+        await using var dataSource = NpgsqlDataSource.Create(connectionString);
+        try
+        {
+            await using (var command = dataSource.CreateCommand("""
+                INSERT INTO content_audit_rules(pattern, action_type, scope, status, stage)
+                VALUES ($1, 'block', 'chat_completions', 'active', 'response')
+                """))
+            {
+                command.Parameters.AddWithValue(pattern);
+                await command.ExecuteNonQueryAsync();
+            }
+
+            var service = new ContentPolicyService(
+                dataSource, NullLogger<ContentPolicyService>.Instance);
+            var requestDecision = await service.EvaluateAsync(9_500_002L, requestId,
+                "chat_completions", "chat_completions",
+                ContentPolicyStage.Request, pattern);
+            Assert.True(requestDecision.Allowed);
+
+            var first = await service.EvaluateAsync(9_500_002L, requestId,
+                "chat_completions", "chat_completions",
+                ContentPolicyStage.Response, pattern);
+            var replay = await service.EvaluateAsync(9_500_002L, requestId,
+                "chat_completions", "chat_completions",
+                ContentPolicyStage.Response, pattern);
+            Assert.False(first.Allowed);
+            Assert.False(replay.Allowed);
+            Assert.Equal(first.Matches.Single().RuleId, replay.Matches.Single().RuleId);
+
+            await using var verify = dataSource.CreateCommand("""
+                SELECT count(*), min(stage)
+                FROM content_audit_logs
+                WHERE request_id = $1
+                """);
+            verify.Parameters.AddWithValue(requestId);
+            await using var reader = await verify.ExecuteReaderAsync();
+            Assert.True(await reader.ReadAsync());
+            Assert.Equal(1L, reader.GetInt64(0));
+            Assert.Equal("response", reader.GetString(1));
+        }
+        finally
+        {
+            await using (var cleanupLogs = dataSource.CreateCommand(
+                "DELETE FROM content_audit_logs WHERE request_id = $1"))
+            {
+                cleanupLogs.Parameters.AddWithValue(requestId);
+                await cleanupLogs.ExecuteNonQueryAsync();
+            }
+            await using var cleanupRule = dataSource.CreateCommand(
+                "DELETE FROM content_audit_rules WHERE pattern = $1");
+            cleanupRule.Parameters.AddWithValue(pattern);
+            await cleanupRule.ExecuteNonQueryAsync();
+        }
     }
 }

@@ -1103,7 +1103,7 @@ public static class PlatformEndpoints
                 return Results.BadRequest(new { error });
             rule.Id = id;
             var updated = await db.Updateable(rule)
-                .UpdateColumns(x => new { x.Pattern, x.ActionType, x.Scope, x.Status })
+                .UpdateColumns(x => new { x.Pattern, x.ActionType, x.Scope, x.Status, x.Stage })
                 .ExecuteCommandAsync();
             return updated == 0 ? Results.NotFound() : Results.Ok();
         });
@@ -1130,12 +1130,15 @@ public static class PlatformEndpoints
 
         group.MapPost("/check", async (ISqlSugarClient db, ContentCheckRequest req) =>
         {
+            var stage = string.Equals(req.Stage, "response", StringComparison.OrdinalIgnoreCase)
+                ? "response" : "request";
             var rules = await db.Queryable<ContentAuditRuleEntity>()
                 .Where(x => x.Status == "active").ToListAsync();
 
             var matches = new List<ContentAuditMatch>();
             foreach (var rule in rules)
             {
+                if (rule.Stage != "both" && rule.Stage != stage) continue;
                 if (req.Content.Contains(rule.Pattern, StringComparison.OrdinalIgnoreCase))
                 {
                     matches.Add(new ContentAuditMatch(rule.Id, rule.Pattern, rule.ActionType));
@@ -1145,6 +1148,7 @@ public static class PlatformEndpoints
                         UserId = req.UserId,
                         RequestId = req.RequestId,
                         MatchedRule = rule.Pattern,
+                        Stage = stage,
                         Action = rule.ActionType,
                         ContentSnippet = req.Content.Length > 200 ? req.Content[..200] : req.Content,
                         CreatedAt = DateTime.UtcNow,
@@ -1164,6 +1168,8 @@ public static class PlatformEndpoints
         var pattern = request.Pattern?.Trim() ?? "";
         var action = request.ActionType?.Trim().ToLowerInvariant() ?? "";
         var status = request.Status?.Trim().ToLowerInvariant() ?? "";
+        var stage = string.IsNullOrWhiteSpace(request.Stage)
+            ? "request" : request.Stage.Trim().ToLowerInvariant();
         var scope = string.IsNullOrWhiteSpace(request.Scope) ? null : request.Scope.Trim();
         if (pattern.Length is < 1 or > 512)
         {
@@ -1183,6 +1189,12 @@ public static class PlatformEndpoints
             error = "status_invalid";
             return false;
         }
+        if (stage is not ("request" or "response" or "both"))
+        {
+            rule = new();
+            error = "stage_invalid";
+            return false;
+        }
         if (scope is not null && (scope.Length > 128 || scope.Any(char.IsWhiteSpace)))
         {
             rule = new();
@@ -1195,6 +1207,7 @@ public static class PlatformEndpoints
             ActionType = action,
             Scope = scope,
             Status = status,
+            Stage = stage,
             CreatedAt = DateTime.UtcNow,
         };
         error = "";
@@ -1429,8 +1442,9 @@ public static class PlatformEndpoints
     private record RestoreRequest(string BackupId);
     private record EmailRequest(string To, string Subject, string Body, Dictionary<string, string>? TemplateVars);
     private record ReferralRecordRequest(long ReferrerUserId, long ReferredUserId, decimal BonusUsd);
-    private record ContentCheckRequest(string Content, long UserId, string? RequestId);
+    private record ContentCheckRequest(string Content, long UserId, string? RequestId,
+        string? Stage);
     private record ContentAuditRuleRequest(string? Pattern, string? ActionType,
-        string? Scope, string? Status);
+        string? Scope, string? Status, string? Stage);
     private record ContentAuditMatch(long Id, string Pattern, string ActionType);
 }

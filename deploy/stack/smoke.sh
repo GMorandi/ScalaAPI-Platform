@@ -494,10 +494,10 @@ wait_for "Admin API readiness" 60 compose exec -T admin-api \
 wait_for "User Web readiness" 60 curl -fsS "$user_web_url/" >/dev/null
 
 migration_count="$(db_query "SELECT count(*) FROM schema_migrations;")"
-assert_equals "28" "$migration_count" "Applied migration count"
+assert_equals "29" "$migration_count" "Applied migration count"
 second_migration_output="$(compose run --rm migrate 2>&1)"
 second_skip_count="$(grep -cE 'skip .+\.sql' <<<"$second_migration_output" || true)"
-assert_equals "28" "$second_skip_count" "Idempotent migrator skip count"
+assert_equals "29" "$second_skip_count" "Idempotent migrator skip count"
 
 login_response="$(admin_request POST /admin/auth/login \
     "$(jq -cn --arg username "$ADMIN_USERNAME" --arg password "$ADMIN_PASSWORD" \
@@ -691,7 +691,7 @@ content_policy_pattern="greenfield-policy-${suffix}"
 content_policy_request_id="smoke-content-policy-${suffix}"
 content_policy_rule="$(admin_request POST /admin/content-audit/rules \
     "$(jq -cn --arg pattern "$content_policy_pattern" \
-        '{pattern:$pattern,actionType:"block",scope:"chat_completions",status:"active"}')" \
+        '{pattern:$pattern,actionType:"block",scope:"chat_completions",status:"active",stage:"request"}')" \
     "$admin_token")"
 content_policy_rule_id="$(jq -er '.id' <<<"$content_policy_rule")"
 content_policy_response="$(curl -sS --max-time 20 --write-out $'\n%{http_code}' \
@@ -839,6 +839,63 @@ admin_request POST /admin/pricing/versions \
 
 sleep 6
 chat_body='{"model":"gpt-4o","messages":[{"role":"user","content":"greenfield compose smoke"}],"stream":false}'
+response_policy_pattern="mock response"
+response_policy_request_id="smoke-response-policy-${suffix}"
+response_policy_idempotency_key="${response_policy_request_id}-idem"
+response_policy_rule="$(admin_request POST /admin/content-audit/rules \
+    "$(jq -cn --arg pattern "$response_policy_pattern" \
+        '{pattern:$pattern,actionType:"block",scope:"chat_completions",status:"active",stage:"response"}')" \
+    "$admin_token")"
+response_policy_rule_id="$(jq -er '.id' <<<"$response_policy_rule")"
+response_policy_body="$(jq -cn --arg marker "$suffix" \
+    '{model:"gpt-4o",messages:[{role:"user",content:("response policy " + $marker)}],stream:false}')"
+response_policy_response="$(curl -sS --max-time 20 --write-out $'\n%{http_code}' \
+    "$gateway_url/v1/chat/completions" \
+    -H "Authorization: Bearer $api_key" \
+    -H "Content-Type: application/json" \
+    -H "X-Request-ID: $response_policy_request_id" \
+    -H "Idempotency-Key: $response_policy_idempotency_key" \
+    --data "$response_policy_body")"
+assert_equals "400" "${response_policy_response##*$'\n'}" \
+    "Response content policy block status"
+jq -e '.error.type == "content_policy_violation"' \
+    <<<"${response_policy_response%$'\n'*}" >/dev/null
+
+response_policy_state=""
+for attempt in $(seq 1 30); do
+    response_policy_state="$(db_query "
+SELECT
+  (SELECT count(*) FROM content_audit_logs WHERE request_id = '$response_policy_request_id' AND stage = 'response' AND action = 'block') || '|' ||
+  (SELECT count(*) FROM request_leases WHERE request_id = '$response_policy_request_id' AND status = 'completed') || '|' ||
+  (SELECT count(*) FROM balance_holds h JOIN request_leases l USING (lease_token) WHERE l.request_id = '$response_policy_request_id' AND h.status = 'committed') || '|' ||
+  (SELECT count(*) FROM usage_events u WHERE u.request_id = '$response_policy_request_id') || '|' ||
+  (SELECT count(*) FROM usage_logs u WHERE u.request_id = '$response_policy_request_id') || '|' ||
+  (SELECT count(*) FROM balance_ledger b JOIN request_leases l USING (lease_token) WHERE l.request_id = '$response_policy_request_id' AND b.entry_type = 'usage_debit') || '|' ||
+  (SELECT count(*) FROM request_idempotency WHERE idempotency_key = '$response_policy_idempotency_key' AND status = 'completed' AND response_status_code = 400);")"
+    [[ "$response_policy_state" == "1|1|1|1|1|1|1" ]] && break
+    sleep 1
+done
+assert_equals "1|1|1|1|1|1|1" "$response_policy_state" \
+    "Response content policy settlement invariants"
+response_policy_replay="$(curl -sS --max-time 20 --write-out $'\n%{http_code}' \
+    "$gateway_url/v1/chat/completions" \
+    -H "Authorization: Bearer $api_key" \
+    -H "Content-Type: application/json" \
+    -H "X-Request-ID: ${response_policy_request_id}-replay" \
+    -H "Idempotency-Key: $response_policy_idempotency_key" \
+    --data "$response_policy_body")"
+assert_equals "400" "${response_policy_replay##*$'\n'}" \
+    "Response content policy replay status"
+jq -e '.error.type == "content_policy_violation"' \
+    <<<"${response_policy_replay%$'\n'*}" >/dev/null
+assert_equals "1|1|1" "$(db_query "
+SELECT
+  (SELECT count(*) FROM content_audit_logs WHERE request_id = '$response_policy_request_id' AND stage = 'response') || '|' ||
+  (SELECT count(*) FROM request_leases WHERE request_id = '$response_policy_request_id') || '|' ||
+  (SELECT count(*) FROM balance_ledger b JOIN request_leases l USING (lease_token) WHERE l.request_id = '$response_policy_request_id' AND b.entry_type = 'usage_debit');")" \
+    "Response content policy replay idempotency"
+admin_request DELETE "/admin/content-audit/rules/$response_policy_rule_id" "" "$admin_token" >/dev/null
+echo "PASS: response content policy with hidden output, normal settlement, and exact replay"
 start_platform_after_fault() {
     # Podman Compose may leave an exited container stopped even with
     # restart: on-failure. Start the same container so the SQL lease and
@@ -1385,7 +1442,7 @@ if [[ "$garnet_probe" != *PONG* ]]; then
     exit 1
 fi
 
-echo "PASS: 28 empty-volume migrations and second-run idempotency"
+echo "PASS: 29 empty-volume migrations and second-run idempotency"
 echo "PASS: idempotent administrative funding, audit, conflict, and overdraft guards"
 echo "PASS: Garnet-authenticated Gateway -> Platform -> Provider mock request"
 echo "PASS: terminal lease, hold, usage, ledger, and outbox invariants"

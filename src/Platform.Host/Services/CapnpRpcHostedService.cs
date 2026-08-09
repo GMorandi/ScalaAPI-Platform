@@ -142,6 +142,7 @@ public class CapnpRpcHostedService : IHostedService
                 4 => await HandleUpstreamErrorAsync(dispatchService, capnpData),
                 5 => await HandleMediaOperationAsync(dispatchService, capnpData),
                 6 => await HandleLeaseEvidenceAsync(dispatchService, capnpData),
+                7 => await HandleContentPolicyAsync(dispatchService, capnpData),
                 _ => SerializeRejectResponse("unknown method"),
             };
         }
@@ -153,6 +154,9 @@ public class CapnpRpcHostedService : IHostedService
                 : method is 5
                     ? SerializeMediaOperationResponse(MediaOperationRpcResult.Error(
                         500, "platform_error", "Platform media operation failed"))
+                : method is 7
+                    ? SerializeContentPolicyResponse(ContentPolicyRpcResult.Error(
+                        "platform_error", "Content policy service failed", retryable: true))
                 : method == 1
                     ? SerializeRejectResponse("Platform dispatch failed; retry may be safe",
                         CapnpGen.RejectInfo.RejectCode.platformUnavailable)
@@ -460,6 +464,33 @@ public class CapnpRpcHostedService : IHostedService
         return SerializeToFrame(0x85, message.Frame);
     }
 
+    private static async Task<byte[]> HandleContentPolicyAsync(
+        DispatchService svc, ReadOnlyMemory<byte> capnpData)
+    {
+        var state = DeserializeRoot(capnpData);
+        var request = CapnpSerializable.Create<CapnpGen.ContentPolicyRequest>(state)
+            ?? throw new InvalidDataException("Missing content policy request root");
+        var stage = request.TheStage == CapnpGen.ContentPolicyRequest.Stage.response
+            ? ContentPolicyStage.Response : ContentPolicyStage.Request;
+        var result = await svc.HandleContentPolicy(new ContentPolicyRpcRequest(
+            request.LeaseToken ?? "", request.Content ?? "",
+            request.Capability ?? "", stage));
+        return SerializeContentPolicyResponse(result);
+    }
+
+    private static byte[] SerializeContentPolicyResponse(ContentPolicyRpcResult result)
+    {
+        var message = MessageBuilder.Create();
+        var writer = message.BuildRoot<CapnpGen.ContentPolicyResponse.WRITER>();
+        writer.Evaluated = result.Evaluated;
+        writer.Allowed = result.Allowed;
+        writer.Retryable = result.Retryable;
+        writer.ErrorCode = result.ErrorCode;
+        writer.MatchedRuleId = result.MatchedRuleId;
+        writer.Message = result.Message;
+        return SerializeToFrame(0x87, message.Frame);
+    }
+
     private static byte[] SerializeEmptyResponse(byte method)
     {
         return [method];
@@ -575,7 +606,8 @@ public class DispatchService
         }
 
         var contentDecision = await _contentPolicy.EvaluateAsync(
-            auth.UserId, req.RequestId, req.Endpoint, requestedCapability, req.RequestBody);
+            auth.UserId, req.RequestId, req.Endpoint, requestedCapability,
+            ContentPolicyStage.Request, req.RequestBody);
         if (!contentDecision.Allowed)
         {
             var matched = contentDecision.Matches.FirstOrDefault(match => match.Action == "block");
@@ -975,6 +1007,38 @@ public class DispatchService
             req.ResponseStatusCode, req.ResponseContentType, req.ResponseBody));
     }
 
+    public async Task<ContentPolicyRpcResult> HandleContentPolicy(ContentPolicyRpcRequest req)
+    {
+        if (req.Stage != ContentPolicyStage.Response)
+            return ContentPolicyRpcResult.Error(
+                "content_policy_stage_invalid", "Only response-stage lease evaluation is supported");
+        if (string.IsNullOrWhiteSpace(req.LeaseToken))
+            return ContentPolicyRpcResult.Error(
+                "content_policy_lease_required", "A lease token is required");
+
+        var lease = await _leases.GetByLeaseTokenAsync(req.LeaseToken);
+        if (lease is null)
+            return ContentPolicyRpcResult.Error(
+                "content_policy_lease_not_found", "The request lease was not found");
+        if (lease.Status is not ("held" or "forwarded" or "output_started"
+            or "reconciliation_needed"))
+            return ContentPolicyRpcResult.Error(
+                "content_policy_lease_terminal", "The request lease is already terminal");
+
+        var capability = string.IsNullOrWhiteSpace(req.Capability)
+            ? lease.InboundEndpoint : req.Capability;
+        var decision = await _contentPolicy.EvaluateAsync(
+            lease.UserId, lease.RequestId, lease.InboundEndpoint, capability,
+            ContentPolicyStage.Response, req.Content);
+        if (decision.Allowed)
+            return ContentPolicyRpcResult.Passed();
+
+        var match = decision.Matches.FirstOrDefault(item => item.Action == "block");
+        return ContentPolicyRpcResult.Blocked(
+            decision.Code, match?.RuleId ?? 0,
+            "Provider response was withheld by the active content policy");
+    }
+
     public async Task<MediaOperationRpcResult> HandleMediaOperation(
         MediaOperationRpcRequest req)
     {
@@ -1253,6 +1317,22 @@ public sealed record MediaOperationRpcRequest(
     string ClientIp, string IdempotencyKey, string RequestFingerprint,
     string Status, string UpstreamTaskId, string OutputMetadata,
     string OutputUrl, string ContentType, int Progress);
+
+public sealed record ContentPolicyRpcRequest(
+    string LeaseToken, string Content, string Capability, ContentPolicyStage Stage);
+
+public sealed record ContentPolicyRpcResult(
+    bool Evaluated, bool Allowed, bool Retryable, string ErrorCode,
+    long MatchedRuleId, string Message)
+{
+    public static ContentPolicyRpcResult Passed() => new(true, true, false, "", 0, "");
+    public static ContentPolicyRpcResult Blocked(
+        string code, long ruleId, string message) =>
+        new(true, false, false, code, ruleId, message);
+    public static ContentPolicyRpcResult Error(
+        string code, string message, bool retryable = false) =>
+        new(false, false, retryable, code, 0, message);
+}
 
 public sealed record MediaOperationRpcResult(
     bool Accepted, int StatusCode, string OperationId, string OperationType,

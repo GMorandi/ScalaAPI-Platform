@@ -17,6 +17,7 @@ namespace CapnpGen
         Task<CapnpGen.WriteAck> ReportUpstreamError(CapnpGen.ErrorReport report, CancellationToken cancellationToken_ = default);
         Task<CapnpGen.MediaOperationResponse> MediaOperation(CapnpGen.MediaOperationRequest request, CancellationToken cancellationToken_ = default);
         Task<CapnpGen.WriteAck> RecordLeaseEvidence(CapnpGen.LeaseEvidence evidence, CancellationToken cancellationToken_ = default);
+        Task<CapnpGen.ContentPolicyResponse> EvaluateContent(CapnpGen.ContentPolicyRequest request, CancellationToken cancellationToken_ = default);
     }
 
     [System.CodeDom.Compiler.GeneratedCode("capnpc-csharp", "1.3.0.0"), TypeId(0xf48b621dd5cd54e3UL)]
@@ -99,6 +100,19 @@ namespace CapnpGen
                 return (r_.Ack);
             }
         }
+
+        public async Task<CapnpGen.ContentPolicyResponse> EvaluateContent(CapnpGen.ContentPolicyRequest request, CancellationToken cancellationToken_ = default)
+        {
+            var in_ = SerializerState.CreateForRpc<CapnpGen.GatewayDispatch.Params_EvaluateContent.WRITER>();
+            var arg_ = new CapnpGen.GatewayDispatch.Params_EvaluateContent()
+            {Request = request};
+            arg_?.serialize(in_);
+            using (var d_ = await Call(17621285847297774819UL, 6, in_.Rewrap<DynamicSerializerState>(), false, cancellationToken_).WhenReturned)
+            {
+                var r_ = CapnpSerializable.Create<CapnpGen.GatewayDispatch.Result_EvaluateContent>(d_);
+                return (r_.Response);
+            }
+        }
     }
 
     [System.CodeDom.Compiler.GeneratedCode("capnpc-csharp", "1.3.0.0"), TypeId(0xf48b621dd5cd54e3UL)]
@@ -106,7 +120,7 @@ namespace CapnpGen
     {
         public GatewayDispatch_Skeleton()
         {
-            SetMethodTable(Dispatch, ReportUsage, Abort, ReportUpstreamError, MediaOperation, RecordLeaseEvidence);
+            SetMethodTable(Dispatch, ReportUsage, Abort, ReportUpstreamError, MediaOperation, RecordLeaseEvidence, EvaluateContent);
         }
 
         public override ulong InterfaceId => 17621285847297774819UL;
@@ -204,6 +218,23 @@ namespace CapnpGen
                 {
                     var s_ = SerializerState.CreateForRpc<CapnpGen.GatewayDispatch.Result_RecordLeaseEvidence.WRITER>();
                     var r_ = new CapnpGen.GatewayDispatch.Result_RecordLeaseEvidence{Ack = ack};
+                    r_.serialize(s_);
+                    return s_;
+                }
+
+                );
+            }
+        }
+
+        Task<AnswerOrCounterquestion> EvaluateContent(DeserializerState d_, CancellationToken cancellationToken_)
+        {
+            using (d_)
+            {
+                var in_ = CapnpSerializable.Create<CapnpGen.GatewayDispatch.Params_EvaluateContent>(d_);
+                return Impatient.MaybeTailCall(Impl.EvaluateContent(in_.Request, cancellationToken_), response =>
+                {
+                    var s_ = SerializerState.CreateForRpc<CapnpGen.GatewayDispatch.Result_EvaluateContent.WRITER>();
+                    var r_ = new CapnpGen.GatewayDispatch.Result_EvaluateContent{Response = response};
                     r_.serialize(s_);
                     return s_;
                 }
@@ -930,6 +961,126 @@ namespace CapnpGen
                 public CapnpGen.WriteAck.WRITER Ack
                 {
                     get => BuildPointer<CapnpGen.WriteAck.WRITER>(0);
+                    set => Link(0, value);
+                }
+            }
+        }
+
+        [System.CodeDom.Compiler.GeneratedCode("capnpc-csharp", "1.3.0.0"), TypeId(0xc42867b1379e3dbcUL)]
+        public class Params_EvaluateContent : ICapnpSerializable
+        {
+            public const UInt64 typeId = 0xc42867b1379e3dbcUL;
+            void ICapnpSerializable.Deserialize(DeserializerState arg_)
+            {
+                var reader = READER.create(arg_);
+                Request = CapnpSerializable.Create<CapnpGen.ContentPolicyRequest>(reader.Request);
+                applyDefaults();
+            }
+
+            public void serialize(WRITER writer)
+            {
+                Request?.serialize(writer.Request);
+            }
+
+            void ICapnpSerializable.Serialize(SerializerState arg_)
+            {
+                serialize(arg_.Rewrap<WRITER>());
+            }
+
+            public void applyDefaults()
+            {
+            }
+
+            public CapnpGen.ContentPolicyRequest Request
+            {
+                get;
+                set;
+            }
+
+            public struct READER
+            {
+                readonly DeserializerState ctx;
+                public READER(DeserializerState ctx)
+                {
+                    this.ctx = ctx;
+                }
+
+                public static READER create(DeserializerState ctx) => new READER(ctx);
+                public static implicit operator DeserializerState(READER reader) => reader.ctx;
+                public static implicit operator READER(DeserializerState ctx) => new READER(ctx);
+                public CapnpGen.ContentPolicyRequest.READER Request => ctx.ReadStruct(0, CapnpGen.ContentPolicyRequest.READER.create);
+            }
+
+            public class WRITER : SerializerState
+            {
+                public WRITER()
+                {
+                    this.SetStruct(0, 1);
+                }
+
+                public CapnpGen.ContentPolicyRequest.WRITER Request
+                {
+                    get => BuildPointer<CapnpGen.ContentPolicyRequest.WRITER>(0);
+                    set => Link(0, value);
+                }
+            }
+        }
+
+        [System.CodeDom.Compiler.GeneratedCode("capnpc-csharp", "1.3.0.0"), TypeId(0xa5f211481e1b3d10UL)]
+        public class Result_EvaluateContent : ICapnpSerializable
+        {
+            public const UInt64 typeId = 0xa5f211481e1b3d10UL;
+            void ICapnpSerializable.Deserialize(DeserializerState arg_)
+            {
+                var reader = READER.create(arg_);
+                Response = CapnpSerializable.Create<CapnpGen.ContentPolicyResponse>(reader.Response);
+                applyDefaults();
+            }
+
+            public void serialize(WRITER writer)
+            {
+                Response?.serialize(writer.Response);
+            }
+
+            void ICapnpSerializable.Serialize(SerializerState arg_)
+            {
+                serialize(arg_.Rewrap<WRITER>());
+            }
+
+            public void applyDefaults()
+            {
+            }
+
+            public CapnpGen.ContentPolicyResponse Response
+            {
+                get;
+                set;
+            }
+
+            public struct READER
+            {
+                readonly DeserializerState ctx;
+                public READER(DeserializerState ctx)
+                {
+                    this.ctx = ctx;
+                }
+
+                public static READER create(DeserializerState ctx) => new READER(ctx);
+                public static implicit operator DeserializerState(READER reader) => reader.ctx;
+                public static implicit operator READER(DeserializerState ctx) => new READER(ctx);
+                public CapnpGen.ContentPolicyResponse.READER Response => ctx.ReadStruct(0, CapnpGen.ContentPolicyResponse.READER.create);
+            }
+
+            public class WRITER : SerializerState
+            {
+                public WRITER()
+                {
+                    this.SetStruct(0, 1);
+                }
+
+                public CapnpGen.ContentPolicyResponse.WRITER Response
+                {
+                    get => BuildPointer<CapnpGen.ContentPolicyResponse.WRITER>(0);
                     set => Link(0, value);
                 }
             }
@@ -2102,6 +2253,253 @@ namespace CapnpGen
         {
             forwarded,
             outputStarted
+        }
+    }
+
+    [System.CodeDom.Compiler.GeneratedCode("capnpc-csharp", "1.3.0.0"), TypeId(0x8ade1d879c2ce95eUL)]
+    public class ContentPolicyRequest : ICapnpSerializable
+    {
+        public const UInt64 typeId = 0x8ade1d879c2ce95eUL;
+        void ICapnpSerializable.Deserialize(DeserializerState arg_)
+        {
+            var reader = READER.create(arg_);
+            LeaseToken = reader.LeaseToken;
+            Content = reader.Content;
+            Capability = reader.Capability;
+            TheStage = reader.TheStage;
+            applyDefaults();
+        }
+
+        public void serialize(WRITER writer)
+        {
+            writer.LeaseToken = LeaseToken;
+            writer.Content = Content;
+            writer.Capability = Capability;
+            writer.TheStage = TheStage;
+        }
+
+        void ICapnpSerializable.Serialize(SerializerState arg_)
+        {
+            serialize(arg_.Rewrap<WRITER>());
+        }
+
+        public void applyDefaults()
+        {
+        }
+
+        public string LeaseToken
+        {
+            get;
+            set;
+        }
+
+        public string Content
+        {
+            get;
+            set;
+        }
+
+        public string Capability
+        {
+            get;
+            set;
+        }
+
+        public CapnpGen.ContentPolicyRequest.Stage TheStage
+        {
+            get;
+            set;
+        }
+
+        public struct READER
+        {
+            readonly DeserializerState ctx;
+            public READER(DeserializerState ctx)
+            {
+                this.ctx = ctx;
+            }
+
+            public static READER create(DeserializerState ctx) => new READER(ctx);
+            public static implicit operator DeserializerState(READER reader) => reader.ctx;
+            public static implicit operator READER(DeserializerState ctx) => new READER(ctx);
+            public string LeaseToken => ctx.ReadText(0, null);
+            public string Content => ctx.ReadText(1, null);
+            public string Capability => ctx.ReadText(2, null);
+            public CapnpGen.ContentPolicyRequest.Stage TheStage => (CapnpGen.ContentPolicyRequest.Stage)ctx.ReadDataUShort(0UL, (ushort)0);
+        }
+
+        public class WRITER : SerializerState
+        {
+            public WRITER()
+            {
+                this.SetStruct(1, 3);
+            }
+
+            public string LeaseToken
+            {
+                get => this.ReadText(0, null);
+                set => this.WriteText(0, value, null);
+            }
+
+            public string Content
+            {
+                get => this.ReadText(1, null);
+                set => this.WriteText(1, value, null);
+            }
+
+            public string Capability
+            {
+                get => this.ReadText(2, null);
+                set => this.WriteText(2, value, null);
+            }
+
+            public CapnpGen.ContentPolicyRequest.Stage TheStage
+            {
+                get => (CapnpGen.ContentPolicyRequest.Stage)this.ReadDataUShort(0UL, (ushort)0);
+                set => this.WriteData(0UL, (ushort)value, (ushort)0);
+            }
+        }
+
+        [System.CodeDom.Compiler.GeneratedCode("capnpc-csharp", "1.3.0.0"), TypeId(0xb08c6965b44050b4UL)]
+        public enum Stage : ushort
+        {
+            request,
+            response
+        }
+    }
+
+    [System.CodeDom.Compiler.GeneratedCode("capnpc-csharp", "1.3.0.0"), TypeId(0xba373659afcb7f43UL)]
+    public class ContentPolicyResponse : ICapnpSerializable
+    {
+        public const UInt64 typeId = 0xba373659afcb7f43UL;
+        void ICapnpSerializable.Deserialize(DeserializerState arg_)
+        {
+            var reader = READER.create(arg_);
+            Evaluated = reader.Evaluated;
+            Allowed = reader.Allowed;
+            Retryable = reader.Retryable;
+            ErrorCode = reader.ErrorCode;
+            MatchedRuleId = reader.MatchedRuleId;
+            Message = reader.Message;
+            applyDefaults();
+        }
+
+        public void serialize(WRITER writer)
+        {
+            writer.Evaluated = Evaluated;
+            writer.Allowed = Allowed;
+            writer.Retryable = Retryable;
+            writer.ErrorCode = ErrorCode;
+            writer.MatchedRuleId = MatchedRuleId;
+            writer.Message = Message;
+        }
+
+        void ICapnpSerializable.Serialize(SerializerState arg_)
+        {
+            serialize(arg_.Rewrap<WRITER>());
+        }
+
+        public void applyDefaults()
+        {
+        }
+
+        public bool Evaluated
+        {
+            get;
+            set;
+        }
+
+        public bool Allowed
+        {
+            get;
+            set;
+        }
+
+        public bool Retryable
+        {
+            get;
+            set;
+        }
+
+        public string ErrorCode
+        {
+            get;
+            set;
+        }
+
+        public long MatchedRuleId
+        {
+            get;
+            set;
+        }
+
+        public string Message
+        {
+            get;
+            set;
+        }
+
+        public struct READER
+        {
+            readonly DeserializerState ctx;
+            public READER(DeserializerState ctx)
+            {
+                this.ctx = ctx;
+            }
+
+            public static READER create(DeserializerState ctx) => new READER(ctx);
+            public static implicit operator DeserializerState(READER reader) => reader.ctx;
+            public static implicit operator READER(DeserializerState ctx) => new READER(ctx);
+            public bool Evaluated => ctx.ReadDataBool(0UL, false);
+            public bool Allowed => ctx.ReadDataBool(1UL, false);
+            public bool Retryable => ctx.ReadDataBool(2UL, false);
+            public string ErrorCode => ctx.ReadText(0, null);
+            public long MatchedRuleId => ctx.ReadDataLong(64UL, 0L);
+            public string Message => ctx.ReadText(1, null);
+        }
+
+        public class WRITER : SerializerState
+        {
+            public WRITER()
+            {
+                this.SetStruct(2, 2);
+            }
+
+            public bool Evaluated
+            {
+                get => this.ReadDataBool(0UL, false);
+                set => this.WriteData(0UL, value, false);
+            }
+
+            public bool Allowed
+            {
+                get => this.ReadDataBool(1UL, false);
+                set => this.WriteData(1UL, value, false);
+            }
+
+            public bool Retryable
+            {
+                get => this.ReadDataBool(2UL, false);
+                set => this.WriteData(2UL, value, false);
+            }
+
+            public string ErrorCode
+            {
+                get => this.ReadText(0, null);
+                set => this.WriteText(0, value, null);
+            }
+
+            public long MatchedRuleId
+            {
+                get => this.ReadDataLong(64UL, 0L);
+                set => this.WriteData(64UL, value, 0L);
+            }
+
+            public string Message
+            {
+                get => this.ReadText(1, null);
+                set => this.WriteText(1, value, null);
+            }
         }
     }
 
