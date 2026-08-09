@@ -957,18 +957,26 @@ public class DispatchService
             return MediaOperationRpcResult.Error(401, "authentication_error", "Invalid API key");
         }
 
-        if (!ApiKeyScopes.Allows(auth.Scopes, "images_async"))
+        MediaOperation? operation = req.Action == "lookup_idempotency"
+            ? await _mediaOperations.GetByIdempotencyAsync(auth.ApiKeyId, req.IdempotencyKey)
+            : string.IsNullOrWhiteSpace(req.OperationId)
+                ? null
+                : await _mediaOperations.GetAsync(auth.ApiKeyId, req.OperationId);
+        var requiredMediaScope = MediaScopeFor(operation?.OperationType);
+        var mediaAllowed = requiredMediaScope is null
+            ? ApiKeyScopes.Allows(auth.Scopes, "images_async")
+                || ApiKeyScopes.Allows(auth.Scopes, "images_batch")
+                || ApiKeyScopes.Allows(auth.Scopes, "videos")
+            : ApiKeyScopes.Allows(auth.Scopes, requiredMediaScope);
+        if (!mediaAllowed)
         {
-            await RecordDeniedScopeAsync(auth, "images_async", req.RequestId);
+            await RecordDeniedScopeAsync(auth, requiredMediaScope ?? "media", req.RequestId);
             return MediaOperationRpcResult.Error(403, "unsupported_capability",
-                "API key is not authorized for media operations");
+                "API key is not authorized for this media operation");
         }
 
-        MediaOperation? operation;
         if (req.Action == "lookup_idempotency")
         {
-            operation = await _mediaOperations.GetByIdempotencyAsync(
-                auth.ApiKeyId, req.IdempotencyKey);
             if (operation is null)
                 return MediaOperationRpcResult.Error(404, "not_found_error", "Media operation not found");
             if (!string.Equals(operation.RequestFingerprint, req.RequestFingerprint,
@@ -999,7 +1007,6 @@ public class DispatchService
                     req.Action == "fail" ? req.OutputMetadata : null);
                 break;
             case "delete":
-                operation = await _mediaOperations.GetAsync(auth.ApiKeyId, req.OperationId);
                 if (operation is null)
                     return MediaOperationRpcResult.Error(404, "not_found_error", "Media operation not found");
                 try
@@ -1019,7 +1026,6 @@ public class DispatchService
                     : MediaOperationRpcResult.Error(409, "operation_not_terminal",
                         "Only terminal media operations can be deleted");
             case "delete_outputs":
-                operation = await _mediaOperations.GetAsync(auth.ApiKeyId, req.OperationId);
                 if (operation is null)
                     return MediaOperationRpcResult.Error(404, "not_found_error", "Media operation not found");
                 try
@@ -1036,7 +1042,6 @@ public class DispatchService
                 operation = await _mediaOperations.ClearOutputsAsync(auth.ApiKeyId, req.OperationId);
                 break;
             default:
-                operation = await _mediaOperations.GetAsync(auth.ApiKeyId, req.OperationId);
                 break;
         }
 
@@ -1047,6 +1052,15 @@ public class DispatchService
             return MediaOperationRpcResult.Error(409, "output_not_ready", "Media output is not ready");
         return MediaOperationRpcResult.From(operation);
     }
+
+    private static string? MediaScopeFor(string? operationType) =>
+        operationType switch
+        {
+            null or "" => null,
+            var value when value.StartsWith("videos", StringComparison.Ordinal) => "videos",
+            var value when value.StartsWith("images_batch", StringComparison.Ordinal) => "images_batch",
+            _ => "images_async",
+        };
 
     public async Task<WriteAck> HandleAbort(string leaseToken, string reason,
         LeaseAbortDisposition disposition, int? providerStatusCode)

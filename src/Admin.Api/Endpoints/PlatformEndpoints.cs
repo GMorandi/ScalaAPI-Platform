@@ -1347,6 +1347,7 @@ public static class PlatformEndpoints
     {
         try { return ApiKeyScopes.Normalize(JsonSerializer.Deserialize<string[]>(json ?? "[\"*\"]")); }
         catch (JsonException) { return [ApiKeyScopes.Wildcard]; }
+        catch (ArgumentException) { return [ApiKeyScopes.Wildcard]; }
     }
 
     private static bool IsFutureExpiry(long? expiresAt) =>
