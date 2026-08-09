@@ -303,7 +303,7 @@ current-source runtime evidence.
 
 ## Current verification evidence
 
-At Platform `15cdfc0` and Gateway `ab09bf8`:
+At Platform `15cdfc0` and Gateway `3da0d33`:
 
 - Gateway built locally and passed 125/125 CTest cases, including deterministic
   fault-hook claim/repeat behavior, terminal SSE detection, provider EOF
@@ -523,6 +523,9 @@ At Platform `15cdfc0` and Gateway `ab09bf8`:
   usage/terminal-event handling, and cross-protocol converters. Gateway `ab09bf8`
   now maps cross-protocol Provider errors into target OpenAI, Anthropic, or Gemini
   envelopes while preserving same-protocol bodies and provider error codes.
+  Gateway `3da0d33` additionally translates Gateway-generated transport and
+  protocol failures to the inbound envelope even when the upstream format is
+  the same, while leaving explicit same-format Provider errors untouched.
 - Scheduler benchmark integrity dry run executed all 4 selected child benchmarks
   and returned zero. It is a failure-propagation check, not performance evidence.
 - `deploy/stack/smoke.sh` built current sibling sources in isolated Podman
@@ -628,7 +631,8 @@ Detailed gate results and residual coverage are maintained in `verification.md`.
   timer distinctions are pinned by Gateway `18083f9`. Gateway `ab09bf8` also
   normalizes cross-protocol Provider errors into the inbound protocol envelope
   and gives standard HTTP status semantics precedence over conflicting provider
-  labels; same-format errors remain byte-preserving.
+  labels; same-format explicit Provider errors remain byte-preserving, while
+  Gateway-generated failures use the inbound protocol envelope.
 - Source smoke now proves Platform before-provider-dispatch termination after lease
   creation with safe held expiry, Platform after-outbox-claim reclaim,
   pre-settlement-commit/post-commit/pre-outbox-acknowledgement crash boundaries,
