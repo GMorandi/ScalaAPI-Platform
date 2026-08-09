@@ -42,6 +42,7 @@ export default function Login() {
         <label class="block text-sm font-medium">Authenticator code <span class="font-normal text-slate-400">(when enabled)</span><input inputmode="numeric" value={totpCode()} onInput={e => setTotpCode(e.currentTarget.value)} class="field" /></label>
         <button disabled={busy()} class="primary w-full">{busy() ? "Signing in..." : "Sign in"}</button>
       </form>
+      <p class="mt-4 text-center text-sm"><A href="/recover" class="text-slate-600 underline hover:text-slate-950">Forgot your password?</A></p>
       <div class="my-6 flex items-center gap-3 text-xs text-slate-400"><span class="h-px flex-1 bg-slate-200" />OR<span class="h-px flex-1 bg-slate-200" /></div>
       <div class="grid grid-cols-2 gap-3"><button class="secondary" onClick={() => oauth("github")}>GitHub</button><button class="secondary" onClick={() => oauth("google")}>Google</button></div>
       <p class="mt-7 text-center text-sm text-slate-500">New here? <A href="/register" class="font-medium text-slate-950 underline">Create an account</A></p>

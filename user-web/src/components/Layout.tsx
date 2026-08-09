@@ -4,7 +4,7 @@ import { useAuth } from "../store/auth";
 
 const links = [
   ["/", "Overview"], ["/usage", "Usage"], ["/keys", "API keys"],
-  ["/billing", "Billing"], ["/profile", "Profile"],
+  ["/billing", "Billing"], ["/profile", "Profile"], ["/security", "Security"],
 ] as const;
 
 export default function Layout(props: { children?: JSX.Element }) {
