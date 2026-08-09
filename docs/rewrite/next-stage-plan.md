@@ -2,7 +2,7 @@
 
 ## Checkpoint
 
-The next stage starts from Platform `a929e06`, Gateway `52a0035`, and read-only
+The next stage starts from Platform `3572abd`, Gateway `52a0035`, and read-only
 reference `sub2api@43ec48d`.
 
 The greenfield baseline now starts from empty volumes, uses PostgreSQL as authority,
@@ -96,9 +96,12 @@ notification, anti-enumeration, and broader public-endpoint limits are covered.
 Migration `023-auth-oauth-states.sql` now adds one-time OAuth state with S256 PKCE:
 the Admin start flow returns provider-bound state/verifier/challenge material,
 PostgreSQL stores only hashes, and callback consumption binds the exact redirect URI
-and rejects replay or expiry before any upstream token exchange. External Provider
-mock exchange, redirect allowlists, account-link collision policy, and browser UX
-remain release work.
+and rejects replay or expiry before any upstream token exchange. Platform `3572abd`
+adds configurable authorization/token/user endpoints and a source-owned Provider
+mock that binds one-time authorization codes to client, redirect, and S256 verifier;
+the `scalaapi-oauth-20260809b` gate proves account creation and replay rejection.
+Redirect allowlists, account-link collision policy, and browser UX remain release
+work.
 The first User Web slice now provides a standalone refresh-aware Solid client:
 registration/password login, PKCE callback, dashboard balance/recent usage,
 user-scoped usage history, API keys, billing/subscriptions, profile, and password
@@ -314,12 +317,13 @@ state, terminal lease, hold, usage, debit, idempotency, and reconciliation outco
 
 ## Work package 3: Provider and protocol contract fixtures
 
-The generic Provider OAuth runtime slice is complete at Platform `c2d3cf9`:
-the source-owned mock endpoint, real HTTP Platform-client contract tests, and
-`scalaapi-oauth-refresh-20260809` empty-stack assertion prove an expired encrypted
-credential rotates to version 2 before dispatch, settles once, and remains secret
-free in Admin reads. The remaining work below is provider fidelity and release
-evidence, not a compatibility layer.
+The generic Provider OAuth runtime and user-login exchange are complete at
+Platform `3572abd`: the source-owned mock endpoint, real HTTP Platform-client
+contract tests, and `scalaapi-oauth-refresh-20260809` empty-stack assertion prove
+an expired encrypted credential rotates before dispatch, while the
+`scalaapi-oauth-20260809b` gate proves authorization-code exchange, exact S256
+binding, account creation, and replay rejection. The remaining work below is
+provider fidelity and release evidence, not a compatibility layer.
 
 Deliverables:
 
@@ -349,7 +353,7 @@ refresh audit and multi-Silo evidence.
 
 ## Current P0 slice: API-key authorization boundary
 
-Platform `4605f45` now treats API-key policy as a new product contract. A key
+Platform `3572abd` now treats API-key policy as a new product contract. A key
 stores a normalized set of Gateway capability scopes (`messages`, `responses`,
 `embeddings`, media, realtime, and the provider-specific model capabilities) and
 an optional millisecond expiry. Platform checks the requested capability after

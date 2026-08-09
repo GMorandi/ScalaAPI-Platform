@@ -11,7 +11,7 @@ read-only requirements reference and is excluded from builds and runtime.
 | Repository | Commit | Worktree | Role |
 | --- | --- | --- | --- |
 | `gateway` | `52a0035` | clean | C++ HTTP/WebSocket edge, protocol parsing/conversion, streaming, strict Provider media contracts, bounded stream header/client timeouts, distinct inter-chunk/total timer tests, normalized Provider availability errors, shared retryable Platform transport policy for HTTP and realtime dispatch, Photon WebSocket URL normalization, transport/evidence, charge-aware failover, durable usage delivery, authenticated Garnet projections, deterministic fault boundaries, late-usage settlement from truncated SSE, and HTTP 403 capability-denial mapping |
-| `platform` | `a929e06` | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, rotating single-use auth sessions with replay/revocation evidence, normalized registration/login validation with hash-only PostgreSQL abuse counters, identity/TOTP and OAuth PKCE abuse state, Provider OAuth credential refresh and secret-free audit history, API-key scopes/expiry with HTTP replay/concurrency/expiry evidence, denial audit, authenticated paged audit query, ownership-safe Admin updates, and exact-boundary expiry enforcement, typed JSONB policy projections, bounded token-endpoint timeout classification, persistent group routing/rate/fallback policy, scheduling, evidence-backed leases/holds/ledger, audited operator resolution, restart-safe active-lease dispatch recovery, media lifecycle, Admin API/Web/User Web, HTTP/SSE/realtime and OAuth Provider mock fixtures, dependency-free full-stack smoke assertions, verified Gateway image override support, migrations, deterministic Platform/Gateway fault boundaries, and Garnet deployment gates |
+| `platform` | `3572abd` | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, rotating single-use auth sessions with replay/revocation evidence, normalized registration/login validation with hash-only PostgreSQL abuse counters, identity/TOTP and OAuth PKCE abuse state, configurable external OAuth authorization-code exchange with Provider mock and secret-free audit history, API-key scopes/expiry with HTTP replay/concurrency/expiry evidence, denial audit, authenticated paged audit query, ownership-safe Admin updates, and exact-boundary expiry enforcement, typed JSONB policy projections, bounded token-endpoint timeout classification, persistent group routing/rate/fallback policy, scheduling, evidence-backed leases/holds/ledger, audited operator resolution, restart-safe active-lease dispatch recovery, media lifecycle, Admin API/Web/User Web, HTTP/SSE/realtime and OAuth Provider mock fixtures, dependency-free full-stack smoke assertions, verified Gateway image override support, migrations, deterministic Platform/Gateway fault boundaries, and Garnet deployment gates |
 | `sub2api` | `43ec48d` | read-only clean | Requirements catalogue only; never a runtime or compatibility dependency |
 
 The current tracked inventory is:
@@ -150,8 +150,12 @@ current-source runtime evidence.
   state/verifier values. Callback consumption is bound to the normalized provider
   and exact redirect URI, serialized by PostgreSQL, expires after ten minutes, and
   cannot be replayed. Real Admin tests cover provider/redirect/verifier mismatch,
-  one-time consumption, persisted consumed state, and expiry; external provider
-  adapters and account-link/browser tests remain open.
+  one-time consumption, persisted consumed state, and expiry. The source-owned
+  Provider mock now issues one-time authorization codes, validates client,
+  redirect, and S256 verifier bindings, and serves GitHub-shaped identity data;
+  the empty-stack gate proves start -> authorize -> callback account binding and
+  replay rejection. Account-link collision policy, production redirect allowlists,
+  and browser tests remain open.
 - The User Web is a separate Solid client with registration/login, OAuth callback,
   refresh-aware sessions, password-reset request/confirmation, balance and recent
   usage overview, scoped usage history, API key create/rotate/revoke, payment
@@ -263,7 +267,7 @@ current-source runtime evidence.
 
 ## Current verification evidence
 
-At Platform `4605f45` and Gateway `52a0035`:
+At Platform `3572abd` and Gateway `52a0035`:
 
 - Gateway built locally and passed 104/104 CTest cases, including deterministic
   fault-hook claim/repeat behavior, terminal SSE detection, provider EOF
@@ -418,7 +422,17 @@ At Platform `4605f45` and Gateway `52a0035`:
   `updated`, `revoked`, and `rotated` audit records. The lifecycle assertions
   passed repeatedly; the complete matrix still exposes the known
   `disconnect_before_output` transport-timeout/reconciliation fixture and is not
-  claimed as a new green release gate.
+  claimed as a new green release gate. A later clean run below supersedes that
+  temporary limitation.
+- The current-source project `scalaapi-oauth-20260809b`, using Platform `3572abd`,
+  passed the full empty-volume gate. It drove the configured Provider mock
+  authorization endpoint, redeemed a one-time authorization code with the exact
+  redirect URI and S256 verifier, created and bound `oauth-user@example.test` to
+  `mock-oauth-user`, and rejected callback replay as `oauth_state_replayed` (400).
+  The same run passed 27 migration skips on the second migrator invocation,
+  Garnet, API-key lifecycle, realtime, restart/recovery, the complete Provider
+  fault matrix, audited reconciliation, and MinIO persistence; the smoke trap
+  removed all project containers, volumes, network, and temporary tags.
 - Scheduler benchmark integrity dry run executed all 4 selected child benchmarks
   and returned zero. It is a failure-propagation check, not performance evidence.
 - `deploy/stack/smoke.sh` built current sibling sources in isolated Podman
