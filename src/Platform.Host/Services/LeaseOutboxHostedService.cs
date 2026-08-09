@@ -48,6 +48,11 @@ public sealed class LeaseOutboxHostedService(
                 {
                     try
                     {
+                        // Verify that a process can die after claiming durable work
+                        // but before applying any external Grain side effect. The
+                        // claim lease must be reclaimed by a replacement worker.
+                        faults.CrashIfConfigured(
+                            "platform.after_outbox_claim", claimed.Item.LeaseToken);
                         await ApplyAsync(claimed.Item, claimed.Lease);
                         faults.CrashIfConfigured(
                             "platform.before_outbox_ack", claimed.Item.LeaseToken);

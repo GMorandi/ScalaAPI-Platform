@@ -129,6 +129,7 @@ balance_idempotency_key="smoke-balance-${suffix}"
 gateway_hook_unknown_incidents=0
 gateway_hook_safe_expiry=0
 platform_dispatch_fault_safe_expiry=0
+platform_worker_reclaim=0
 
 wait_for() {
     local description=$1
@@ -620,6 +621,22 @@ platform_dispatch_fault_lease_safely_expired() {
                         AND i.status = 'expired');")" == "1" ]]
 }
 
+platform_worker_fault_claimed() {
+    compose exec -T platform-silo test -f \
+        /var/run/scalaapi/fault-hooks/platform-after-outbox-claim.claimed
+}
+
+platform_worker_outbox_reclaimed() {
+    [[ "$(db_query "
+        SELECT count(*) FROM usage_outbox o
+        JOIN request_leases l ON l.lease_token = o.lease_token
+        WHERE l.request_id = '$chat_request_id'
+          AND o.event_type = 'complete'
+          AND o.processed_at IS NOT NULL
+          AND o.claimed_by IS NULL
+          AND o.claimed_until IS NULL;")" == "1" ]]
+}
+
 if [[ "${PLATFORM_FAULT_HOOK:-}" == "platform.before_provider_dispatch" ]]; then
     set +e
     curl -fsS --max-time 30 "$gateway_url/v1/chat/completions" \
@@ -730,6 +747,7 @@ chat_settled() {
 # terminal row, then start the same container so the persisted outbox can run.
 platform_hook_exits_after_durable_write() {
     [[ "${PLATFORM_FAULT_HOOK:-}" == "platform.after_settlement_commit" ||
+       "${PLATFORM_FAULT_HOOK:-}" == "platform.after_outbox_claim" ||
        "${PLATFORM_FAULT_HOOK:-}" == "platform.before_outbox_ack" ]]
 }
 
@@ -752,6 +770,12 @@ if [[ -n "${PLATFORM_FAULT_HOOK:-}" && \
       "${PLATFORM_FAULT_HOOK}" != "platform.before_settlement_commit" && \
       "${PLATFORM_FAULT_HOOK}" != "platform.before_provider_dispatch" ]]; then
     start_platform_after_fault
+    if [[ "${PLATFORM_FAULT_HOOK}" == "platform.after_outbox_claim" ]]; then
+        wait_for "Platform after-outbox-claim marker" 30 platform_worker_fault_claimed
+        wait_for "Platform outbox claim recovery" 60 platform_worker_outbox_reclaimed
+        platform_worker_reclaim=1
+        echo "PASS: Platform outbox claim was reclaimed and applied once after worker crash"
+    fi
 fi
 
 chat_replay="$(curl -fsS "$gateway_url/v1/chat/completions" \
@@ -962,5 +986,8 @@ if (( gateway_hook_safe_expiry > 0 )); then
 fi
 if (( platform_dispatch_fault_safe_expiry > 0 )); then
     echo "PASS: Platform fault hook recovery and safe held-lease expiry"
+fi
+if (( platform_worker_reclaim > 0 )); then
+    echo "PASS: Platform worker claim recovery without duplicate settlement"
 fi
 echo "PASS: S3-compatible bucket bootstrap, object persistence, and signed download ($media_size bytes)"
