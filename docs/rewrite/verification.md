@@ -2,7 +2,13 @@
 
 ## Current evidence
 
-The latest source snapshot is Gateway `52a0035` and Platform `c9113c8`.
+The latest source snapshot is Gateway `52a0035` and Platform `a929e06`.
+The current source-built project `scalaapi-api-key-audit-verified` passed the
+full 27-migration empty-volume gate and authenticated the API-key audit query:
+the filtered denied event returned actor/action metadata and no plaintext-key
+field. The complete Garnet, API-key replay/concurrency/expiry, auth/OAuth,
+realtime, restart/recovery, Provider fault, reconciliation, and MinIO matrix
+remained green; all temporary stack resources and images were removed.
 The current source-built project `scalaapi-key-http-verified` passed the full
 27-migration empty-volume gate with authenticated HTTP API-key replay and expiry
 checks. Two simultaneous Chat requests sharing one idempotency key produced one
@@ -37,13 +43,14 @@ OAuth refresh, realtime settlement, Platform/Gateway restart recovery, the compl
 Provider fault matrix, audited reconciliation, and MinIO signed object persistence.
 Its cleanup removed all containers, volumes, networks, and stack-specific image tags;
 only the named `apitf_*` development resources remain.
-The Platform `c9113c8` auth/scheduling/policy slice passes the full 141-test suite and Release
+The Platform `a929e06` auth/scheduling/policy slice passes the full 143-test suite and Release
 build with zero warnings: API-key scope normalization and projection tests pass,
 unknown scopes are rejected, capability denials are classified before scheduling,
 and migration/schema checks require the new scope, expiry, append-only audit, and
 auth-abuse counter state. Authenticated HTTP replay/concurrency and expired-key
-cases pass in `scalaapi-key-http-verified`; key update/revoke/user-rotation,
-multi-instance contention, and audit-query cases remain open.
+cases pass in `scalaapi-key-http-verified`; the authenticated API-key audit query
+passes in `scalaapi-api-key-audit-verified`; key update/revoke/user-rotation and
+multi-instance contention remain open.
 Gateway CTest is 104/104. The complete empty-volume gate passed in
 `scalaapi-realtime-smoke-20260809` with the 22-migration double-run,
 Garnet-authenticated request path, realtime WebSocket settlement, nine
@@ -127,9 +134,10 @@ supersedes them where commit, image, or late-usage results differ.
 | Platform outbox-claim worker recovery | `scalaapi-platform-worker-recovery-0913` source-built smoke passed; Platform terminated immediately after claiming the completed settlement outbox, the same container was restarted, and the expired claim was reclaimed and applied exactly once | A worker crash before external Grain effects does not lose the durable event or duplicate the financial settlement |
 | Platform dispatch retry and active-lease recovery | `scalaapi-platform-dispatch-retry-0914` source-built smoke passed; Platform died after the lease/hold commit, Gateway retried with the same request/idempotency identity, and replacement Platform recovered and settled the existing lease with exactly one lease, usage event, usage log, and debit | A lost dispatch response is retryable without allocating a second lease or billing twice |
 | Gateway build and CTest | Clean local build; 104/104, exit 0 | Includes nested Anthropic start/final usage regression, TCP/TLS client, bounded response replay, malformed-usage/non-SSE guards, incomplete successful payload rejection, exact event-stream media-type validation, explicit-rejection evidence classification, terminal usage-outbox retirement, Garnet invalidation flush recovery, deterministic fault-hook claim/repeat tests, terminal SSE detection, incomplete chunked-body Provider disconnect classification, zero-length client-write cancellation, independent inter-chunk versus total-stream timeout tests, usage extraction from a truncated SSE stream, and the shared HTTP/realtime Platform dispatch retry policy |
-| Platform tests | 141/141, exit 0 | 66 Grain tests, 34 Host tests, 17 Admin tests, and 24 Provider mock tests; adds persistent group RPM-window enforcement, exact/longest-prefix/wildcard route precedence, overnight peak-rate evaluation, idempotent group spend, cycle-protected fallback dispatch, PostgreSQL auth-session rotation, normalized registration/login validation, durable login identity/IP and registration-IP abuse counters, lockout/reset behavior, OAuth Provider credential lease serialization, atomic access/refresh rotation, metadata-update secret retention, refresh failure/backoff state, HTTPS/form token exchange, rotated-token parsing, bounded timeout classification, provider error-body redaction, real HTTP Provider mock rotation/revocation/malformed/oversized/timeout response contracts, and PostgreSQL audit-history filtering |
+| Platform tests | 143/143, exit 0 | 67 Grain tests, 34 Host tests, 18 Admin tests, and 24 Provider mock tests; adds persistent group RPM-window enforcement, exact/longest-prefix/wildcard route precedence, overnight peak-rate evaluation, idempotent group spend, cycle-protected fallback dispatch, PostgreSQL auth-session rotation, normalized registration/login validation, durable login identity/IP and registration-IP abuse counters, lockout/reset behavior, OAuth Provider credential lease serialization, atomic access/refresh rotation, metadata-update secret retention, refresh failure/backoff state, HTTPS/form token exchange, rotated-token parsing, bounded timeout classification, provider error-body redaction, real HTTP Provider mock rotation/revocation/malformed/oversized/timeout response contracts, PostgreSQL API-key audit paging/filtering and expiry-boundary tests, and PostgreSQL audit-history filtering |
 | Authentication abuse smoke | `scalaapi-auth-abuse-verified3`, exit 0 | Fresh PostgreSQL applies 000 plus 001-026, second migrator run skips all 27; malformed registration is 400, five bad logins are 401, the sixth is 429 with `Retry-After`, and the full Garnet/protocol/restart/Provider/reconciliation/MinIO matrix remains green |
 | API-key HTTP replay and expiry smoke | `scalaapi-key-http-verified`, exit 0 | Two concurrent Chat requests share one idempotency key and leave one completed lease/idempotency row; a short-lived key returns 401 `authentication_error` after expiry with no lease; the complete stack matrix remains green |
+| API-key authenticated audit smoke | `scalaapi-api-key-audit-verified`, exit 0 | Admin token reads a filtered denied event by key hash, receives actor/action metadata without plaintext-key fields, and the complete empty-volume Garnet/Provider/restart/reconciliation/MinIO matrix remains green |
 | Realtime smoke client | `python3 deploy/stack/realtime_smoke.py` passed against Release `Provider.Mock`; `bash -n deploy/stack/smoke.sh` and `git diff --check` passed | Validates HTTP/1.1 upgrade, masked session input, deterministic session/usage frames, close handling, and full-stack exactly-once lease/usage/hold/ledger settlement using the clean Gateway image |
 | Platform Release build | Passed, 0 warnings and 0 errors | Includes Platform Host, Admin API, migrator, Provider mock, and benchmark assembly |
 | Admin Web | Typecheck and production build passed | Provider account form supports static headers and OAuth refresh metadata/replacement while list/details expose health but not stored secrets; browser tests are not configured |

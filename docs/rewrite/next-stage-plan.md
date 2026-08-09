@@ -2,7 +2,7 @@
 
 ## Checkpoint
 
-The next stage starts from Platform `c9113c8`, Gateway `52a0035`, and read-only
+The next stage starts from Platform `a929e06`, Gateway `52a0035`, and read-only
 reference `sub2api@43ec48d`.
 
 The greenfield baseline now starts from empty volumes, uses PostgreSQL as authority,
@@ -349,7 +349,7 @@ refresh audit and multi-Silo evidence.
 
 ## Current P0 slice: API-key authorization boundary
 
-Platform `c9113c8` now treats API-key policy as a new product contract. A key
+Platform `a929e06` now treats API-key policy as a new product contract. A key
 stores a normalized set of Gateway capability scopes (`messages`, `responses`,
 `embeddings`, media, realtime, and the provider-specific model capabilities) and
 an optional millisecond expiry. Platform checks the requested capability after
@@ -362,14 +362,15 @@ Admin and user create/update/rotate/revoke paths write the same scope/expiry
 projection and append actor, action, scope, and reason data to the new
 `api_key_audit_events` table. Runtime scope denials append a bounded audit event
 with request ID and never persist plaintext credentials. The 66-case Grain suite,
-schema assertion, Release build, full 141-test Platform run, and
+schema assertion, Release build, full 143-test Platform run, and
 `scalaapi-key-policy-verified` empty-stack proof pass. The smoke proves that
 denied requests create no lease, hold, or Provider call and that the policy
 denial audit row is persisted. The source smoke now also proves two concurrent
 Chat requests with one idempotency key leave one completed lease/idempotency row,
-and that a short-lived key returns HTTP 401 before scheduling after expiry. The
-slice remains `partial` until Admin update/revoke, user self-service rotation,
-multi-instance contention, and authenticated audit-query cases are covered.
+that a short-lived key returns HTTP 401 before scheduling after expiry, and that
+an authenticated Admin audit query returns the denied event without key material.
+The slice remains `partial` until Admin update/revoke E2E, user self-service
+rotation, multi-instance contention, and browser cases are covered.
 
 Exit: one Admin create/update/revoke flow and one user rotate flow are exercised
 against a fresh PostgreSQL/Garnet stack; a scoped key is allowed for exactly one

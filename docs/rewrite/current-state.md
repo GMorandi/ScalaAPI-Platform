@@ -11,7 +11,7 @@ read-only requirements reference and is excluded from builds and runtime.
 | Repository | Commit | Worktree | Role |
 | --- | --- | --- | --- |
 | `gateway` | `52a0035` | clean | C++ HTTP/WebSocket edge, protocol parsing/conversion, streaming, strict Provider media contracts, bounded stream header/client timeouts, distinct inter-chunk/total timer tests, normalized Provider availability errors, shared retryable Platform transport policy for HTTP and realtime dispatch, Photon WebSocket URL normalization, transport/evidence, charge-aware failover, durable usage delivery, authenticated Garnet projections, deterministic fault boundaries, late-usage settlement from truncated SSE, and HTTP 403 capability-denial mapping |
-| `platform` | `c9113c8` | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, rotating single-use auth sessions with replay/revocation evidence, normalized registration/login validation with hash-only PostgreSQL abuse counters, identity/TOTP and OAuth PKCE abuse state, Provider OAuth credential refresh and secret-free audit history, API-key scopes/expiry with HTTP replay/concurrency/expiry evidence and denial audit, typed JSONB policy projections, bounded token-endpoint timeout classification, persistent group routing/rate/fallback policy, scheduling, evidence-backed leases/holds/ledger, audited operator resolution, restart-safe active-lease dispatch recovery, media lifecycle, Admin API/Web/User Web, HTTP/SSE/realtime and OAuth Provider mock fixtures, dependency-free full-stack smoke assertions, verified Gateway image override support, migrations, deterministic Platform/Gateway fault boundaries, and Garnet deployment gates |
+| `platform` | `a929e06` | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, rotating single-use auth sessions with replay/revocation evidence, normalized registration/login validation with hash-only PostgreSQL abuse counters, identity/TOTP and OAuth PKCE abuse state, Provider OAuth credential refresh and secret-free audit history, API-key scopes/expiry with HTTP replay/concurrency/expiry evidence, denial audit, authenticated paged audit query, ownership-safe Admin updates, and exact-boundary expiry enforcement, typed JSONB policy projections, bounded token-endpoint timeout classification, persistent group routing/rate/fallback policy, scheduling, evidence-backed leases/holds/ledger, audited operator resolution, restart-safe active-lease dispatch recovery, media lifecycle, Admin API/Web/User Web, HTTP/SSE/realtime and OAuth Provider mock fixtures, dependency-free full-stack smoke assertions, verified Gateway image override support, migrations, deterministic Platform/Gateway fault boundaries, and Garnet deployment gates |
 | `sub2api` | `43ec48d` | read-only clean | Requirements catalogue only; never a runtime or compatibility dependency |
 
 The current tracked inventory is:
@@ -19,7 +19,7 @@ The current tracked inventory is:
 - Gateway: 52 production C++ source/header files, 10 test source files, and 104
   CTest cases.
 - Platform: 89 hand-written production C# files, 3 generated Cap'n Proto C#
-  files, 34 test/benchmark C# files, and 141 tests: 66 Grain, 34 Host, 17 Admin,
+  files, 34 test/benchmark C# files, and 143 tests: 67 Grain, 34 Host, 18 Admin,
   and 24 Provider mock tests.
 - Product surface: 119 direct Admin API route declarations, 45 product tables,
   20 SQLSugar entity types, 23 Admin Web TypeScript/TSX files and 11 page views,
@@ -263,15 +263,15 @@ current-source runtime evidence.
 
 ## Current verification evidence
 
-At Platform `c9113c8` and Gateway `52a0035`:
+At Platform `a929e06` and Gateway `52a0035`:
 
 - Gateway built locally and passed 104/104 CTest cases, including deterministic
   fault-hook claim/repeat behavior, terminal SSE detection, provider EOF
   classification, incomplete chunked-body disconnect classification, zero-length
   client-write cancellation, and bounded Provider pre-header stream timeout
   handling plus independent inter-chunk and total-stream timeout scenarios.
-- Platform Release test/build passed with 0 warnings and 0 errors: 141/141 tests,
-  including 34 Host tests, 66 Grain tests, 17 Admin tests, and 24 Provider mock
+- Platform Release test/build passed with 0 warnings and 0 errors: 143/143 tests,
+  including 34 Host tests, 67 Grain tests, 18 Admin tests, and 24 Provider mock
   tests. Admin coverage
   includes PostgreSQL-backed TOTP replay, backup-code consumption, lockout,
   recovery, OAuth provider/redirect/verifier binding, one-time state consumption,
@@ -297,9 +297,9 @@ At Platform `c9113c8` and Gateway `52a0035`:
   container now includes migrations `025-api-key-policy-audit.sql` and
   `026-auth-abuse-counters.sql`; authenticated
   HTTP audit-row and denied-capability empty-stack assertions are covered by the
-  latest source-built smoke; authenticated HTTP replay/concurrency and expired-key
-  cases now pass, while update/revoke/user-rotation and multi-instance audit
-  coverage remain release gates.
+  latest source-built smoke; authenticated HTTP replay/concurrency, expired-key,
+  and API-key audit-query cases now pass, while update/revoke/user-rotation and
+  multi-instance coverage remain release gates.
 - The latest source-built empty-volume project `scalaapi-key-policy-verified`
   applied all 26 migration files and observed all 26 as `skip` on a second run.
   An API key scoped only to `models` received HTTP 403 `permission_error` for
@@ -404,6 +404,12 @@ At Platform `c9113c8` and Gateway `52a0035`:
   key returned HTTP 401 `authentication_error` after expiry and created no lease.
   The complete 27-migration Garnet, Provider, restart, realtime, reconciliation,
   and MinIO matrix passed and all temporary stack resources were removed.
+- The current-source project `scalaapi-api-key-audit-verified` additionally
+  authenticated `GET /admin/apikeys/{hash}/audit?action=denied`, verified the
+  filtered actor/action record, and rejected any plaintext-key field in the
+  response. The full matrix passed again and all temporary containers, stack
+  images, and dangling images were removed, leaving only the named `apitf_*`
+  development resources and baseline images.
 - Scheduler benchmark integrity dry run executed all 4 selected child benchmarks
   and returned zero. It is a failure-propagation check, not performance evidence.
 - `deploy/stack/smoke.sh` built current sibling sources in isolated Podman
