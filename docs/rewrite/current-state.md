@@ -303,17 +303,18 @@ current-source runtime evidence.
 
 ## Current verification evidence
 
-At Platform `15cdfc0` and Gateway `8f33790`:
+At Platform `15cdfc0` and Gateway `ab09bf8`:
 
-- Gateway built locally and passed 124/124 CTest cases, including deterministic
+- Gateway built locally and passed 125/125 CTest cases, including deterministic
   fault-hook claim/repeat behavior, terminal SSE detection, provider EOF
   classification, incomplete chunked-body disconnect classification, zero-length
   client-write cancellation, and bounded Provider pre-header stream timeout
   handling plus independent inter-chunk and total-stream timeout scenarios. The
   source-owned protocol golden suite covers versioned OpenAI Chat/Responses,
   Anthropic Messages, and Gemini request/response/SSE/error fixtures, all
-  sixteen request pairs, all sixteen response pairs, and cross-protocol
-  conversion.
+  sixteen request pairs, all sixteen response pairs, cross-protocol response
+  envelope validation, and cross-protocol error normalization with standard
+  status precedence.
 - Platform Release test/build passed with 0 warnings and 0 errors: 180/180 tests,
   including 52 Host tests, 69 Grain tests, 18 Admin tests, and 41 Provider mock
   tests. Admin coverage
@@ -519,7 +520,9 @@ At Platform `15cdfc0` and Gateway `8f33790`:
   envelopes retain an unknown-charge lease. Gateway `8f33790` freezes matching
   versioned request/response/SSE/error fixtures and runs all four protocol
   parsers, all sixteen request pairs, all sixteen response pairs,
-  usage/terminal-event handling, and cross-protocol converters.
+  usage/terminal-event handling, and cross-protocol converters. Gateway `ab09bf8`
+  now maps cross-protocol Provider errors into target OpenAI, Anthropic, or Gemini
+  envelopes while preserving same-protocol bodies and provider error codes.
 - Scheduler benchmark integrity dry run executed all 4 selected child benchmarks
   and returned zero. It is a failure-propagation check, not performance evidence.
 - `deploy/stack/smoke.sh` built current sibling sources in isolated Podman
@@ -611,7 +614,7 @@ Detailed gate results and residual coverage are maintained in `verification.md`.
   quota grants and future affiliate effects still need explicit authority contracts.
 - Gateway now classifies client cancellation and incomplete SSE as unknown-charge
   outcomes, records disconnect/cancellation reasons, and prevents failover after
-  output or partial Provider output. The source-level behavior is covered by 117
+  output or partial Provider output. The source-level behavior is covered by 125
   CTest cases; the empty-stack gate now proves Provider partial-SSE disconnect,
   disconnect-before-output, malformed-usage retention, and bounded pre-header
   timeout handling with no usage/debit.
@@ -622,7 +625,10 @@ Detailed gate results and residual coverage are maintained in `verification.md`.
   The same source line normalizes Provider
   connection resets and scheduler exhaustion to `503/provider_unavailable`; bounded
   timeout and malformed protocol cases remain `502/provider_protocol_error`; the
-  timer distinctions are pinned by Gateway `18083f9`.
+  timer distinctions are pinned by Gateway `18083f9`. Gateway `ab09bf8` also
+  normalizes cross-protocol Provider errors into the inbound protocol envelope
+  and gives standard HTTP status semantics precedence over conflicting provider
+  labels; same-format errors remain byte-preserving.
 - Source smoke now proves Platform before-provider-dispatch termination after lease
   creation with safe held expiry, Platform after-outbox-claim reclaim,
   pre-settlement-commit/post-commit/pre-outbox-acknowledgement crash boundaries,

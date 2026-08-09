@@ -2,7 +2,7 @@
 
 ## Checkpoint
 
-The next stage starts from Platform `15cdfc0`, Gateway `8f33790`, and read-only
+The next stage starts from Platform `15cdfc0`, Gateway `ab09bf8`, and read-only
 reference `sub2api@43ec48d`.
 
 The greenfield baseline now starts from empty volumes, uses PostgreSQL as authority,
@@ -443,14 +443,15 @@ Deliverables:
   malformed/oversized response, and revoked-grant profiles are complete. Add
   provider-specific revocation/rotation profiles and test multi-Silo lease
   contention and refresh failure recovery.
-- Gateway `8f33790` freezes versioned OpenAI Chat/Responses, Anthropic Messages,
+- Gateway `ab09bf8` freezes versioned OpenAI Chat/Responses, Anthropic Messages,
   and Gemini request/response/SSE/error fixtures, and tests parser normalization,
   usage/terminal events, response validation, all sixteen request/response pairs,
-  and cross-protocol conversion. Add provider-specific catalog/tokenizer fixtures
-  and live adapter evidence.
-- Use the completed pairwise goldens as the deterministic baseline for malformed
-  and provider-specific error/header fixtures, then prove the same matrix through
-  runtime provider-group E2E without external compatibility assumptions.
+  cross-protocol error normalization, and same-format error passthrough. Add
+  provider-specific catalog/tokenizer fixtures and live adapter evidence.
+- Use the completed pairwise request/response/error goldens as the deterministic
+  baseline for malformed and provider-specific header fixtures, then prove the
+  same matrix through runtime provider-group E2E without external compatibility
+  assumptions.
 - Validate request IDs, idempotency fingerprints, Provider status mapping, proxy/TLS
   headers, response limits, and malformed payload rejection.
 - Keep the revision-3 Cap'n Proto schema greenfield. Contract changes update the

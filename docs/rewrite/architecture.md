@@ -29,6 +29,13 @@ Gateway reads auth, model, and route projections from Garnet. It never writes th
 keys. On a cache miss it calls Platform RPC. Garnet failures cannot make billable
 requests fail open.
 
+Provider errors stay byte-preserving when the inbound and upstream protocols are
+the same. When Gateway crosses protocol boundaries, it extracts the bounded
+status/type/message contract and emits the target OpenAI, Anthropic, or Gemini
+error envelope; standard HTTP status semantics win over a conflicting provider
+label. This is a new product contract and does not define compatibility with
+Sub2API error bodies.
+
 ## Platform
 
 Platform owns identity, groups, API keys, provider accounts and encrypted
