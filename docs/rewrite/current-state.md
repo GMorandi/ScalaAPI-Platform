@@ -19,7 +19,7 @@ The current tracked inventory is:
 - Gateway: 52 production C++ source/header files, 10 test source files, and 104
   CTest cases.
 - Platform: 81 hand-written production C# files, 3 generated Cap'n Proto C#
-  files, 26 test/benchmark C# files, and 95 tests: 57 Grain, 28 Host, 4 Admin,
+  files, 26 test/benchmark C# files, and 97 tests: 57 Grain, 30 Host, 4 Admin,
   and 6 Provider mock tests.
 - Product surface: 116 direct Admin API route declarations, 43 product tables,
   20 SQLSugar entity types, 23 Admin Web TypeScript/TSX files, and 11 page views.
@@ -207,8 +207,8 @@ At Platform `dd23bb4` and Gateway `9c7171f`:
   classification, incomplete chunked-body disconnect classification, zero-length
   client-write cancellation, and bounded Provider pre-header stream timeout
   handling plus independent inter-chunk and total-stream timeout scenarios.
-- Platform Release test/build passed with 0 warnings and 0 errors: 95/95 tests,
-  including 28 Host tests against a fresh real PostgreSQL schema. Host coverage
+- Platform Release test/build passed with 0 warnings and 0 errors: 97/97 tests,
+  including 30 Host tests against a fresh real PostgreSQL schema. Host coverage
   includes deterministic fault-hook configuration plus atomic operator
   settle/release, replay/conflict behavior, and concurrent resolution serialization.
 - Admin Web typecheck and production build passed.

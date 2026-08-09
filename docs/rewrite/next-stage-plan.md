@@ -207,7 +207,7 @@ terminal event before treating Provider EOF as complete, classifies timeout/EOF 
 incomplete (including Photon incomplete chunked-body `-1/errno=0`), treats
 zero/error client writes as cancellation, records bounded
 disconnect/cancellation reasons, and prevents Gateway failover or normal usage
-settlement for ambiguous partial streams. These behaviors are covered by 102 Gateway
+settlement for ambiguous partial streams. These behaviors are covered by 104 Gateway
 CTest cases. Platform smoke proves Provider disconnect, disconnect-before-output,
 malformed-usage, invalid content type, downstream client cancellation, and streaming
 429/500 rejection outcomes with the expected hold/debit behavior. Exact
