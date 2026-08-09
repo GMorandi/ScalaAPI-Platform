@@ -22,6 +22,7 @@ export default function Reconciliation() {
   const [reason, setReason] = createSignal("");
   const [inputTokens, setInputTokens] = createSignal(emptyNumber);
   const [outputTokens, setOutputTokens] = createSignal(emptyNumber);
+  const [idempotencyKey, setIdempotencyKey] = createSignal("");
   const [busy, setBusy] = createSignal(false);
   const [message, setMessage] = createSignal("");
   const [error, setError] = createSignal("");
@@ -39,6 +40,7 @@ export default function Reconciliation() {
     setReason("");
     setInputTokens(emptyNumber);
     setOutputTokens(emptyNumber);
+    setIdempotencyKey(crypto.randomUUID());
     setMessage("");
     setError("");
   };
@@ -78,13 +80,14 @@ export default function Reconciliation() {
           inputTokens: inputTokens(),
           outputTokens: outputTokens(),
         },
-        { "Idempotency-Key": crypto.randomUUID() }
+        { "Idempotency-Key": idempotencyKey() }
       );
       if (result.status !== "applied" && result.status !== "duplicate") {
         throw new Error(result.error_code || result.status);
       }
       setMessage(t("reconciliation.success"));
       setSelected(undefined);
+      setIdempotencyKey("");
       refetch();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
