@@ -511,15 +511,33 @@ jq -e '(.choices | length > 0) and (.usage.total_tokens > 0)' \
 chat_settled() {
     [[ "$(db_query "SELECT count(*) FROM request_leases WHERE request_id = '$chat_request_id' AND status = 'completed' AND final_cost_usd > 0 AND pricing_version = '$chat_price_version';")" == "1" ]]
 }
-wait_for "chat settlement" 30 chat_settled
 
-# Podman Compose 1.6 does not restart an exited container for the Compose
-# restart policy. When a deterministic fault hook is enabled, start the same
-# container explicitly so the durable outbox can replay after the crash.
-if [[ -n "${PLATFORM_FAULT_HOOK:-}" ]]; then
-    compose up --detach --no-deps --no-build platform-silo >/dev/null
+start_platform_after_fault() {
+    # Podman Compose does not consistently restart an exited container when
+    # `up` is called against an existing project. Start the existing container
+    # explicitly so the durable outbox can replay after the crash.
+    compose start platform-silo >/dev/null
     wait_for "Platform recovery after fault hook" 90 compose exec -T platform-silo \
         curl -fsS http://127.0.0.1:5000/ready >/dev/null
+}
+
+# A pre-settlement crash happens before the normal settlement wait can pass,
+# so observe the deterministic exit and recover the same container first.
+if [[ "${PLATFORM_FAULT_HOOK:-}" == "platform.before_settlement_commit" ]]; then
+    platform_container_id="$(service_container_id platform-silo)"
+    platform_faulted() {
+        [[ "$("$container_cli" inspect --format '{{.State.Status}}' \
+            "$platform_container_id" 2>/dev/null)" != "running" ]]
+    }
+    wait_for "Platform fault hook termination" 30 platform_faulted
+    start_platform_after_fault
+fi
+
+wait_for "chat settlement" 30 chat_settled
+
+if [[ -n "${PLATFORM_FAULT_HOOK:-}" && \
+      "${PLATFORM_FAULT_HOOK}" != "platform.before_settlement_commit" ]]; then
+    start_platform_after_fault
 fi
 
 chat_replay="$(curl -fsS "$gateway_url/v1/chat/completions" \
