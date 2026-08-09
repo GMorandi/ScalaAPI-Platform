@@ -13,6 +13,36 @@ app.UseWebSockets(new WebSocketOptions
 
 app.MapGet("/health", () => Results.Ok(new { status = "ok", provider = "scalaapi-mock" }));
 
+app.MapPost("/oauth/token", async (HttpRequest request, CancellationToken cancellationToken) =>
+{
+    if (!request.HasFormContentType)
+        return Results.Json(new { error = "invalid_request" }, statusCode: 415);
+    var form = await request.ReadFormAsync(cancellationToken);
+    var outcome = MockOAuthTokenEndpoint.Resolve(
+        form["grant_type"].ToString(), form["client_id"].ToString(),
+        form["client_secret"].ToString(), form["refresh_token"].ToString());
+    switch (outcome.Kind)
+    {
+        case MockOAuthOutcomeKind.Success:
+            return Results.Ok(new
+            {
+                access_token = $"mock-access-v{outcome.Version}",
+                refresh_token = $"mock-refresh-v{outcome.Version}",
+                token_type = "Bearer",
+                expires_in = 3600,
+            });
+        case MockOAuthOutcomeKind.Timeout:
+            await Task.Delay(TimeSpan.FromSeconds(30), cancellationToken);
+            return Results.StatusCode(504);
+        case MockOAuthOutcomeKind.Malformed:
+            return Results.Text("{not-json", "application/json", statusCode: 200);
+        case MockOAuthOutcomeKind.Oversized:
+            return Results.Text(new string('x', 70 * 1024), "application/json", statusCode: 200);
+        default:
+            return Results.BadRequest(new { error = outcome.Error });
+    }
+});
+
 app.MapGet("/v1/models", () => Results.Ok(new
 {
     @object = "list",
@@ -412,6 +442,17 @@ app.MapGet("/v1/mock-output/{outputId}", (string outputId) =>
 
 app.MapPost("/v1/chat/completions", async (HttpContext context, CancellationToken cancellationToken) =>
 {
+    var authorization = context.Request.Headers.Authorization.FirstOrDefault();
+    if (authorization?.StartsWith("Bearer mock-access-", StringComparison.Ordinal) == true
+        && !MockOAuthTokenEndpoint.IsAcceptedAccessHeader(authorization))
+    {
+        context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+        await context.Response.WriteAsJsonAsync(new
+        {
+            error = new { code = "mock_access_token_expired" }
+        }, cancellationToken);
+        return;
+    }
     using var body = await JsonDocument.ParseAsync(context.Request.Body, cancellationToken: cancellationToken);
     var root = body.RootElement;
     var model = root.TryGetProperty("model", out var modelValue)
@@ -587,3 +628,5 @@ app.MapGet("/v1/requests/{requestId}", (string requestId) => Results.Ok(new
 }));
 
 app.Run();
+
+public partial class Program;

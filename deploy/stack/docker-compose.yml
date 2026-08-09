@@ -85,6 +85,7 @@ services:
       Garnet__UseTls: ${GARNET_TLS:-false}
       Garnet__ServerName: ${GARNET_SERVER_NAME:-garnet}
       Security__MasterKey: ${SECURITY_MASTER_KEY:?SECURITY_MASTER_KEY is required}
+      ProviderCredentials__AllowInsecureTokenEndpoints: ${PROVIDER_CREDENTIALS_ALLOW_INSECURE:-false}
       ProviderMock__BaseUrl: http://provider-mock:8081
       Dispatch__LeaseTtlSeconds: ${DISPATCH_LEASE_TTL_SECONDS:-360}
       FaultInjection__Hook: ${PLATFORM_FAULT_HOOK:-}

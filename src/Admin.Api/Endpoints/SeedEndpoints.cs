@@ -116,15 +116,19 @@ public static class SeedEndpoints
     }
 
     private sealed record MockProviderProfile(string Name, string Platform,
-        string[] SupportedModels, string? Scenario = null)
+        string[] SupportedModels, string? Scenario = null, bool OAuth = false)
     {
         public AccountUpsert Account() => new(
-            Name, Platform, "api_key", "http://provider-mock:8081",
+            Name, Platform, OAuth ? "oauth" : "api_key", "http://provider-mock:8081",
             Priority: 1, Concurrency: 8, LoadFactor: 1, RateMultiplier: 1m,
             Schedulable: true,
             Credentials: Credentials(),
             ModelMapping: new Dictionary<string, string>(), SupportedModels,
-            ProxyUrl: null, TlsFingerprint: false);
+            ProxyUrl: null, TlsFingerprint: false,
+            OAuth: OAuth ? new ProviderOAuthCredential(
+                "http://provider-mock:8081/oauth/token", "mock-client", "mock-secret",
+                "mock-refresh-v1", "mock-access-v1",
+                DateTimeOffset.UtcNow.AddMinutes(-1).ToUnixTimeSeconds()) : null);
 
         private Dictionary<string, string> Credentials()
         {
@@ -146,7 +150,7 @@ public static class SeedEndpoints
 
     private static readonly MockProviderProfile[] Profiles =
     [
-        new(ProviderName, "openai", ["gpt-4o", "text-embedding-3-small", "mock-image-1", "mock-video-1"]),
+        new(ProviderName, "openai", ["gpt-4o", "text-embedding-3-small", "mock-image-1", "mock-video-1"], OAuth: true),
         new("scalaapi-provider-mock-anthropic", "anthropic", ["claude-3-5-sonnet"]),
         new("scalaapi-provider-mock-gemini", "gemini", ["gemini-2.0-flash"]),
     ];

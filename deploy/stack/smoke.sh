@@ -87,6 +87,7 @@ export JWT_KEY="smoke-jwt-${suffix}-012345678901234567890123456789"
 export ADMIN_USERNAME="admin@scalaapi.test"
 export ADMIN_PASSWORD="smoke-admin-${suffix}-password"
 export SECURITY_MASTER_KEY="MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
+export PROVIDER_CREDENTIALS_ALLOW_INSECURE="true"
 export INTERNAL_RECONCILIATION_TOKEN="smoke-reconciliation-${suffix}-token"
 export GARNET_PASSWORD="smoke-garnet-${suffix}-password"
 export GARNET_TLS="false"
@@ -493,6 +494,8 @@ admin_token="$(jq -er '.token' <<<"$login_response")"
 seed_response="$(admin_request POST /admin/seed/provider-mock-suite '{}' "$admin_token")"
 openai_group_id="$(jq -er '.providers[] | select(.provider == "openai") | .group_id' \
     <<<"$seed_response")"
+openai_account_id="$(jq -er '.providers[] | select(.provider == "openai") | .account_id' \
+    <<<"$seed_response")"
 assert_equals "3" "$(jq -er '.providers | length' <<<"$seed_response")" \
     "Seeded provider count"
 
@@ -780,6 +783,14 @@ chat_response="$(curl -fsS "$gateway_url/v1/chat/completions" \
     --data "$chat_body")"
 jq -e '(.choices | length > 0) and (.usage.total_tokens > 0)' \
     <<<"$chat_response" >/dev/null
+oauth_account="$(admin_request GET "/admin/accounts/$openai_account_id" '' "$admin_token")"
+assert_equals "2|true" "$(jq -r '.oAuth.version|tostring' <<<"$oauth_account")|$(jq -r '.oAuth.expiresAtUnixSeconds > now' <<<"$oauth_account")" \
+    "Expired Provider OAuth credential refreshed before dispatch"
+if grep -Eq 'mock-(access|refresh)|mock-secret' <<<"$oauth_account"; then
+    echo "Provider account details exposed OAuth secret material" >&2
+    exit 1
+fi
+echo "PASS: Expired Provider OAuth credential refreshed before dispatch and secrets stayed private"
 
 chat_settled() {
     [[ "$(db_query "SELECT count(*) FROM request_leases WHERE request_id = '$chat_request_id' AND status = 'completed' AND final_cost_usd > 0 AND pricing_version = '$chat_price_version';")" == "1" ]]
