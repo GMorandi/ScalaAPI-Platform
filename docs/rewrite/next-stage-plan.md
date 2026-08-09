@@ -2,7 +2,7 @@
 
 ## Checkpoint
 
-The next stage starts from Platform `6344f88`, Gateway `3da0d33`, and read-only
+The next stage starts from Platform `9848427`, Gateway `3da0d33`, and read-only
 reference `sub2api@43ec48d`.
 
 The greenfield baseline now starts from empty volumes, uses PostgreSQL as authority,
@@ -330,6 +330,11 @@ Remaining package deliverables:
   policy before moving COM-04 to implemented. Subscription grants and any other
   new monetary effect must use the same account/version API and cannot write
   `balance_ledger` directly.
+- The operational-metrics command is now an authority-compliant slice at Platform
+  `9848427`: authenticated bounded writes, atomic actor/IP audit, summary
+  aggregation, and filtered policy-alert evidence are covered by a real
+  PostgreSQL test. Add collectors, alert rules, dashboards, delivery/recovery,
+  and browser evidence before moving OPS-02 to implemented.
 - Add a blocking negative probe for each new fault hook so a swallowed child failure or
   missing scenario makes the top-level gate non-zero.
 

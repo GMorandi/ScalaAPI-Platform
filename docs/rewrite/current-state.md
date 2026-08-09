@@ -11,15 +11,15 @@ read-only requirements reference and is excluded from builds and runtime.
 | Repository | Commit | Worktree | Role |
 | --- | --- | --- | --- |
 | `gateway` | `3da0d33` | clean | C++ HTTP/WebSocket edge, protocol parsing/conversion, versioned OpenAI Chat/Responses, Anthropic Messages, and Gemini request/response/SSE golden contracts, full pairwise provider request/response/error matrix assertions, fail-closed model catalog and token-count validation, bounded Embeddings and Responses validation, streaming, strict Provider media contracts, bounded transport timers, normalized Provider availability errors, shared retryable Platform transport policy, durable usage delivery, authenticated Garnet projections, bounded request/response content-policy RPC evaluation, event-boundary streaming response moderation, and fail-closed response delivery including retryable classifier outages |
-| `platform` | `6344f88` | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, Provider mock contracts, rotating identity/session/TOTP/OAuth state, API-key policy and audit, versioned runtime configuration, persistent scheduling and lease/hold/ledger state, audited operator reconciliation, atomic audited referral rewards, media/object lifecycle, staged request/response content-policy evaluation with versioned Unicode normalization, bounded source-owned external classifier adapter, durable policy revision propagation through Garnet, operational alert evidence, and redacted audits |
+| `platform` | `9848427` | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, Provider mock contracts, rotating identity/session/TOTP/OAuth state, API-key policy and audit, versioned runtime configuration, persistent scheduling and lease/hold/ledger state, audited operator reconciliation, atomic audited referral rewards, authenticated and audited operational metrics, media/object lifecycle, staged request/response content-policy evaluation with versioned Unicode normalization, bounded source-owned external classifier adapter, durable policy revision propagation through Garnet, operational alert evidence, and redacted audits |
 | `sub2api` | `43ec48d` | read-only clean | Requirements catalogue only; never a runtime or compatibility dependency |
 
 The current tracked inventory is:
 
 - Gateway: 52 production C++ source/header files, 11 test source files, and 125
   CTest cases.
-- Platform: 94 hand-written production C# files, 3 generated Cap'n Proto C#
-  files, 41 test/benchmark C# files, and 181 tests: 69 Grain, 52 Host, 19 Admin,
+- Platform: 95 hand-written production C# files, 3 generated Cap'n Proto C#
+  files, 42 test/benchmark C# files, and 182 tests: 69 Grain, 52 Host, 20 Admin,
   and 41 Provider mock tests.
 - Product surface: 121 direct Admin API route declarations, 47 product tables,
   22 SQLSugar entity types, 23 Admin Web TypeScript/TSX files and 11 page views,
@@ -28,7 +28,7 @@ The current tracked inventory is:
   Ent schemas, 82 Vue view/component files, and 240 migrations. These are scope
   signals, not parity percentages or migration targets.
 
-The 58-domain inventory is 2 `implemented`, 45 `partial`, 6 `skeleton`,
+The 58-domain inventory is 2 `implemented`, 46 `partial`, 5 `skeleton`,
 and 5 `missing`. A route, table, mock response, or manual probe does not promote a
 domain; promotion requires a defined contract/state machine, automated tests, and
 current-source runtime evidence.
@@ -286,6 +286,13 @@ current-source runtime evidence.
   counters, and writes actor/IP audit evidence in one transaction. Exact command
   replay and changed-payload conflict are covered by a real PostgreSQL test;
   signup attribution, anti-abuse policy, and browser evidence remain open.
+- Platform `9848427` replaces the raw operational-metric insert with an
+  authenticated `OpsMetricsStore` command. Metric names and labels are bounded,
+  the metric and actor/IP audit row commit together, and Admin exposes bounded
+  summaries plus filtered content-policy alert evidence. An empty-schema
+  PostgreSQL test covers invalid input, latest/average/sample aggregation, alert
+  filtering, and audit cardinality; collector rules, dashboards, traces, and
+  alert delivery remain open.
 
 ### Bootstrap and deployment
 
@@ -310,7 +317,7 @@ current-source runtime evidence.
 
 ## Current verification evidence
 
-At Platform `15cdfc0` and Gateway `3da0d33`:
+At Platform `9848427` and Gateway `3da0d33`:
 
 - Gateway built locally and passed 125/125 CTest cases, including deterministic
   fault-hook claim/repeat behavior, terminal SSE detection, provider EOF
@@ -322,8 +329,8 @@ At Platform `15cdfc0` and Gateway `3da0d33`:
   sixteen request pairs, all sixteen response pairs, cross-protocol response
   envelope validation, and cross-protocol error normalization with standard
   status precedence.
-- Platform Release test/build passed with 0 warnings and 0 errors: 181/181 tests,
-  including 52 Host tests, 69 Grain tests, 19 Admin tests, and 41 Provider mock
+- Platform Release test/build passed with 0 warnings and 0 errors: 182/182 tests,
+  including 52 Host tests, 69 Grain tests, 20 Admin tests, and 41 Provider mock
   tests. Admin coverage
   includes PostgreSQL-backed TOTP replay, backup-code consumption, lockout,
   recovery, OAuth provider/redirect/verifier binding, one-time state consumption,
@@ -623,6 +630,10 @@ Detailed gate results and residual coverage are maintained in `verification.md`.
   an audited, idempotent `settle` or evidence-gated `release` command; subscription
   quota grants and signup referral attribution/anti-abuse still need explicit
   authority contracts beyond the audited Admin reward command.
+- Operational metrics now require an authenticated actor and are transactionally
+  audited; summaries and policy alert evidence are bounded for Admin queries.
+  Collector alert rules, cross-service correlation, traces, dashboards, and
+  delivery/recovery evidence remain required before OPS-02 is implemented.
 - Gateway now classifies client cancellation and incomplete SSE as unknown-charge
   outcomes, records disconnect/cancellation reasons, and prevents failover after
   output or partial Provider output. The source-level behavior is covered by 125
