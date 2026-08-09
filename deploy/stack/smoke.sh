@@ -559,6 +559,44 @@ user_login_response="$(admin_request POST /auth/login \
         '{email:$email,password:$password}')")"
 user_access_token="$(jq -er '.token' <<<"$user_login_response")"
 user_refresh_token="$(jq -er '.refresh_token' <<<"$user_login_response")"
+
+oauth_redirect_uri="http://localhost:3000/oauth/callback"
+oauth_start="$(admin_request GET "/auth/oauth/github/start?redirectUri=$(jq -rn --arg value "$oauth_redirect_uri" '$value|@uri')")"
+oauth_authorization_url="$(jq -er '.authorizationUrl' <<<"$oauth_start")"
+if [[ "$oauth_authorization_url" != http://provider-mock:8081/oauth/authorize\?* ]]; then
+    echo "OAuth start did not use the configured Provider mock authorization endpoint" >&2
+    exit 1
+fi
+oauth_location="$(compose exec -T admin-api curl -fsS -o /dev/null -w '%{redirect_url}' \
+    "$oauth_authorization_url")"
+oauth_callback="$(python3 - "$oauth_location" "$(jq -r '.codeVerifier' <<<"$oauth_start")" <<'PY'
+import json
+import sys
+from urllib.parse import parse_qs, urlparse
+
+query = parse_qs(urlparse(sys.argv[1]).query)
+print(json.dumps({
+    "provider": "github",
+    "code": query["code"][0],
+    "redirectUri": "http://localhost:3000/oauth/callback",
+    "state": query["state"][0],
+    "codeVerifier": sys.argv[2],
+}))
+PY
+)"
+oauth_callback_response="$(admin_request POST /auth/oauth/callback "$oauth_callback")"
+assert_equals "oauth-user@example.test|github|mock-oauth-user" \
+    "$(jq -r '.email' <<<"$oauth_callback_response")|$(db_query \
+      "SELECT oauth_provider || '|' || oauth_id FROM user_accounts WHERE email = 'oauth-user@example.test';")" \
+    "External OAuth mock exchange and account binding"
+oauth_replay="$(compose exec -T admin-api curl -sS -X POST \
+    -H 'Content-Type: application/json' --data "$oauth_callback" \
+    -w $'\n%{http_code}' http://127.0.0.1:5001/auth/oauth/callback)"
+assert_equals "oauth_state_replayed|400" \
+    "$(jq -r '.error' <<<"${oauth_replay%$'\n'*}")|${oauth_replay##*$'\n'}" \
+    "External OAuth state replay rejection"
+echo "PASS: External OAuth mock authorization-code exchange, PKCE binding, account creation, and replay rejection"
+
 user_refresh_response="$(admin_request POST /auth/refresh \
     "$(jq -cn --arg refresh "$user_refresh_token" '{refreshToken:$refresh}')")"
 rotated_access_token="$(jq -er '.token' <<<"$user_refresh_response")"

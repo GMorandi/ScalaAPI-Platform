@@ -134,6 +134,16 @@ services:
       Payments__WebhookSecrets__mock: ${PAYMENTS_WEBHOOK_SECRET_MOCK:-}
       PasswordReset__ExposeToken: ${PASSWORD_RESET_EXPOSE_TOKEN:-false}
       EmailVerification__ExposeToken: ${EMAIL_VERIFICATION_EXPOSE_TOKEN:-false}
+      OAuth__GitHub__ClientId: ${OAUTH_GITHUB_CLIENT_ID:-mock-client}
+      OAuth__GitHub__ClientSecret: ${OAUTH_GITHUB_CLIENT_SECRET:-mock-secret}
+      OAuth__GitHub__AuthorizationEndpoint: ${OAUTH_GITHUB_AUTHORIZATION_ENDPOINT:-http://provider-mock:8081/oauth/authorize}
+      OAuth__GitHub__TokenEndpoint: ${OAUTH_GITHUB_TOKEN_ENDPOINT:-http://provider-mock:8081/oauth/token}
+      OAuth__GitHub__UserEndpoint: ${OAUTH_GITHUB_USER_ENDPOINT:-http://provider-mock:8081/oauth/user}
+      OAuth__Google__ClientId: ${OAUTH_GOOGLE_CLIENT_ID:-mock-client}
+      OAuth__Google__ClientSecret: ${OAUTH_GOOGLE_CLIENT_SECRET:-mock-secret}
+      OAuth__Google__AuthorizationEndpoint: ${OAUTH_GOOGLE_AUTHORIZATION_ENDPOINT:-http://provider-mock:8081/oauth/authorize}
+      OAuth__Google__TokenEndpoint: ${OAUTH_GOOGLE_TOKEN_ENDPOINT:-http://provider-mock:8081/oauth/token}
+      OAuth__Google__UserEndpoint: ${OAUTH_GOOGLE_USER_ENDPOINT:-http://provider-mock:8081/oauth/user}
     depends_on:
       platform-silo:
         condition: service_healthy

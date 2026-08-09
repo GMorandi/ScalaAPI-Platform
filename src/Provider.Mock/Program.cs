@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Net.WebSockets;
 using System.Text;
+using Microsoft.AspNetCore.WebUtilities;
 using ScalaAPI.Provider.Mock;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -13,14 +14,55 @@ app.UseWebSockets(new WebSocketOptions
 
 app.MapGet("/health", () => Results.Ok(new { status = "ok", provider = "scalaapi-mock" }));
 
+app.MapGet("/oauth/authorize", (HttpRequest request) =>
+{
+    if (!string.Equals(request.Query["response_type"], "code", StringComparison.Ordinal)
+        || !string.Equals(request.Query["client_id"], "mock-client", StringComparison.Ordinal)
+        || string.IsNullOrWhiteSpace(request.Query["redirect_uri"])
+        || string.IsNullOrWhiteSpace(request.Query["state"])
+        || string.IsNullOrWhiteSpace(request.Query["code_challenge"]))
+        return Results.BadRequest(new { error = "invalid_request" });
+
+    var redirectUri = request.Query["redirect_uri"].ToString();
+    if (!Uri.TryCreate(redirectUri, UriKind.Absolute, out var redirect)
+        || (redirect.Scheme != Uri.UriSchemeHttp && redirect.Scheme != Uri.UriSchemeHttps))
+        return Results.BadRequest(new { error = "invalid_redirect_uri" });
+
+    var code = MockOAuthAuthorizationCode.Issue("mock-client", redirectUri,
+        request.Query["code_challenge"].ToString());
+    var location = QueryHelpers.AddQueryString(redirectUri, new Dictionary<string, string?>
+    {
+        ["code"] = code,
+        ["state"] = request.Query["state"].ToString(),
+    });
+    return Results.Redirect(location);
+});
+
 app.MapPost("/oauth/token", async (HttpRequest request, CancellationToken cancellationToken) =>
 {
     if (!request.HasFormContentType)
         return Results.Json(new { error = "invalid_request" }, statusCode: 415);
     var form = await request.ReadFormAsync(cancellationToken);
+    var grantType = form["grant_type"].ToString();
+    if (string.Equals(grantType, "authorization_code", StringComparison.Ordinal))
+    {
+        var accepted = MockOAuthTokenEndpoint.RedeemAuthorizationCode(
+            form["code"].ToString(), form["client_id"].ToString(),
+            form["client_secret"].ToString(), form["redirect_uri"].ToString(),
+            form["code_verifier"].ToString());
+        return accepted
+            ? Results.Ok(new
+            {
+                access_token = "mock-oauth-access-v1",
+                token_type = "Bearer",
+                expires_in = 3600,
+            })
+            : Results.BadRequest(new { error = "invalid_grant" });
+    }
+
     var outcome = MockOAuthTokenEndpoint.Resolve(
-        form["grant_type"].ToString(), form["client_id"].ToString(),
-        form["client_secret"].ToString(), form["refresh_token"].ToString());
+        grantType, form["client_id"].ToString(), form["client_secret"].ToString(),
+        form["refresh_token"].ToString());
     switch (outcome.Kind)
     {
         case MockOAuthOutcomeKind.Success:
@@ -41,6 +83,25 @@ app.MapPost("/oauth/token", async (HttpRequest request, CancellationToken cancel
         default:
             return Results.BadRequest(new { error = outcome.Error });
     }
+});
+
+app.MapGet("/oauth/user", (HttpRequest request) =>
+{
+    if (!string.Equals(request.Headers.Authorization.ToString(),
+        "Bearer mock-oauth-access-v1", StringComparison.Ordinal))
+        return Results.Unauthorized();
+    return Results.Ok(new { id = "mock-oauth-user", email = "oauth-user@example.test" });
+});
+
+app.MapGet("/oauth/user/emails", (HttpRequest request) =>
+{
+    if (!string.Equals(request.Headers.Authorization.ToString(),
+        "Bearer mock-oauth-access-v1", StringComparison.Ordinal))
+        return Results.Unauthorized();
+    return Results.Ok(new[]
+    {
+        new { email = "oauth-user@example.test", primary = true, verified = true }
+    });
 });
 
 app.MapGet("/v1/models", () => Results.Ok(new

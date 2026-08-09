@@ -14,6 +14,14 @@ internal sealed record MockOAuthOutcome(
 
 internal static class MockOAuthTokenEndpoint
 {
+    internal static bool RedeemAuthorizationCode(
+        string code, string clientId, string clientSecret, string redirectUri, string codeVerifier)
+    {
+        return string.Equals(clientId, "mock-client", StringComparison.Ordinal)
+            && string.Equals(clientSecret, "mock-secret", StringComparison.Ordinal)
+            && MockOAuthAuthorizationCode.Redeem(code, clientId, redirectUri, codeVerifier);
+    }
+
     internal static MockOAuthOutcome Resolve(
         string grantType, string clientId, string clientSecret, string refreshToken)
     {

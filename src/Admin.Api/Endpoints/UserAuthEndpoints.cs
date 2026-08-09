@@ -378,6 +378,12 @@ public static class UserAuthEndpoints
             var clientId = config[$"OAuth:{configProvider}:ClientId"];
             if (string.IsNullOrWhiteSpace(clientId))
                 return Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
+            var authorizationEndpoint = OAuthEndpoint(config, configProvider,
+                "AuthorizationEndpoint", normalizedProvider == "github"
+                    ? "https://github.com/login/oauth/authorize"
+                    : "https://accounts.google.com/o/oauth2/v2/auth");
+            if (authorizationEndpoint is null)
+                return Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
 
             var issued = await states.IssueAsync(normalizedProvider, normalizedRedirect, ct);
             if (issued is null) return Results.BadRequest(new { error = "Invalid OAuth request" });
@@ -391,8 +397,8 @@ public static class UserAuthEndpoints
                 ["code_challenge_method"] = "S256",
             };
             var authorizationUrl = normalizedProvider == "github"
-                ? QueryHelpers.AddQueryString("https://github.com/login/oauth/authorize", parameters)
-                : QueryHelpers.AddQueryString("https://accounts.google.com/o/oauth2/v2/auth",
+                ? QueryHelpers.AddQueryString(authorizationEndpoint, parameters)
+                : QueryHelpers.AddQueryString(authorizationEndpoint,
                     parameters.Concat(new Dictionary<string, string?>
                     {
                         ["scope"] = "openid email profile",
@@ -591,11 +597,24 @@ public static class UserAuthEndpoints
         {
             var clientId = config["OAuth:GitHub:ClientId"];
             var clientSecret = config["OAuth:GitHub:ClientSecret"];
+            var tokenEndpoint = OAuthEndpoint(config, "GitHub", "TokenEndpoint",
+                "https://github.com/login/oauth/access_token");
+            var userEndpoint = OAuthEndpoint(config, "GitHub", "UserEndpoint",
+                "https://api.github.com/user");
+            if (tokenEndpoint is null || userEndpoint is null
+                || string.IsNullOrWhiteSpace(clientId) || string.IsNullOrWhiteSpace(clientSecret))
+                return (null, null);
 
-            var tokenResp = await client.PostAsJsonAsync(
-                "https://github.com/login/oauth/access_token",
-                new { client_id = clientId, client_secret = clientSecret, code = req.Code,
-                    redirect_uri = req.RedirectUri, code_verifier = req.CodeVerifier }, ct);
+            var tokenResp = await client.PostAsync(tokenEndpoint,
+                new FormUrlEncodedContent(new Dictionary<string, string>
+                {
+                    ["client_id"] = clientId,
+                    ["client_secret"] = clientSecret,
+                    ["code"] = req.Code,
+                    ["grant_type"] = "authorization_code",
+                    ["redirect_uri"] = req.RedirectUri,
+                    ["code_verifier"] = req.CodeVerifier,
+                }), ct);
             var tokenData = await tokenResp.Content.ReadFromJsonAsync<Dictionary<string, string>>(ct);
             if (tokenData is null || !tokenData.TryGetValue("access_token", out var accessToken))
                 return (null, null);
@@ -603,10 +622,10 @@ public static class UserAuthEndpoints
             client.DefaultRequestHeaders.Authorization =
                 new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", accessToken);
             client.DefaultRequestHeaders.UserAgent.ParseAdd("ScalaAPI");
-            var userResp = await client.GetAsync("https://api.github.com/user/emails", ct);
+            var userResp = await client.GetAsync($"{userEndpoint.TrimEnd('/')}/emails", ct);
             var emails = await userResp.Content.ReadFromJsonAsync<List<GitHubEmail>>(ct);
             var primary = emails?.FirstOrDefault(e => e.Primary && e.Verified)?.Email;
-            var userResp2 = await client.GetAsync("https://api.github.com/user", ct);
+            var userResp2 = await client.GetAsync(userEndpoint, ct);
             var userData = await userResp2.Content.ReadFromJsonAsync<Dictionary<string, object>>(ct);
             var id = userData?.GetValueOrDefault("id")?.ToString();
 
@@ -617,8 +636,15 @@ public static class UserAuthEndpoints
         {
             var clientId = config["OAuth:Google:ClientId"];
             var clientSecret = config["OAuth:Google:ClientSecret"];
+            var tokenEndpoint = OAuthEndpoint(config, "Google", "TokenEndpoint",
+                "https://oauth2.googleapis.com/token");
+            var userEndpoint = OAuthEndpoint(config, "Google", "UserEndpoint",
+                "https://www.googleapis.com/oauth2/v2/userinfo");
+            if (tokenEndpoint is null || userEndpoint is null
+                || string.IsNullOrWhiteSpace(clientId) || string.IsNullOrWhiteSpace(clientSecret))
+                return (null, null);
 
-            var tokenResp = await client.PostAsync("https://oauth2.googleapis.com/token",
+            var tokenResp = await client.PostAsync(tokenEndpoint,
                 new FormUrlEncodedContent(new Dictionary<string, string>
                 {
                     ["client_id"] = clientId!,
@@ -634,7 +660,7 @@ public static class UserAuthEndpoints
 
             client.DefaultRequestHeaders.Authorization =
                 new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", accessToken);
-            var userResp = await client.GetAsync("https://www.googleapis.com/oauth2/v2/userinfo", ct);
+            var userResp = await client.GetAsync(userEndpoint, ct);
             var userData = await userResp.Content.ReadFromJsonAsync<Dictionary<string, object>>(ct);
             var email = userData?.GetValueOrDefault("email")?.ToString();
             var id = userData?.GetValueOrDefault("id")?.ToString();
@@ -643,6 +669,16 @@ public static class UserAuthEndpoints
         }
 
         return (null, null);
+    }
+
+    private static string? OAuthEndpoint(IConfiguration config, string provider,
+        string name, string fallback)
+    {
+        var value = config[$"OAuth:{provider}:{name}"] ?? fallback;
+        return Uri.TryCreate(value, UriKind.Absolute, out var uri)
+            && (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps)
+            ? uri.AbsoluteUri.TrimEnd('/')
+            : null;
     }
 
     private record GitHubEmail(string Email, bool Primary, bool Verified);
