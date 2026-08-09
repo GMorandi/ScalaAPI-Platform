@@ -104,17 +104,33 @@ app.MapGet("/oauth/user/emails", (HttpRequest request) =>
     });
 });
 
-app.MapGet("/v1/models", () => Results.Ok(new
+app.MapGet("/v1/models", (HttpRequest request) =>
 {
-    @object = "list",
-    data = new[]
+    var scenario = request.Query["mock_scenario"].ToString();
+    if (scenario == "malformed")
+        return Results.Text("{not-json", "application/json", statusCode: 200);
+    if (scenario == "duplicate")
+        return Results.Ok(new
+        {
+            @object = "list",
+            data = new[]
+            {
+                new { id = "gpt-4o", @object = "model", created = 1_700_000_000L, owned_by = "scalaapi-provider-mock" },
+                new { id = "gpt-4o", @object = "model", created = 1_700_000_000L, owned_by = "scalaapi-provider-mock" },
+            }
+        });
+    return Results.Ok(new
     {
-        new { id = "gpt-4o", @object = "model", created = 1_700_000_000L, owned_by = "scalaapi-provider-mock" },
-        new { id = "text-embedding-3-small", @object = "model", created = 1_700_000_001L, owned_by = "scalaapi-provider-mock" },
-        new { id = "mock-image-1", @object = "model", created = 1_700_000_002L, owned_by = "scalaapi-provider-mock" },
-        new { id = "mock-video-1", @object = "model", created = 1_700_000_003L, owned_by = "scalaapi-provider-mock" },
-    }
-}));
+        @object = "list",
+        data = new[]
+        {
+            new { id = "gpt-4o", @object = "model", created = 1_700_000_000L, owned_by = "scalaapi-provider-mock" },
+            new { id = "text-embedding-3-small", @object = "model", created = 1_700_000_001L, owned_by = "scalaapi-provider-mock" },
+            new { id = "mock-image-1", @object = "model", created = 1_700_000_002L, owned_by = "scalaapi-provider-mock" },
+            new { id = "mock-video-1", @object = "model", created = 1_700_000_003L, owned_by = "scalaapi-provider-mock" },
+        }
+    });
+});
 
 app.MapGet("/v1beta/models", () => Results.Ok(new
 {
@@ -262,6 +278,14 @@ app.MapPost("/v1/embeddings", async (HttpContext context, CancellationToken canc
 app.MapPost("/v1/messages/count_tokens", async (HttpContext context, CancellationToken cancellationToken) =>
 {
     using var body = await MockProviderHelpers.ReadJsonAsync(context, cancellationToken);
+    if (body.RootElement.TryGetProperty("mock_scenario", out var scenario)
+        && scenario.ValueKind == JsonValueKind.String)
+    {
+        if (scenario.GetString() == "malformed")
+            return Results.Text("{not-json", "application/json", statusCode: 200);
+        if (scenario.GetString() == "invalid")
+            return Results.Ok(new { input_tokens = 0 });
+    }
     return Results.Ok(new { input_tokens = MockProviderHelpers.EstimateInputTokens(body.RootElement) });
 });
 
