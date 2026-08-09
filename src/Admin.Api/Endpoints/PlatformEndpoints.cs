@@ -433,6 +433,31 @@ public static class PlatformEndpoints
             return Results.Ok(new { items });
         });
 
+        user.MapGet("/plans", async (NpgsqlDataSource dataSource, CancellationToken ct) =>
+        {
+            await using var command = dataSource.CreateCommand("""
+                SELECT id, name, price_monthly, quota_usd, status
+                FROM subscription_plans
+                WHERE status = 'active'
+                ORDER BY price_monthly, id
+                """);
+            await using var reader = await command.ExecuteReaderAsync(ct);
+            var items = new List<object>();
+            while (await reader.ReadAsync(ct))
+            {
+                items.Add(new
+                {
+                    id = reader.GetInt64(0),
+                    name = reader.GetString(1),
+                    priceMonthly = reader.GetDecimal(2),
+                    quotaUsd = reader.GetDecimal(3),
+                    interval = "month",
+                    status = reader.GetString(4),
+                });
+            }
+            return Results.Ok(new { items });
+        });
+
         user.MapPost("/", async (ClaimsPrincipal principal, SubscriptionPurchaseRequest req,
             NpgsqlDataSource dataSource, HttpRequest http, CancellationToken ct) =>
         {
