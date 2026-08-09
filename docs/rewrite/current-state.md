@@ -11,15 +11,15 @@ read-only requirements reference and is excluded from builds and runtime.
 | Repository | Commit | Worktree | Role |
 | --- | --- | --- | --- |
 | `gateway` | `52a0035` | clean | C++ HTTP/WebSocket edge, protocol parsing/conversion, streaming, strict Provider media contracts, bounded stream header/client timeouts, distinct inter-chunk/total timer tests, normalized Provider availability errors, shared retryable Platform transport policy for HTTP and realtime dispatch, Photon WebSocket URL normalization, transport/evidence, charge-aware failover, durable usage delivery, authenticated Garnet projections, deterministic fault boundaries, late-usage settlement from truncated SSE, and HTTP 403 capability-denial mapping |
-| `platform` | `075d95b` | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, rotating single-use auth sessions with replay/revocation evidence, identity/TOTP and OAuth PKCE abuse state, Provider OAuth credential refresh and secret-free audit history, API-key scopes/expiry and denial audit, typed JSONB policy projections, bounded token-endpoint timeout classification, persistent group routing/rate/fallback policy, scheduling, evidence-backed leases/holds/ledger, audited operator resolution, restart-safe active-lease dispatch recovery, media lifecycle, Admin API/Web/User Web, HTTP/SSE/realtime and OAuth Provider mock fixtures, dependency-free full-stack smoke assertions, verified Gateway image override support, migrations, deterministic Platform/Gateway fault boundaries, and Garnet deployment gates |
+| `platform` | `c2d3cf9` | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, rotating single-use auth sessions with replay/revocation evidence, normalized registration/login validation with hash-only PostgreSQL abuse counters, identity/TOTP and OAuth PKCE abuse state, Provider OAuth credential refresh and secret-free audit history, API-key scopes/expiry and denial audit, typed JSONB policy projections, bounded token-endpoint timeout classification, persistent group routing/rate/fallback policy, scheduling, evidence-backed leases/holds/ledger, audited operator resolution, restart-safe active-lease dispatch recovery, media lifecycle, Admin API/Web/User Web, HTTP/SSE/realtime and OAuth Provider mock fixtures, dependency-free full-stack smoke assertions, verified Gateway image override support, migrations, deterministic Platform/Gateway fault boundaries, and Garnet deployment gates |
 | `sub2api` | `43ec48d` | read-only clean | Requirements catalogue only; never a runtime or compatibility dependency |
 
 The current tracked inventory is:
 
 - Gateway: 52 production C++ source/header files, 10 test source files, and 104
   CTest cases.
-- Platform: 88 hand-written production C# files, 3 generated Cap'n Proto C#
-  files, 33 test/benchmark C# files, and 136 tests: 66 Grain, 34 Host, 12 Admin,
+- Platform: 89 hand-written production C# files, 3 generated Cap'n Proto C#
+  files, 34 test/benchmark C# files, and 141 tests: 66 Grain, 34 Host, 17 Admin,
   and 24 Provider mock tests.
 - Product surface: 119 direct Admin API route declarations, 45 product tables,
   20 SQLSugar entity types, 23 Admin Web TypeScript/TSX files and 11 page views,
@@ -28,8 +28,8 @@ The current tracked inventory is:
   Ent schemas, 82 Vue view/component files, and 240 migrations. These are scope
   signals, not parity percentages or migration targets.
 
-The 58-domain inventory remains 2 `implemented`, 41 `partial`, 9 `skeleton`,
-and 6 `missing`. A route, table, mock response, or manual probe does not promote a
+The 58-domain inventory remains 2 `implemented`, 42 `partial`, 9 `skeleton`,
+and 5 `missing`. A route, table, mock response, or manual probe does not promote a
 domain; promotion requires a defined contract/state machine, automated tests, and
 current-source runtime evidence.
 
@@ -129,6 +129,15 @@ current-source runtime evidence.
   refresh winner, the old token cannot replay, replaced and logged-out access
   tokens fail session validation, and expired sessions reject both access and
   refresh paths; the source Compose gate covers the same HTTP lifecycle.
+- Registration and login normalize and bound public input, return deterministic
+  400/401/409 responses for invalid or concurrent duplicate requests, and use
+  hash-only PostgreSQL `auth_abuse_counters` rows for cross-instance login
+  identity/IP and registration-IP limits. Five failed logins produce a
+  15-minute identity lock (with a higher shared-IP ceiling), ten invalid
+  registrations produce an hourly IP lock, successful auth clears counters, and
+  429 responses include `Retry-After`. Real PostgreSQL Admin tests and the
+  current empty-stack smoke prove the policy; browser, notification, and broader
+  public-endpoint limits remain open.
 - API keys support create, list, rotate, revoke, hash-only persistence, registry
   projection, absolute quota, and independent 5-hour/day/week spend windows.
 - TOTP setup, verification, login backup-code use, and disable flows now share a
@@ -234,9 +243,10 @@ current-source runtime evidence.
 
 ### Bootstrap and deployment
 
-- The active migrator applies Orleans support plus migrations 001-025 to an empty
-  PostgreSQL database and rejects checksum drift. A second execution skips all 26
-  migration files (Orleans support plus 001-025). No source database, snapshot, old key, CDC table, or compatibility mapping
+- The active migrator applies Orleans support plus migrations 001-026 to an empty
+  PostgreSQL database and rejects checksum drift. A second execution skips all 27
+  migration files (Orleans support plus 001-026), including the native
+  `auth_abuse_counters` table. No source database, snapshot, old key, CDC table, or compatibility mapping
   is required.
 - `deploy/stack` independently starts PostgreSQL, authenticated Garnet, MinIO,
   Provider mock, Platform, Gateway, Admin API, Admin Web, and User Web. Image digests pin the
@@ -253,15 +263,16 @@ current-source runtime evidence.
 
 ## Current verification evidence
 
-At Platform `075d95b` and Gateway `52a0035`:
+At Platform `c2d3cf9` and Gateway `52a0035`:
 
 - Gateway built locally and passed 104/104 CTest cases, including deterministic
   fault-hook claim/repeat behavior, terminal SSE detection, provider EOF
   classification, incomplete chunked-body disconnect classification, zero-length
   client-write cancellation, and bounded Provider pre-header stream timeout
   handling plus independent inter-chunk and total-stream timeout scenarios.
-- Platform Release test/build passed with 0 warnings and 0 errors: 136/136 tests,
-  including 34 Host tests and 66 Grain tests. Admin coverage
+- Platform Release test/build passed with 0 warnings and 0 errors: 141/141 tests,
+  including 34 Host tests, 66 Grain tests, 17 Admin tests, and 24 Provider mock
+  tests. Admin coverage
   includes PostgreSQL-backed TOTP replay, backup-code consumption, lockout,
   recovery, OAuth provider/redirect/verifier binding, one-time state consumption,
   and expiry. Host coverage
@@ -272,11 +283,19 @@ At Platform `075d95b` and Gateway `52a0035`:
   coverage additionally includes real ASP.NET HTTP contract tests through the
   Platform token client for rotation, revoked grants, malformed JSON, and bounded
   oversized responses.
+- AUTH-01 coverage includes email/password boundary tests, PostgreSQL-backed login
+  identity/IP lockout and success reset tests, independent-IP accounting,
+  registration-IP lockout, migration schema assertions, and duplicate insert
+  conflict handling. The source-built `scalaapi-auth-abuse-verified3` smoke
+  returned 400 for malformed registration, five 401 responses followed by a
+  429 login lock, and passed the complete 27-migration, Garnet, protocol,
+  restart, Provider fault, reconciliation, and MinIO matrix.
 - API-key policy tests pass in the 66-case Grain suite: scope normalization,
   unknown-scope rejection, explicit projection round-trip, capability allow/deny,
   and expiry rejection. The schema gate requires `user_api_keys.scopes`,
   `expires_at_ms`, and the append-only `api_key_audit_events` table. The runtime
-  container now includes migration `025-api-key-policy-audit.sql`; authenticated
+  container now includes migrations `025-api-key-policy-audit.sql` and
+  `026-auth-abuse-counters.sql`; authenticated
   HTTP audit-row and denied-capability empty-stack assertions are covered by the
   latest source-built smoke; replay/concurrency and expired-key HTTP cases remain
   release gates.
@@ -369,6 +388,14 @@ At Platform `075d95b` and Gateway `52a0035`:
   rotating sessions, OAuth refresh, realtime settlement, restart recovery, the
   Provider fault matrix, audited reconciliation, and MinIO signed persistence all
   passed; its containers, volumes, network, and temporary image tags were removed.
+- The current-source project `scalaapi-auth-abuse-verified3` applied all 27
+  migration files and observed all 27 as `skip` on the second run. Invalid
+  registration returned 400; five failed logins for one unknown email returned
+  401 and the sixth returned 429 with a durable PostgreSQL counter. The same
+  run passed authenticated Garnet dispatch, auth-session rotation, OAuth
+  refresh, realtime settlement, Platform/Gateway restart recovery, the complete
+  Provider matrix, audited reconciliation, and MinIO signed persistence. The
+  cleanup trap removed the temporary project resources and stack-specific tags.
 - Scheduler benchmark integrity dry run executed all 4 selected child benchmarks
   and returned zero. It is a failure-propagation check, not performance evidence.
 - `deploy/stack/smoke.sh` built current sibling sources in isolated Podman

@@ -2,7 +2,7 @@
 
 ## Checkpoint
 
-The next stage starts from Platform `075d95b`, Gateway `52a0035`, and read-only
+The next stage starts from Platform `c2d3cf9`, Gateway `52a0035`, and read-only
 reference `sub2api@43ec48d`.
 
 The greenfield baseline now starts from empty volumes, uses PostgreSQL as authority,
@@ -83,6 +83,16 @@ the active session row. The `scalaapi-auth-session-verified` smoke proves login,
 rotation, old-token rejection, replacement acceptance, and logout invalidation;
 multi-device/browser session management, audit/retention, and hosted-CI evidence
 remain open.
+The `AUTH-01` registration/login slice now validates normalized email, bounded
+password, and display-name input before database or BCrypt work, maps concurrent
+duplicate registration to 409, and persists hash-only email/IP abuse counters in
+PostgreSQL. Five failed logins lock one identity for 15 minutes (with a higher
+shared-IP ceiling), ten invalid registrations lock one IP for an hour, success
+clears the relevant counters, and 429 responses include `Retry-After`. Migration
+`026-auth-abuse-counters.sql`, five real PostgreSQL Admin tests, schema coverage,
+and the `scalaapi-auth-abuse-verified3` empty-stack assertions (400, five 401s,
+then 429) are complete. The domain remains `partial` until browser/email
+notification, anti-enumeration, and broader public-endpoint limits are covered.
 Migration `023-auth-oauth-states.sql` now adds one-time OAuth state with S256 PKCE:
 the Admin start flow returns provider-bound state/verifier/challenge material,
 PostgreSQL stores only hashes, and callback consumption binds the exact redirect URI
@@ -99,7 +109,7 @@ totals. The API adds user-scoped usage and balance reads and the Compose stack
 serves User Web separately from Admin Web. Browser automation, backup-code sign-in
 UX, real payment checkout, referral reward settlement, and commercial audit remain
 open.
-The `CORE-03`/`CORE-05` scheduling slice at Platform `075d95b` persists group RPM
+The `CORE-03`/`CORE-05` scheduling slice at Platform `c2d3cf9` persists group RPM
 windows in Orleans state, resolves exact model routes before longest-prefix and
 wildcard patterns, applies overnight peak multipliers to the primary dispatch,
 and walks active multi-level fallback chains with cycle protection. Existing sticky
@@ -135,7 +145,7 @@ Accounting authority completed at `c15b53b`, reconciliation foundation at
 `fddba62`, dispatch evidence at `6bfb974`/`84634d1`, audited resolution at
 `0559659`, and deterministic fault boundaries at `1cad5b7`/`30b8c2b`/`8c3d2e0`,
 with current streaming/empty-stack evidence in Gateway `52a0035` and Platform
-`075d95b`:
+`c2d3cf9`:
 
 - Added one per-user `accounting_accounts` authority with NUMERIC posted balance
   and monotonically increasing ledger version.
@@ -250,7 +260,7 @@ an open incident can be resolved only through the audited settle/release contrac
 
 ## Work package 2: cancellation and streaming failure semantics
 
-Progress in Gateway `52a0035` and Platform `075d95b`: the streaming pipe now requires a source protocol
+Progress in Gateway `52a0035` and Platform `c2d3cf9`: the streaming pipe now requires a source protocol
 terminal event before treating Provider EOF as complete, classifies timeout/EOF as
 incomplete (including Photon incomplete chunked-body `-1/errno=0`), treats
 zero/error client writes as cancellation, records bounded
@@ -304,7 +314,7 @@ state, terminal lease, hold, usage, debit, idempotency, and reconciliation outco
 
 ## Work package 3: Provider and protocol contract fixtures
 
-The generic Provider OAuth runtime slice is complete at Platform `075d95b`:
+The generic Provider OAuth runtime slice is complete at Platform `c2d3cf9`:
 the source-owned mock endpoint, real HTTP Platform-client contract tests, and
 `scalaapi-oauth-refresh-20260809` empty-stack assertion prove an expired encrypted
 credential rotates to version 2 before dispatch, settles once, and remains secret
@@ -339,7 +349,7 @@ refresh audit and multi-Silo evidence.
 
 ## Current P0 slice: API-key authorization boundary
 
-Platform `075d95b` now treats API-key policy as a new product contract. A key
+Platform `c2d3cf9` now treats API-key policy as a new product contract. A key
 stores a normalized set of Gateway capability scopes (`messages`, `responses`,
 `embeddings`, media, realtime, and the provider-specific model capabilities) and
 an optional millisecond expiry. Platform checks the requested capability after
@@ -352,7 +362,7 @@ Admin and user create/update/rotate/revoke paths write the same scope/expiry
 projection and append actor, action, scope, and reason data to the new
 `api_key_audit_events` table. Runtime scope denials append a bounded audit event
 with request ID and never persist plaintext credentials. The 66-case Grain suite,
-schema assertion, Release build, full 136-test Platform run, and
+schema assertion, Release build, full 141-test Platform run, and
 `scalaapi-key-policy-verified` empty-stack proof pass. The smoke proves that
 denied requests create no lease, hold, or Provider call and that the policy
 denial audit row is persisted. The slice remains `partial` until authenticated

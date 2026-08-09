@@ -2,7 +2,16 @@
 
 ## Current evidence
 
-The latest source snapshot is Gateway `52a0035` and Platform `075d95b`.
+The latest source snapshot is Gateway `52a0035` and Platform `c2d3cf9`.
+The current source-built project `scalaapi-auth-abuse-verified3` passed the
+27-migration empty-volume gate. Malformed registration returned HTTP 400; five
+failed logins for one unknown email returned HTTP 401 and the sixth returned
+HTTP 429 with `Retry-After`, backed by the new hash-only PostgreSQL
+`auth_abuse_counters` table. The same run passed authenticated Garnet,
+rotating-session and OAuth flows, realtime settlement, Platform/Gateway restart
+recovery, the complete Provider fault matrix, audited reconciliation, and MinIO
+signed object persistence; its cleanup trap removed the temporary stack and
+stack-specific image tags.
 The current source-built project `scalaapi-key-policy-verified` passed the
 26-migration empty-volume gate. A key scoped only to `models` received HTTP 403
 `permission_error` for Chat, produced one denied API-key audit row, and created
@@ -20,11 +29,12 @@ OAuth refresh, realtime settlement, Platform/Gateway restart recovery, the compl
 Provider fault matrix, audited reconciliation, and MinIO signed object persistence.
 Its cleanup removed all containers, volumes, networks, and stack-specific image tags;
 only the named `apitf_*` development resources remain.
-The Platform `075d95b` scheduling/policy slice passes the full 136-test suite and Release
+The Platform `c2d3cf9` auth/scheduling/policy slice passes the full 141-test suite and Release
 build with zero warnings: API-key scope normalization and projection tests pass,
 unknown scopes are rejected, capability denials are classified before scheduling,
-and migration/schema checks require the new scope, expiry, and append-only audit
-state. Replay/concurrency and expired-key HTTP cases remain open.
+and migration/schema checks require the new scope, expiry, append-only audit, and
+auth-abuse counter state. Replay/concurrency and expired-key HTTP cases remain
+open.
 Gateway CTest is 104/104. The complete empty-volume gate passed in
 `scalaapi-realtime-smoke-20260809` with the 22-migration double-run,
 Garnet-authenticated request path, realtime WebSocket settlement, nine
@@ -108,7 +118,8 @@ supersedes them where commit, image, or late-usage results differ.
 | Platform outbox-claim worker recovery | `scalaapi-platform-worker-recovery-0913` source-built smoke passed; Platform terminated immediately after claiming the completed settlement outbox, the same container was restarted, and the expired claim was reclaimed and applied exactly once | A worker crash before external Grain effects does not lose the durable event or duplicate the financial settlement |
 | Platform dispatch retry and active-lease recovery | `scalaapi-platform-dispatch-retry-0914` source-built smoke passed; Platform died after the lease/hold commit, Gateway retried with the same request/idempotency identity, and replacement Platform recovered and settled the existing lease with exactly one lease, usage event, usage log, and debit | A lost dispatch response is retryable without allocating a second lease or billing twice |
 | Gateway build and CTest | Clean local build; 104/104, exit 0 | Includes nested Anthropic start/final usage regression, TCP/TLS client, bounded response replay, malformed-usage/non-SSE guards, incomplete successful payload rejection, exact event-stream media-type validation, explicit-rejection evidence classification, terminal usage-outbox retirement, Garnet invalidation flush recovery, deterministic fault-hook claim/repeat tests, terminal SSE detection, incomplete chunked-body Provider disconnect classification, zero-length client-write cancellation, independent inter-chunk versus total-stream timeout tests, usage extraction from a truncated SSE stream, and the shared HTTP/realtime Platform dispatch retry policy |
-| Platform tests | 136/136, exit 0 | 66 Grain tests, 34 Host tests, 12 Admin tests, and 24 Provider mock tests; adds persistent group RPM-window enforcement, exact/longest-prefix/wildcard route precedence, overnight peak-rate evaluation, idempotent group spend, and cycle-protected fallback dispatch coverage alongside PostgreSQL auth-session tests for single-use refresh rotation, concurrent winner serialization, replaced-token rejection, logout/expiry invalidation, OAuth Provider credential lease serialization, atomic access/refresh rotation, metadata-update secret retention, refresh failure/backoff state, HTTPS/form token exchange, rotated-token parsing, bounded timeout classification, provider error-body redaction, real HTTP Provider mock rotation/revocation/malformed/oversized/timeout response contracts, and PostgreSQL audit-history filtering |
+| Platform tests | 141/141, exit 0 | 66 Grain tests, 34 Host tests, 17 Admin tests, and 24 Provider mock tests; adds persistent group RPM-window enforcement, exact/longest-prefix/wildcard route precedence, overnight peak-rate evaluation, idempotent group spend, cycle-protected fallback dispatch, PostgreSQL auth-session rotation, normalized registration/login validation, durable login identity/IP and registration-IP abuse counters, lockout/reset behavior, OAuth Provider credential lease serialization, atomic access/refresh rotation, metadata-update secret retention, refresh failure/backoff state, HTTPS/form token exchange, rotated-token parsing, bounded timeout classification, provider error-body redaction, real HTTP Provider mock rotation/revocation/malformed/oversized/timeout response contracts, and PostgreSQL audit-history filtering |
+| Authentication abuse smoke | `scalaapi-auth-abuse-verified3`, exit 0 | Fresh PostgreSQL applies 000 plus 001-026, second migrator run skips all 27; malformed registration is 400, five bad logins are 401, the sixth is 429 with `Retry-After`, and the full Garnet/protocol/restart/Provider/reconciliation/MinIO matrix remains green |
 | Realtime smoke client | `python3 deploy/stack/realtime_smoke.py` passed against Release `Provider.Mock`; `bash -n deploy/stack/smoke.sh` and `git diff --check` passed | Validates HTTP/1.1 upgrade, masked session input, deterministic session/usage frames, close handling, and full-stack exactly-once lease/usage/hold/ledger settlement using the clean Gateway image |
 | Platform Release build | Passed, 0 warnings and 0 errors | Includes Platform Host, Admin API, migrator, Provider mock, and benchmark assembly |
 | Admin Web | Typecheck and production build passed | Provider account form supports static headers and OAuth refresh metadata/replacement while list/details expose health but not stored secrets; browser tests are not configured |
@@ -116,7 +127,7 @@ supersedes them where commit, image, or late-usage results differ.
 | Provider OAuth credential refresh | Grain, Host, and Provider Mock tests pass for a single-account refresh lease, concurrent exclusion, CAS completion, rotated token/header hydration, safe metadata updates, persisted bounded failure/backoff, HTTPS-only token endpoint, bounded form response, secret-free errors, and real HTTP rotation/revocation/malformed/oversized response contracts. The `scalaapi-oauth-refresh-20260809` empty-stack gate proves an expired seeded credential rotates to version 2 before a billable Chat dispatch and never appears in Admin details | Add provider-specific parameters, refresh audit history, multi-Silo contention, and real provider adapter fixtures |
 | Scheduler benchmark dry run | 4/4, exit 0; no-match negative probe exits 1 | Dependency injection and child-result propagation pass; not performance evidence |
 | Contract generation and digest | Canonical and Gateway vendor schemas match; fixed-scale pricing round-trip passed; official Cap'n Proto 1.0.2 commit `1a0e12c0` plus local `capnpc-csharp` 1.3.118 regenerated all three C# files byte-identically; an intentional drift probe exited 1 with a unified diff | Platform's single-repository generated-output gate is blocking; atomic cross-private-repository schema release coordination remains |
-| PostgreSQL migrator | A fresh PostgreSQL volume applied one Orleans schema plus product migrations 001-025, including `022-auth-totp-state.sql`, `023-auth-oauth-states.sql`, `024-provider-credential-refresh-audit.sql`, and `025-api-key-policy-audit.sql`, then observed all twenty-six as `skip` on an explicit second run, exit 0 | No source database, CDC, compatibility table, snapshot, or old key used |
+| PostgreSQL migrator | A fresh PostgreSQL volume applied one Orleans schema plus product migrations 001-026, including `022-auth-totp-state.sql`, `023-auth-oauth-states.sql`, `024-provider-credential-refresh-audit.sql`, `025-api-key-policy-audit.sql`, and `026-auth-abuse-counters.sql`, then observed all twenty-seven as `skip` on an explicit second run, exit 0 | No source database, CDC, compatibility table, snapshot, or old key used |
 | Empty-volume Compose gate | `deploy/stack/smoke.sh` passed from Platform `9320320` and Gateway `9c7171f` in unique project `scalaapi-oauth-refresh-20260809`; the clean Gateway image was built with the immutable Photon pin and full FetchContent history. The stack applied all 26 migration files (including the Orleans schema), skipped all 26 on the second run, authenticated Garnet, rotated the expired OAuth seed before Chat dispatch, persisted one secret-free succeeded refresh audit row, settled/replayed Chat and realtime WebSocket, exercised restart/recovery and the Provider matrix, resolved one incident, and persisted/downloaded the MinIO object | Source-owned gate proves ordered accounts, evidence-backed holds, exactly-once recovery including dispatch retry and outbox claim reclaim, realtime usage settlement, OAuth rotation and audit over the mock HTTP contract, safe never-forwarded expiry, late usage settlement, actual client cancellation retention, and nine unknown-charge incidents with eight remaining open after one decision. Hosted CI, runtime WebSocket soak, multi-instance recovery, and cross-protocol automation remain |
 | Garnet smoke | Auth, PING, SET/GET, PX, INCR, DEL passed | Official digest; no Redis or embedded server |
 | Garnet outage/recovery | Platform readiness 503 then 200 | Automatic TCP reconnect verified |
