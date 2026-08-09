@@ -48,5 +48,7 @@ next scenario.
 Use `CONTAINER_CLI=podman` or `CONTAINER_CLI=docker` to select the runtime. Set
 `KEEP_STACK=1` to retain a failed or successful project for inspection, and set
 the `SMOKE_*_PORT` variables documented in `smoke.sh` when the default host ports
-are occupied. By default, the cleanup trap removes only the unique Compose
-project and volumes created by that smoke run.
+are occupied. To exercise a previously built Gateway image without rebuilding
+it, set `GATEWAY_IMAGE` together with `SMOKE_SKIP_BUILD=1`; the default still
+builds the sibling source. By default, the cleanup trap removes only the unique
+Compose project and volumes created by that smoke run.

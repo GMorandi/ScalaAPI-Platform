@@ -143,6 +143,7 @@ services:
       retries: 30
 
   gateway:
+    image: ${GATEWAY_IMAGE:-scalaapi-gateway:dev}
     build: ../../../gateway
     restart: on-failure
     environment:
