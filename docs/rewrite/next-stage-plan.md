@@ -2,7 +2,7 @@
 
 ## Checkpoint
 
-The next stage starts from Platform `7fca582`, Gateway `cd475c7`, and read-only
+The next stage starts from Platform `7fca582`, Gateway `12bf8f1`, and read-only
 reference `sub2api@43ec48d`.
 
 The greenfield baseline now starts from empty volumes, uses PostgreSQL as authority,
@@ -73,7 +73,7 @@ response block withholds Provider output but still commits the
 normal Provider usage debit and stores an exact client-facing 400 replay. Content
 rule creation returns its persisted identity, and the Provider mock forces headers
 before the zero-byte disconnect fixture so the intended 503 classification is
-deterministic. Gateway `cd475c7` additionally withholds each bounded SSE event
+deterministic. Gateway `12bf8f1` additionally withholds each bounded SSE event
 until response policy approval, emits an OpenAI/Anthropic/Gemini-shaped terminal
 policy error on block or fail-closed evaluation, and preserves the unknown-charge
 hold and idempotency evidence. The same empty-stack run proves the first event is
@@ -154,7 +154,7 @@ concurrency, and idempotent group spend remain covered by the Grain suite; HTTP
 group CRUD validation, distributed rate-window contention, and multi-Silo fallback
 fault evidence remain release work.
 
-The `SEC-01` runtime slice is active at Gateway `cd475c7` and Platform `7fca582`.
+The `SEC-01` runtime slice is active at Gateway `12bf8f1` and Platform `7fca582`.
 The canonical dispatch contract carries bounded request and response content.
 Platform applies request `log`/`block` rules before scheduler/lease activity and
 response rules after Provider validation but before non-stream delivery. Both stages
@@ -173,10 +173,10 @@ golden fixtures, and long-stream metrics are automated.
 ## Next implementation slice
 
 1. Complete the classifier release boundary. Keep the source-owned adapter and mock
-   contract as the deterministic CI path; add a production provider adapter with
-   measured latency budgets, protocol golden fixtures for OpenAI Chat/Responses,
-   Anthropic, and Gemini, and prove bounded-buffer overflow, cancellation, and late
-   usage settlement under every stream terminal event.
+   contract plus the `12bf8f1` protocol goldens as deterministic CI paths; add a
+   production provider adapter with measured latency budgets and prove
+   bounded-buffer overflow, cancellation, and late usage settlement under every
+   stream terminal event.
 2. Extend policy revision propagation and operations to multiple Platform/Gateway
    instances. Verify ordered outbox claims, Garnet invalidation convergence,
    monotonic revisions under concurrent rule changes, and alert correlation after
@@ -422,8 +422,9 @@ remain before GW-06 can become `implemented`.
 The direct non-stream OpenAI Responses contract is now fail-closed at Gateway
 `b27965f`: a successful Provider payload must carry completed response metadata,
 typed output items, and consistent positive usage before normal settlement. The
-Gateway retains the lease for malformed envelopes; streaming event goldens,
-subresource lifecycle, and cross-provider E2E remain before GW-03 is `implemented`.
+Gateway retains the lease for malformed envelopes. Gateway `12bf8f1` now freezes
+matching Responses request/response/stream fixtures; subresource lifecycle and
+cross-provider runtime E2E remain before GW-03 is `implemented`.
 
 CORE-06 now has a native configuration contract at Platform `c029b3c`: bounded
 runtime settings, secret rejection, boolean feature flags, independent snapshots,
@@ -439,9 +440,12 @@ Deliverables:
   malformed/oversized response, and revoked-grant profiles are complete. Add
   provider-specific revocation/rotation profiles and test multi-Silo lease
   contention and refresh failure recovery.
-- Version golden fixtures for OpenAI Chat request/response, tools, streaming events,
-  usage, finish reasons, status codes, headers, and safe error bodies.
-- Cover same-protocol and cross-protocol normalization at the Gateway boundary.
+- Gateway `12bf8f1` freezes versioned OpenAI Chat/Responses, Anthropic Messages,
+  and Gemini request/response/SSE/error fixtures, and tests parser normalization,
+  usage/terminal events, response validation, and cross-protocol conversion.
+  Add provider-specific catalog/tokenizer fixtures and live adapter evidence.
+- Use the frozen goldens to complete same-protocol and cross-protocol normalization
+  matrices at the Gateway boundary, including provider-specific errors and headers.
 - Validate request IDs, idempotency fingerprints, Provider status mapping, proxy/TLS
   headers, response limits, and malformed payload rejection.
 - Keep the revision-3 Cap'n Proto schema greenfield. Contract changes update the
@@ -457,10 +461,10 @@ Deliverables:
 Dependencies: package 2 defines terminal streaming behavior; the generic OAuth
   transport and mock fixture are now available.
 
-Exit: fixtures are deterministic, run without external Providers, cover every
-Chat success/failure branch used by the deployment gate, and each supported
-provider profile has a versioned golden request/response/error fixture with
-refresh audit and multi-Silo evidence.
+Exit: the source-owned fixtures remain deterministic and run without external
+Providers; each supported provider profile has a versioned request/response/error
+fixture, while provider-specific live adapters, refresh audit, and multi-Silo
+evidence are separately proven before promotion to `implemented`.
 
 ## Current P0 slice: API-key authorization boundary
 
@@ -570,7 +574,8 @@ idempotency state, outbox backlog, and reconciliation status:
    and actual client cancellation are source- and empty-stack-tested, but cancellation
    cannot be release-complete without the public error contract, final-usage replay,
    every deterministic boundary, and multi-instance recovery.
-2. Package 2 defines transport semantics; package 3 freezes them as fixtures.
+2. Package 2 defines transport semantics; package 3 (`12bf8f1`) freezes the
+   source-owned protocol fixtures and keeps them independent of external Providers.
 3. Package 4 runs the state machines under concurrency and infrastructure failure.
 4. Package 5 makes the same evidence mandatory in hosted release CI.
 
@@ -587,8 +592,10 @@ using the inventory's contract/test/runtime rule.
 
 Then expand the remaining 58-domain work in this order:
 
-1. Complete OpenAI Responses/Embeddings/Images/video/realtime, Anthropic Messages,
-   Gemini generation, model catalogue/token counting, and cross-protocol fixtures.
+1. Complete OpenAI Responses subresources, Embeddings/Images/video/realtime,
+   Anthropic Messages, Gemini generation, model catalogue/token counting, and
+   runtime cross-protocol E2E; source-owned protocol fixtures are frozen in
+   Gateway `12bf8f1`.
 2. Complete Provider-specific OAuth refresh profiles and runtime evidence, price/quota adapters, media recovery,
    and object reconciliation/restore.
 3. Complete identity hardening beyond the TOTP and OAuth PKCE state machines, Passkeys,
