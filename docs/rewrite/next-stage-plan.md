@@ -254,8 +254,8 @@ Platform `44d2096` adds migration 037 and the first media object integrity bound
 a `SKIP LOCKED` worker verifies signed object `HEAD` existence, size, and ETag for
 stored media, retries missing/mismatched/transient metadata, and restores a row to
 `stored` after the object becomes valid without changing the settled operation or
-lease. Object listing/orphan cleanup, restore, cancellation/restart, and full
-MinIO lifecycle evidence remain explicit follow-on gates.
+lease. Object listing/orphan cleanup, restart/restore, retention, and full MinIO
+lifecycle evidence remain explicit follow-on gates.
 
 The completed bounded media slice was batch listing, item projection, and
 Provider-backed cancellation. The read-only

@@ -595,7 +595,7 @@ The following detailed bullets are retained as the preceding-slice record; the
 current totals for Platform `1cc4538` and Gateway `418da3a` are 259/259 and
 126/126 respectively:
 
-- Gateway built locally and passed 125/125 CTest cases, including deterministic
+- Gateway built locally and passed 126/126 CTest cases, including deterministic
   fault-hook claim/repeat behavior, terminal SSE detection, provider EOF
   classification, incomplete chunked-body disconnect classification, zero-length
   client-write cancellation, and bounded Provider pre-header stream timeout
