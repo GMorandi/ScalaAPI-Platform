@@ -65,6 +65,10 @@ and checks the resulting lease, hold, usage, ledger, and outbox invariants. The
 same gate requires `python3` and probes the realtime WebSocket path with the
 source-owned `realtime_smoke.py` client, including the Provider session/usage
 frames and exactly-once lease, usage, hold, and ledger settlement assertions.
+It also runs four concurrent realtime sessions (the seeded user concurrency
+limit), keeps each upgraded connection
+open for a bounded three-second hold, and verifies one completed lease, usage
+event/log, committed hold, and NUMERIC debit per session.
 
 The same gate seeds independent Provider mock accounts for HTTP 429, HTTP 500,
 malformed usage, upstream disconnect, and timeout scenarios. For every scenario

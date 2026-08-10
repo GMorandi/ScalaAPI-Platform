@@ -195,6 +195,9 @@ platform_dispatch_retry_request_id="smoke-platform-dispatch-retry-${suffix}"
 platform_dispatch_retry_idempotency_key="smoke-platform-dispatch-retry-idem-${suffix}"
 realtime_request_id="smoke-realtime-${suffix}"
 realtime_idempotency_key="smoke-realtime-idem-${suffix}"
+realtime_soak_prefix="smoke-realtime-soak-${suffix}"
+realtime_soak_count=4
+realtime_soak_hold_seconds=3
 fault_request_prefix="smoke-fault-${suffix}"
 media_idempotency_key="smoke-media-idem-${suffix}"
 chat_price_version="smoke-chat-${suffix}-v1"
@@ -1854,6 +1857,29 @@ SELECT
    WHERE b.entry_type = 'usage_debit' AND b.amount = -l.final_cost_usd);")"
 assert_equals "1|1|1|1|1|1" "$realtime_lease_summary" \
     "Realtime lease settlement"
+
+python3 "$stack_dir/realtime_soak.py" "$gateway_url" "$api_key" \
+    "$realtime_soak_prefix" "$realtime_soak_count" "$realtime_soak_hold_seconds"
+realtime_soak_settled() {
+    local summary
+    summary="$(db_query "
+WITH target_leases AS (
+    SELECT lease_token, request_id, status
+    FROM request_leases
+    WHERE request_id LIKE '$realtime_soak_prefix-%'
+)
+SELECT
+  (SELECT count(*) FROM target_leases) || '|' ||
+  (SELECT count(*) FROM target_leases WHERE status = 'completed') || '|' ||
+  (SELECT count(*) FROM usage_events WHERE request_id LIKE '$realtime_soak_prefix-%') || '|' ||
+  (SELECT count(*) FROM usage_logs WHERE request_id LIKE '$realtime_soak_prefix-%') || '|' ||
+  (SELECT count(*) FROM balance_holds h JOIN target_leases l USING (lease_token) WHERE h.status = 'committed') || '|' ||
+  (SELECT count(*) FROM balance_ledger b JOIN target_leases l USING (lease_token)
+   WHERE b.entry_type = 'usage_debit');")"
+    [[ "$summary" == "${realtime_soak_count}|${realtime_soak_count}|${realtime_soak_count}|${realtime_soak_count}|${realtime_soak_count}|${realtime_soak_count}" ]]
+}
+wait_for "realtime WebSocket soak settlement" 45 realtime_soak_settled
+echo "PASS: realtime WebSocket soak settled $realtime_soak_count sessions without duplicate billing"
 
 echo "Restarting Platform and verifying a new billable request"
 recreate_service platform-silo
