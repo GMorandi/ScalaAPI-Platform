@@ -191,6 +191,38 @@ public sealed class ContentPolicyClassifierTests
         Assert.Equal("content_policy_classifier_unavailable", result.Code);
     }
 
+    [Fact]
+    public async Task OpenAiModerationMetricsExposeFixedSafeLabelsAndHistogram()
+    {
+        var metrics = new OpenAiModerationMetrics();
+        var calls = 0;
+        var classifier = new OpenAiModerationClassifier(
+            new HttpClient(new StubHandler(_ =>
+            {
+                calls++;
+                return Task.FromResult(calls == 1
+                    ? Json(HttpStatusCode.OK, "{\"results\":[{\"flagged\":true}]}")
+                    : Json(HttpStatusCode.OK, "{not-json"));
+            })), OpenAiOptions, metrics);
+
+        await classifier.EvaluateAsync("openai", "safe body", "rule");
+        await classifier.EvaluateAsync("openai", "second body", "rule");
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            classifier.EvaluateAsync("openai", "cancelled", "rule", cancellation.Token));
+
+        var output = metrics.RenderPrometheus();
+        Assert.Contains("platform_content_classifier_requests_total{classifier=\"openai\"} 3", output);
+        Assert.Contains("platform_content_classifier_matches_total{classifier=\"openai\"} 1", output);
+        Assert.Contains("platform_content_classifier_protocol_errors_total{classifier=\"openai\"} 1", output);
+        Assert.Contains("platform_content_classifier_cancellations_total{classifier=\"openai\"} 1", output);
+        Assert.Contains("duration_seconds_bucket", output);
+        Assert.DoesNotContain("safe body", output);
+        Assert.DoesNotContain("rule", output);
+        Assert.DoesNotContain("sk-test", output);
+    }
+
     private static HttpContentClassifier Create(HttpMessageHandler handler) =>
         new(new HttpClient(handler), Options);
 

@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Headers;
+using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -195,6 +196,85 @@ public sealed record OpenAiModerationClientOptions(
 }
 
 /// <summary>
+/// Process-local OpenAI Moderation metrics. Labels are fixed and no request
+/// content, rule pattern, endpoint, or credential is ever included.
+/// </summary>
+public sealed class OpenAiModerationMetrics
+{
+    private static readonly double[] BucketsSeconds =
+        [0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5];
+    private readonly long[] _buckets = new long[BucketsSeconds.Length + 1];
+    private long _requests;
+    private long _matches;
+    private long _noMatches;
+    private long _unavailable;
+    private long _protocolErrors;
+    private long _cancellations;
+    private long _durationTicks;
+
+    public void Record(ContentClassifierResult result, TimeSpan duration)
+    {
+        Interlocked.Increment(ref _requests);
+        Interlocked.Add(ref _durationTicks, duration.Ticks);
+        var seconds = Math.Max(0, duration.TotalSeconds);
+        var bucket = Array.FindIndex(BucketsSeconds, limit => seconds <= limit);
+        if (bucket < 0) bucket = _buckets.Length - 1;
+        Interlocked.Increment(ref _buckets[bucket]);
+
+        switch (result.Outcome)
+        {
+            case ContentClassifierOutcome.Match:
+                Interlocked.Increment(ref _matches);
+                break;
+            case ContentClassifierOutcome.NoMatch:
+                Interlocked.Increment(ref _noMatches);
+                break;
+            case ContentClassifierOutcome.Unavailable:
+                Interlocked.Increment(ref _unavailable);
+                if (result.Code == "content_policy_classifier_protocol_error")
+                    Interlocked.Increment(ref _protocolErrors);
+                break;
+        }
+    }
+
+    public void RecordCancellation()
+    {
+        Interlocked.Increment(ref _requests);
+        Interlocked.Increment(ref _cancellations);
+    }
+
+    public string RenderPrometheus()
+    {
+        var requests = Interlocked.Read(ref _requests);
+        var cumulative = 0L;
+        var builder = new StringBuilder();
+        builder.AppendLine("# TYPE platform_content_classifier_requests_total counter");
+        builder.AppendLine($"platform_content_classifier_requests_total{{classifier=\"openai\"}} {requests}");
+        builder.AppendLine("# TYPE platform_content_classifier_matches_total counter");
+        builder.AppendLine($"platform_content_classifier_matches_total{{classifier=\"openai\"}} {Interlocked.Read(ref _matches)}");
+        builder.AppendLine("# TYPE platform_content_classifier_no_matches_total counter");
+        builder.AppendLine($"platform_content_classifier_no_matches_total{{classifier=\"openai\"}} {Interlocked.Read(ref _noMatches)}");
+        builder.AppendLine("# TYPE platform_content_classifier_unavailable_total counter");
+        builder.AppendLine($"platform_content_classifier_unavailable_total{{classifier=\"openai\"}} {Interlocked.Read(ref _unavailable)}");
+        builder.AppendLine("# TYPE platform_content_classifier_protocol_errors_total counter");
+        builder.AppendLine($"platform_content_classifier_protocol_errors_total{{classifier=\"openai\"}} {Interlocked.Read(ref _protocolErrors)}");
+        builder.AppendLine("# TYPE platform_content_classifier_cancellations_total counter");
+        builder.AppendLine($"platform_content_classifier_cancellations_total{{classifier=\"openai\"}} {Interlocked.Read(ref _cancellations)}");
+        builder.AppendLine("# TYPE platform_content_classifier_duration_seconds histogram");
+        for (var i = 0; i < BucketsSeconds.Length; i++)
+        {
+            cumulative += Interlocked.Read(ref _buckets[i]);
+            builder.AppendLine($"platform_content_classifier_duration_seconds_bucket{{classifier=\"openai\",le=\"{BucketsSeconds[i].ToString(System.Globalization.CultureInfo.InvariantCulture)}\"}} {cumulative}");
+        }
+        cumulative += Interlocked.Read(ref _buckets[^1]);
+        builder.AppendLine($"platform_content_classifier_duration_seconds_bucket{{classifier=\"openai\",le=\"+Inf\"}} {cumulative}");
+        builder.AppendLine($"platform_content_classifier_duration_seconds_count{{classifier=\"openai\"}} {requests - Interlocked.Read(ref _cancellations)}");
+        builder.AppendLine($"platform_content_classifier_duration_seconds_sum{{classifier=\"openai\"}} {(Interlocked.Read(ref _durationTicks) / (double)TimeSpan.TicksPerSecond).ToString(System.Globalization.CultureInfo.InvariantCulture)}");
+        return builder.ToString();
+    }
+}
+
+/// <summary>
 /// Production OpenAI Moderation adapter. The policy pattern is intentionally
 /// not sent upstream: an <c>openai</c> rule means that any flagged moderation
 /// result matches that rule, while local/source-owned rules retain pattern
@@ -202,12 +282,34 @@ public sealed record OpenAiModerationClientOptions(
 /// </summary>
 public sealed class OpenAiModerationClassifier(
     HttpClient httpClient,
-    OpenAiModerationClientOptions options) : IContentClassifier
+    OpenAiModerationClientOptions options,
+    OpenAiModerationMetrics? metrics = null) : IContentClassifier
 {
     private static readonly JsonSerializerOptions JsonOptions =
         new(JsonSerializerDefaults.Web);
 
     public async Task<ContentClassifierResult> EvaluateAsync(
+        string classifier,
+        string normalizedContent,
+        string normalizedPattern,
+        CancellationToken ct = default)
+    {
+        var stopwatch = Stopwatch.StartNew();
+        try
+        {
+            var result = await EvaluateCoreAsync(classifier, normalizedContent,
+                normalizedPattern, ct);
+            metrics?.Record(result, stopwatch.Elapsed);
+            return result;
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            metrics?.RecordCancellation();
+            throw;
+        }
+    }
+
+    private async Task<ContentClassifierResult> EvaluateCoreAsync(
         string classifier,
         string normalizedContent,
         string normalizedPattern,

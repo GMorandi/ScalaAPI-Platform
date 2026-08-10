@@ -136,6 +136,7 @@ builder.Services.AddSingleton<RequestLeaseStore>();
 builder.Services.AddSingleton<MediaOperationStore>();
 var classifierEndpoint = builder.Configuration["ContentClassifier:Endpoint"];
 var openAiClassifierEndpoint = builder.Configuration["ContentClassifier:OpenAI:Endpoint"];
+builder.Services.AddSingleton<OpenAiModerationMetrics>();
 if (!string.IsNullOrWhiteSpace(openAiClassifierEndpoint))
 {
     var allowInsecureOpenAi = builder.Configuration.GetValue(
@@ -279,7 +280,8 @@ app.MapPost("/internal/reconciliation/incidents/{incidentId:long}/resolve", asyn
         _ => Results.BadRequest(response),
     };
 });
-app.MapGet("/metrics", async (NpgsqlDataSource db, CancellationToken ct) =>
+app.MapGet("/metrics", async (NpgsqlDataSource db,
+    OpenAiModerationMetrics? openAiMetrics, CancellationToken ct) =>
 {
     await using var command = db.CreateCommand("""
         SELECT
@@ -325,7 +327,8 @@ app.MapGet("/metrics", async (NpgsqlDataSource db, CancellationToken ct) =>
         # TYPE platform_reconciliation_last_success_timestamp_seconds gauge
         platform_reconciliation_last_success_timestamp_seconds {reader.GetInt64(10)}
         """;
-    return Results.Text(body, "text/plain; version=0.0.4");
+    return Results.Text(body + (openAiMetrics?.RenderPrometheus() ?? ""),
+        "text/plain; version=0.0.4");
 });
 
 app.Run();
