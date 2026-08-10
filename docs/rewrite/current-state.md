@@ -10,15 +10,15 @@ read-only requirements reference and is excluded from builds and runtime.
 
 | Repository | Commit | Worktree | Role |
 | --- | --- | --- | --- |
-| `gateway` | `f08e868` | clean | C++ HTTP/WebSocket edge, protocol parsing/conversion, versioned OpenAI Chat/Responses, Anthropic Messages, and Gemini request/response/SSE golden contracts, full pairwise provider request/response/error matrix assertions, fail-closed model catalog and token-count validation, non-billable control-request hold release, explicitly bounded Responses read/cancel/delete subresource routing and release, bounded Embeddings and Responses validation, streaming, strict Provider media contracts, bounded transport timers, normalized Provider availability errors, shared retryable Platform transport policy, durable usage delivery that does not let one retryable outbox row starve later leases, authenticated Garnet projections, bounded request/response content-policy RPC evaluation, event-boundary streaming response moderation, and fail-closed response delivery including retryable classifier outages |
-| `platform` | `feb8bf4` backend + Admin Web + User Web | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, Provider mock contracts including source-owned malformed and cancellation OpenAI Responses fixtures, OpenAI Responses JSON/SSE plus idempotent read/cancel/delete subresource runtime smoke coverage, three non-billable control leases with no usage/debit evidence, malformed-success 502/unknown-charge retention smoke coverage, seeded Anthropic/Gemini provider-group smoke coverage, Claude price aliasing, control-operation concurrency accounting, terminal lease-slot release, bounded provider pricing catalog refresh with immutable source/checksum history and admin-source precedence, media object HEAD reconciliation with retryable missing/mismatch state, native mock and Stripe Checkout Session payment adapters with HTTPS/auth/amount bounds and idempotent pending-order retry, Stripe raw-body webhook verification and event normalization with provider payment-id association, native partial-refund Provider commands with pending/retryable state, cumulative order refund state, independent Provider/ledger refund effects, SKIP LOCKED refund recovery with expiring claims, and one NUMERIC ledger effect per refund, User Web provider selection and checkout links, public model catalog/status/legal routes with source-built Compose browser evidence, authenticated portal browser evidence for login/dashboard/usage/API keys/profile, rotating identity/session/TOTP/OAuth state, native Passkey/WebAuthn ceremonies, encrypted email notification outbox and retry worker, API-key policy and audit, versioned runtime configuration, persistent scheduling and lease/hold/ledger state, atomic subscription quota reservation and settlement, idempotent subscription expiry/renewal worker, audited operator reconciliation, Admin Web incident filtering/run/evidence-backed settle-release workflow with replay-key preservation, content-policy rule CRUD/change/alert operations with an API-intercepted Playwright smoke, authenticated Operations metric/alert dashboard, bounded Channel Monitor history and health-check submission with browser evidence, source-built OpenAI Moderation empty-stack smoke coverage, atomic audited referral rewards, authenticated and audited operational metrics, bounded redacted audit queries/exports, encrypted proxy and validated TLS profile administration, audited bounded channel monitor checks, auditable user data export, bounded authentication/ceremony cleanup, user announcement read tracking, media/object lifecycle, staged request/response content-policy evaluation with versioned Unicode normalization, explicitly selectable source-owned/OpenAI Moderation classifiers, fixed-label OpenAI moderation counters, persisted cross-process snapshots, configuration-backed p95/unavailable-ratio budget gauges, durable budget alerts with rolling-window recovery, deterministic hosted-worker and multi-process/restart evidence, cross-Gateway shared-idempotency exactly-once settlement evidence, controlled secondary Silo/Gateway outage and rejoin settlement evidence, idempotent PostgreSQL backup artifacts with SHA-256 and isolated restore target, bilingual Admin backup/restore controls, isolated Provider fault fixtures with deterministic empty-stream EOF, durable no-TTL policy revision propagation and PostgreSQL-backed Garnet rebuild, Garnet TLS CA trust-anchor and server-name validation, source-built Garnet TLS server override, rotation/expiry rejection and recovery, four-session realtime WebSocket soak with bounded connection hold and exactly-once billing assertions, operational alert evidence, redacted audits, and crash-reclaimable content-policy outbox propagation |
+| `gateway` | `d1e4a85` | clean | C++ HTTP/WebSocket edge, protocol parsing/conversion, versioned OpenAI Chat/Responses, Anthropic Messages, and Gemini request/response/SSE golden contracts, full pairwise provider request/response/error matrix assertions, fail-closed model catalog and token-count validation, non-billable control-request hold release, explicitly bounded Responses read/input_items/cancel/delete subresource routing and release, bounded Embeddings and Responses validation, streaming, strict Provider media contracts, bounded transport timers, normalized Provider availability errors, shared retryable Platform transport policy, durable usage delivery that does not let one retryable outbox row starve later leases, authenticated Garnet projections, bounded request/response content-policy RPC evaluation, event-boundary streaming response moderation, and fail-closed response delivery including retryable classifier outages |
+| `platform` | `eecaff6` backend + Admin Web + User Web | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, Provider mock contracts including source-owned malformed, cancellation, and input-item OpenAI Responses fixtures, OpenAI Responses JSON/SSE plus idempotent read/input_items/cancel/delete subresource runtime smoke coverage, four non-billable control leases with no usage/debit evidence, malformed-success 502/unknown-charge retention smoke coverage, seeded Anthropic/Gemini provider-group smoke coverage, Claude price aliasing, control-operation concurrency accounting, terminal lease-slot release, bounded provider pricing catalog refresh with immutable source/checksum history and admin-source precedence, media object HEAD reconciliation with retryable missing/mismatch state, native mock and Stripe Checkout Session payment adapters with HTTPS/auth/amount bounds and idempotent pending-order retry, Stripe raw-body webhook verification and event normalization with provider payment-id association, native partial-refund Provider commands with pending/retryable state, cumulative order refund state, independent Provider/ledger refund effects, SKIP LOCKED refund recovery with expiring claims, and one NUMERIC ledger effect per refund, User Web provider selection and checkout links, public model catalog/status/legal routes with source-built Compose browser evidence, authenticated portal browser evidence for login/dashboard/usage/API keys/profile, rotating identity/session/TOTP/OAuth state, native Passkey/WebAuthn ceremonies, encrypted email notification outbox and retry worker, API-key policy and audit, versioned runtime configuration, persistent scheduling and lease/hold/ledger state, atomic subscription quota reservation and settlement, idempotent subscription expiry/renewal worker, audited operator reconciliation, Admin Web incident filtering/run/evidence-backed settle-release workflow with replay-key preservation, content-policy rule CRUD/change/alert operations with an API-intercepted Playwright smoke, authenticated Operations metric/alert dashboard, bounded Channel Monitor history and health-check submission with browser evidence, source-built OpenAI Moderation empty-stack smoke coverage, atomic audited referral rewards, authenticated and audited operational metrics, bounded redacted audit queries/exports, encrypted proxy and validated TLS profile administration, audited bounded channel monitor checks, auditable user data export, bounded authentication/ceremony cleanup, user announcement read tracking, media/object lifecycle, staged request/response content-policy evaluation with versioned Unicode normalization, explicitly selectable source-owned/OpenAI Moderation classifiers, fixed-label OpenAI moderation counters, persisted cross-process snapshots, configuration-backed p95/unavailable-ratio budget gauges, durable budget alerts with rolling-window recovery, deterministic hosted-worker and multi-process/restart evidence, cross-Gateway shared-idempotency exactly-once settlement evidence, controlled secondary Silo/Gateway outage and rejoin settlement evidence, idempotent PostgreSQL backup artifacts with SHA-256 and isolated restore target, bilingual Admin backup/restore controls, isolated Provider fault fixtures with deterministic empty-stream EOF, durable no-TTL policy revision propagation and PostgreSQL-backed Garnet rebuild, Garnet TLS CA trust-anchor and server-name validation, source-built Garnet TLS server override, rotation/expiry rejection and recovery, four-session realtime WebSocket soak with bounded connection hold and exactly-once billing assertions, operational alert evidence, redacted audits, and crash-reclaimable content-policy outbox propagation |
 | `sub2api` | `43ec48d` | read-only clean | Requirements catalogue only; never a runtime or compatibility dependency |
 
 The current tracked inventory is:
 
 - Gateway: 52 production C++ source/header files, 11 test source files, and 125
   CTest cases.
-- Platform: 120 hand-written production C# files, 5 generated Cap'n Proto/global C# files, 66 test/benchmark C# files, and 246 passing tests: 69 Grain, 81 Host, 46 Admin, and 50 Provider mock tests.
+- Platform: 120 hand-written production C# files, 5 generated Cap'n Proto/global C# files, 66 test/benchmark C# files, and 247 passing tests: 69 Grain, 81 Host, 46 Admin, and 51 Provider mock tests.
   The Admin Web source now has 29 TypeScript/TSX files and 16 page views.
 - Product surface: 129 direct Admin API route declarations, 50 product tables,
   22 SQLSugar entity types, 29 Admin Web TypeScript/TSX files and 16 page views,
@@ -462,7 +462,7 @@ current-source runtime evidence.
 ## Current verification evidence
 
 The latest completed vertical slice is the source-built protocol gate
-`scalaapi-responses-cancel-0810a` (Platform `feb8bf4`, Gateway `f08e868`). It includes
+`scalaapi-responses-input-items-0810b` (Platform `eecaff6`, Gateway `d1e4a85`). It includes
 the provider-group gate below plus OpenAI Responses JSON/SSE.
 Anthropic `count_tokens`, JSON Messages, and SSE Messages, plus Gemini model
 catalog, JSON `generateContent`, and SSE `streamGenerateContent`, all traversed
@@ -473,33 +473,38 @@ both leases aborted, both holds released, and neither produced usage or ledger
 rows. The empty-stack gate also passed the existing restart, reconciliation,
 media, S3, content-policy, Provider-fault, and four-session realtime checks.
 During this slice a retryable `pricing_snapshot_missing` event was found to
-starve later durable usage reports; Gateway `f08e868` retains that event for
+starve later durable usage reports; Gateway `d1e4a85` retains that event for
 retry while continuing independent reports. The Garnet RESP health probe was
 also corrected to emit actual CRLF bytes. The smoke trap removed the isolated
 project and `podman ps -a` was empty afterward.
 
-The `scalaapi-responses-cancel-0810a` run exercised the OpenAI Responses root
-endpoint and read/cancel/delete subresources through the source-owned Provider mock.
+The `scalaapi-responses-input-items-0810b` run exercised the OpenAI Responses root
+endpoint and read/input_items/cancel/delete subresources through the source-owned Provider mock.
 Non-stream JSON validated the completed response envelope, output text, and
 positive usage; SSE validated `response.created`, `response.output_text.delta`,
 and terminal `response.completed` events with nested usage. Both generation
 requests produced exactly one lease, usage event, usage log, committed hold,
 and NUMERIC debit. `GET /v1/responses/{id}` returned the stored response and
 created one aborted routing lease with a released hold and no usage/debit.
+`GET /v1/responses/{id}/input_items` returned a stable list containing the
+source request's input text and created a second aborted routing lease with a
+released hold and no usage/debit. Deleting the response also removes this stored
+input resource, and Provider HTTP tests cover its subsequent not-found result.
 `POST /v1/responses/{id}/cancel` returned an idempotent `cancelled` response;
 repeating the cancel returned the same state and a subsequent GET retained
 `cancelled`. It created one additional aborted routing lease with a released
 hold and no usage/debit.
-`DELETE /v1/responses/{id}` returned a deletion envelope and created one
-further aborted routing lease with a released hold and no usage/debit.
+`DELETE /v1/responses/{id}` returned a deletion envelope and created one further
+aborted routing lease with a released hold and no usage/debit. The four controls
+therefore released four holds without a usage event, usage log, or debit.
 The malformed non-stream fixture returned HTTP 502 with the public
 `provider_error` envelope, retained exactly one `reconciliation_needed` lease,
 and produced no usage event, usage log, or NUMERIC usage debit. The full smoke
 then reconciled and operator-resolved the expanded incident set. Remaining
-mutation semantics beyond read/cancel/delete, provider-group fault coverage, and live adapters remain
+mutation semantics beyond read/input_items/cancel/delete, provider-group fault coverage, and live adapters remain
 open.
 
-At Platform/Admin Web/User Web `feb8bf4` and Gateway `f08e868`:
+At Platform/Admin Web/User Web `eecaff6` and Gateway `d1e4a85`:
 
 - Gateway built locally and passed 125/125 CTest cases, including deterministic
   fault-hook claim/repeat behavior, terminal SSE detection, provider EOF
@@ -511,8 +516,8 @@ At Platform/Admin Web/User Web `feb8bf4` and Gateway `f08e868`:
   sixteen request pairs, all sixteen response pairs, cross-protocol response
   envelope validation, and cross-protocol error normalization with standard
   status precedence.
-- Platform Release test/build passed with 0 warnings and 0 errors: 246/246 tests,
-  including 81 Host tests, 69 Grain tests, 46 Admin tests, and 50 Provider mock
+- Platform Release test/build passed with 0 warnings and 0 errors: 247/247 tests,
+  including 81 Host tests, 69 Grain tests, 46 Admin tests, and 51 Provider mock
   tests. Admin coverage
   includes PostgreSQL-backed TOTP replay, backup-code consumption, lockout,
   recovery, OAuth provider/redirect/verifier binding, one-time state consumption,

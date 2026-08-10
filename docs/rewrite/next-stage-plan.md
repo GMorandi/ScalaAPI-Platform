@@ -2,7 +2,7 @@
 
 ## Checkpoint
 
-The next stage starts from Platform/Admin Web/User Web `feb8bf4`, Gateway `f08e868`, and read-only
+The next stage starts from Platform/Admin Web/User Web `eecaff6`, Gateway `d1e4a85`, and read-only
 reference `sub2api@43ec48d`.
 
 The greenfield baseline now starts from empty volumes, uses PostgreSQL as authority,
@@ -73,13 +73,15 @@ retryable usage reports in the durable outbox without FIFO starvation, while
 Platform `7c4836a` releases terminal account/user slots and adds the seeded
 Claude price alias. Provider-specific error/disconnect fixtures, real adapters,
 and broader cross-protocol runtime coverage remain open.
-The OpenAI Responses root and read/cancel/delete-subresource runtime slice is now
-complete in `scalaapi-responses-cancel-0810a`: JSON and SSE both pass
-envelope/terminal/usage validation and settle exactly once, while
-`GET /v1/responses/{id}`, `POST /v1/responses/{id}/cancel`, and `DELETE
-/v1/responses/{id}` traverse Gateway to Platform to Provider. Cancellation is
-idempotent, retrieval retains the `cancelled` state, and all three controls
-release their routing leases without billing. The same gate sends a malformed
+The OpenAI Responses root and read/input_items/cancel/delete-subresource runtime
+slice is now complete in `scalaapi-responses-input-items-0810b`: JSON and SSE both
+pass envelope/terminal/usage validation and settle exactly once, while
+`GET /v1/responses/{id}`, `GET /v1/responses/{id}/input_items`, `POST
+/v1/responses/{id}/cancel`, and `DELETE /v1/responses/{id}` traverse Gateway to
+Platform to Provider. Input-item retrieval preserves the submitted text and is
+removed with its response; cancellation is idempotent, retrieval retains the
+`cancelled` state, and all four controls release their routing leases without
+billing. The same gate sends a malformed
 non-stream success through the source-owned Provider mock, maps it to
 `502/provider_error`, retains the ambiguous lease for reconciliation, and proves
 no usage/debit before the audited resolution pass. The next Responses work is
@@ -853,7 +855,7 @@ using the inventory's contract/test/runtime rule.
 Then expand the remaining 58-domain work in this order:
 
 1. Complete the remaining OpenAI Responses mutation subresources beyond the
-   implemented read/cancel/delete slice, then Embeddings/Images/video/realtime,
+   implemented read/input_items/cancel/delete slice, then Embeddings/Images/video/realtime,
    Anthropic Messages, Gemini generation, model catalogue/token counting, and
    runtime cross-protocol E2E; source-owned protocol fixtures are frozen in
    Gateway `8f33790`.
