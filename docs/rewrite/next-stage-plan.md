@@ -2,7 +2,7 @@
 
 ## Checkpoint
 
-The next stage starts from Platform/Admin Web/User Web `94e0db8`, Gateway `3da0d33`, and read-only
+The next stage starts from Platform/Admin Web/User Web `27c4b74`, Gateway `3da0d33`, and read-only
 reference `sub2api@43ec48d`.
 
 The greenfield baseline now starts from empty volumes, uses PostgreSQL as authority,
@@ -264,7 +264,8 @@ two-worker PostgreSQL claim/publication assertion. Platform `94e0db8` removes th
 revision TTL and makes authenticated cache rebuild restore the authoritative
 PostgreSQL revision plus an invalidation version; a dedicated RemoteGarnet test
 proves both deleted keys recover. The domain remains `partial` until separate-process
-ordering/failure, browser authorization, and long-stream metrics are automated.
+ordering/failure, live browser authorization/API evidence, and long-stream metrics are
+automated.
 
 ## Next implementation slice
 
@@ -282,10 +283,12 @@ ordering/failure, browser authorization, and long-stream metrics are automated.
    concurrent rule changes, and alert correlation after worker failure or Garnet
    outage. The single-instance outbox, retry, and alert evidence is complete in
    `15cdfc0`.
-3. Add operator and browser evidence. Exercise Admin rule management with fresh
-   identity, authorization, audit, redaction, and replay checks; add Admin/User Web
-   browser tests for policy management and the user-visible 400/503 policy error
-   contracts.
+3. Extend operator and browser evidence. Platform `27c4b74` now provides Admin Web
+   rule CRUD, propagation-change history, alert filters, bilingual navigation, and a
+   passing Chromium smoke with intercepted `/admin/content-audit/{rules,changes,alerts}`
+   contracts. Add live authenticated authorization/audit/replay coverage, User Web
+   browser tests for the user-visible 400/503 policy errors, and browser evidence for
+   reconciliation, monitor, backup, and recovery workflows.
 4. Close release reliability gates in parallel: Provider golden request/response
    fixtures, long WebSocket/backpressure soak, multi-Gateway/multi-Silo contention,
    Garnet TLS/outage/rebuild, PostgreSQL/Garnet recovery, and backup/restore drills.

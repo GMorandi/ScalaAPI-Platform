@@ -11,7 +11,7 @@ read-only requirements reference and is excluded from builds and runtime.
 | Repository | Commit | Worktree | Role |
 | --- | --- | --- | --- |
 | `gateway` | `3da0d33` | clean | C++ HTTP/WebSocket edge, protocol parsing/conversion, versioned OpenAI Chat/Responses, Anthropic Messages, and Gemini request/response/SSE golden contracts, full pairwise provider request/response/error matrix assertions, fail-closed model catalog and token-count validation, bounded Embeddings and Responses validation, streaming, strict Provider media contracts, bounded transport timers, normalized Provider availability errors, shared retryable Platform transport policy, durable usage delivery, authenticated Garnet projections, bounded request/response content-policy RPC evaluation, event-boundary streaming response moderation, and fail-closed response delivery including retryable classifier outages |
-| `platform` | `94e0db8` backend + Admin Web + User Web | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, Provider mock contracts, bounded provider pricing catalog refresh with immutable source/checksum history, media object HEAD reconciliation with retryable missing/mismatch state, native mock and Stripe Checkout Session payment adapters with HTTPS/auth/amount bounds and idempotent pending-order retry, Stripe raw-body webhook verification and event normalization with provider payment-id association, native partial-refund Provider commands with pending/retryable state, cumulative order refund state, independent Provider/ledger refund effects, SKIP LOCKED refund recovery with expiring claims, and one NUMERIC ledger effect per refund, User Web provider selection and checkout links, rotating identity/session/TOTP/OAuth state, native Passkey/WebAuthn ceremonies, encrypted email notification outbox and retry worker, API-key policy and audit, versioned runtime configuration, persistent scheduling and lease/hold/ledger state, atomic subscription quota reservation and settlement, idempotent subscription expiry/renewal worker, audited operator reconciliation, Admin Web incident filtering/run/evidence-backed settle-release workflow with replay-key preservation, atomic audited referral rewards, authenticated and audited operational metrics, bounded redacted audit queries/exports, encrypted proxy and validated TLS profile administration, audited bounded channel monitor checks, auditable user data export, bounded authentication/ceremony cleanup, user announcement read tracking, media/object lifecycle, staged request/response content-policy evaluation with versioned Unicode normalization, explicitly selectable source-owned/OpenAI Moderation classifiers, durable no-TTL policy revision propagation and PostgreSQL-backed Garnet rebuild, operational alert evidence, and redacted audits |
+| `platform` | `27c4b74` backend + Admin Web + User Web | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, Provider mock contracts, bounded provider pricing catalog refresh with immutable source/checksum history, media object HEAD reconciliation with retryable missing/mismatch state, native mock and Stripe Checkout Session payment adapters with HTTPS/auth/amount bounds and idempotent pending-order retry, Stripe raw-body webhook verification and event normalization with provider payment-id association, native partial-refund Provider commands with pending/retryable state, cumulative order refund state, independent Provider/ledger refund effects, SKIP LOCKED refund recovery with expiring claims, and one NUMERIC ledger effect per refund, User Web provider selection and checkout links, rotating identity/session/TOTP/OAuth state, native Passkey/WebAuthn ceremonies, encrypted email notification outbox and retry worker, API-key policy and audit, versioned runtime configuration, persistent scheduling and lease/hold/ledger state, atomic subscription quota reservation and settlement, idempotent subscription expiry/renewal worker, audited operator reconciliation, Admin Web incident filtering/run/evidence-backed settle-release workflow with replay-key preservation, content-policy rule CRUD/change/alert operations with an API-intercepted Playwright smoke, atomic audited referral rewards, authenticated and audited operational metrics, bounded redacted audit queries/exports, encrypted proxy and validated TLS profile administration, audited bounded channel monitor checks, auditable user data export, bounded authentication/ceremony cleanup, user announcement read tracking, media/object lifecycle, staged request/response content-policy evaluation with versioned Unicode normalization, explicitly selectable source-owned/OpenAI Moderation classifiers, durable no-TTL policy revision propagation and PostgreSQL-backed Garnet rebuild, operational alert evidence, and redacted audits |
 | `sub2api` | `43ec48d` | read-only clean | Requirements catalogue only; never a runtime or compatibility dependency |
 
 The current tracked inventory is:
@@ -22,7 +22,7 @@ The current tracked inventory is:
   files, 63 test/benchmark C# files, and 233 tests: 69 Grain, 71 Host, 45 Admin,
   and 48 Provider mock tests.
 - Product surface: 125 direct Admin API route declarations, 50 product tables,
-  22 SQLSugar entity types, 24 Admin Web TypeScript/TSX files and 12 page views,
+  22 SQLSugar entity types, 25 Admin Web TypeScript/TSX files and 13 page views,
   plus 17 User Web TypeScript/TSX files and 11 user views.
 - Reference scope: approximately 612 Sub2API route registrations, 39 concrete
   Ent schemas, 82 Vue view/component files, and 240 migrations. These are scope
@@ -436,7 +436,7 @@ current-source runtime evidence.
 
 ## Current verification evidence
 
-At Platform/Admin Web/User Web `94e0db8` and Gateway `3da0d33`:
+At Platform/Admin Web/User Web `27c4b74` and Gateway `3da0d33`:
 
 - Gateway built locally and passed 125/125 CTest cases, including deterministic
   fault-hook claim/repeat behavior, terminal SSE detection, provider EOF
@@ -552,11 +552,13 @@ At Platform/Admin Web/User Web `94e0db8` and Gateway `3da0d33`:
   Platform -> Provider path, NUMERIC settlement/replay, realtime WebSocket,
   restart/recovery, audited reconciliation, Provider failure matrix, and
   S3-compatible object assertions; its cleanup trap removed the temporary stack.
-- Admin Web and User Web typecheck and production builds passed; Admin Web now
-  manages static/OAuth Provider credentials without reading stored secrets and exposes
+- Admin Web and User Web typecheck and production builds passed. Admin Web now
+  manages static/OAuth Provider credentials without reading stored secrets, exposes
   open/resolved reconciliation incidents, manual runs, and evidence-backed settle/release
-  commands through the existing authenticated API, preserving one idempotency key across
-  retries of a selected form. The User Web
+  commands through the existing authenticated API, and adds a Content Policy console for
+  rule CRUD plus propagation-change and alert queries. The checked-in Playwright smoke
+  intercepts the new API contract and renders rules, changes, alerts, navigation, filters,
+  and a full-page screenshot. The User Web
   build includes password recovery, email verification, authenticator security,
   active-plan subscription controls, redeem codes, and referral summary routes.
 - `deploy/stack/realtime_smoke.py` passed against a real Release `Provider.Mock`
@@ -849,7 +851,8 @@ Detailed gate results and residual coverage are maintained in `verification.md`.
   tests for auth recovery/TOTP/Passkey UX, Passkey anti-enumeration and abuse,
   full commercial coupling, audit/observability,
   HA, load/soak, backup/restore, and signed rollback remain partial or missing.
-- Admin Web and User Web have blocking type/build gates but no browser runner;
+- Admin Web now has a blocking type/build gate and a checked-in Chromium smoke runner;
+  User Web still has no browser runner;
   User Web Passkey controls are source-built but lack real authenticator evidence;
   email delivery, backup-code sign-in, payment checkout, referral signup
   attribution, and account-management browser scenarios remain.
