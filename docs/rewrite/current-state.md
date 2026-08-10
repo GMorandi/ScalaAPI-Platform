@@ -11,7 +11,7 @@ read-only requirements reference and is excluded from builds and runtime.
 | Repository | Commit | Worktree | Active role |
 | --- | --- | --- | --- |
 | `gateway` | `418da3a` | clean | C++ Gateway edge, protocol routing/conversion, Provider transport, and Garnet client |
-| `platform` | `1d7ec4f` | clean | C# Orleans control plane, PostgreSQL authority, Provider mock, Admin Web, and User Web |
+| `platform` | `c1bbb4d` | clean | C# Orleans control plane, PostgreSQL authority, Provider mock, Admin Web, and User Web |
 | `sub2api` | `43ec48d` | read-only clean | Requirements reference only; no runtime or compatibility dependency |
 
 ## Historical role descriptions
@@ -23,7 +23,7 @@ read-only requirements reference and is excluded from builds and runtime.
 | `sub2api` | `43ec48d` | read-only clean | Requirements catalogue only; never a runtime or compatibility dependency |
 
 The active source snapshot for this document is Platform/Admin Web/User Web
-`1d7ec4f` and Gateway `418da3a`; both worktrees are clean. The table's longer
+`c1bbb4d` and Gateway `418da3a`; both worktrees are clean. The table's longer
 capability descriptions are retained as inventory context, while this override
 and the evidence below define the current commits.
 
@@ -31,7 +31,7 @@ The current tracked inventory is:
 
 - Gateway: 52 production C++ source/header files, 11 test source files, and 126
   CTest cases.
-- Platform: 123 hand-written production C# files, 5 generated Cap'n Proto/global C# files, 68 test/benchmark C# files, and 260 passing tests: 69 Grain, 85 Host, 46 Admin, and 61 Provider mock tests.
+- Platform: 123 hand-written production C# files, 5 generated Cap'n Proto/global C# files, 68 test/benchmark C# files, and 262 passing tests: 69 Grain, 86 Host, 46 Admin, and 61 Provider mock tests.
   The Admin Web source now has 29 TypeScript/TSX files and 16 page views.
 - Product surface: 129 direct Admin API route declarations, 50 product tables,
   22 SQLSugar entity types, 29 Admin Web TypeScript/TSX files and 16 page views,
@@ -368,8 +368,10 @@ current-source runtime evidence.
   listing is now signed and paginated, and the hosted reconciler compares the
   `media/` object prefix with PostgreSQL references. Unreferenced objects are
   deleted only after a configurable 60-minute grace period; referenced and young
-  objects are protected. Restart restore, retention, and full
-  cancellation/restart coverage remain open.
+  objects are protected. Platform `c1bbb4d` also creates bounded S3-backed ZIP
+  archives for completed image batches, with `manifest.json` and `errors.json`,
+  and returns a signed archive URL. Restart restore, retention, and deployment-
+  scale lifecycle coverage remain open.
 - Signed payment webhooks, order paid/refunded transitions, stable ledger effects,
   pending-event recovery, subscription purchase/cancel/renew/expiry, and
   transactional redeem-code effects exist as partial commercial foundations.
@@ -535,8 +537,10 @@ reference-key query, and an orphan pass in the hosted reconciliation worker.
 Only aged, unreferenced `media/` keys are deleted; missing timestamps and newly
 written keys are retained for the configured grace period. Database tests cover
 owner references and young-object protection, while the HTTP contract covers
-continuation signing. Restart restore, retention, and full batch
-download/reconciliation remain follow-on work.
+continuation signing. Platform `c1bbb4d` adds bounded batch-download ZIP
+creation from Provider item URLs, manifest/error entries, and a signed redirect
+smoke assertion. Restart restore, retention, per-item download reconciliation,
+and deployment-scale lifecycle remain follow-on work.
 
 The preceding completed vertical slice is the source-built protocol gate
 `scalaapi-responses-compact-0810b` (Platform `18daa64`, Gateway `992f3fc`).
@@ -600,7 +604,7 @@ mutation semantics beyond read/input_items/cancel/delete, provider-group fault c
 open.
 
 The following detailed bullets are retained as the preceding-slice record; the
-current totals for Platform `1d7ec4f` and Gateway `418da3a` are 260/260 and
+current totals for Platform `c1bbb4d` and Gateway `418da3a` are 262/262 and
 126/126 respectively:
 
 - Gateway built locally and passed 126/126 CTest cases, including deterministic

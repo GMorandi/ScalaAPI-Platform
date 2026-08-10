@@ -1,9 +1,10 @@
 # ScalaAPI Next Stage Plan
 
-Current checkpoint override: Platform/Admin Web/User Web `1d7ec4f`, Gateway
+Current checkpoint override: Platform/Admin Web/User Web `c1bbb4d`, Gateway
 `418da3a`, and read-only `sub2api@43ec48d`. The latest gate is
-`scalaapi-media-cancel-0810c`; it passed the durable image batch list/items and
-Provider-backed cancellation slice plus the full empty-volume matrix. The
+`scalaapi-media-download-0810d`; it passed durable image batch list/items,
+Provider-backed cancellation, S3-backed ZIP download with manifest/error entries,
+and the full empty-volume matrix. The
 remaining plan below starts after this completed media boundary.
 
 The Embeddings provider-profile slice is complete for this checkpoint. Its
@@ -13,9 +14,8 @@ fixtures, Provider HTTP contracts, and four-request empty-stack settlement
 evidence. GW-07 remains `partial` until live adapter and provider-specific
 production fidelity evidence is added.
 
-The image batch list/items, cancellation, and aged object-orphan cleanup slices
-are also complete for this
-checkpoint. Gateway
+The image batch list/items, cancellation, aged object-orphan cleanup, and batch
+download archive slices are also complete for this checkpoint. Gateway
 `418da3a` sends the collection read to Platform and normalizes item responses;
 Platform `1cc4538` carries the API-key isolation and bounded newest-first reads. The
 source smoke proves the real batch create, list, item projection, object storage,
@@ -25,12 +25,15 @@ terminally idempotent and retains an unknown-charge hold until reconciliation.
 Platform `1d7ec4f` signs and paginates S3-compatible `ListObjectsV2`, compares
 the `media/` prefix with PostgreSQL references, and removes only unreferenced
 objects older than the configured 60-minute grace period. Orphan cleanup is now
-covered by database and HTTP contract tests. Restart restore, retention, and complete batch
-download/reconciliation remain partial.
+covered by database and HTTP contract tests. Platform `c1bbb4d` creates bounded
+batch ZIPs from provider item URLs, writes manifest/error entries, stores the
+archive in S3-compatible storage, and returns a signed download URL; Host and
+empty-stack smoke cover this path. Restart restore, retention, per-item download
+reconciliation, and deployment-scale lifecycle remain partial.
 
 ## Checkpoint
 
-The next stage starts from Platform/Admin Web/User Web `1d7ec4f`, Gateway
+The next stage starts from Platform/Admin Web/User Web `c1bbb4d`, Gateway
 `418da3a`, and read-only reference `sub2api@43ec48d`.
 
 The greenfield baseline now starts from empty volumes, uses PostgreSQL as authority,
@@ -274,9 +277,11 @@ wrong API key must return 404 without contacting the Provider. The implementatio
 retains ScalaAPI's PostgreSQL operation identity and imports no Sub2API schema or
 key. Cancellation calls the provider task/batch endpoint before local state is
 made terminal; any ambiguity retains the hold and produces an operator-visible
-reconciliation incident. Object orphan cleanup is now a bounded background pass;
-restart restore,
-retention, and complete batch download/reconciliation remain separate gates.
+reconciliation incident. Object orphan cleanup is now a bounded background pass.
+Platform `c1bbb4d` adds bounded S3-backed batch-download ZIPs with manifest/error
+entries and a signed redirect smoke assertion. Restart restore, retention,
+per-item download reconciliation, and deployment-scale lifecycle remain
+separate gates.
 Platform `6bc411b` adds the first Admin Web operator workflow for this authority:
 open/resolved incident filters, a manual reconciliation trigger, and
 evidence-backed settle/release submission with a stable idempotency key per selected
@@ -913,9 +918,9 @@ Then expand the remaining 58-domain work in this order:
    runtime cross-protocol E2E; source-owned protocol fixtures are frozen in
    Gateway `8f33790`.
 2. Complete the remaining media lifecycle after the now-finished batch
-   list/items/cancellation/orphan-cleanup slice: Provider-specific OAuth refresh
+   list/items/cancellation/orphan-cleanup/archive slice: Provider-specific OAuth refresh
    profiles and runtime evidence, provider-specific price/tokenizer adapters,
-   restart/restore, retention, and full object reconciliation and batch download
+   restart/restore, retention, per-item download reconciliation, and full object
    lifecycle evidence.
 3. Complete identity hardening beyond the TOTP, OAuth PKCE, Passkey, and encrypted
    mail-outbox state machines, including backup-code recovery UX, live SMTP/provider
