@@ -19,9 +19,10 @@ ENTRYPOINT ["dotnet", "platform/ScalaAPI.Platform.Host.dll"]
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS admin-api
 WORKDIR /app
-RUN apt-get update && apt-get install -y --no-install-recommends curl \
+RUN apt-get update && apt-get install -y --no-install-recommends curl postgresql-client \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=build /app/admin ./admin
+RUN mkdir -p /var/lib/scalaapi/backups
 EXPOSE 5001
 ENTRYPOINT ["dotnet", "admin/Admin.Api.dll"]
 

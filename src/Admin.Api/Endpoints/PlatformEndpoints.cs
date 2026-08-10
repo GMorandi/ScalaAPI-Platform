@@ -43,6 +43,7 @@ public static class PlatformEndpoints
         MapRedeemCodes(app);
         MapReferral(app);
         MapChannelMonitors(app);
+        app.MapBackupEndpoints();
         MapOpsMetrics(app);
         MapContentAudit(app);
         MapProxies(app);

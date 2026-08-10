@@ -168,6 +168,8 @@ services:
       Email__PublicBaseUrl: ${EMAIL_PUBLIC_BASE_URL:-http://localhost:5173}
       Email__PollSeconds: ${EMAIL_POLL_SECONDS:-5}
       Email__CaptureDirectory: ${EMAIL_CAPTURE_DIRECTORY:-/tmp/scalaapi-email}
+      Backup__Directory: /var/lib/scalaapi/backups
+      Backup__RestoreTargetConnection: ${BACKUP_RESTORE_TARGET_CONNECTION:-}
       Smtp__Host: ${SMTP_HOST:-}
       Smtp__Port: ${SMTP_PORT:-587}
       Smtp__Username: ${SMTP_USERNAME:-}
@@ -184,6 +186,8 @@ services:
       OAuth__Google__AuthorizationEndpoint: ${OAUTH_GOOGLE_AUTHORIZATION_ENDPOINT:-http://provider-mock:8081/oauth/authorize}
       OAuth__Google__TokenEndpoint: ${OAUTH_GOOGLE_TOKEN_ENDPOINT:-http://provider-mock:8081/oauth/token}
       OAuth__Google__UserEndpoint: ${OAUTH_GOOGLE_USER_ENDPOINT:-http://provider-mock:8081/oauth/user}
+    volumes:
+      - backup_data:/var/lib/scalaapi/backups
     depends_on:
       platform-silo:
         condition: service_healthy
@@ -248,3 +252,4 @@ volumes:
   object_data:
   runtime_sockets:
   gateway_data:
+  backup_data:

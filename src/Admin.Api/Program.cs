@@ -74,6 +74,7 @@ builder.Services.AddSingleton<NetworkProfileStore>();
 builder.Services.AddSingleton<ChannelMonitorStore>();
 builder.Services.AddSingleton<PasskeyStore>();
 builder.Services.AddSingleton<MaintenanceStore>();
+builder.Services.AddSingleton<BackupStore>();
 builder.Services.AddSingleton<AnnouncementStore>();
 builder.Services.AddSingleton<IMetadataService, EmptyPasskeyMetadataService>();
 builder.Services.AddSingleton<Fido2>(sp =>
