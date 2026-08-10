@@ -2,7 +2,7 @@
 
 ## Checkpoint
 
-The next stage starts from Platform/Admin Web/User Web `ac18ea9`, Gateway `7c774cb`, and read-only
+The next stage starts from Platform/Admin Web/User Web `28fdea1`, Gateway `d9638b4`, and read-only
 reference `sub2api@43ec48d`.
 
 The greenfield baseline now starts from empty volumes, uses PostgreSQL as authority,
@@ -71,13 +71,14 @@ retryable usage reports in the durable outbox without FIFO starvation, while
 Platform `7c4836a` releases terminal account/user slots and adds the seeded
 Claude price alias. Provider-specific error/disconnect fixtures, real adapters,
 and broader cross-protocol runtime coverage remain open.
-The OpenAI Responses root and read-subresource runtime slice is now complete in
-`scalaapi-responses-subresource-0810b`: JSON and SSE both pass
+The OpenAI Responses root and read/delete-subresource runtime slice is now complete in
+`scalaapi-responses-delete-0810`: JSON and SSE both pass
 envelope/terminal/usage validation and settle exactly once, while
-`GET /v1/responses/{id}` retrieves the stored response through Gateway to
-Platform to Provider and releases its routing lease without billing. The next
-Responses work is mutation subresources, provider-specific fault coverage, and
-real adapter evidence.
+`GET /v1/responses/{id}` retrieves the stored response and `DELETE
+/v1/responses/{id}` returns a deletion envelope through Gateway to Platform to
+Provider; both controls release their routing leases without billing. The next
+Responses work is remaining mutation semantics, provider-specific fault
+coverage, and real adapter evidence.
 The current source-built `scalaapi-openai-moderation-0810e` gate applies and
 replays 44 migration records from empty volumes, proves Garnet-authenticated
 request routing, staged request/response policy, the versioned Unicode evaluator,
