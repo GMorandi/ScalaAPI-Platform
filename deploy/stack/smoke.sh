@@ -2,6 +2,7 @@
 set -Eeuo pipefail
 
 stack_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+repo_root="$(cd "$stack_dir/../.." && pwd)"
 compose_file="$stack_dir/docker-compose.yml"
 project="${SMOKE_PROJECT_NAME:-scalaapi-smoke-$$}"
 
@@ -91,6 +92,9 @@ export PROVIDER_CREDENTIALS_ALLOW_INSECURE="true"
 export INTERNAL_RECONCILIATION_TOKEN="smoke-reconciliation-${suffix}-token"
 export GARNET_PASSWORD="smoke-garnet-${suffix}-password"
 export GARNET_TLS="false"
+export CONTENT_CLASSIFIER_OPENAI_ENDPOINT="${CONTENT_CLASSIFIER_OPENAI_ENDPOINT:-http://provider-mock:8081/v1/moderations}"
+export CONTENT_CLASSIFIER_OPENAI_API_KEY="${CONTENT_CLASSIFIER_OPENAI_API_KEY:-mock-openai-moderation-key}"
+export CONTENT_CLASSIFIER_OPENAI_ALLOW_INSECURE="${CONTENT_CLASSIFIER_OPENAI_ALLOW_INSECURE:-true}"
 export OBJECT_STORAGE_ACCESS_KEY="smokeplatform"
 export OBJECT_STORAGE_SECRET_KEY="smoke-object-${suffix}-password"
 export OBJECT_STORAGE_BUCKET="scalaapi-smoke-media"
@@ -493,11 +497,12 @@ wait_for "Admin API readiness" 60 compose exec -T admin-api \
     curl -fsS http://127.0.0.1:5001/ready >/dev/null
 wait_for "User Web readiness" 60 curl -fsS "$user_web_url/" >/dev/null
 
+expected_migrations="$((1 + $(find "$repo_root/deploy/migrations" -maxdepth 1 -type f -name '*.sql' | wc -l)))"
 migration_count="$(db_query "SELECT count(*) FROM schema_migrations;")"
-assert_equals "31" "$migration_count" "Applied migration count"
+assert_equals "$expected_migrations" "$migration_count" "Applied migration count"
 second_migration_output="$(compose run --rm migrate 2>&1)"
 second_skip_count="$(grep -cE 'skip .+\.sql' <<<"$second_migration_output" || true)"
-assert_equals "31" "$second_skip_count" "Idempotent migrator skip count"
+assert_equals "$expected_migrations" "$second_skip_count" "Idempotent migrator skip count"
 
 login_response="$(admin_request POST /admin/auth/login \
     "$(jq -cn --arg username "$ADMIN_USERNAME" --arg password "$ADMIN_PASSWORD" \
@@ -1022,6 +1027,87 @@ assert_equals "1|classifier_unavailable|critical|content_policy_classifier_unava
     "External classifier operational alert evidence"
 admin_request DELETE "/admin/content-audit/rules/$external_policy_rule_id" "" "$admin_token" >/dev/null
 echo "PASS: external classifier match and outage semantics are deterministic"
+
+openai_policy_request_id="smoke-openai-classifier-match-${suffix}"
+openai_policy_rule="$(admin_request POST /admin/content-audit/rules \
+    '{"pattern":"openai-policy-marker","actionType":"block","scope":"chat_completions","status":"active","stage":"response","classifier":"openai","redactContent":true}' \
+    "$admin_token")"
+openai_policy_rule_id="$(jq -er '.id' <<<"$openai_policy_rule")"
+openai_policy_change_propagated() {
+    [[ "$(db_query "SELECT count(*) FROM content_policy_change_events WHERE rule_id = $openai_policy_rule_id AND action = 'created' AND propagated_at IS NOT NULL;")" == "1" ]]
+}
+wait_for "OpenAI moderation policy change propagation" 30 openai_policy_change_propagated
+openai_policy_body='{"model":"gpt-4o","messages":[{"role":"user","content":"openai-moderation-flag-marker"}],"stream":false}'
+openai_policy_response="$(curl -sS --max-time 20 --write-out $'\n%{http_code}' \
+    "$gateway_url/v1/chat/completions" \
+    -H "Authorization: Bearer $api_key" \
+    -H "Content-Type: application/json" \
+    -H "X-Request-ID: $openai_policy_request_id" \
+    -H "Idempotency-Key: ${openai_policy_request_id}-idem" \
+    --data "$openai_policy_body")"
+assert_equals "400" "${openai_policy_response##*$'\n'}" \
+    "OpenAI moderation match response policy status"
+jq -e '.error.type == "content_policy_violation"' \
+    <<<"${openai_policy_response%$'\n'*}" >/dev/null
+openai_policy_state=""
+for attempt in $(seq 1 30); do
+    openai_policy_state="$(db_query "
+SELECT
+  (SELECT count(*) FROM content_audit_logs WHERE request_id = '$openai_policy_request_id' AND classifier = 'openai' AND content_redacted) || '|' ||
+  (SELECT max(content_snippet) FROM content_audit_logs WHERE request_id = '$openai_policy_request_id' AND classifier = 'openai') || '|' ||
+  (SELECT count(*) FROM request_leases WHERE request_id = '$openai_policy_request_id' AND status = 'completed') || '|' ||
+  (SELECT count(*) FROM usage_events WHERE request_id = '$openai_policy_request_id') || '|' ||
+  (SELECT count(*) FROM balance_ledger b JOIN request_leases l USING (lease_token) WHERE l.request_id = '$openai_policy_request_id' AND b.entry_type = 'usage_debit') || '|' ||
+  (SELECT count(*) FROM request_idempotency WHERE idempotency_key = '${openai_policy_request_id}-idem' AND status = 'completed' AND response_status_code = 400);")"
+    [[ "$openai_policy_state" == "1|[REDACTED]|1|1|1|1" ]] && break
+    sleep 1
+done
+assert_equals "1|[REDACTED]|1|1|1|1" "$openai_policy_state" \
+    "OpenAI moderation match audit and normal settlement invariants"
+openai_policy_alerts="$(admin_request GET "/admin/content-audit/alerts?requestId=$openai_policy_request_id&ruleId=$openai_policy_rule_id&kind=policy_block" '' "$admin_token")"
+assert_equals "1|policy_block|warning|content_policy_blocked" \
+    "$(jq -r '[.total, .items[0].kind, .items[0].severity, .items[0].code] | @tsv' <<<"$openai_policy_alerts" | tr '\t' '|')" \
+    "OpenAI moderation match alert evidence"
+admin_request DELETE "/admin/content-audit/rules/$openai_policy_rule_id" "" "$admin_token" >/dev/null
+openai_policy_request_id="smoke-openai-classifier-unavailable-${suffix}"
+openai_policy_rule="$(admin_request POST /admin/content-audit/rules \
+    '{"pattern":"openai-moderation-unavailable-marker","actionType":"block","scope":"chat_completions","status":"active","stage":"response","classifier":"openai","redactContent":true}' \
+    "$admin_token")"
+openai_policy_rule_id="$(jq -er '.id' <<<"$openai_policy_rule")"
+wait_for "OpenAI moderation unavailable policy change propagation" 30 openai_policy_change_propagated
+openai_policy_body='{"model":"gpt-4o","messages":[{"role":"user","content":"openai-moderation-unavailable-marker"}],"stream":false}'
+openai_policy_response="$(curl -sS --max-time 20 --write-out $'\n%{http_code}' \
+    "$gateway_url/v1/chat/completions" \
+    -H "Authorization: Bearer $api_key" \
+    -H "Content-Type: application/json" \
+    -H "X-Request-ID: $openai_policy_request_id" \
+    -H "Idempotency-Key: ${openai_policy_request_id}-idem" \
+    --data "$openai_policy_body")"
+assert_equals "503" "${openai_policy_response##*$'\n'}" \
+    "OpenAI moderation unavailable fail-closed status"
+jq -e '.error.type == "content_policy_unavailable"' \
+    <<<"${openai_policy_response%$'\n'*}" >/dev/null
+openai_policy_state=""
+for attempt in $(seq 1 30); do
+    openai_policy_state="$(db_query "
+SELECT
+  (SELECT count(*) FROM content_audit_logs WHERE request_id = '$openai_policy_request_id' AND classifier = 'openai' AND content_redacted) || '|' ||
+  (SELECT max(content_snippet) FROM content_audit_logs WHERE request_id = '$openai_policy_request_id' AND classifier = 'openai') || '|' ||
+  (SELECT count(*) FROM request_leases WHERE request_id = '$openai_policy_request_id' AND status = 'completed') || '|' ||
+  (SELECT count(*) FROM usage_events WHERE request_id = '$openai_policy_request_id') || '|' ||
+  (SELECT count(*) FROM balance_ledger b JOIN request_leases l USING (lease_token) WHERE l.request_id = '$openai_policy_request_id' AND b.entry_type = 'usage_debit') || '|' ||
+  (SELECT count(*) FROM request_idempotency WHERE idempotency_key = '${openai_policy_request_id}-idem' AND status = 'completed' AND response_status_code = 503);")"
+    [[ "$openai_policy_state" == "1|[REDACTED]|1|1|1|1" ]] && break
+    sleep 1
+done
+assert_equals "1|[REDACTED]|1|1|1|1" "$openai_policy_state" \
+    "OpenAI moderation unavailable audit and normal settlement invariants"
+openai_policy_alerts="$(admin_request GET "/admin/content-audit/alerts?requestId=$openai_policy_request_id&ruleId=$openai_policy_rule_id&kind=classifier_unavailable" '' "$admin_token")"
+assert_equals "1|classifier_unavailable|critical|content_policy_classifier_unavailable" \
+    "$(jq -r '[.total, .items[0].kind, .items[0].severity, .items[0].code] | @tsv' <<<"$openai_policy_alerts" | tr '\t' '|')" \
+    "OpenAI moderation unavailable alert evidence"
+admin_request DELETE "/admin/content-audit/rules/$openai_policy_rule_id" "" "$admin_token" >/dev/null
+echo "PASS: OpenAI moderation match and unavailable semantics are deterministic"
 
 response_stream_policy_request_id="smoke-response-stream-policy-${suffix}"
 response_stream_policy_idempotency_key="${response_stream_policy_request_id}-idem"
@@ -1608,7 +1694,7 @@ if [[ "$garnet_probe" != *PONG* ]]; then
     exit 1
 fi
 
-echo "PASS: 31 empty-volume migrations and second-run idempotency"
+echo "PASS: $expected_migrations empty-volume migrations and second-run idempotency"
 echo "PASS: idempotent administrative funding, audit, conflict, and overdraft guards"
 echo "PASS: Garnet-authenticated Gateway -> Platform -> Provider mock request"
 echo "PASS: terminal lease, hold, usage, ledger, and outbox invariants"

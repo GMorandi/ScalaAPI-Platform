@@ -93,6 +93,7 @@ services:
       ContentClassifier__OpenAI__ApiKey: ${CONTENT_CLASSIFIER_OPENAI_API_KEY:-}
       ContentClassifier__OpenAI__Model: ${CONTENT_CLASSIFIER_OPENAI_MODEL:-omni-moderation-latest}
       ContentClassifier__OpenAI__TimeoutMs: ${CONTENT_CLASSIFIER_OPENAI_TIMEOUT_MS:-750}
+      ContentClassifier__OpenAI__AllowInsecure: ${CONTENT_CLASSIFIER_OPENAI_ALLOW_INSECURE:-false}
       Dispatch__LeaseTtlSeconds: ${DISPATCH_LEASE_TTL_SECONDS:-360}
       Pricing__AllowInsecureProviderEndpoints: ${PRICING_ALLOW_INSECURE_PROVIDER_ENDPOINTS:-true}
       Pricing__Providers__mock__Endpoint: ${PRICING_PROVIDER_MOCK_ENDPOINT:-http://provider-mock:8081/v1/pricing}

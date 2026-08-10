@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Configuration;
+using Npgsql;
 using ScalaAPI.Host.Services;
 using Xunit;
 
@@ -45,6 +46,50 @@ public class ModelPricingServiceTests
 
         Assert.True(pricing.TryGetPrice("custom-pro-2026", out var price));
         Assert.Equal(2m, price.InputPerMillion);
+    }
+
+    [Fact]
+    public async Task AdministrativePriceWinsOverLaterProviderQuote()
+    {
+        var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
+        if (string.IsNullOrWhiteSpace(connectionString)) return;
+
+        await using var dataSource = NpgsqlDataSource.Create(connectionString);
+        var suffix = Guid.NewGuid().ToString("N");
+        var model = $"pricing-precedence-{suffix}";
+        var adminVersion = $"admin-{suffix}";
+        var providerVersion = $"provider-{suffix}";
+        try
+        {
+            await using (var insert = dataSource.CreateCommand("""
+                INSERT INTO pricing_versions(
+                    version, model, input_usd_per_million, output_usd_per_million,
+                    effective_from, source_provider)
+                VALUES ($1, $2, 1, 2, now(), 'admin'),
+                       ($3, $2, 9, 10, now() + interval '1 second', 'mock')
+                """))
+            {
+                insert.Parameters.AddWithValue(adminVersion);
+                insert.Parameters.AddWithValue(model);
+                insert.Parameters.AddWithValue(providerVersion);
+                await insert.ExecuteNonQueryAsync();
+            }
+
+            var pricing = new ModelPricingService(
+                new ConfigurationBuilder().Build(), dataSource);
+            await pricing.RefreshFromDatabaseAsync();
+
+            Assert.True(pricing.TryGetPrice(model, out var selected));
+            Assert.Equal(1m, selected.InputPerMillion);
+            Assert.Equal(adminVersion, selected.Version);
+        }
+        finally
+        {
+            await using var cleanup = dataSource.CreateCommand(
+                "DELETE FROM pricing_versions WHERE version = ANY($1)");
+            cleanup.Parameters.AddWithValue(new[] { adminVersion, providerVersion });
+            await cleanup.ExecuteNonQueryAsync();
+        }
     }
 
     private static ModelPricingService Create(

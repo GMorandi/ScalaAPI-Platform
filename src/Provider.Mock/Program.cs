@@ -315,6 +315,15 @@ app.MapPost("/v1/moderations", async (HttpContext context,
     var modelName = model.GetString() ?? "";
     if (content.Length > 128 * 1024 || modelName.Length is < 1 or > 128)
         return Results.BadRequest(new { error = "moderation_request_too_large" });
+    if (content.Contains("openai-moderation-unavailable-marker",
+            StringComparison.Ordinal))
+        return Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
+    if (content.Contains("openai-moderation-malformed-marker",
+            StringComparison.Ordinal))
+        return Results.Text("{not-json", "application/json", statusCode: 200);
+    if (content.Contains("openai-moderation-oversized-marker",
+            StringComparison.Ordinal))
+        return Results.Text(new string('x', 17 * 1024), "application/json", statusCode: 200);
     var scenario = context.Request.Headers["X-Provider-Scenario"].FirstOrDefault() ?? "";
     if (scenario.Equals("openai-moderation-unavailable", StringComparison.Ordinal))
         return Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
@@ -753,6 +762,14 @@ app.MapPost("/v1/chat/completions", async (HttpContext context, CancellationToke
     var scenario = MockProviderHelpers.Scenario(context, root);
     var stream = root.TryGetProperty("stream", out var streamValue)
         && streamValue.ValueKind == JsonValueKind.True;
+    var responseText = root.GetRawText() switch
+    {
+        var request when request.Contains("openai-moderation-flag-marker",
+            StringComparison.Ordinal) => "openai-moderation-flag-marker",
+        var request when request.Contains("openai-moderation-unavailable-marker",
+            StringComparison.Ordinal) => "openai-moderation-unavailable-marker",
+        _ => "mock response",
+    };
 
     switch (scenario.ToLowerInvariant())
     {
@@ -896,7 +913,7 @@ app.MapPost("/v1/chat/completions", async (HttpContext context, CancellationToke
         context.Response.StatusCode = StatusCodes.Status200OK;
         context.Response.ContentType = "text/event-stream";
         context.Response.Headers.CacheControl = "no-cache";
-        await context.Response.WriteAsync($"data: {{\"id\":\"{requestId}\",\"object\":\"chat.completion.chunk\",\"model\":\"{model}\",\"choices\":[{{\"index\":0,\"delta\":{{\"role\":\"assistant\",\"content\":\"mock response\"}},\"finish_reason\":null}}]}}\n\n", cancellationToken);
+        await context.Response.WriteAsync($"data: {{\"id\":\"{requestId}\",\"object\":\"chat.completion.chunk\",\"model\":\"{model}\",\"choices\":[{{\"index\":0,\"delta\":{{\"role\":\"assistant\",\"content\":\"{responseText}\"}},\"finish_reason\":null}}]}}\n\n", cancellationToken);
         await context.Response.WriteAsync($"data: {{\"id\":\"{requestId}\",\"object\":\"chat.completion.chunk\",\"model\":\"{model}\",\"choices\":[{{\"index\":0,\"delta\":{{}},\"finish_reason\":\"stop\"}}],\"usage\":{JsonSerializer.Serialize(usage)}}}\n\n", cancellationToken);
         await context.Response.WriteAsync("data: [DONE]\n\n", cancellationToken);
         return;
@@ -907,7 +924,7 @@ app.MapPost("/v1/chat/completions", async (HttpContext context, CancellationToke
         id = requestId,
         @object = "chat.completion",
         model,
-        choices = new[] { new { index = 0, message = new { role = "assistant", content = "mock response" }, finish_reason = "stop" } },
+        choices = new[] { new { index = 0, message = new { role = "assistant", content = responseText }, finish_reason = "stop" } },
         usage
     }, cancellationToken);
 });

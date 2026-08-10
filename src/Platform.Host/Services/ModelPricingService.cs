@@ -85,7 +85,9 @@ public class ModelPricingService
             FROM pricing_versions
             WHERE effective_from <= now()
               AND (effective_until IS NULL OR effective_until > now())
-            ORDER BY model, effective_from DESC
+            ORDER BY model,
+                     CASE WHEN source_provider = 'admin' THEN 0 ELSE 1 END,
+                     effective_from DESC, version DESC
             """);
         await using var reader = await command.ExecuteReaderAsync(ct);
         while (await reader.ReadAsync(ct))

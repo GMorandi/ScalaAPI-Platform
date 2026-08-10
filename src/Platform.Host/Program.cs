@@ -138,10 +138,13 @@ var classifierEndpoint = builder.Configuration["ContentClassifier:Endpoint"];
 var openAiClassifierEndpoint = builder.Configuration["ContentClassifier:OpenAI:Endpoint"];
 if (!string.IsNullOrWhiteSpace(openAiClassifierEndpoint))
 {
+    var allowInsecureOpenAi = builder.Configuration.GetValue(
+        "ContentClassifier:OpenAI:AllowInsecure", false);
     if (!Uri.TryCreate(openAiClassifierEndpoint, UriKind.Absolute, out var endpoint)
-        || endpoint.Scheme != Uri.UriSchemeHttps)
+        || (endpoint.Scheme != Uri.UriSchemeHttps
+            && !(allowInsecureOpenAi && endpoint.Scheme == Uri.UriSchemeHttp)))
         throw new InvalidOperationException(
-            "ContentClassifier:OpenAI:Endpoint must be an absolute HTTPS URL");
+            "ContentClassifier:OpenAI:Endpoint must be an absolute HTTPS URL unless the explicit development AllowInsecure switch is enabled");
     var apiKey = builder.Configuration["ContentClassifier:OpenAI:ApiKey"]?.Trim();
     if (string.IsNullOrWhiteSpace(apiKey) || apiKey.Length > 512)
         throw new InvalidOperationException(
