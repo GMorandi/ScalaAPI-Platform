@@ -6,7 +6,17 @@ The source-built smoke above is the current release evidence. Rows later in this
 document that mention earlier classifier projects or migration counts are retained
 as historical checkpoints and do not define the current bootstrap or release gate.
 
-The latest source snapshot is Gateway `7b8b03c`, Platform/Admin Web/User Web `7c4836a`.
+The latest source snapshot is Gateway `7b8b03c`, Platform/Admin Web/User Web `c2f4e77`.
+
+The latest source-built project `scalaapi-responses-0810a` exited zero. In
+addition to the provider-group checks below, it sent OpenAI Responses JSON and
+SSE requests through Gateway -> Platform -> Provider mock. The JSON response
+passed completed metadata/output/usage validation; the SSE response delivered
+`response.created`, `response.output_text.delta`, and `response.completed` with
+nested usage. PostgreSQL showed exactly two completed leases, usage events,
+usage logs, committed holds, and NUMERIC usage debits for the Responses pair.
+The same source smoke passed the existing restart, reconciliation, Provider
+fault, media/S3, content-policy, and realtime checks and cleaned all containers.
 
 The latest source-built project `scalaapi-provider-groups-0810l` exited zero.
 It built the current Gateway image and ran the empty-volume stack through seeded
@@ -434,6 +444,7 @@ supersedes them where commit, image, or late-usage results differ.
 
 | Gate | Result | Interpretation |
 | --- | --- | --- |
+| OpenAI Responses runtime gate | `scalaapi-responses-0810a`, exit 0 | Platform `c2f4e77` and Gateway `7b8b03c` built from source on empty volumes. Provider mock Responses emits a terminal SSE event with usage; JSON and SSE requests returned valid OpenAI Responses envelopes and each settled one lease/event/log/committed hold/NUMERIC debit. Responses subresources, provider-specific faults, and live adapters remain open |
 | Anthropic and Gemini provider-group gate | `scalaapi-provider-groups-0810l`, exit 0 | Platform `7c4836a` and Gateway `7b8b03c` built from source on empty volumes. Anthropic count-tokens, Messages JSON, and Messages SSE plus Gemini catalog, JSON generation, and SSE generation returned valid protocol-native payloads. Four billable requests each produced exactly one completed lease, usage event, usage log, committed hold, and NUMERIC debit. The two non-billable controls each aborted and released their hold with zero usage/debit rows. The same run passed restart/recovery, content policy, Provider fault, audited reconciliation, media/S3, and realtime soak checks; retryable usage reports no longer starve independent leases, and the authenticated Garnet RESP health probe emits correct CRLF bytes. Cleanup left `podman ps -a` empty |
 | Current source-built policy and stack gate | `scalaapi-policy-reclaim-0810e`, exit 0 | Platform `926b98e` and Gateway `3da0d33` built from source; 44 empty-volume migration records applied and skipped on replay; Garnet-authenticated routing, OpenAI response match/unavailable 400/503, redacted audits, warning/critical alerts, normal settlement/replay, Chat/Embeddings/Realtime, Provider faults including `disconnect_before_output -> 503`, restart/recovery, reconciliation/operator resolution, and S3 persistence passed. Platform also crashed after a policy outbox claim and its replacement reclaimed/published the event. The trap removed all named containers and anonymous volumes and `podman ps -a` was empty afterward |
 | Garnet TLS source deployment gate | `scalaapi-garnet-tls-0810e`, exit 0 | Platform `bcf80e7` and Gateway `3da0d33` built from source. The TLS override enabled Garnet PFX server mode with explicit password authentication and no client-certificate requirement, mounted the CA/PFX read-only with rootless relabeling, and passed the full source smoke through Platform's authenticated TLS readiness endpoint. Empty-volume migrations, OAuth, policy, API-key lifecycle, Embeddings, Realtime, restart/recovery, Provider fault matrix, audited reconciliation/operator resolution, and S3 persistence passed; the trap removed the isolated project and `podman ps -a` was empty. Rotation/expiry is covered by the newer `scalaapi-garnet-rotation-0810` row; partition recovery remains open |
