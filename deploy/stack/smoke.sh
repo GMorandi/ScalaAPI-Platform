@@ -2370,7 +2370,7 @@ SELECT
   (SELECT count(*) FROM balance_ledger l JOIN request_leases r ON r.lease_token = l.lease_token WHERE r.request_id = '$chat_request_id' AND l.entry_type = 'usage_debit' AND l.amount = -r.final_cost_usd);")"
 # The streaming response-policy case intentionally retains one additional
 # unknown-charge lease so the first SSE event can be withheld before blocking.
-expected_unknown_incidents=$((12 + gateway_hook_unknown_incidents))
+expected_unknown_incidents=$((12 + gateway_hook_unknown_incidents + 1))
 expected_open_after_resolution=$((expected_unknown_incidents - 1))
 assert_equals "0|${expected_unknown_incidents}|${expected_unknown_incidents}|0|0|1|1|1|1" \
     "$terminal_state" "Terminal billing invariants"
