@@ -4,6 +4,11 @@ namespace ScalaAPI.Host.Services;
 
 public sealed record ContentPolicyPropagationResult(int Claimed, int Propagated, int Failed);
 
+internal static class ContentPolicyPropagationLock
+{
+    public const long Key = 785349201;
+}
+
 /// <summary>
 /// Drains the PostgreSQL content-policy change outbox. Garnet only carries the
 /// disposable revision and invalidation signal; a failed propagation remains
@@ -20,7 +25,8 @@ public sealed class ContentPolicyPropagationService(
         await using var lockConnection = await dataSource.OpenConnectionAsync(ct);
         await using var lockTransaction = await lockConnection.BeginTransactionAsync(ct);
         await using (var lockCommand = new NpgsqlCommand(
-            "SELECT pg_advisory_xact_lock(785349201)", lockConnection, lockTransaction))
+            $"SELECT pg_advisory_xact_lock({ContentPolicyPropagationLock.Key})",
+            lockConnection, lockTransaction))
         {
             await lockCommand.ExecuteNonQueryAsync(ct);
         }

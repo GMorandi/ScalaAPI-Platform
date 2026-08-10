@@ -51,9 +51,10 @@ public class GarnetWriteThroughService
 
         // This projection must survive idle periods; PostgreSQL rebuild restores
         // it after Garnet loss instead of relying on a time-based expiry.
-        _garnet.Set(GarnetKeyspace.ContentPolicyRevision,
-            revision.ToString(System.Globalization.CultureInfo.InvariantCulture));
-        return _garnet.Increment(GarnetKeyspace.InvalidationVersion);
+        return _garnet.PublishMonotonicRevision(
+            GarnetKeyspace.ContentPolicyRevision,
+            revision,
+            GarnetKeyspace.InvalidationVersion);
     }
 
     public void Evict(string key)

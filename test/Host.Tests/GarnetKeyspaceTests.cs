@@ -64,6 +64,27 @@ public sealed class GarnetKeyspaceTests
         Assert.Equal([GarnetKeyspace.InvalidationVersion], garnet.Increments);
     }
 
+    [Fact]
+    public void ContentPolicyRevisionPublicationIsMonotonicAndReplaySafe()
+    {
+        var garnet = new RecordingGarnet();
+        var writer = new GarnetWriteThroughService(garnet);
+
+        var first = writer.PublishContentPolicyRevision(42);
+        var replay = writer.PublishContentPolicyRevision(42);
+        var stale = writer.PublishContentPolicyRevision(41);
+        var newer = writer.PublishContentPolicyRevision(43);
+
+        Assert.Equal(1, first);
+        Assert.Equal(first, replay);
+        Assert.Equal(first, stale);
+        Assert.Equal(2, newer);
+        Assert.Equal(["42", "43"], garnet.SetCalls
+            .Where(call => call.Key == GarnetKeyspace.ContentPolicyRevision)
+            .Select(call => call.Value));
+        Assert.Equal(2, garnet.Increments.Count);
+    }
+
     private sealed class RecordingGarnet : IGarnetService
     {
         public List<string> Deleted { get; } = [];
@@ -79,6 +100,17 @@ public sealed class GarnetKeyspaceTests
             Increments.Add(key);
             return Increments.Count;
         }
+
+        public long PublishMonotonicRevision(string revisionKey, long revision,
+            string invalidationKey)
+        {
+            var current = SetCalls.LastOrDefault(call => call.Key == revisionKey).Value;
+            if (long.TryParse(current, out var currentRevision) && currentRevision >= revision)
+                return Increments.Count;
+            Set(revisionKey, revision.ToString());
+            return Increment(invalidationKey);
+        }
+
         public bool Ping() => true;
     }
 }

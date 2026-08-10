@@ -185,6 +185,17 @@ public sealed class ContentPolicyPropagationTests
             return 1;
         }
 
+        public long PublishMonotonicRevision(string revisionKey, long revision,
+            string invalidationKey)
+        {
+            if (Fail) throw new InvalidOperationException("garnet unavailable");
+            var current = SetCalls.LastOrDefault(call => call.Key == revisionKey).Value;
+            if (long.TryParse(current, out var currentRevision) && currentRevision >= revision)
+                return Increments.Count;
+            Set(revisionKey, revision.ToString());
+            return Increment(invalidationKey);
+        }
+
         public bool Ping() => !Fail;
     }
 }

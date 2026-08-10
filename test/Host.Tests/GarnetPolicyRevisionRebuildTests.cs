@@ -64,6 +64,19 @@ public sealed class GarnetPolicyRevisionRebuildTests
         Assert.Equal(result.InvalidationVersion.ToString(),
             garnet.Get(GarnetKeyspace.InvalidationVersion));
         Assert.True(result.InvalidationVersion > 0);
+
+        var replayVersion = await service.RebuildAsync();
+        Assert.Equal(result.InvalidationVersion, replayVersion.InvalidationVersion);
+        Assert.Equal(result.PolicyRevision.ToString(),
+            garnet.Get(GarnetKeyspace.ContentPolicyRevision));
+
+        var staleVersion = garnet.PublishMonotonicRevision(
+            GarnetKeyspace.ContentPolicyRevision,
+            Math.Max(1, result.PolicyRevision - 1),
+            GarnetKeyspace.InvalidationVersion);
+        Assert.Equal(result.InvalidationVersion, staleVersion);
+        Assert.Equal(result.PolicyRevision.ToString(),
+            garnet.Get(GarnetKeyspace.ContentPolicyRevision));
     }
 
     private sealed class RecordingGarnet : IGarnetService
@@ -81,6 +94,16 @@ public sealed class GarnetPolicyRevisionRebuildTests
         {
             Increments.Add(key);
             return Increments.Count;
+        }
+
+        public long PublishMonotonicRevision(string revisionKey, long revision,
+            string invalidationKey)
+        {
+            var current = SetCalls.LastOrDefault(call => call.Key == revisionKey).Value;
+            if (long.TryParse(current, out var currentRevision) && currentRevision >= revision)
+                return Increments.Count;
+            Set(revisionKey, revision.ToString());
+            return Increment(invalidationKey);
         }
 
         public bool Ping() => true;

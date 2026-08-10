@@ -11,6 +11,8 @@ public interface IGarnetService
     string? Get(string key);
     void Delete(string key);
     long Increment(string key);
+    long PublishMonotonicRevision(string revisionKey, long revision,
+        string invalidationKey);
     bool Ping();
 }
 
@@ -69,6 +71,28 @@ public sealed class RemoteGarnetService : IGarnetService, IDisposable
         if (reply.Kind != ReplyKind.Integer)
             throw new InvalidOperationException("Garnet returned a non-integer INCR response");
         return reply.Integer;
+    }
+
+    public long PublishMonotonicRevision(string revisionKey, long revision,
+        string invalidationKey)
+    {
+        if (revision < 1)
+            throw new ArgumentOutOfRangeException(nameof(revision));
+
+        // Garnet's pinned deployment intentionally disables Lua scripting. The
+        // caller serializes this read/compare/write sequence with the shared
+        // PostgreSQL advisory lock, so separate Platform processes cannot
+        // regress the revision or publish the same revision twice during a
+        // normal retry.
+        var current = Get(revisionKey);
+        if (long.TryParse(current, out var currentRevision) && currentRevision >= revision)
+        {
+            var existingVersion = Get(invalidationKey);
+            return long.TryParse(existingVersion, out var version) ? version : 0;
+        }
+
+        Set(revisionKey, revision.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        return Increment(invalidationKey);
     }
 
     public bool Ping()
