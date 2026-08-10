@@ -42,6 +42,27 @@ public sealed class PaymentRefundStoreTests
                 $"refund-competing-{Guid.NewGuid():N}", 10m, "USD", "customer request");
             Assert.Equal(PaymentRefundPrepareStatus.InvalidState, competing.Status);
 
+            var claimed = await store.ClaimRecoverableAsync("refund-test-worker-a");
+            Assert.Single(claimed);
+            Assert.Equal(prepared.RefundId, claimed[0].RefundId);
+            Assert.Equal(actorId, claimed[0].ActorUserId);
+            var inProgress = await store.PrepareAsync(orderId, actorId, key,
+                10m, "USD", "customer request");
+            Assert.Equal(PaymentRefundPrepareStatus.InProgress, inProgress.Status);
+
+            await using (var expireClaim = dataSource.CreateCommand("""
+                UPDATE payment_refunds
+                SET claimed_until = now() - interval '1 second', next_attempt_at = now()
+                WHERE id = $1
+                """))
+            {
+                expireClaim.Parameters.AddWithValue(prepared.RefundId);
+                await expireClaim.ExecuteNonQueryAsync();
+            }
+            var reclaimed = await store.ClaimRecoverableAsync("refund-test-worker-b");
+            Assert.Single(reclaimed);
+            Assert.Equal(2, reclaimed[0].Attempts);
+
             var settled = await store.FinalizeAsync(prepared.RefundId, actorId,
                 "succeeded", "mock_rf_test", null, false);
             var replay = await store.PrepareAsync(orderId, actorId, key,

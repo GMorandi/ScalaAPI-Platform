@@ -47,6 +47,12 @@ public static class PaymentRefundEndpoints
             return Results.Conflict(new { error = "Idempotency-Key was already used with different refund data" });
         if (prepared.Status == PaymentRefundPrepareStatus.InvalidState)
             return Results.Conflict(new { error = "Only a paid full payment order can be refunded" });
+        if (prepared.Status == PaymentRefundPrepareStatus.InProgress)
+            return Results.Accepted($"/admin/payments/{id}/refund", new
+            {
+                id = prepared.RefundId, payment_order_id = prepared.PaymentOrderId,
+                status = prepared.RefundStatus, retryable = true,
+            });
         if (prepared.Status == PaymentRefundPrepareStatus.Replay)
             return Results.Ok(new
             {

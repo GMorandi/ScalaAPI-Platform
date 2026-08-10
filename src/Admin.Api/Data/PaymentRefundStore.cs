@@ -11,6 +11,7 @@ public enum PaymentRefundPrepareStatus
 {
     Created,
     Retryable,
+    InProgress,
     Replay,
     Conflict,
     NotFound,
@@ -31,7 +32,23 @@ public sealed record PaymentRefundPreparation(
     string IdempotencyKey,
     string RequestFingerprint,
     string RefundStatus,
-    string? ProviderRefundId);
+    string? ProviderRefundId,
+    long ActorUserId = 0,
+    DateTime? ClaimedUntil = null);
+
+public sealed record PaymentRefundRecoveryCommand(
+    long RefundId,
+    long PaymentOrderId,
+    long UserId,
+    long ActorUserId,
+    string Provider,
+    string? ProviderOrderId,
+    string? ProviderPaymentId,
+    decimal Amount,
+    string Currency,
+    string Reason,
+    string IdempotencyKey,
+    int Attempts);
 
 public enum PaymentRefundFinalizeStatus
 {
@@ -99,7 +116,7 @@ public sealed class PaymentRefundStore(
         existing.Transaction = transaction;
         existing.CommandText = """
             SELECT id, amount, currency, reason, request_fingerprint, status,
-                   provider_refund_id
+                   provider_refund_id, actor_user_id, claimed_until
             FROM payment_refunds
             WHERE user_id = $1 AND idempotency_key = $2
             FOR UPDATE
@@ -109,17 +126,26 @@ public sealed class PaymentRefundStore(
         await using var existingReader = await existing.ExecuteReaderAsync(ct);
         if (await existingReader.ReadAsync(ct))
         {
+            var existingFingerprintMatches = string.Equals(
+                existingReader.GetString(4), fingerprint, StringComparison.Ordinal);
+            var existingStatus = existingReader.GetString(5);
+            var claimedUntil = existingReader.IsDBNull(8)
+                ? (DateTime?)null : existingReader.GetDateTime(8);
+            var prepareStatus = !existingFingerprintMatches
+                ? PaymentRefundPrepareStatus.Conflict
+                : existingStatus is "pending" or "reconciliation_needed"
+                    ? claimedUntil > DateTime.UtcNow
+                        ? PaymentRefundPrepareStatus.InProgress
+                        : PaymentRefundPrepareStatus.Retryable
+                    : PaymentRefundPrepareStatus.Replay;
             var row = new PaymentRefundPreparation(
-                string.Equals(existingReader.GetString(4), fingerprint, StringComparison.Ordinal)
-                    ? existingReader.GetString(5) is "pending" or "reconciliation_needed"
-                        ? PaymentRefundPrepareStatus.Retryable
-                        : PaymentRefundPrepareStatus.Replay
-                    : PaymentRefundPrepareStatus.Conflict,
+                prepareStatus,
                 existingReader.GetInt64(0), paymentOrderId, userId, provider,
                 providerOrderId, providerPaymentId, existingReader.GetDecimal(1),
                 existingReader.GetString(2), existingReader.GetString(3), idempotencyKey,
-                existingReader.GetString(4), existingReader.GetString(5),
-                existingReader.IsDBNull(6) ? null : existingReader.GetString(6));
+                existingReader.GetString(4), existingStatus,
+                existingReader.IsDBNull(6) ? null : existingReader.GetString(6),
+                existingReader.GetInt64(7), claimedUntil);
             await existingReader.DisposeAsync();
             await transaction.CommitAsync(ct);
             return row;
@@ -166,8 +192,8 @@ public sealed class PaymentRefundStore(
             INSERT INTO payment_refunds(
                 payment_order_id, user_id, provider, provider_order_id,
                 provider_payment_id, idempotency_key, request_fingerprint,
-                amount, currency, reason)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                amount, currency, reason, actor_user_id)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
             RETURNING id
             """;
         insert.Parameters.AddWithValue(paymentOrderId);
@@ -180,11 +206,67 @@ public sealed class PaymentRefundStore(
         insert.Parameters.AddWithValue(amount);
         insert.Parameters.AddWithValue(currency.ToUpperInvariant());
         insert.Parameters.AddWithValue(reason);
+        insert.Parameters.AddWithValue(actorId);
         var refundId = Convert.ToInt64(await insert.ExecuteScalarAsync(ct));
         await transaction.CommitAsync(ct);
         return new(PaymentRefundPrepareStatus.Created, refundId, paymentOrderId, userId,
             provider, providerOrderId, providerPaymentId, amount, currency, reason,
             idempotencyKey, fingerprint, "pending", null);
+    }
+
+    public async Task<IReadOnlyList<PaymentRefundRecoveryCommand>> ClaimRecoverableAsync(
+        string workerId, int limit = 20, CancellationToken ct = default)
+    {
+        workerId = workerId.Trim();
+        if (workerId.Length is < 1 or > 128)
+            throw new ArgumentException("Refund recovery worker ID is invalid", nameof(workerId));
+        limit = Math.Clamp(limit, 1, 100);
+        await using var connection = await dataSource.OpenConnectionAsync(ct);
+        await using var transaction = await connection.BeginTransactionAsync(
+            IsolationLevel.ReadCommitted, ct);
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            WITH claim AS (
+                SELECT id
+                FROM payment_refunds
+                WHERE status IN ('pending', 'reconciliation_needed')
+                  AND next_attempt_at <= now()
+                  AND (claimed_until IS NULL OR claimed_until <= now())
+                ORDER BY next_attempt_at, id
+                FOR UPDATE SKIP LOCKED
+                LIMIT $1
+            )
+            UPDATE payment_refunds r
+            SET attempts = r.attempts + 1,
+                last_attempt_at = now(),
+                next_attempt_at = now() + interval '30 seconds',
+                claimed_by = $2,
+                claimed_until = now() + interval '60 seconds',
+                updated_at = now()
+            FROM claim c
+            WHERE r.id = c.id
+            RETURNING r.id, r.payment_order_id, r.user_id, r.actor_user_id,
+                      r.provider, r.provider_order_id, r.provider_payment_id,
+                      r.amount, r.currency, r.reason, r.idempotency_key, r.attempts
+            """;
+        command.Parameters.AddWithValue(limit);
+        command.Parameters.AddWithValue(workerId);
+        await using var reader = await command.ExecuteReaderAsync(ct);
+        var rows = new List<PaymentRefundRecoveryCommand>();
+        while (await reader.ReadAsync(ct))
+        {
+            rows.Add(new(
+                reader.GetInt64(0), reader.GetInt64(1), reader.GetInt64(2),
+                reader.GetInt64(3), reader.GetString(4),
+                reader.IsDBNull(5) ? null : reader.GetString(5),
+                reader.IsDBNull(6) ? null : reader.GetString(6), reader.GetDecimal(7),
+                reader.GetString(8), reader.GetString(9), reader.GetString(10),
+                reader.GetInt32(11)));
+        }
+        await reader.DisposeAsync();
+        await transaction.CommitAsync(ct);
+        return rows;
     }
 
     public async Task<PaymentRefundFinalizeResult> FinalizeAsync(
@@ -230,6 +312,9 @@ public sealed class PaymentRefundStore(
             return new(PaymentRefundFinalizeStatus.Replay, refundId, orderId, userId,
                 currentProviderRefundId, null, snapshot.Version, snapshot.Balance, null);
         }
+
+        if (actorId <= 0)
+            actorId = await ReadActorAsync(connection, transaction, refundId, ct);
 
         var finalStatus = retryable ? "reconciliation_needed"
             : providerStatus is "succeeded" or "refunded" ? "succeeded"
@@ -283,7 +368,10 @@ public sealed class PaymentRefundStore(
         command.CommandText = """
             UPDATE payment_refunds
             SET status = $2, provider_status = $3, provider_refund_id = COALESCE($4, provider_refund_id),
-                error_code = $5, updated_at = now(), completed_at = CASE WHEN $2 = 'succeeded' THEN now() ELSE completed_at END
+                error_code = $5, updated_at = now(), claimed_by = NULL, claimed_until = NULL,
+                next_attempt_at = now() + CASE WHEN $2 IN ('pending', 'reconciliation_needed')
+                    THEN interval '30 seconds' ELSE interval '0 seconds' END,
+                completed_at = CASE WHEN $2 = 'succeeded' THEN now() ELSE completed_at END
             WHERE id = $1
             """;
         command.Parameters.AddWithValue(refundId);
@@ -332,5 +420,17 @@ public sealed class PaymentRefundStore(
         await using var reader = await command.ExecuteReaderAsync(ct);
         if (!await reader.ReadAsync(ct)) return new(userId, 0, 0m);
         return new(userId, reader.GetInt64(0), reader.GetDecimal(1));
+    }
+
+    private static async Task<long> ReadActorAsync(
+        NpgsqlConnection connection, NpgsqlTransaction transaction, long refundId,
+        CancellationToken ct)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = "SELECT actor_user_id FROM payment_refunds WHERE id = $1";
+        command.Parameters.AddWithValue(refundId);
+        var value = await command.ExecuteScalarAsync(ct);
+        return value is null or DBNull ? 0 : Convert.ToInt64(value);
     }
 }

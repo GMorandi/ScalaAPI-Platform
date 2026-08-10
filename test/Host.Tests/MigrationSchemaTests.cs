@@ -90,7 +90,9 @@ public sealed class MigrationSchemaTests
             ["payment_refunds"] = ["id", "payment_order_id", "user_id", "provider",
                 "provider_order_id", "provider_payment_id", "provider_refund_id",
                 "idempotency_key", "request_fingerprint", "amount", "currency", "reason",
-                "status", "provider_status", "error_code", "created_at", "updated_at"],
+                "status", "provider_status", "error_code", "actor_user_id", "attempts",
+                "last_attempt_at", "next_attempt_at", "claimed_by", "claimed_until",
+                "created_at", "updated_at"],
             ["subscription_events"] = ["subscription_id", "user_id", "event_type", "idempotency_key", "payload"],
             ["user_subscriptions"] = ["user_id", "plan_id", "status", "idempotency_key", "renewal_at",
                 "quota_granted_usd", "quota_used_usd", "quota_reserved_usd"]

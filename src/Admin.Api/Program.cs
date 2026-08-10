@@ -44,7 +44,7 @@ builder.Services.AddScoped<ISqlSugarClient>(_ => new SqlSugarClient(new Connecti
 }));
 builder.Services.AddScoped<ListingRepository>();
 builder.Services.AddScoped<BalanceAdjustmentStore>();
-builder.Services.AddScoped<PaymentRefundStore>();
+builder.Services.AddSingleton<PaymentRefundStore>();
 builder.Services.AddScoped<ReferralRewardStore>();
 builder.Services.AddSingleton<AccountingStore>();
 builder.Services.AddSingleton<AccountingProjectionService>();
@@ -100,6 +100,7 @@ builder.Services.AddSingleton<EmailVerificationService>();
 builder.Services.AddSingleton<IEmailSender, SmtpEmailSender>();
 builder.Services.AddHostedService<EmailDeliveryWorker>();
 builder.Services.AddHostedService<PaymentWebhookRecoveryService>();
+builder.Services.AddHostedService<PaymentRefundRecoveryService>();
 builder.Services.AddHostedService<SubscriptionRenewalService>();
 
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
