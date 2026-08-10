@@ -53,6 +53,54 @@ public sealed class PaymentProviderClientTests
         Assert.Equal("payment_provider_response_invalid", responseError.Code);
     }
 
+    [Fact]
+    public async Task StripeCheckoutUsesBasicAuthAndMinorUnitFormFields()
+    {
+        HttpRequestMessage? captured = null;
+        string? capturedBody = null;
+        var handler = new StubHandler(request =>
+        {
+            captured = request;
+            capturedBody = request.Content?.ReadAsStringAsync().GetAwaiter().GetResult();
+            return JsonResponse("""
+                {"id":"cs_test_123","url":"https://checkout.stripe.com/c/pay/cs_test_123"}
+                """);
+        });
+        var client = CreateStripeClient(handler, "https://api.stripe.test/v1/checkout/sessions");
+
+        var result = await client.CreateCheckoutAsync(
+            new PaymentCheckoutRequest(42, 12.34m, "USD", "Credit"));
+
+        Assert.Equal("cs_test_123", result.ProviderOrderId);
+        Assert.Equal("https://checkout.stripe.com/c/pay/cs_test_123", result.CheckoutUrl);
+        Assert.Equal("Basic " + Convert.ToBase64String(
+            Encoding.UTF8.GetBytes("sk_test_secret:")),
+            captured!.Headers.Authorization?.ToString());
+        var form = await new FormUrlEncodedContent(
+            ParseForm(capturedBody!)).ReadAsStringAsync();
+        Assert.Contains("line_items%5B0%5D%5Bprice_data%5D%5Bunit_amount%5D=1234", form);
+        Assert.Contains("line_items%5B0%5D%5Bprice_data%5D%5Bcurrency%5D=usd", form);
+        Assert.Contains("metadata%5Border_id%5D=42", form);
+        Assert.Contains("client_reference_id=scalaapi-order%3A42", form);
+    }
+
+    [Fact]
+    public async Task StripeCheckoutRejectsMissingSecretAndInsecureRedirect()
+    {
+        var missingSecret = CreateStripeClient(new StubHandler(_ => JsonResponse("{}")),
+            "https://api.stripe.test/v1/checkout/sessions", secret: "");
+        var missingError = await Assert.ThrowsAsync<PaymentProviderException>(() =>
+            missingSecret.CreateCheckoutAsync(new PaymentCheckoutRequest(1, 1m, "USD", null)));
+        Assert.Equal("payment_provider_not_configured", missingError.Code);
+
+        var insecureRedirect = CreateStripeClient(new StubHandler(_ => JsonResponse("{}")),
+            "https://api.stripe.test/v1/checkout/sessions",
+            successUrl: "http://localhost/success");
+        var redirectError = await Assert.ThrowsAsync<PaymentProviderException>(() =>
+            insecureRedirect.CreateCheckoutAsync(new PaymentCheckoutRequest(1, 1m, "USD", null)));
+        Assert.Equal("payment_checkout_redirect_invalid", redirectError.Code);
+    }
+
     private static MockPaymentProviderClient CreateClient(
         HttpMessageHandler handler, string endpoint, bool allowInsecure)
     {
@@ -67,6 +115,35 @@ public sealed class PaymentProviderClientTests
         return new MockPaymentProviderClient(http, configuration,
             NullLogger<MockPaymentProviderClient>.Instance);
     }
+
+    private static StripePaymentProviderClient CreateStripeClient(
+        HttpMessageHandler handler,
+        string endpoint,
+        string secret = "sk_test_secret",
+        string successUrl = "https://scalaapi.example/billing/success")
+    {
+        var http = new HttpClient(handler);
+        var configuration = new ConfigurationBuilder().AddInMemoryCollection(
+            new Dictionary<string, string?>
+            {
+                ["Payments:Providers:stripe:Endpoint"] = endpoint,
+                ["Payments:Providers:stripe:SecretKey"] = secret,
+                ["Payments:Providers:stripe:SuccessUrl"] = successUrl,
+                ["Payments:Providers:stripe:CancelUrl"] = "https://scalaapi.example/billing/cancel",
+                ["Payments:Providers:stripe:ProductName"] = "ScalaAPI credit",
+                ["Payments:AllowInsecureProviderEndpoints"] = "false",
+            }).Build();
+        return new StripePaymentProviderClient(http, configuration,
+            NullLogger<StripePaymentProviderClient>.Instance);
+    }
+
+    private static Dictionary<string, string> ParseForm(string body) =>
+        body.Split('&', StringSplitOptions.RemoveEmptyEntries)
+            .Select(pair => pair.Split('=', 2))
+            .ToDictionary(
+                pair => Uri.UnescapeDataString(pair[0].Replace("+", " ")),
+                pair => Uri.UnescapeDataString(pair.Length > 1
+                    ? pair[1].Replace("+", " ") : ""));
 
     private static HttpResponseMessage JsonResponse(string body) => new(HttpStatusCode.OK)
     {

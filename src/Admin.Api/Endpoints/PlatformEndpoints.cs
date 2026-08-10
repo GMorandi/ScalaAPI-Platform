@@ -360,7 +360,7 @@ public static class PlatformEndpoints
         var userGroup = app.MapGroup("/user/payments").RequireAuthorization("UserOnly");
 
         userGroup.MapPost("/create", async (ClaimsPrincipal principal, PaymentOrderEntity req,
-            ISqlSugarClient db, HttpRequest http, MockPaymentProviderClient paymentProvider,
+            ISqlSugarClient db, HttpRequest http, PaymentProviderRouter paymentProviders,
             CancellationToken ct) =>
         {
             var email = principal.Identity?.Name ?? "";
@@ -374,7 +374,7 @@ public static class PlatformEndpoints
                 return Results.BadRequest(new { error = "Idempotency-Key is required" });
             req.Provider = (req.Provider ?? "").Trim().ToLowerInvariant();
             req.Currency = (req.Currency ?? "").Trim().ToUpperInvariant();
-            if (req.Provider != "mock" || req.Currency.Length != 3
+            if (req.Provider is not ("mock" or "stripe") || req.Currency.Length != 3
                 || req.Currency.Any(ch => ch is < 'A' or > 'Z'))
                 return Results.BadRequest(new { error = "Unsupported payment provider or currency" });
 
@@ -412,7 +412,7 @@ public static class PlatformEndpoints
             PaymentCheckoutResult checkout;
             try
             {
-                checkout = await paymentProvider.CreateCheckoutAsync(new(
+                checkout = await paymentProviders.CreateCheckoutAsync(req.Provider, new(
                     req.Id, req.Amount, req.Currency, req.Description), ct);
             }
             catch (PaymentProviderException ex)

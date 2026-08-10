@@ -95,6 +95,11 @@ services:
       Payments__AllowInsecureProviderEndpoints: ${PAYMENTS_ALLOW_INSECURE_PROVIDER_ENDPOINTS:-true}
       Payments__Providers__mock__Endpoint: ${PAYMENTS_PROVIDER_MOCK_ENDPOINT:-http://provider-mock:8081/v1/payments/checkout}
       Payments__Providers__mock__ApiKey: ${PAYMENTS_PROVIDER_MOCK_API_KEY:-mock-payment-key}
+      Payments__Providers__stripe__Endpoint: ${PAYMENTS_STRIPE_ENDPOINT:-https://api.stripe.com/v1/checkout/sessions}
+      Payments__Providers__stripe__SecretKey: ${PAYMENTS_STRIPE_SECRET_KEY:-}
+      Payments__Providers__stripe__SuccessUrl: ${PAYMENTS_STRIPE_SUCCESS_URL:-https://example.invalid/payment/success}
+      Payments__Providers__stripe__CancelUrl: ${PAYMENTS_STRIPE_CANCEL_URL:-https://example.invalid/payment/cancel}
+      Payments__Providers__stripe__ProductName: ${PAYMENTS_STRIPE_PRODUCT_NAME:-ScalaAPI credit}
       FaultInjection__Hook: ${PLATFORM_FAULT_HOOK:-}
       FaultInjection__MarkerDirectory: ${PLATFORM_FAULT_MARKER_DIR:-/var/run/scalaapi/fault-hooks}
       FaultInjection__Repeat: ${PLATFORM_FAULT_REPEAT:-false}
