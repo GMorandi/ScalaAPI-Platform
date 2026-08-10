@@ -267,7 +267,8 @@ automated.
 ## Next implementation slice
 
 1. Extend policy revision propagation and operations to independent Platform/Gateway
-   processes. Platform `75c4908` now serializes propagation and cache rebuild with
+   processes. Platform `32e9576` now lets workers claim independently and uses
+   `75c4908`'s monotonic publication while serializing propagation and cache rebuild with
    one PostgreSQL advisory lock, prevents stale revision overwrite, and replays the
    existing Garnet invalidation version without Lua scripting. The `15cdfc0` Host
    test covers concurrent workers in one process boundary and `94e0db8` covers key

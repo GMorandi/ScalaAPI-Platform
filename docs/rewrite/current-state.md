@@ -471,6 +471,11 @@ At Platform/Admin Web/User Web `75c4908` and Gateway `3da0d33`:
   source smoke reached the OpenAI/external policy propagation and response-policy
   gates on real Garnet; its later Provider `disconnect_before_output` probe timed
   out at the host boundary and is retained as a failed environmental gate.
+- Platform `32e9576` removes the batch-wide propagation lock: independent workers
+  claim distinct change events with PostgreSQL `SKIP LOCKED`, then take the shared
+  advisory lock only for one Garnet publication and its durable mark. The concurrent
+  Host test now requires both workers to claim and propagate one event each; failed
+  rows remain retryable.
 - Announcement coverage adds published/expiry filtering, read-state listing,
   duplicate-read replay, and exactly one `announcement.read` audit row through a
   real PostgreSQL test; User Web builds with the Dashboard read action.

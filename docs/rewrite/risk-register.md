@@ -5,7 +5,8 @@ source-built `scalaapi-openai-moderation-0810e` empty-volume gate. OpenAI Modera
 response match and upstream-unavailable paths produced redacted audits, warning or
 critical alerts, normal NUMERIC settlement, and idempotent replay. The production
 endpoint remains HTTPS-only; the smoke HTTP switch is explicit and development-only.
-`ContentPolicyPropagationService` and Garnet rebuild now share a PostgreSQL
+`ContentPolicyPropagationService` now claims independently with `SKIP LOCKED`, while
+each publication and Garnet rebuild share a PostgreSQL
 advisory lock and reject stale revision overwrite; the pinned Garnet image has Lua
 scripting disabled, so the implementation uses its native RESP operations.
 `ModelPricingService` now gives an effective administrative quote precedence over a

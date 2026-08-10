@@ -30,6 +30,8 @@ using real Garnet passed the policy propagation, OpenAI match/unavailable, and
 response-policy gates after this change; the later Provider
 `disconnect_before_output` case timed out at the host boundary and returned 000,
 so that rerun is not a full-stack green release result.
+Platform `32e9576` additionally narrows the advisory lock to one publication while
+keeping claims independent with `SKIP LOCKED`; the full Host suite remains 73/73.
 The SEC-01 slice now extends the single revision-3 Cap'n Proto contract with
 bounded request and response content and a dedicated response-evaluation method.
 Platform evaluates request rules before scheduling and non-stream response rules
