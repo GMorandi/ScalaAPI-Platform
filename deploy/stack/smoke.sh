@@ -183,6 +183,7 @@ embedding_invalid_idempotency_key="smoke-embeddings-invalid-idem-${suffix}"
 responses_request_id="smoke-responses-${suffix}"
 responses_idempotency_key="smoke-responses-idem-${suffix}"
 responses_get_request_id="smoke-responses-get-${suffix}"
+responses_input_items_request_id="smoke-responses-input-items-${suffix}"
 responses_cancel_request_id="smoke-responses-cancel-${suffix}"
 responses_delete_request_id="smoke-responses-delete-${suffix}"
 responses_malformed_request_id="smoke-responses-malformed-${suffix}"
@@ -1723,6 +1724,17 @@ jq -e --arg response_id "$responses_id" \
     '.object == "response" and .id == $response_id and .status == "completed" and .output_text == "mock response"' \
     <<<"$responses_get_body" >/dev/null
 
+responses_input_items_response="$(curl -sS --max-time 30 --write-out $'\n%{http_code}' \
+    "$gateway_url/v1/responses/$responses_id/input_items" \
+    -H "Authorization: Bearer $api_key" \
+    -H "X-Request-ID: $responses_input_items_request_id")"
+assert_equals "200" "${responses_input_items_response##*$'\n'}" \
+    "OpenAI Responses input_items subresource status"
+responses_input_items_body="${responses_input_items_response%$'\n'*}"
+jq -e --arg response_id "$responses_id" \
+    '.object == "list" and .data[0].id == ($response_id + "_input_0") and .data[0].content[0].text == "responses json smoke" and .has_more == false' \
+    <<<"$responses_input_items_body" >/dev/null
+
 responses_cancel_response="$(curl -sS --max-time 30 --write-out $'\n%{http_code}' \
     -X POST "$gateway_url/v1/responses/$responses_id/cancel" \
     -H "Authorization: Bearer $api_key" -H "Content-Type: application/json" \
@@ -1802,18 +1814,18 @@ responses_control_released() {
     [[ "$(db_query "
 SELECT
   (SELECT count(*) FROM request_leases
-   WHERE request_id IN ('$responses_get_request_id', '$responses_cancel_request_id', '$responses_delete_request_id') AND status = 'aborted') || '|' ||
+   WHERE request_id IN ('$responses_get_request_id', '$responses_input_items_request_id', '$responses_cancel_request_id', '$responses_delete_request_id') AND status = 'aborted') || '|' ||
   (SELECT count(*) FROM usage_events
-   WHERE request_id IN ('$responses_get_request_id', '$responses_cancel_request_id', '$responses_delete_request_id')) || '|' ||
+   WHERE request_id IN ('$responses_get_request_id', '$responses_input_items_request_id', '$responses_cancel_request_id', '$responses_delete_request_id')) || '|' ||
   (SELECT count(*) FROM usage_logs
-   WHERE request_id IN ('$responses_get_request_id', '$responses_cancel_request_id', '$responses_delete_request_id')) || '|' ||
+   WHERE request_id IN ('$responses_get_request_id', '$responses_input_items_request_id', '$responses_cancel_request_id', '$responses_delete_request_id')) || '|' ||
   (SELECT count(*) FROM balance_holds h JOIN request_leases l USING (lease_token)
-   WHERE l.request_id IN ('$responses_get_request_id', '$responses_cancel_request_id', '$responses_delete_request_id') AND h.status = 'released') || '|' ||
+   WHERE l.request_id IN ('$responses_get_request_id', '$responses_input_items_request_id', '$responses_cancel_request_id', '$responses_delete_request_id') AND h.status = 'released') || '|' ||
   (SELECT count(*) FROM balance_ledger b JOIN request_leases l USING (lease_token)
-   WHERE l.request_id IN ('$responses_get_request_id', '$responses_cancel_request_id', '$responses_delete_request_id') AND b.entry_type = 'usage_debit');")" == "3|0|0|3|0" ]]
+   WHERE l.request_id IN ('$responses_get_request_id', '$responses_input_items_request_id', '$responses_cancel_request_id', '$responses_delete_request_id') AND b.entry_type = 'usage_debit');")" == "4|0|0|4|0" ]]
 }
-wait_for "OpenAI Responses read/delete subresource release" 30 responses_control_released
-echo "PASS: OpenAI Responses read/cancel/delete subresources are non-billable and idempotently released"
+wait_for "OpenAI Responses read/input_items/cancel/delete subresource release" 30 responses_control_released
+echo "PASS: OpenAI Responses read/input_items/cancel/delete subresources are non-billable and idempotently released"
 
 embedding_response="$(curl -fsS "$gateway_url/v1/embeddings" \
     -H "Authorization: Bearer $api_key" -H "Content-Type: application/json" \

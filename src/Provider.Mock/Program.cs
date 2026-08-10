@@ -11,6 +11,7 @@ var builder = WebApplication.CreateBuilder(args);
 builder.WebHost.UseUrls("http://0.0.0.0:8081");
 var app = builder.Build();
 var responses = new ConcurrentDictionary<string, string>(StringComparer.Ordinal);
+var responseInputItems = new ConcurrentDictionary<string, string>(StringComparer.Ordinal);
 app.UseWebSockets(new WebSocketOptions
 {
     KeepAliveInterval = TimeSpan.FromSeconds(15),
@@ -599,6 +600,28 @@ app.MapPost("/v1/responses", async (HttpContext context, CancellationToken cance
         usage
     };
     responses[requestId] = JsonSerializer.Serialize(completedResponse);
+    var itemId = $"{requestId}_input_0";
+    responseInputItems[requestId] = JsonSerializer.Serialize(new
+    {
+        @object = "list",
+        data = new[]
+        {
+            new
+            {
+                id = itemId,
+                @object = "response.input_item",
+                type = "message",
+                role = "user",
+                content = new[]
+                {
+                    new { type = "input_text", text = ResponseInputText(root) }
+                },
+            }
+        },
+        first_id = itemId,
+        last_id = itemId,
+        has_more = false,
+    });
     if (stream)
     {
         context.Response.StatusCode = StatusCodes.Status200OK;
@@ -629,6 +652,12 @@ app.MapGet("/v1/responses/{responseId}", (string responseId) =>
         ? Results.Text(response, "application/json")
         : Results.NotFound(new { error = new { code = "response_not_found" } }));
 
+app.MapGet("/v1/responses/{responseId}/input_items", (string responseId) =>
+    responses.ContainsKey(responseId)
+        && responseInputItems.TryGetValue(responseId, out var inputItems)
+        ? Results.Text(inputItems, "application/json")
+        : Results.NotFound(new { error = new { code = "response_not_found" } }));
+
 app.MapPost("/v1/responses/{responseId}/cancel", (string responseId) =>
 {
     if (!responses.TryGetValue(responseId, out var current))
@@ -645,9 +674,13 @@ app.MapPost("/v1/responses/{responseId}/cancel", (string responseId) =>
 });
 
 app.MapDelete("/v1/responses/{responseId}", (string responseId) =>
-    responses.TryRemove(responseId, out _)
-        ? Results.Ok(new { id = responseId, @object = "response.deleted", deleted = true })
-        : Results.NotFound(new { error = new { code = "response_not_found" } }));
+{
+    if (!responses.TryRemove(responseId, out _))
+        return Results.NotFound(new { error = new { code = "response_not_found" } });
+
+    responseInputItems.TryRemove(responseId, out _);
+    return Results.Ok(new { id = responseId, @object = "response.deleted", deleted = true });
+});
 
 app.MapPost("/v1beta/models/{model}:generateContent", async (
     string model, HttpContext context, CancellationToken cancellationToken) =>
@@ -995,6 +1028,35 @@ app.MapGet("/v1/requests/{requestId}", (string requestId) => Results.Ok(new
     request_id = requestId,
     usage = new { prompt_tokens = 7, completion_tokens = 5, total_tokens = 12 }
 }));
+
+static string ResponseInputText(JsonElement root)
+{
+    if (!root.TryGetProperty("input", out var input))
+        return string.Empty;
+    if (input.ValueKind == JsonValueKind.String)
+        return input.GetString() ?? string.Empty;
+    if (input.ValueKind != JsonValueKind.Array)
+        return string.Empty;
+
+    foreach (var item in input.EnumerateArray())
+    {
+        if (item.ValueKind != JsonValueKind.Object
+            || !item.TryGetProperty("content", out var content))
+            continue;
+        if (content.ValueKind == JsonValueKind.String)
+            return content.GetString() ?? string.Empty;
+        if (content.ValueKind != JsonValueKind.Array)
+            continue;
+        foreach (var block in content.EnumerateArray())
+        {
+            if (block.ValueKind == JsonValueKind.Object
+                && block.TryGetProperty("text", out var text)
+                && text.ValueKind == JsonValueKind.String)
+                return text.GetString() ?? string.Empty;
+        }
+    }
+    return string.Empty;
+}
 
 app.Run();
 

@@ -57,4 +57,43 @@ public sealed class MockResponsesHttpContractTests :
         using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
         Assert.Equal("response_not_found", document.RootElement.GetProperty("error").GetProperty("code").GetString());
     }
+
+    [Fact]
+    public async Task InputItemsReturnsStableListForStoredResponseAndRejectsUnknownId()
+    {
+        using var client = factory.CreateClient();
+        using var create = await client.PostAsJsonAsync("/v1/responses", new
+        {
+            model = "gpt-4o",
+            input = "input items smoke",
+            stream = false,
+        });
+        Assert.Equal(HttpStatusCode.OK, create.StatusCode);
+        using var created = JsonDocument.Parse(await create.Content.ReadAsStringAsync());
+        var responseId = created.RootElement.GetProperty("id").GetString();
+        Assert.False(string.IsNullOrWhiteSpace(responseId));
+
+        using var first = await client.GetAsync($"/v1/responses/{responseId}/input_items");
+        Assert.Equal(HttpStatusCode.OK, first.StatusCode);
+        var firstBody = await first.Content.ReadAsStringAsync();
+        using var firstDocument = JsonDocument.Parse(firstBody);
+        var firstRoot = firstDocument.RootElement;
+        Assert.Equal("list", firstRoot.GetProperty("object").GetString());
+        Assert.False(firstRoot.GetProperty("has_more").GetBoolean());
+        Assert.Equal(responseId + "_input_0",
+            firstRoot.GetProperty("data")[0].GetProperty("id").GetString());
+        Assert.Equal("input items smoke",
+            firstRoot.GetProperty("data")[0].GetProperty("content")[0].GetProperty("text").GetString());
+
+        using var replay = await client.GetAsync($"/v1/responses/{responseId}/input_items");
+        Assert.Equal(firstBody, await replay.Content.ReadAsStringAsync());
+
+        using var missing = await client.GetAsync("/v1/responses/resp_missing/input_items");
+        Assert.Equal(HttpStatusCode.NotFound, missing.StatusCode);
+
+        using var delete = await client.DeleteAsync($"/v1/responses/{responseId}");
+        Assert.Equal(HttpStatusCode.OK, delete.StatusCode);
+        using var deletedInputItems = await client.GetAsync($"/v1/responses/{responseId}/input_items");
+        Assert.Equal(HttpStatusCode.NotFound, deletedInputItems.StatusCode);
+    }
 }
