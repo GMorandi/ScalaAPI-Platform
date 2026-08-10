@@ -3,9 +3,26 @@ using System.Text.Json;
 
 namespace ScalaAPI.Provider.Mock;
 
+internal sealed record EmbeddingModelProfile(
+    string Model,
+    string Provider,
+    int DefaultDimensions,
+    int MaxDimensions,
+    int CharactersPerToken);
+
 internal static class MockProviderHelpers
 {
     private const string ScenarioUserPrefix = "scalaapi-mock:";
+    private static readonly IReadOnlyDictionary<string, EmbeddingModelProfile>
+        EmbeddingProfiles = new Dictionary<string, EmbeddingModelProfile>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["text-embedding-3-small"] = new(
+                "text-embedding-3-small", "openai-compatible", 4, 8192, 4),
+            ["jina-embeddings-v5-text-small"] = new(
+                "jina-embeddings-v5-text-small", "jina-compatible", 8, 1024, 5),
+            ["gemini-embedding-001"] = new(
+                "gemini-embedding-001", "gemini-compatible", 6, 3072, 3),
+        };
 
     public static async Task<JsonDocument> ReadJsonAsync(HttpContext context,
         CancellationToken cancellationToken)
@@ -33,13 +50,20 @@ internal static class MockProviderHelpers
         return input.ValueKind == JsonValueKind.Array ? input.GetArrayLength() : 1;
     }
 
-    public static int EmbeddingDimensions(JsonElement root)
+    public static bool TryGetEmbeddingProfile(string model,
+        out EmbeddingModelProfile profile) =>
+        EmbeddingProfiles.TryGetValue(model.Trim(), out profile!);
+
+    public static IReadOnlyList<EmbeddingModelProfile> EmbeddingModelProfiles =>
+        EmbeddingProfiles.Values.OrderBy(profile => profile.Model).ToArray();
+
+    public static int EmbeddingDimensions(JsonElement root, int fallback = 4)
     {
         if (root.TryGetProperty("dimensions", out var dimensions)
             && dimensions.ValueKind == JsonValueKind.Number
             && dimensions.TryGetInt32(out var value))
             return value;
-        return 4;
+        return fallback;
     }
 
     public static string EmbeddingEncoding(JsonElement root) =>
@@ -48,12 +72,16 @@ internal static class MockProviderHelpers
             ? encoding.GetString() ?? "float"
             : "float";
 
-    public static int EstimateEmbeddingInputTokens(JsonElement root)
+    public static int EstimateEmbeddingInputTokens(JsonElement root,
+        string model = "text-embedding-3-small")
     {
         if (!root.TryGetProperty("input", out var input)) return 0;
+        var charactersPerToken = TryGetEmbeddingProfile(model, out var profile)
+            ? profile.CharactersPerToken
+            : 4;
         var total = input.ValueKind == JsonValueKind.Array
-            ? input.EnumerateArray().Sum(EstimateStringTokens)
-            : EstimateStringTokens(input);
+            ? input.EnumerateArray().Sum(value => EstimateStringTokens(value, charactersPerToken))
+            : EstimateStringTokens(input, charactersPerToken);
         return Math.Clamp(total, 1, 4096);
     }
 
@@ -73,9 +101,10 @@ internal static class MockProviderHelpers
         return Convert.ToBase64String(bytes);
     }
 
-    private static int EstimateStringTokens(JsonElement value) =>
+    private static int EstimateStringTokens(JsonElement value, int charactersPerToken = 4) =>
         value.ValueKind == JsonValueKind.String
-            ? Math.Clamp(((value.GetString()?.Length ?? 0) + 3) / 4, 1, 4096)
+            ? Math.Clamp(((value.GetString()?.Length ?? 0) + charactersPerToken - 1)
+                / charactersPerToken, 1, 4096)
             : 0;
 
     public static string Scenario(HttpContext context, JsonElement root)

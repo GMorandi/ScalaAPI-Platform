@@ -26,6 +26,9 @@ public class ModelPricingService
         _prices["gpt-4o"] = new(2.50m, 10m, 1.25m, 0, Version: _defaultVersion);
         _prices["gpt-4.1"] = new(2m, 8m, 0, 0, Version: _defaultVersion);
         _prices["gpt-4o-mini"] = new(0.15m, 0.60m, 0, 0, Version: _defaultVersion);
+        _prices["text-embedding-3-small"] = new(0.10m, 0, Version: _defaultVersion);
+        _prices["jina-embeddings-v5-text-small"] = new(0.12m, 0, Version: _defaultVersion);
+        _prices["gemini-embedding-001"] = new(0.08m, 0, Version: _defaultVersion);
         _prices["o3"] = new(10m, 40m, 2.50m, 0, Version: _defaultVersion);
         _prices["o4-mini"] = new(1.10m, 4.40m, 0.275m, 0, Version: _defaultVersion);
         _prices["gemini-2.5-pro"] = new(1.25m, 10m, 0, 0, Version: _defaultVersion);

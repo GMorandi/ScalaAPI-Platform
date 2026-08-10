@@ -178,6 +178,10 @@ embedding_request_id="smoke-embeddings-${suffix}"
 embedding_idempotency_key="smoke-embeddings-idem-${suffix}"
 embedding_base64_request_id="smoke-embeddings-base64-${suffix}"
 embedding_base64_idempotency_key="smoke-embeddings-base64-idem-${suffix}"
+embedding_jina_request_id="smoke-embeddings-jina-${suffix}"
+embedding_jina_idempotency_key="smoke-embeddings-jina-idem-${suffix}"
+embedding_gemini_request_id="smoke-embeddings-gemini-${suffix}"
+embedding_gemini_idempotency_key="smoke-embeddings-gemini-idem-${suffix}"
 embedding_invalid_request_id="smoke-embeddings-invalid-${suffix}"
 embedding_invalid_idempotency_key="smoke-embeddings-invalid-idem-${suffix}"
 responses_request_id="smoke-responses-${suffix}"
@@ -222,6 +226,8 @@ fault_request_prefix="smoke-fault-${suffix}"
 media_idempotency_key="smoke-media-idem-${suffix}"
 chat_price_version="smoke-chat-${suffix}-v1"
 embedding_price_version="smoke-embeddings-${suffix}-v1"
+embedding_jina_price_version="smoke-embeddings-jina-${suffix}-v1"
+embedding_gemini_price_version="smoke-embeddings-gemini-${suffix}-v1"
 media_price_version="smoke-media-${suffix}-v1"
 balance_idempotency_key="smoke-balance-${suffix}"
 gateway_hook_unknown_incidents=0
@@ -1017,6 +1023,16 @@ admin_request POST /admin/pricing/versions \
     "$(jq -cn --arg version "$embedding_price_version" --arg model text-embedding-3-small \
         --arg from "$effective_from" \
         '{version:$version,model:$model,inputUsdPerMillion:0.1,outputUsdPerMillion:0,cacheReadUsdPerMillion:0,cacheWriteUsdPerMillion:0,effectiveFrom:$from,effectiveUntil:null}')" \
+    "$admin_token" >/dev/null
+admin_request POST /admin/pricing/versions \
+    "$(jq -cn --arg version "$embedding_jina_price_version" --arg model jina-embeddings-v5-text-small \
+        --arg from "$effective_from" \
+        '{version:$version,model:$model,inputUsdPerMillion:0.12,outputUsdPerMillion:0,cacheReadUsdPerMillion:0,cacheWriteUsdPerMillion:0,effectiveFrom:$from,effectiveUntil:null}')" \
+    "$admin_token" >/dev/null
+admin_request POST /admin/pricing/versions \
+    "$(jq -cn --arg version "$embedding_gemini_price_version" --arg model gemini-embedding-001 \
+        --arg from "$effective_from" \
+        '{version:$version,model:$model,inputUsdPerMillion:0.08,outputUsdPerMillion:0,cacheReadUsdPerMillion:0,cacheWriteUsdPerMillion:0,effectiveFrom:$from,effectiveUntil:null}')" \
     "$admin_token" >/dev/null
 admin_request POST /admin/pricing/versions \
     "$(jq -cn --arg version "$media_price_version" --arg model mock-image-1 \
@@ -1870,11 +1886,33 @@ embedding_base64_response="$(curl -fsS "$gateway_url/v1/embeddings" \
 jq -e '(.data | length == 1) and (.data[0].embedding | type == "string" and length == 12) and (.usage.total_tokens > 0)' \
     <<<"$embedding_base64_response" >/dev/null
 
+embedding_jina_response="$(curl -fsS "$gateway_url/v1/embeddings" \
+    -H "Authorization: Bearer $api_key" -H "Content-Type: application/json" \
+    -H "X-Request-ID: $embedding_jina_request_id" -H "Idempotency-Key: $embedding_jina_idempotency_key" \
+    --data '{"model":"jina-embeddings-v5-text-small","input":"hello world","dimensions":5,"encoding_format":"float"}')"
+jq -e '(.model == "jina-embeddings-v5-text-small") and (.data | length == 1) and (.data[0].embedding | length == 5) and (.usage.prompt_tokens == 3)' \
+    <<<"$embedding_jina_response" >/dev/null
+
+embedding_gemini_response="$(curl -fsS "$gateway_url/v1/embeddings" \
+    -H "Authorization: Bearer $api_key" -H "Content-Type: application/json" \
+    -H "X-Request-ID: $embedding_gemini_request_id" -H "Idempotency-Key: $embedding_gemini_idempotency_key" \
+    --data '{"model":"gemini-embedding-001","input":"hello world","dimensions":4,"encoding_format":"base64"}')"
+jq -e '(.model == "gemini-embedding-001") and (.data | length == 1) and (.data[0].embedding | type == "string" and length == 24) and (.usage.prompt_tokens == 4)' \
+    <<<"$embedding_gemini_response" >/dev/null
+
 embedding_settled() {
-    [[ "$(db_query "SELECT count(*) FROM request_leases WHERE request_id IN ('$embedding_request_id', '$embedding_base64_request_id') AND status = 'completed' AND final_cost_usd > 0 AND pricing_version = '$embedding_price_version';")" == "2" ]]
+    [[ "$(db_query "
+SELECT
+  (SELECT count(*) FROM request_leases
+   WHERE request_id IN ('$embedding_request_id', '$embedding_base64_request_id', '$embedding_jina_request_id', '$embedding_gemini_request_id')
+     AND status = 'completed' AND final_cost_usd > 0) || '|' ||
+  (SELECT count(*) FROM request_leases WHERE request_id = '$embedding_request_id' AND pricing_version = '$embedding_price_version') || '|' ||
+  (SELECT count(*) FROM request_leases WHERE request_id = '$embedding_base64_request_id' AND pricing_version = '$embedding_price_version') || '|' ||
+  (SELECT count(*) FROM request_leases WHERE request_id = '$embedding_jina_request_id' AND pricing_version = '$embedding_jina_price_version') || '|' ||
+  (SELECT count(*) FROM request_leases WHERE request_id = '$embedding_gemini_request_id' AND pricing_version = '$embedding_gemini_price_version');")" == "4|1|1|1|1" ]]
 }
 wait_for "embedding settlement" 30 embedding_settled
-echo "PASS: Embeddings input count, dimensions, float/base64 encoding, and usage settlement"
+echo "PASS: Embeddings provider profiles, dimensions, token accounting, and exactly-once settlement"
 
 anthropic_count_response="$(curl -sS --max-time 20 --write-out $'\n%{http_code}' \
     "$gateway_url/v1/messages/count_tokens" \

@@ -29,6 +29,10 @@ public sealed class MockCatalogHttpContractTests :
         Assert.Equal("list", openAiDocument.RootElement.GetProperty("object").GetString());
         Assert.Contains(openAiDocument.RootElement.GetProperty("data").EnumerateArray(),
             model => model.GetProperty("id").GetString() == "gpt-4o");
+        Assert.Contains(openAiDocument.RootElement.GetProperty("data").EnumerateArray(),
+            model => model.GetProperty("id").GetString() == "jina-embeddings-v5-text-small");
+        Assert.Contains(openAiDocument.RootElement.GetProperty("data").EnumerateArray(),
+            model => model.GetProperty("id").GetString() == "gemini-embedding-001");
 
         using var gemini = await client.GetAsync("/v1beta/models");
         using var geminiDocument = JsonDocument.Parse(await gemini.Content.ReadAsStringAsync());

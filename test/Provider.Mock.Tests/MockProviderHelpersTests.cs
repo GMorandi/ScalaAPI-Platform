@@ -74,4 +74,22 @@ public sealed class MockProviderHelpersTests
         Assert.Equal(16, MockProviderHelpers.EmbeddingBase64(0, 3).Length);
         Assert.True(MockProviderHelpers.EstimateEmbeddingInputTokens(body.RootElement) > 0);
     }
+
+    [Fact]
+    public void EmbeddingProfilesExposeStableProviderSpecificRules()
+    {
+        Assert.True(MockProviderHelpers.TryGetEmbeddingProfile(
+            "jina-embeddings-v5-text-small", out var jina));
+        Assert.Equal("jina-compatible", jina.Provider);
+        Assert.Equal(8, jina.DefaultDimensions);
+        Assert.Equal(1024, jina.MaxDimensions);
+        Assert.Equal(5, jina.CharactersPerToken);
+
+        Assert.True(MockProviderHelpers.TryGetEmbeddingProfile(
+            "gemini-embedding-001", out var gemini));
+        Assert.Equal("gemini-compatible", gemini.Provider);
+        Assert.Equal(6, gemini.DefaultDimensions);
+        Assert.Equal(3072, gemini.MaxDimensions);
+        Assert.Equal(3, gemini.CharactersPerToken);
+    }
 }

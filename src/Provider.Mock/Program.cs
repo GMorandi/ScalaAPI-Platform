@@ -223,8 +223,10 @@ app.MapGet("/v1/models", (HttpRequest request) =>
         {
             new { id = "gpt-4o", @object = "model", created = 1_700_000_000L, owned_by = "scalaapi-provider-mock" },
             new { id = "text-embedding-3-small", @object = "model", created = 1_700_000_001L, owned_by = "scalaapi-provider-mock" },
-            new { id = "mock-image-1", @object = "model", created = 1_700_000_002L, owned_by = "scalaapi-provider-mock" },
-            new { id = "mock-video-1", @object = "model", created = 1_700_000_003L, owned_by = "scalaapi-provider-mock" },
+            new { id = "jina-embeddings-v5-text-small", @object = "model", created = 1_700_000_002L, owned_by = "scalaapi-provider-mock" },
+            new { id = "gemini-embedding-001", @object = "model", created = 1_700_000_003L, owned_by = "scalaapi-provider-mock" },
+            new { id = "mock-image-1", @object = "model", created = 1_700_000_004L, owned_by = "scalaapi-provider-mock" },
+            new { id = "mock-video-1", @object = "model", created = 1_700_000_005L, owned_by = "scalaapi-provider-mock" },
         }
     });
 });
@@ -435,7 +437,9 @@ app.MapPost("/v1/embeddings", async (HttpContext context, CancellationToken canc
 {
     using var body = await MockProviderHelpers.ReadJsonAsync(context, cancellationToken);
     var root = body.RootElement;
-    var model = MockProviderHelpers.Model(root, "text-embedding-3-small");
+    var model = MockProviderHelpers.Model(root, "");
+    if (!MockProviderHelpers.TryGetEmbeddingProfile(model, out var profile))
+        return Results.Json(new { error = new { code = "unsupported_embedding_model" } }, statusCode: 400);
     var scenario = MockProviderHelpers.Scenario(context, root).ToLowerInvariant();
     if (scenario == "429")
         return Results.Json(new { error = new { code = "mock_rate_limited" } }, statusCode: 429);
@@ -445,9 +449,9 @@ app.MapPost("/v1/embeddings", async (HttpContext context, CancellationToken canc
         return Results.Text("{not-json", "application/json", statusCode: 200);
 
     var inputCount = MockProviderHelpers.EmbeddingInputCount(root);
-    var dimensions = MockProviderHelpers.EmbeddingDimensions(root);
+    var dimensions = MockProviderHelpers.EmbeddingDimensions(root, profile.DefaultDimensions);
     var encoding = MockProviderHelpers.EmbeddingEncoding(root);
-    if (inputCount is < 1 or > 2048 || dimensions is < 1 or > 8192
+    if (inputCount is < 1 or > 2048 || dimensions < 1 || dimensions > profile.MaxDimensions
         || (encoding != "float" && encoding != "base64"))
         return Results.Json(new { error = new { code = "invalid_embedding_request" } }, statusCode: 400);
     var responseDimensions = scenario == "invalid_response" ? dimensions + 1 : dimensions;
@@ -459,7 +463,7 @@ app.MapPost("/v1/embeddings", async (HttpContext context, CancellationToken canc
             ? (object)MockProviderHelpers.EmbeddingBase64(index, responseDimensions)
             : MockProviderHelpers.EmbeddingValues(index, responseDimensions)
     }).ToArray();
-    var inputTokens = MockProviderHelpers.EstimateEmbeddingInputTokens(root);
+    var inputTokens = MockProviderHelpers.EstimateEmbeddingInputTokens(root, model);
     return Results.Ok(new
     {
         @object = "list",

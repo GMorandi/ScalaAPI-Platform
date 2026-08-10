@@ -150,7 +150,7 @@ public static class SeedEndpoints
 
     private static readonly MockProviderProfile[] Profiles =
     [
-        new(ProviderName, "openai", ["gpt-4o", "text-embedding-3-small", "mock-image-1", "mock-video-1"], OAuth: true),
+        new(ProviderName, "openai", ["gpt-4o", "text-embedding-3-small", "jina-embeddings-v5-text-small", "gemini-embedding-001", "mock-image-1", "mock-video-1"], OAuth: true),
         new("scalaapi-provider-mock-anthropic", "anthropic", ["claude-3-5-sonnet"]),
         new("scalaapi-provider-mock-gemini", "gemini", ["gemini-2.0-flash"]),
     ];
