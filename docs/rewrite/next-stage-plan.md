@@ -2,7 +2,7 @@
 
 ## Checkpoint
 
-The next stage starts from Platform/Admin Web/User Web `926b98e`, Gateway `3da0d33`, and read-only
+The next stage starts from Platform/Admin Web/User Web `330b9a8`, Gateway `3da0d33`, and read-only
 reference `sub2api@43ec48d`.
 
 The greenfield baseline now starts from empty volumes, uses PostgreSQL as authority,
@@ -73,6 +73,12 @@ uses an explicit development-only HTTP switch. Gateway `8f33790` additionally
 withholds each bounded SSE event until response policy approval, emits an
 OpenAI/Anthropic/Gemini-shaped terminal policy error on block or fail-closed
 evaluation, and preserves the unknown-charge hold and idempotency evidence.
+The current source baseline then adds migration 044: a PostgreSQL
+instance/sequence-idempotent snapshot table and hosted retryable flush for the
+OpenAI classifier counters. `/metrics` merges persisted snapshots from all
+instances with live counters and emits fixed-label unavailable-ratio and
+bucketed p95 gauges. A temporary empty PostgreSQL run applied and replay-skipped
+all 45 records; runtime multi-process flush/restart evidence is still open.
 
 The completed policy-operations slice is committed as Platform `9fb449c`, with
 worker-order serialization finalized in `caa719e` and the bounded external
@@ -94,7 +100,8 @@ latest source smoke at Platform `3da2e29` closes single-instance runtime executi
 for both source-owned and OpenAI adapter match/unavailable paths; pricing selection
 also prefers an effective administrative quote over a later provider refresh and has
 PostgreSQL test evidence. Cross-process ordering/failure, browser,
-collector/dashboard, measured latency, and long-stream metrics remain release gates.
+collector/dashboard, runtime multi-process metric restart, threshold enforcement,
+and long-stream metrics remain release gates.
 
 Provider OAuth credentials now use encrypted versioned state with a single-account
 refresh lease, compare-and-set completion, bounded error evidence, and scheduler
@@ -279,12 +286,15 @@ automated.
    correlation after outage. The latest smoke also passes the complete Provider
    matrix.
 2. Harden the production OpenAI classifier boundary. Keep the `3da2e29` empty-stack
-   match/unavailable proof and HTTPS-only default. Platform `30cc8dc` now exports
-   fixed-label counters and a bounded latency histogram through `/metrics`, with
-   Host coverage for cancellation, protocol errors, and secret-free output. Add
-   cross-process metric aggregation and enforced p95/error budgets, credential
-   rotation and redaction checks, malformed/oversized/timeout/cancellation scenarios
-   through real deployment configuration, and long-stream buffer/late-usage soak.
+   match/unavailable proof and HTTPS-only default. Platform `330b9a8` now persists
+   fixed-label instance snapshots with idempotent sequence keys, retries flushes,
+   and merges cross-instance counters into `/metrics`, including unavailable ratio
+   and bucketed p95. The targeted real-PostgreSQL/schema run passed 23/23 and the
+   Release build passed with zero warnings/errors. Add runtime two-process
+   flush/restart evidence, explicit p95/error-budget threshold enforcement,
+   credential rotation and redaction checks, malformed/oversized/timeout/
+   cancellation scenarios through real deployment configuration, and long-stream
+   buffer/late-usage soak.
 3. Extend operator and browser evidence. Platform `3da2e29` provides Admin Web
    rule CRUD, propagation-change history, alert filters, bilingual navigation, and a
    passing Chromium smoke with intercepted `/admin/content-audit/{rules,changes,alerts}`
