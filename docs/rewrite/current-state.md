@@ -11,7 +11,7 @@ read-only requirements reference and is excluded from builds and runtime.
 | Repository | Commit | Worktree | Active role |
 | --- | --- | --- | --- |
 | `gateway` | `418da3a` | clean | C++ Gateway edge, protocol routing/conversion, Provider transport, and Garnet client |
-| `platform` | `ee6934c` | clean | C# Orleans control plane, PostgreSQL authority, Provider mock, Admin Web, and User Web |
+| `platform` | `10adfb5` | clean | C# Orleans control plane, PostgreSQL authority, Provider mock, Admin Web, and User Web |
 | `sub2api` | `43ec48d` | read-only clean | Requirements reference only; no runtime or compatibility dependency |
 
 ## Historical role descriptions
@@ -23,7 +23,7 @@ read-only requirements reference and is excluded from builds and runtime.
 | `sub2api` | `43ec48d` | read-only clean | Requirements catalogue only; never a runtime or compatibility dependency |
 
 The active source snapshot for this document is Platform/Admin Web/User Web
-`ee6934c` and Gateway `418da3a`; both worktrees are clean. The table's longer
+`10adfb5` and Gateway `418da3a`; both worktrees are clean. The table's longer
 capability descriptions are retained as inventory context, while this override
 and the evidence below define the current commits.
 
@@ -31,7 +31,7 @@ The current tracked inventory is:
 
 - Gateway: 52 production C++ source/header files, 11 test source files, and 126
   CTest cases.
-- Platform: 123 hand-written production C# files, 5 generated Cap'n Proto/global C# files, 68 test/benchmark C# files, and 265 passing tests: 69 Grain, 89 Host, 46 Admin, and 61 Provider mock tests.
+- Platform: 124 hand-written production C# files, 5 generated Cap'n Proto/global C# files, 68 test/benchmark C# files, and 267 passing tests: 69 Grain, 91 Host, 46 Admin, and 61 Provider mock tests.
   The Admin Web source now has 29 TypeScript/TSX files and 16 page views.
 - Product surface: 129 direct Admin API route declarations, 51 product tables,
   22 SQLSugar entity types, 29 Admin Web TypeScript/TSX files and 16 page views,
@@ -387,8 +387,14 @@ current-source runtime evidence.
   item/archive reconciliation cycle exactly once, a stopped object store produces
   deterministic retryable parent/item failures, restart repairs both projections,
   and a force-recreated store preserves the original signed bytes on its named
-  volume. Partial PUT/delete faults, network partitions, longer soak, and
-  deployment-scale object-storage HA remain open.
+  volume. Platform `10adfb5` then proves deterministic-key convergence after a
+  partial batch PUT, extracts retention deletion into an independently testable
+  retry service, and proves a mid-sequence parent/item DELETE failure leaves
+  metadata retryable and completed billing untouched until all idempotent deletes
+  succeed. The `scalaapi-media-partial-storage-0810a` gate stops MinIO during
+  retention, records the durable failure, restarts storage, and clears parent/item
+  metadata on retry. Real transport-level partial PUT, network partitions, longer
+  soak, and deployment-scale object-storage HA remain open.
 - Signed payment webhooks, order paid/refunded transitions, stable ledger effects,
   pending-event recovery, subscription purchase/cancel/renew/expiry, and
   transactional redeem-code effects exist as partial commercial foundations.
@@ -573,8 +579,12 @@ smoke assertion. Platform `0134323` adds independent retention deadlines,
   serialization, and stale-worker rejection. Platform `ee6934c` then proves two
   real Silo workers, exact attempt fencing, object-store outage/restart recovery,
   and force-replacement with volume and signed-byte preservation in
-  `scalaapi-media-storage-scale-0810b`. Partial PUT/delete failures, partition
-  recovery, longer soak, and deployment-scale lifecycle remain follow-on work.
+  `scalaapi-media-storage-scale-0810b`. Platform `10adfb5` adds source-level
+  partial-PUT convergence, real-PostgreSQL partial retention DELETE replay, and the
+  `scalaapi-media-partial-storage-0810a` MinIO retention-outage/recovery gate while
+  preserving the completed lease and committed hold. Real transport-level partial
+  PUT, partition recovery, longer soak, and deployment-scale lifecycle remain
+  follow-on work.
 
 The preceding completed vertical slice is the source-built protocol gate
 `scalaapi-responses-compact-0810b` (Platform `18daa64`, Gateway `992f3fc`).
@@ -638,7 +648,7 @@ mutation semantics beyond read/input_items/cancel/delete, provider-group fault c
 open.
 
 The following detailed bullets are retained as the preceding-slice record; the
-current totals for Platform `ee6934c` and Gateway `418da3a` are 265/265 and
+current totals for Platform `10adfb5` and Gateway `418da3a` are 267/267 and
 126/126 respectively:
 
 - Gateway built locally and passed 126/126 CTest cases, including deterministic
@@ -780,9 +790,12 @@ current totals for Platform `ee6934c` and Gateway `418da3a` are 265/265 and
   object repair with retry, and a single Provider fetch for ZIP plus item writes.
   Platform `ee6934c` runs two live Silos against one due cycle, verifies exact
   fenced attempt increments, recovers parent/item metadata after a MinIO outage,
-  and preserves signed bytes across a force-recreated MinIO container. Partial
-  PUT/delete injection, partition recovery, longer soak, and HA/offsite storage
-  evidence remain open.
+  and preserves signed bytes across a force-recreated MinIO container. Platform
+  `10adfb5` proves deterministic object-key convergence after a source-level
+  partial PUT and idempotent parent/item deletion after both an injected
+  mid-sequence DELETE and a runtime MinIO retention outage, without reopening the
+  completed lease or committed hold. Real transport-level partial PUT, partition
+  recovery, longer soak, and HA/offsite storage evidence remain open.
 - SEC-01 now has executable request, non-stream response, and SSE event-boundary
   evidence: the canonical Cap'n Proto contract carries bounded request/response
   policy content, Platform evaluates active scoped rules before lease creation or

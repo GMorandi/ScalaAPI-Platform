@@ -1,14 +1,17 @@
 # ScalaAPI Next Stage Plan
 
-Current checkpoint override: Platform/Admin Web/User Web `ee6934c`, Gateway
+Current checkpoint override: Platform/Admin Web/User Web `10adfb5`, Gateway
 `418da3a`, and read-only `sub2api@43ec48d`. The latest gate is
-`scalaapi-media-storage-scale-0810b`; it passed durable image batch list/items,
+`scalaapi-media-partial-storage-0810a`; it passed durable image batch list/items,
 Provider-backed cancellation, S3-backed ZIP download with manifest/error entries,
 owner-scoped per-item objects and signed downloads, retention cleanup, Platform
 restart recovery, fenced item integrity verification, one-fetch archive/item
 creation, exact claims across two live Silos, MinIO outage/restart recovery,
 force-replacement with volume preservation, and the full empty-volume matrix. The
-remaining plan below starts after this completed media boundary.
+same run stopped MinIO during retention, persisted retry evidence without changing
+completed billing, restarted storage, and cleared parent/item metadata. Focused
+tests prove partial-PUT deterministic-key convergence and mid-sequence DELETE
+replay. The remaining plan below starts after this completed media boundary.
 
 The Embeddings provider-profile slice is complete for this checkpoint. Its
 source-owned OpenAI-compatible, Jina-compatible, and Gemini-compatible models
@@ -44,12 +47,15 @@ retry, and one-fetch ZIP/item creation while preserving the completed parent lea
 Platform `ee6934c` proves two live Silos increment each forced item/archive attempt
 exactly once, outage records retryable parent/item failure, restart repairs both,
 and force-replacement preserves the signed bytes and later retention transition.
-Partial PUT/delete injection, partition recovery, longer soak, and deployment-scale
-HA/offsite lifecycle remain partial.
+Platform `10adfb5` proves source-level partial PUT convergence, real-PostgreSQL
+partial retention DELETE replay, and runtime retention outage/recovery with the
+completed lease and committed hold preserved. Real transport-level partial PUT,
+partition recovery, longer soak, and deployment-scale HA/offsite lifecycle remain
+partial.
 
 ## Checkpoint
 
-The next stage starts from Platform/Admin Web/User Web `ee6934c`, Gateway
+The next stage starts from Platform/Admin Web/User Web `10adfb5`, Gateway
 `418da3a`, and read-only reference `sub2api@43ec48d`.
 
 The greenfield baseline now starts from empty volumes, uses PostgreSQL as authority,
@@ -285,7 +291,9 @@ adds durable item object ownership, fresh owner-scoped signed reads, projection
 recovery, orphan protection, and item-aware retention. Platform `57d33f8` adds
 fenced per-item verification/repair and a single-fetch archive/item pipeline.
 Platform `ee6934c` adds real two-Silo claim contention, object-store outage/restart,
-and force-replacement with volume persistence. Partial PUT/delete recovery,
+and force-replacement with volume persistence. Platform `10adfb5` adds
+deterministic-key partial-PUT convergence plus partial/runtime retention DELETE
+recovery while preserving terminal accounting. Real transport-level partial PUT,
 partition handling, long soak, and deployment-scale MinIO HA/offsite evidence
 remain explicit follow-on gates.
 
@@ -309,9 +317,11 @@ dedicated batch-item objects and rows, serves fresh signed URLs, and makes orpha
 and retention passes item-aware. Platform `57d33f8` closes bounded per-item `HEAD`
 verification, missing/mismatched repair, retry state, stale-worker fencing, and
 duplicate Provider downloads while preserving settled billing. The next package
-must inject partial PUT/delete failures, partition storage and one Silo during
-active writes/reconciliation, run a longer lifecycle soak, and prove no referenced
-object is deleted while every orphan/retention transition converges after recovery.
+must interrupt a real S3 PUT after bytes begin, partition storage and one Silo
+during active writes/reconciliation, run a longer lifecycle soak, and prove no
+referenced object is deleted while every orphan/retention transition converges
+after recovery. The completed source and database fault injection remains a fast
+regression gate for those runtime drills.
 Platform `6bc411b` adds the first Admin Web operator workflow for this authority:
 open/resolved incident filters, a manual reconciliation trigger, and
 evidence-backed settle/release submission with a stable idempotency key per selected
@@ -413,51 +423,45 @@ automated.
 
 ## Next implementation slice
 
-1. Extend policy revision propagation and operations to independent Platform/Gateway
-   processes. Platform `32e9576` now lets workers claim independently and uses
-   `75c4908`'s monotonic publication while serializing propagation and cache rebuild with
-   one PostgreSQL advisory lock, prevents stale revision overwrite, and replays the
-   existing Garnet invalidation version without Lua scripting. The `15cdfc0` Host
-   test covers concurrent workers in one process boundary and `94e0db8` covers key
-   loss. Platform `926b98e` and the `scalaapi-policy-reclaim-0810e` source smoke
-   now terminate a real Platform process immediately after a policy-event claim,
-   restart it, and prove claim reclamation plus Garnet publication. Add
-   multi-process ordering, explicit Garnet outage/restart convergence, and alert
-   correlation after outage. The latest smoke also passes the complete Provider
-   matrix.
-2. Harden the production OpenAI classifier boundary. Keep the `3da2e29` empty-stack
-   match/unavailable proof and HTTPS-only default. Platform `49f68d5` persists
-   fixed-label instance snapshots with idempotent sequence keys, retries flushes,
-   merges cross-instance counters into `/metrics`, and atomically records
-   configuration-backed unavailable-ratio/p95 budget breaches. The targeted real-
-   PostgreSQL/schema/worker run passed 24/24 and the Release build passed with zero
-   warnings/errors; the hosted worker test covers independent instances and one
-   restart. The `scalaapi-metrics-process-0810f` source Compose gate now proves
-   two Platform processes and two Gateway processes flush, restart, and aggregate
-   snapshots with exactly-once usage settlement. Add credential rotation and
-   redaction checks, malformed/oversized/timeout/cancellation scenarios through
-   real deployment configuration, and long-stream buffer/late-usage soak.
-3. Extend operator and browser evidence. Platform `3da2e29` provides Admin Web
-   rule CRUD, propagation-change history, alert filters, bilingual navigation, and a
-   passing Chromium smoke with intercepted `/admin/content-audit/{rules,changes,alerts}`
-   contracts. Platform `4f78b71` adds the authenticated Operations route with
-   bounded metric summaries, kind/severity alert filters, explicit refresh, and
-   the Channel Monitors route with bounded history/filter/check submission; the
-   Admin Web Chromium suite passes `3/3`. Platform `4f78b71` and
-   `scalaapi-user-portal-0810b` add live User Web login and basic portal navigation.
-   Add live authenticated authorization/audit/replay coverage, User Web browser
-   tests for the user-visible 400/503 policy errors, and browser evidence for
-   reconciliation, monitor, backup, and recovery workflows.
-4. Close release reliability gates in parallel: Platform `c7bd987` now proves
-   concurrent shared-idempotency settlement through two Gateways after the
-   secondary pair restarts, plus primary availability during a controlled
-   secondary Silo/Gateway outage and settlement after rejoin. Remaining gates
-   are Provider golden request/response fixtures, long WebSocket/backpressure
-   soak, broader multi-Gateway/multi-Silo contention and partition recovery,
-   Garnet partition recovery, PostgreSQL/Garnet convergence under concurrent
-   clients, and backup/restore drills.
-   Every scenario must run from empty volumes or an explicitly created fixture and
-   must make the top-level command non-zero on failure.
+1. **Media transport and partition recovery (P0).** Put a faulting TCP proxy in
+   front of MinIO and interrupt a real object PUT after request bytes begin; use
+   deterministic keys and signed `HEAD` to prove retry convergence with no
+   unreferenced final object. Partition one of two Silos from object storage and
+   then from PostgreSQL while item verification, archive creation, and retention
+   are due. Preserve claim fencing, terminal lease/hold state, owner isolation,
+   and orphan grace periods through recovery. Exit when the empty-volume gate
+   covers pre-body, mid-body, and response-loss PUT outcomes, storage/Silo
+   partitions, and at least a one-hour worker-contention soak with zero duplicate
+   billing or premature deletion.
+2. **Protocol and Provider fidelity (P0).** Add provider-specific malformed,
+   timeout, disconnect-before-output, partial-output, cancellation, and retry
+   fixtures for Anthropic Messages and Gemini generation, then complete the
+   remaining OpenAI Responses mutation subresources and video cancellation/
+   retention settlement. Keep each external protocol independent at Gateway and
+   normalize only the internal revision-3 contract. Exit when JSON/SSE goldens,
+   Provider mock HTTP tests, empty-stack settlement/reconciliation, and error
+   envelopes pass for every added operation without importing a Sub2API route or
+   state mapping.
+3. **Distributed authority and operator recovery (P0).** Extend the existing
+   multi-process policy, scheduler, and accounting evidence through Garnet
+   partition/rebuild with TLS enabled, primary-Silo replacement, stale-worker
+   rejection, and operator settle/release at crash boundaries. Add live
+   authenticated Admin browser evidence for reconciliation, monitor, backup, and
+   recovery workflows. Exit when every ambiguity becomes exactly one settlement,
+   an evidence-backed no-charge release, or one durable incident, and audit/
+   idempotency rows survive process replacement.
+4. **Independent release gate (P0).** Move the exact empty-volume Compose matrix
+   into blocking hosted CI, then add the longer realtime/backpressure soak,
+   PostgreSQL backup plus isolated restore, Garnet rebuild, security scans, and
+   container/resource cleanup checks. A sibling-repository checkout token or an
+   independent release repository is a prerequisite. Exit only when any failed
+   child test or benchmark makes the top-level job non-zero, all images are tied
+   to source commits/digests, and `podman ps -a` is empty after local runs.
+
+Packages 1 and 2 may proceed independently. Package 3 consumes their fault
+fixtures, and package 4 promotes the same commands without replacing them with a
+different CI-only path. No package may add Redis, CDC, Debezium, legacy schema,
+old IDs/keys, compatibility routes, or Sub2API runtime/data dependencies.
 
 Exit for this stage: streaming and non-stream policy decisions are deterministic,
 audited, fail closed, and replay-safe; all current 58 inventory domains have an
@@ -936,7 +940,7 @@ inventory acceptance row, and this checkpoint after each completed package.
 
 ## Stage exit and following expansion
 
-The stage exits only when all 12 scenarios pass from an empty environment locally
+The stage exits only when all 13 scenarios pass from an empty environment locally
 and in hosted CI, all monetary invariants reconcile, and OpenAI Chat can be promoted
 using the inventory's contract/test/runtime rule.
 
@@ -949,7 +953,7 @@ Then expand the remaining 58-domain work in this order:
    Gateway `8f33790`.
 2. Complete the remaining media lifecycle after the now-finished batch
    list/items/cancellation/orphan-cleanup/archive/retention/item-storage slice:
-   partial PUT/delete recovery, Silo/object-store partition recovery, longer
+   real transport-level partial PUT recovery, Silo/object-store partition recovery, longer
    worker contention soak, Provider-specific OAuth refresh and pricing/tokenizer
    adapters, deployment-scale HA/offsite object storage, and full lifecycle evidence.
 3. Complete identity hardening beyond the TOTP, OAuth PKCE, Passkey, and encrypted
