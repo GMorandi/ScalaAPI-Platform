@@ -1,6 +1,7 @@
 using System.Net;
 using System.Security.Cryptography;
 using System.Text;
+using System.Xml.Linq;
 
 namespace ScalaAPI.Host.Services;
 
@@ -10,10 +11,18 @@ public sealed record ObjectStoragePutResult(
 public sealed record ObjectStorageHeadResult(
     bool Exists, string ETag, long Size, string ContentType);
 
+public sealed record ObjectStorageItem(
+    string Key, string ETag, long Size, DateTimeOffset? LastModified);
+
 public interface IMediaObjectStorage
 {
     Task<ObjectStorageHeadResult> HeadAsync(string objectKey,
         CancellationToken ct = default);
+
+    Task<IReadOnlyList<ObjectStorageItem>> ListAsync(string prefix,
+        CancellationToken ct = default);
+
+    Task DeleteAsync(string objectKey, CancellationToken ct = default);
 }
 
 // A small S3-compatible client keeps object ownership in MinIO/Garnet-free
@@ -108,6 +117,71 @@ public sealed class ObjectStorageClient : IMediaObjectStorage
             response.Content.Headers.ContentType?.MediaType ?? "");
     }
 
+    public async Task<IReadOnlyList<ObjectStorageItem>> ListAsync(string prefix,
+        CancellationToken ct = default)
+    {
+        var normalizedPrefix = prefix?.Trim() ?? "";
+        if (normalizedPrefix.Length > 512)
+            throw new ArgumentOutOfRangeException(nameof(prefix));
+
+        await EnsureBucketAsync(ct);
+        var result = new List<ObjectStorageItem>();
+        string? continuation = null;
+        do
+        {
+            var query = new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["list-type"] = "2",
+                ["max-keys"] = "1000",
+                ["prefix"] = normalizedPrefix,
+            };
+            if (!string.IsNullOrEmpty(continuation))
+                query["continuation-token"] = continuation;
+
+            using var response = await SendSignedAsync(HttpMethod.Get,
+                ObjectPath(""), query, [], null, ct);
+            if (!response.IsSuccessStatusCode)
+            {
+                var body = await response.Content.ReadAsStringAsync(ct);
+                throw new InvalidOperationException(
+                    $"Object storage LIST failed with {(int)response.StatusCode}: {body[..Math.Min(body.Length, 512)]}");
+            }
+
+            var bodyText = await response.Content.ReadAsStringAsync(ct);
+            if (bodyText.Length > 8 * 1024 * 1024)
+                throw new InvalidOperationException("Object storage LIST response exceeds the object limit");
+            var document = XDocument.Parse(bodyText, LoadOptions.PreserveWhitespace);
+            var root = document.Root ?? throw new InvalidOperationException(
+                "Object storage LIST response has no root element");
+            var ns = root.Name.Namespace;
+            foreach (var item in root.Elements(ns + "Contents"))
+            {
+                var key = item.Element(ns + "Key")?.Value ?? "";
+                if (string.IsNullOrEmpty(key)) continue;
+                var etag = (item.Element(ns + "ETag")?.Value ?? "").Trim('"');
+                var size = long.TryParse(item.Element(ns + "Size")?.Value,
+                    out var parsedSize) ? parsedSize : 0;
+                DateTimeOffset? lastModified = DateTimeOffset.TryParse(
+                    item.Element(ns + "LastModified")?.Value,
+                    out var parsedLastModified) ? parsedLastModified : null;
+                result.Add(new ObjectStorageItem(key, etag, size, lastModified));
+            }
+
+            var truncated = string.Equals(
+                root.Element(ns + "IsTruncated")?.Value, "true",
+                StringComparison.OrdinalIgnoreCase);
+            continuation = truncated
+                ? root.Element(ns + "NextContinuationToken")?.Value
+                : null;
+            if (truncated && string.IsNullOrWhiteSpace(continuation))
+                throw new InvalidOperationException(
+                    "Object storage LIST response is truncated without a continuation token");
+        }
+        while (continuation is not null);
+
+        return result;
+    }
+
     public string PresignGet(string objectKey, TimeSpan lifetime)
     {
         var now = DateTimeOffset.UtcNow;
@@ -183,14 +257,27 @@ public sealed class ObjectStorageClient : IMediaObjectStorage
         }
     }
 
+    private Task<HttpResponseMessage> SendSignedAsync(HttpMethod method, string path,
+        byte[] body, string? contentType, CancellationToken ct) =>
+        SendSignedAsync(method, path, new Dictionary<string, string>(), body,
+            contentType, ct);
+
     private async Task<HttpResponseMessage> SendSignedAsync(HttpMethod method, string path,
-        byte[] body, string? contentType, CancellationToken ct)
+        IReadOnlyDictionary<string, string> query, byte[] body, string? contentType,
+        CancellationToken ct)
     {
         var now = DateTimeOffset.UtcNow;
         var amzDate = now.ToString("yyyyMMdd'T'HHmmss'Z'");
         var date = now.ToString("yyyyMMdd");
         var payloadHash = Sha256(body);
-        var uri = new Uri(_endpoint, path.TrimStart('/'));
+        var canonicalQuery = string.Join('&', query.OrderBy(pair => pair.Key,
+                StringComparer.Ordinal).ThenBy(pair => pair.Value, StringComparer.Ordinal)
+            .Select(pair => $"{Encode(pair.Key)}={Encode(pair.Value)}"));
+        var uriBuilder = new UriBuilder(new Uri(_endpoint, path.TrimStart('/')))
+        {
+            Query = canonicalQuery,
+        };
+        var uri = uriBuilder.Uri;
         var host = HostHeader(uri);
         var canonicalHeaders = new StringBuilder()
             .Append("host:").Append(host).Append('\n')
@@ -203,7 +290,7 @@ public sealed class ObjectStorageClient : IMediaObjectStorage
             signedHeaders = "content-type;" + signedHeaders;
         }
 
-        var canonicalRequest = $"{method.Method}\n{path}\n\n{canonicalHeaders}\n{signedHeaders}\n{payloadHash}";
+        var canonicalRequest = $"{method.Method}\n{path}\n{canonicalQuery}\n{canonicalHeaders}\n{signedHeaders}\n{payloadHash}";
         var scope = $"{date}/{_region}/s3/aws4_request";
         var stringToSign = $"AWS4-HMAC-SHA256\n{amzDate}\n{scope}\n{Sha256(canonicalRequest)}";
         var signature = Hex(Hmac(SigningKey(date), stringToSign));

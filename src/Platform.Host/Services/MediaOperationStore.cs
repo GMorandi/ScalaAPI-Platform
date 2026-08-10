@@ -155,6 +155,21 @@ public sealed class MediaOperationStore(
         return result;
     }
 
+    public async Task<IReadOnlySet<string>> ListReferencedObjectKeysAsync(
+        CancellationToken ct = default)
+    {
+        await using var command = dataSource.CreateCommand("""
+            SELECT DISTINCT object_key
+            FROM media_operations
+            WHERE object_key <> ''
+            """);
+        var result = new HashSet<string>(StringComparer.Ordinal);
+        await using var reader = await command.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct))
+            result.Add(reader.GetString(0));
+        return result;
+    }
+
     public async Task<MediaOperation?> UpdateAsync(long apiKeyId, string operationId,
         string status, int progress, string? upstreamTaskId = null,
         string? outputMetadata = null, string? outputUrl = null,

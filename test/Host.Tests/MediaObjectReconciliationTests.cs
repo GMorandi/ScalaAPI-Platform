@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
 using Npgsql;
 using ScalaAPI.Host.Services;
@@ -23,6 +24,7 @@ public sealed class MediaObjectReconciliationTests
         var storage = new FakeObjectStorage(new(true, "etag-1", 5, "image/png"));
         var service = new MediaObjectReconciliationService(
             new MediaOperationStore(dataSource), storage,
+            new ConfigurationBuilder().Build(),
             NullLogger<MediaObjectReconciliationService>.Instance);
 
         try
@@ -42,6 +44,60 @@ public sealed class MediaObjectReconciliationTests
             Assert.Equal(1, await service.ReconcileOnceAsync());
             Assert.Equal(("succeeded", "stored"), await ReadStateAsync(dataSource, operationId));
             Assert.Equal("{}", await ReadErrorAsync(dataSource, operationId));
+        }
+        finally
+        {
+            await using var media = dataSource.CreateCommand(
+                "DELETE FROM media_operations WHERE operation_id = $1");
+            media.Parameters.AddWithValue(operationId);
+            await media.ExecuteNonQueryAsync();
+            await using var lease = dataSource.CreateCommand(
+                "DELETE FROM request_leases WHERE lease_token = $1");
+            lease.Parameters.AddWithValue(leaseToken);
+            await lease.ExecuteNonQueryAsync();
+        }
+    }
+
+    [Fact]
+    public async Task OrphanCleanupProtectsReferencedAndYoungObjects()
+    {
+        var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
+        if (string.IsNullOrWhiteSpace(connectionString)) return;
+
+        await using var dataSource = NpgsqlDataSource.Create(connectionString);
+        var suffix = Guid.NewGuid().ToString("N");
+        var leaseToken = $"media-orphan-lease-{suffix}";
+        var operationId = $"med_orphan_{suffix}";
+        var referencedKey = $"media/{operationId}.png";
+        var orphanKey = $"media/orphan-{suffix}.bin";
+        var youngKey = $"media/young-{suffix}.bin";
+        await InsertSettledMediaAsync(dataSource, leaseToken, operationId, referencedKey);
+        var storage = new FakeObjectStorage(new(true, "etag-1", 5, "image/png"))
+        {
+            Objects =
+            [
+                new(referencedKey, "etag-1", 5, DateTimeOffset.UtcNow.AddHours(-2)),
+                new(orphanKey, "orphan-etag", 7, DateTimeOffset.UtcNow.AddHours(-2)),
+                new(youngKey, "young-etag", 3, DateTimeOffset.UtcNow.AddMinutes(-1)),
+            ],
+        };
+        var service = new MediaObjectReconciliationService(
+            new MediaOperationStore(dataSource), storage,
+            new ConfigurationBuilder().AddInMemoryCollection(
+                new Dictionary<string, string?>
+                {
+                    ["ObjectStorage:OrphanGraceMinutes"] = "60",
+                }).Build(),
+            NullLogger<MediaObjectReconciliationService>.Instance);
+
+        try
+        {
+            var result = await service.ReconcileOrphansOnceAsync();
+            Assert.Equal(3, result.Listed);
+            Assert.Equal(1, result.Protected);
+            Assert.Equal(1, result.SkippedYoung);
+            Assert.Equal(1, result.Deleted);
+            Assert.Equal([orphanKey], storage.Deleted);
         }
         finally
         {
@@ -123,8 +179,19 @@ public sealed class MediaObjectReconciliationTests
         : IMediaObjectStorage
     {
         public ObjectStorageHeadResult Head { get; set; } = initial;
+        public IReadOnlyList<ObjectStorageItem> Objects { get; set; } = [];
+        public List<string> Deleted { get; } = [];
 
         public Task<ObjectStorageHeadResult> HeadAsync(string objectKey,
             CancellationToken ct = default) => Task.FromResult(Head);
+
+        public Task<IReadOnlyList<ObjectStorageItem>> ListAsync(string prefix,
+            CancellationToken ct = default) => Task.FromResult(Objects);
+
+        public Task DeleteAsync(string objectKey, CancellationToken ct = default)
+        {
+            Deleted.Add(objectKey);
+            return Task.CompletedTask;
+        }
     }
 }

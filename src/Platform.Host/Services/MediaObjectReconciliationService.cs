@@ -2,13 +2,19 @@ using System.Text.Json;
 
 namespace ScalaAPI.Host.Services;
 
+public sealed record MediaOrphanCleanupResult(int Listed, int Protected, int SkippedYoung,
+    int Deleted);
+
 // Reconciliation is deliberately metadata-only. It can mark a stored output
-// unavailable, but it never changes a settled lease or deletes an object.
+// unavailable, while orphan cleanup deletes only unreferenced, aged media keys.
 public sealed class MediaObjectReconciliationService(
     MediaOperationStore store,
     IMediaObjectStorage objectStorage,
+    IConfiguration configuration,
     ILogger<MediaObjectReconciliationService> logger) : BackgroundService
 {
+    private const string MediaPrefix = "media/";
+
     public async Task<int> ReconcileOnceAsync(CancellationToken ct = default)
     {
         var operations = await store.ClaimObjectReconciliationBatchAsync(32, ct);
@@ -40,6 +46,40 @@ public sealed class MediaObjectReconciliationService(
         return operations.Count;
     }
 
+    public async Task<MediaOrphanCleanupResult> ReconcileOrphansOnceAsync(
+        CancellationToken ct = default)
+    {
+        var objects = await objectStorage.ListAsync(MediaPrefix, ct);
+        var referenced = await store.ListReferencedObjectKeysAsync(ct);
+        var grace = TimeSpan.FromMinutes(Math.Clamp(
+            configuration.GetValue("ObjectStorage:OrphanGraceMinutes", 60), 1, 7 * 24 * 60));
+        var cutoff = DateTimeOffset.UtcNow - grace;
+        var protectedCount = 0;
+        var skippedYoung = 0;
+        var deleted = 0;
+
+        foreach (var item in objects)
+        {
+            ct.ThrowIfCancellationRequested();
+            if (referenced.Contains(item.Key))
+            {
+                protectedCount++;
+                continue;
+            }
+            if (item.LastModified is null || item.LastModified > cutoff)
+            {
+                skippedYoung++;
+                continue;
+            }
+
+            await objectStorage.DeleteAsync(item.Key, ct);
+            deleted++;
+            logger.LogInformation("Deleted unreferenced media object {ObjectKey}", item.Key);
+        }
+
+        return new(objects.Count, protectedCount, skippedYoung, deleted);
+    }
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         using var timer = new PeriodicTimer(TimeSpan.FromSeconds(30));
@@ -48,6 +88,7 @@ public sealed class MediaObjectReconciliationService(
             try
             {
                 await ReconcileOnceAsync(stoppingToken);
+                await ReconcileOrphansOnceAsync(stoppingToken);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
