@@ -2,7 +2,7 @@
 
 ## Checkpoint
 
-The next stage starts from Platform/Admin Web/User Web `4f78b71`, Gateway `3da0d33`, and read-only
+The next stage starts from Platform/Admin Web/User Web `0acdf9c`, Gateway `3da0d33`, and read-only
 reference `sub2api@43ec48d`.
 
 The greenfield baseline now starts from empty volumes, uses PostgreSQL as authority,
@@ -87,6 +87,17 @@ Gateway processes, restarts the secondary pair, and proves two persisted instanc
 snapshots, two requests, two usage events, and two NUMERIC debits exactly once.
 Credential rotation/redaction, deployed malformed/oversized/timeout/cancellation
 scenarios, and long-stream metrics remain open.
+
+Platform `6ae059b` and `c7bd987` now provide the multi-Gateway shared-idempotency
+and controlled secondary Silo/Gateway outage/rejoin evidence. Platform `1f0f9ef`,
+`840636e`, and `0acdf9c` add migration 046, an AdminOnly PostgreSQL backup/restore
+command boundary, a bilingual Admin page, and a PostgreSQL 17 client image. The
+`scalaapi-backup-0810b` empty-volume gate creates a non-empty checksum-verified
+artifact, replays the create and restore keys, restores a fresh user into a
+separate `platform_restore` database, and cleans all containers. This is a local
+isolated-target checkpoint only: S3/offsite storage, encryption/signing, measured
+RPO/RTO, TLS ingress, rolling replacement, and rollback recovery remain release
+gates.
 
 Platform `a5cb552` adds the first UI-06 public slice: User Web routes for the
 Gateway model directory and readiness status plus versioned Terms and Privacy
@@ -696,6 +707,10 @@ Deliverables:
 
 - Run at least two Gateway instances and two Orleans Silos against one authenticated
   Garnet service and PostgreSQL authority.
+- The source gate now proves concurrent cross-Gateway idempotency and a controlled
+  secondary Silo/Gateway stop, primary settlement with one active Silo, original
+  container rejoin, and post-rejoin settlement. Treat these as baseline evidence,
+  not as promotion to `implemented`.
 - Add Garnet TLS 1.2/1.3 tests with certificate-name validation, concurrent clients,
   password rejection, flush, stale invalidation version, restart, and projection
   rebuild.
@@ -728,6 +743,11 @@ Deliverables:
   rate, and ledger mismatch.
 - Retain benchmark integrity checks: zero selected benchmarks or any failed child
   process must return non-zero. Performance claims require a separate measured run.
+- Add the backup/restore gate to the blocking workflow: create a fresh target
+  database, run an idempotent PostgreSQL backup, verify artifact size/checksum,
+  restore into the isolated target, replay the command, and remove all stack
+  volumes. Follow with signed/offsite artifact, RPO/RTO, rollback, and restore
+  failure-injection gates before disaster recovery is considered complete.
 
 Dependencies: packages 1-4 expose the states and scenarios to observe.
 
