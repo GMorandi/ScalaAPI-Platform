@@ -28,6 +28,28 @@ or Podman Compose available:
 deploy/stack/smoke.sh
 ```
 
+The default gate uses authenticated plaintext Garnet on the private Compose
+network. To run the TLS deployment gate, use the checked-in wrapper:
+
+```sh
+deploy/stack/garnet_tls_smoke.sh
+```
+
+The wrapper requires `openssl`, creates a short-lived local CA and a `garnet`
+server certificate with a `DNS:garnet` SAN, exports the server certificate as a
+password-protected PFX, and removes the temporary key material on exit. The TLS
+Compose override enables Garnet server TLS, disables client-certificate
+requirement for this password-authenticated deployment, mounts the PFX and CA
+read-only with rootless-container relabeling, and passes the CA path and server
+name to both production clients. The smoke verifies TLS through Platform's real
+authenticated Garnet readiness path, then runs the complete source-built fault,
+restart, reconciliation, and object-storage matrix. Set
+`GARNET_SERVER_CERT_PASSWORD`, `GARNET_SERVER_NAME`, or
+`GARNET_CERT_REFRESH_SECONDS` to exercise deployment-specific values. The
+default development stack remains plaintext; TLS is selected only by the
+wrapper or by setting `GARNET_TLS=true` together with all required certificate
+paths.
+
 The gate creates a unique Compose project and new named volumes, builds the
 current Platform and sibling Gateway sources, and removes only that project on
 exit. It applies all migrations, runs the migrator again, configures a new user,

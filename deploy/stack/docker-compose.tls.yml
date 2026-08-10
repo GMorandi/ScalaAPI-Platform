@@ -1,0 +1,41 @@
+services:
+  garnet:
+    command:
+      - --auth
+      - Password
+      - --password
+      - ${GARNET_PASSWORD:?GARNET_PASSWORD is required}
+      - --tls
+      - --cert-file-name
+      - /run/secrets/garnet/server.pfx
+      - --cert-password
+      - ${GARNET_SERVER_CERT_PASSWORD:?GARNET_SERVER_CERT_PASSWORD is required}
+      - --client-certificate-required
+      - "false"
+      - --certificate-revocation-check-mode
+      - NoCheck
+      - --cert-refresh-freq
+      - ${GARNET_CERT_REFRESH_SECONDS:-0}
+    volumes:
+      - garnet_data:/data
+      - ${GARNET_SERVER_CERT_FILE:?GARNET_SERVER_CERT_FILE is required}:/run/secrets/garnet/server.pfx:ro,Z
+
+  garnet-health:
+    healthcheck:
+      test: nc -z garnet 6379
+
+  platform-silo:
+    environment:
+      Garnet__UseTls: "true"
+      Garnet__ServerName: ${GARNET_SERVER_NAME:-garnet}
+      Garnet__CaCertificatePath: /run/secrets/garnet/ca.pem
+    volumes:
+      - ${GARNET_CA_CERT_FILE:?GARNET_CA_CERT_FILE is required}:/run/secrets/garnet/ca.pem:ro,Z
+
+  gateway:
+    environment:
+      GARNET_TLS: "true"
+      GARNET_SERVER_NAME: ${GARNET_SERVER_NAME:-garnet}
+      GARNET_CA_CERT_PATH: /run/secrets/garnet/ca.pem
+    volumes:
+      - ${GARNET_CA_CERT_FILE:?GARNET_CA_CERT_FILE is required}:/run/secrets/garnet/ca.pem:ro,Z

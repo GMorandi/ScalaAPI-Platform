@@ -4,6 +4,8 @@ set -Eeuo pipefail
 stack_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "$stack_dir/../.." && pwd)"
 compose_file="$stack_dir/docker-compose.yml"
+compose_files=("$compose_file")
+garnet_tls_enabled="${GARNET_TLS:-false}"
 project="${SMOKE_PROJECT_NAME:-scalaapi-smoke-$$}"
 secondary_platform_container=""
 secondary_gateway_container=""
@@ -11,6 +13,18 @@ secondary_gateway_container=""
 if [[ ! "$project" =~ ^[a-z0-9][a-z0-9_-]*$ ]]; then
     echo "SMOKE_PROJECT_NAME must contain only lowercase letters, numbers, dashes, and underscores" >&2
     exit 2
+fi
+
+if [[ "$garnet_tls_enabled" == "true" || "$garnet_tls_enabled" == "1" ]]; then
+    tls_compose_file="$stack_dir/docker-compose.tls.yml"
+    if [[ ! -f "$tls_compose_file" ]]; then
+        echo "Garnet TLS Compose override is missing: $tls_compose_file" >&2
+        exit 2
+    fi
+    : "${GARNET_CA_CERT_FILE:?GARNET_CA_CERT_FILE is required when GARNET_TLS=true}"
+    : "${GARNET_SERVER_CERT_FILE:?GARNET_SERVER_CERT_FILE is required when GARNET_TLS=true}"
+    : "${GARNET_SERVER_CERT_PASSWORD:?GARNET_SERVER_CERT_PASSWORD is required when GARNET_TLS=true}"
+    compose_files+=("$tls_compose_file")
 fi
 
 container_cli="${CONTAINER_CLI:-}"
@@ -41,7 +55,11 @@ if [[ "${PUBLIC_UI_SMOKE_ONLY:-0}" == "1" ||
 fi
 
 compose() {
-    "$container_cli" compose --project-name "$project" --file "$compose_file" "$@"
+    local compose_arguments=(--project-name "$project")
+    for file in "${compose_files[@]}"; do
+        compose_arguments+=(--file "$file")
+    done
+    "$container_cli" compose "${compose_arguments[@]}" "$@"
 }
 
 service_container_id() {
@@ -112,7 +130,7 @@ export SECURITY_MASTER_KEY="MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
 export PROVIDER_CREDENTIALS_ALLOW_INSECURE="true"
 export INTERNAL_RECONCILIATION_TOKEN="smoke-reconciliation-${suffix}-token"
 export GARNET_PASSWORD="smoke-garnet-${suffix}-password"
-export GARNET_TLS="false"
+export GARNET_TLS="${GARNET_TLS:-false}"
 export CONTENT_CLASSIFIER_OPENAI_ENDPOINT="${CONTENT_CLASSIFIER_OPENAI_ENDPOINT:-http://provider-mock:8081/v1/moderations}"
 export CONTENT_CLASSIFIER_OPENAI_API_KEY="${CONTENT_CLASSIFIER_OPENAI_API_KEY:-mock-openai-moderation-key}"
 export CONTENT_CLASSIFIER_OPENAI_ALLOW_INSECURE="${CONTENT_CLASSIFIER_OPENAI_ALLOW_INSECURE:-true}"
@@ -2001,12 +2019,27 @@ gateway_backlog() {
 }
 wait_for "Gateway usage outbox drain" 30 gateway_backlog
 
-garnet_probe="$(compose exec -T garnet-health sh -c '
-pass="$GARNET_PASSWORD"; len=$(printf %s "$pass" | wc -c)
-{ printf "*2\r\n\$4\r\nAUTH\r\n\$%s\r\n%s\r\n" "$len" "$pass"; printf "*1\r\n\$4\r\nPING\r\n"; } | nc -w 2 garnet 6379
-' | tr -d '\r')"
-if [[ "$garnet_probe" != *PONG* ]]; then
-    echo "Authenticated Garnet PING did not return PONG" >&2
+if [[ "$GARNET_TLS" == "true" || "$GARNET_TLS" == "1" ]]; then
+    # The Platform readiness endpoint performs an authenticated TLS RESP PING
+    # through the production RemoteGarnetService. The busybox helper has no TLS
+    # client, so do not send a plaintext probe to a TLS-only Garnet listener.
+    garnet_probe="$(compose exec -T platform-silo \
+        curl -fsS http://127.0.0.1:5000/ready)"
+else
+    garnet_probe="$(compose exec -T garnet-health sh -c '
+    pass="$GARNET_PASSWORD"; len=$(printf %s "$pass" | wc -c)
+    { printf "*2\r\n\$4\r\nAUTH\r\n\$%s\r\n%s\r\n" "$len" "$pass"; printf "*1\r\n\$4\r\nPING\r\n"; } | nc -w 2 garnet 6379
+    ' | tr -d '\r')"
+fi
+if [[ "$GARNET_TLS" == "true" || "$GARNET_TLS" == "1" ]]; then
+    [[ "$garnet_probe" == *ready* ]] && garnet_probe_ok=true || garnet_probe_ok=false
+else
+    [[ "$garnet_probe" == *PONG* ]] && garnet_probe_ok=true || garnet_probe_ok=false
+fi
+if [[ "$garnet_probe_ok" != "true" ]]; then
+    [[ "$GARNET_TLS" == "true" || "$GARNET_TLS" == "1" ]] \
+        && echo "Authenticated Garnet TLS readiness did not return ready" >&2 \
+        || echo "Authenticated Garnet PING did not return PONG" >&2
     exit 1
 fi
 
