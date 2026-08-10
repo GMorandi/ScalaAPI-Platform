@@ -19,7 +19,7 @@ The current tracked inventory is:
 - Gateway: 52 production C++ source/header files, 11 test source files, and 125
   CTest cases.
 - Platform: 119 hand-written production C# files, 3 generated Cap'n Proto C#
-  files, 63 test/benchmark C# files, and 234 tests: 69 Grain, 72 Host, 45 Admin,
+  files, 63 test/benchmark C# files, and 235 tests: 69 Grain, 73 Host, 45 Admin,
   and 48 Provider mock tests.
 - Product surface: 125 direct Admin API route declarations, 50 product tables,
   22 SQLSugar entity types, 25 Admin Web TypeScript/TSX files and 13 page views,
@@ -434,7 +434,7 @@ current-source runtime evidence.
 
 ## Current verification evidence
 
-At Platform/Admin Web/User Web `3da2e29` and Gateway `3da0d33`:
+At Platform/Admin Web/User Web `75c4908` and Gateway `3da0d33`:
 
 - Gateway built locally and passed 125/125 CTest cases, including deterministic
   fault-hook claim/repeat behavior, terminal SSE detection, provider EOF
@@ -446,8 +446,8 @@ At Platform/Admin Web/User Web `3da2e29` and Gateway `3da0d33`:
   sixteen request pairs, all sixteen response pairs, cross-protocol response
   envelope validation, and cross-protocol error normalization with standard
   status precedence.
-- Platform Release test/build passed with 0 warnings and 0 errors: 234/234 tests,
-  including 71 Host tests, 69 Grain tests, 45 Admin tests, and 48 Provider mock
+- Platform Release test/build passed with 0 warnings and 0 errors: 235/235 tests,
+  including 73 Host tests, 69 Grain tests, 45 Admin tests, and 48 Provider mock
   tests. Admin coverage
   includes PostgreSQL-backed TOTP replay, backup-code consumption, lockout,
   recovery, OAuth provider/redirect/verifier binding, one-time state consumption,
@@ -462,6 +462,15 @@ At Platform/Admin Web/User Web `3da2e29` and Gateway `3da0d33`:
   lifecycle and monotonic counter assertions. Maintenance coverage adds bounded
   export redaction, cleanup deletion, actor-scoped replay, and changed-payload
   conflict evidence.
+- Platform `75c4908` makes content-policy revision publication replay-safe and
+  monotonic across propagation workers and cache rebuilds. Both paths take the
+  same PostgreSQL advisory lock before the pinned Garnet deployment's native
+  GET/SET/INCR sequence; an older revision cannot overwrite a newer projection,
+  and repeated publication returns the existing invalidation version. Host tests
+  cover duplicate, stale, failed, concurrent, and rebuild/replay behavior. The
+  source smoke reached the OpenAI/external policy propagation and response-policy
+  gates on real Garnet; its later Provider `disconnect_before_output` probe timed
+  out at the host boundary and is retained as a failed environmental gate.
 - Announcement coverage adds published/expiry filtering, read-state listing,
   duplicate-read replay, and exactly one `announcement.read` audit row through a
   real PostgreSQL test; User Web builds with the Dashboard read action.

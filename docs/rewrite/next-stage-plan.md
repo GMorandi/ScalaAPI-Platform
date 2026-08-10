@@ -2,7 +2,7 @@
 
 ## Checkpoint
 
-The next stage starts from Platform/Admin Web/User Web `3da2e29`, Gateway `3da0d33`, and read-only
+The next stage starts from Platform/Admin Web/User Web `75c4908`, Gateway `3da0d33`, and read-only
 reference `sub2api@43ec48d`.
 
 The greenfield baseline now starts from empty volumes, uses PostgreSQL as authority,
@@ -266,14 +266,14 @@ automated.
 
 ## Next implementation slice
 
-1. Extend policy revision propagation and operations to multiple Platform/Gateway
-   instances. The `15cdfc0` Host test already verifies two concurrent workers do
-   not duplicate claims or revision publication, and `94e0db8` proves no-TTL
-   revision rebuild after dedicated Garnet key loss. Add separate-process ordered
-   outbox claims, Garnet invalidation convergence, monotonic revisions under
-   concurrent rule changes, and alert correlation after worker failure or Garnet
-   outage. The single-instance outbox, retry, and alert evidence is complete in
-   `15cdfc0`.
+1. Extend policy revision propagation and operations to independent Platform/Gateway
+   processes. Platform `75c4908` now serializes propagation and cache rebuild with
+   one PostgreSQL advisory lock, prevents stale revision overwrite, and replays the
+   existing Garnet invalidation version without Lua scripting. The `15cdfc0` Host
+   test covers concurrent workers in one process boundary and `94e0db8` covers key
+   loss. Add separate-process crash windows, ordered outbox claims, Garnet
+   convergence after worker failure, and alert correlation after outage; the latest
+   full smoke still has a host-boundary Provider timeout that must be stabilized.
 2. Harden the production OpenAI classifier boundary. Keep the `3da2e29` empty-stack
    match/unavailable proof and HTTPS-only default. Add measured p95/error budgets,
    credential rotation and redaction checks, malformed/oversized/timeout/cancellation
