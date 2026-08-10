@@ -19,7 +19,14 @@ ENTRYPOINT ["dotnet", "platform/ScalaAPI.Platform.Host.dll"]
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS admin-api
 WORKDIR /app
-RUN apt-get update && apt-get install -y --no-install-recommends curl postgresql-client \
+RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates \
+    && install -d /usr/share/postgresql-common/pgdg \
+    && curl --fail --silent --show-error https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+        -o /usr/share/keyrings/postgresql.asc \
+    && echo "deb [signed-by=/usr/share/keyrings/postgresql.asc] https://apt.postgresql.org/pub/repos/apt noble-pgdg main" \
+        > /etc/apt/sources.list.d/pgdg.list \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends postgresql-client-17 \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=build /app/admin ./admin
 RUN mkdir -p /var/lib/scalaapi/backups

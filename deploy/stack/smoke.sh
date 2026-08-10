@@ -126,6 +126,10 @@ export GATEWAY_PORT="${SMOKE_GATEWAY_PORT:-28080}"
 export ADMIN_WEB_PORT="${SMOKE_ADMIN_WEB_PORT:-23000}"
 export USER_WEB_PORT="${SMOKE_USER_WEB_PORT:-23001}"
 export GATEWAY_CORES="${SMOKE_GATEWAY_CORES:-2}"
+backup_restore_db="platform_restore"
+if [[ "${BACKUP_RESTORE_SMOKE_ONLY:-0}" == "1" ]]; then
+    export BACKUP_RESTORE_TARGET_CONNECTION="Host=postgres;Database=${backup_restore_db};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}"
+fi
 if [[ -n "${GATEWAY_FAULT_HOOK:-}${PLATFORM_FAULT_HOOK:-}" &&
       -z "${DISPATCH_LEASE_TTL_SECONDS:-}" ]]; then
     export DISPATCH_LEASE_TTL_SECONDS=15
@@ -192,6 +196,12 @@ wait_for() {
 db_query() {
     compose exec -T postgres psql --no-psqlrc --tuples-only --no-align \
         --set ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" \
+        --command "$1" | tr -d '\r'
+}
+
+db_target_query() {
+    compose exec -T postgres psql --no-psqlrc --tuples-only --no-align \
+        --set ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$backup_restore_db" \
         --command "$1" | tr -d '\r'
 }
 
@@ -602,6 +612,44 @@ user_login_response="$(admin_request POST /auth/login \
         '{email:$email,password:$password}')")"
 user_access_token="$(jq -er '.token' <<<"$user_login_response")"
 user_refresh_token="$(jq -er '.refresh_token' <<<"$user_login_response")"
+
+if [[ "${BACKUP_RESTORE_SMOKE_ONLY:-0}" == "1" ]]; then
+    target_exists="$(compose exec -T postgres psql --no-psqlrc --tuples-only --no-align \
+        --set ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname postgres \
+        --command "SELECT 1 FROM pg_database WHERE datname = '$backup_restore_db';" | tr -d '\r')"
+    if [[ "$target_exists" != "1" ]]; then
+        compose exec -T postgres psql --no-psqlrc --set ON_ERROR_STOP=1 \
+            --username "$POSTGRES_USER" --dbname postgres \
+            --command "CREATE DATABASE $backup_restore_db;" >/dev/null
+    fi
+
+    backup_key="smoke-backup-${suffix}-idem"
+    backup_response="$(admin_request POST /admin/backups/ \
+        '{"kind":"postgres","retentionDays":14}' "$admin_token" "$backup_key")"
+    backup_id="$(jq -er '.id' <<<"$backup_response")"
+    assert_equals "completed" "$(jq -er '.status' <<<"$backup_response")" \
+        "PostgreSQL backup completion"
+    jq -er '.sizeBytes > 0 and (.sha256 | test("^[0-9a-f]{64}$"))' \
+        <<<"$backup_response" >/dev/null
+    backup_replay="$(admin_request POST /admin/backups/ \
+        '{"kind":"postgres","retentionDays":14}' "$admin_token" "$backup_key")"
+    assert_equals "$backup_id" "$(jq -er '.id' <<<"$backup_replay")" \
+        "Backup idempotent replay"
+
+    restore_key="smoke-restore-${suffix}-idem"
+    restore_response="$(admin_request POST "/admin/backups/$backup_id/restore" '{}' \
+        "$admin_token" "$restore_key")"
+    assert_equals "completed" "$(jq -er '.status' <<<"$restore_response")" \
+        "Isolated PostgreSQL restore completion"
+    restore_replay="$(admin_request POST "/admin/backups/$backup_id/restore" '{}' \
+        "$admin_token" "$restore_key")"
+    assert_equals "$(jq -er '.id' <<<"$restore_response")" \
+        "$(jq -er '.id' <<<"$restore_replay")" "Restore idempotent replay"
+    assert_equals "1" "$(db_target_query "SELECT count(*) FROM user_accounts WHERE email = '$user_email';")" \
+        "Restored user data in isolated target"
+    echo "PASS: idempotent PostgreSQL backup, checksum, and isolated restore"
+    exit 0
+fi
 
 if [[ "${AUTHENTICATED_UI_SMOKE_ONLY:-0}" == "1" ]]; then
     PUBLIC_UI_BASE_URL="$user_web_url" \
