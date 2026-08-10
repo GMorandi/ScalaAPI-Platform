@@ -10,8 +10,8 @@ read-only requirements reference and is excluded from builds and runtime.
 
 | Repository | Commit | Worktree | Active role |
 | --- | --- | --- | --- |
-| `gateway` | `992f3fc` | clean | C++ Gateway edge, protocol routing/conversion, Provider transport, and Garnet client |
-| `platform` | `18daa64` | clean | C# Orleans control plane, PostgreSQL authority, Provider mock, Admin Web, and User Web |
+| `gateway` | `22f65d4` | clean | C++ Gateway edge, protocol routing/conversion, Provider transport, and Garnet client |
+| `platform` | `5f04bfd` | clean | C# Orleans control plane, PostgreSQL authority, Provider mock, Admin Web, and User Web |
 | `sub2api` | `43ec48d` | read-only clean | Requirements reference only; no runtime or compatibility dependency |
 
 ## Historical role descriptions
@@ -23,15 +23,15 @@ read-only requirements reference and is excluded from builds and runtime.
 | `sub2api` | `43ec48d` | read-only clean | Requirements catalogue only; never a runtime or compatibility dependency |
 
 The active source snapshot for this document is Platform/Admin Web/User Web
-`18daa64` and Gateway `992f3fc`; both worktrees are clean. The table's longer
+`5f04bfd` and Gateway `22f65d4`; both worktrees are clean. The table's longer
 capability descriptions are retained as inventory context, while this override
 and the evidence below define the current commits.
 
 The current tracked inventory is:
 
-- Gateway: 52 production C++ source/header files, 11 test source files, and 125
+- Gateway: 52 production C++ source/header files, 11 test source files, and 126
   CTest cases.
-- Platform: 120 hand-written production C# files, 5 generated Cap'n Proto/global C# files, 66 test/benchmark C# files, and 250 passing tests: 69 Grain, 82 Host, 46 Admin, and 53 Provider mock tests.
+- Platform: 120 hand-written production C# files, 5 generated Cap'n Proto/global C# files, 66 test/benchmark C# files, and 256 passing tests: 69 Grain, 82 Host, 46 Admin, and 59 Provider mock tests.
   The Admin Web source now has 29 TypeScript/TSX files and 16 page views.
 - Product surface: 129 direct Admin API route declarations, 50 product tables,
   22 SQLSugar entity types, 29 Admin Web TypeScript/TSX files and 16 page views,
@@ -474,7 +474,7 @@ current-source runtime evidence.
 
 ## Current verification evidence
 
-## Next-module investigation: Embeddings provider profiles
+## Embeddings profile implementation evidence
 
 The read-only Sub2API reference implements the OpenAI-compatible Embeddings
 surface in `backend/internal/service/openai_embeddings.go`: it resolves the
@@ -483,22 +483,27 @@ requested model against an account mapping, forwards the normalized
 output, cache, and image-token usage for billing. Its tests also exercise a
 Jina-style mapped model and provider-specific upstream URL construction.
 
-ScalaAPI currently has the correct greenfield boundary and generic safety
-checks: Gateway validates input count, requested dimensions, float/base64
-shape, finite values, ordered indexes, and positive usage; Platform forwards
-the capability to `/v1/embeddings`; and the Provider mock exposes only the
-`text-embedding-3-small` profile with a generic character-based token estimate.
-The current empty-stack gate proves float/base64 shape and settlement, but not
-provider-specific dimensions, tokenizer behavior, or model catalog authority.
+ScalaAPI now has the source-owned provider profile contract: Gateway validates
+input count, requested dimensions, float/base64 shape, finite values, ordered
+indexes, positive usage, and the Jina/Gemini profile ceilings before lease
+creation. Platform forwards `/v1/embeddings`; the Provider mock publishes
+OpenAI-compatible `text-embedding-3-small`, Jina-compatible
+`jina-embeddings-v5-text-small`, and Gemini-compatible `gemini-embedding-001`
+profiles with deterministic default/max dimensions and per-profile token
+accounting. The catalog, seeded account, default NUMERIC prices, HTTP tests,
+and versioned Gateway goldens cover all three. This is a new product contract;
+no Sub2API data, key, URL, or legacy mapping is imported at runtime.
 
-The next implementation slice therefore adds source-owned provider profiles
-for the seeded OpenAI-compatible, Jina-compatible, and Gemini-compatible
-embedding models, deterministic per-profile token accounting and dimensions,
-catalog entries, Gateway/Provider golden fixtures, and empty-stack settlement
-evidence. This is a new product contract; no Sub2API data, key, URL, or legacy
-mapping is imported at runtime.
+The latest completed vertical slice is the source-built Embeddings
+provider-profile gate `scalaapi-embeddings-profiles-0810a` (Platform `5f04bfd`,
+Gateway `22f65d4`). It returned deterministic Jina/Gemini dimensions and token
+counts, then settled four pricing-versioned Embeddings requests exactly once.
+The empty-volume run also passed the 47-record migration double-run,
+Garnet-authenticated stack, fault/restart, reconciliation/operator, realtime
+soak, media/S3, and Web checks; the smoke exited zero and removed its Compose
+project, volumes, and containers.
 
-The latest completed vertical slice is the source-built protocol gate
+The preceding completed vertical slice is the source-built protocol gate
 `scalaapi-responses-compact-0810b` (Platform `18daa64`, Gateway `992f3fc`).
 It adds exact, reserved `POST /v1/responses/compact` routing and forwards the
 request through the existing Responses capability and settlement transaction to
@@ -560,8 +565,8 @@ mutation semantics beyond read/input_items/cancel/delete, provider-group fault c
 open.
 
 The following detailed bullets are retained as the preceding-slice record; the
-current totals for Platform `18daa64` and Gateway `992f3fc` are 250/250 and
-125/125 respectively:
+current totals for Platform `5f04bfd` and Gateway `22f65d4` are 256/256 and
+126/126 respectively:
 
 - Gateway built locally and passed 125/125 CTest cases, including deterministic
   fault-hook claim/repeat behavior, terminal SSE detection, provider EOF
