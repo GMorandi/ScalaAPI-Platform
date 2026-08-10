@@ -11,7 +11,7 @@ read-only requirements reference and is excluded from builds and runtime.
 | Repository | Commit | Worktree | Active role |
 | --- | --- | --- | --- |
 | `gateway` | `418da3a` | clean | C++ Gateway edge, protocol routing/conversion, Provider transport, and Garnet client |
-| `platform` | `f75fbfb` | clean | C# Orleans control plane, PostgreSQL authority, Provider mock, Admin Web, and User Web |
+| `platform` | `1cc4538` | clean | C# Orleans control plane, PostgreSQL authority, Provider mock, Admin Web, and User Web |
 | `sub2api` | `43ec48d` | read-only clean | Requirements reference only; no runtime or compatibility dependency |
 
 ## Historical role descriptions
@@ -23,7 +23,7 @@ read-only requirements reference and is excluded from builds and runtime.
 | `sub2api` | `43ec48d` | read-only clean | Requirements catalogue only; never a runtime or compatibility dependency |
 
 The active source snapshot for this document is Platform/Admin Web/User Web
-`f75fbfb` and Gateway `418da3a`; both worktrees are clean. The table's longer
+`1cc4538` and Gateway `418da3a`; both worktrees are clean. The table's longer
 capability descriptions are retained as inventory context, while this override
 and the evidence below define the current commits.
 
@@ -31,7 +31,7 @@ The current tracked inventory is:
 
 - Gateway: 52 production C++ source/header files, 11 test source files, and 126
   CTest cases.
-- Platform: 120 hand-written production C# files, 5 generated Cap'n Proto/global C# files, 66 test/benchmark C# files, and 257 passing tests: 69 Grain, 83 Host, 46 Admin, and 59 Provider mock tests.
+- Platform: 121 hand-written production C# files, 5 generated Cap'n Proto/global C# files, 67 test/benchmark C# files, and 259 passing tests: 69 Grain, 83 Host, 46 Admin, and 61 Provider mock tests.
   The Admin Web source now has 29 TypeScript/TSX files and 16 page views.
 - Product surface: 129 direct Admin API route declarations, 50 product tables,
   22 SQLSugar entity types, 29 Admin Web TypeScript/TSX files and 16 page views,
@@ -361,8 +361,12 @@ current-source runtime evidence.
   deletion work. Platform `44d2096` adds migration 037 and a metadata-only HEAD
   reconciler: missing, size-mismatched, ETag-mismatched, and transient failures
   become retryable `object_status=failed` rows without changing the settled media
-  operation or lease, and a later valid HEAD returns the row to `stored`. Object
-  listing/orphan cleanup, restore, and full cancellation/restart coverage remain open.
+  operation or lease, and a later valid HEAD returns the row to `stored`. Platform
+  `7d0abc6` now calls the Provider image task/batch cancellation endpoint before
+  marking a durable operation cancelled; repeated cancellation is terminally
+  idempotent and retains the unknown-charge hold for reconciliation. Object
+  listing/orphan cleanup, restore, retention, and full cancellation/restart
+  coverage remain open.
 - Signed payment webhooks, order paid/refunded transitions, stable ledger effects,
   pending-event recovery, subscription purchase/cancel/renew/expiry, and
   transactional redeem-code effects exist as partial commercial foundations.
@@ -520,8 +524,11 @@ newest-first `ListBatchesAsync` query isolated by API key and emits a stable
 another API key cannot see the rows, and the source-built gate
 `scalaapi-media-batch-0810a` proves batch creation, durable list visibility,
 normalized items, MinIO object persistence, and the existing full restart/fault/
-reconciliation/Web matrix. Provider cancellation, object listing/orphan cleanup,
-restart restore, and full batch download/reconciliation remain follow-on work.
+reconciliation/Web matrix. Platform `7d0abc6` adds Provider-backed image task/
+batch cancellation, and `scalaapi-media-cancel-0810c` proves the cancel request,
+durable cancelled read, and conservative reconciliation accounting. Object
+listing/orphan cleanup, restart restore, retention, and full batch
+download/reconciliation remain follow-on work.
 
 The preceding completed vertical slice is the source-built protocol gate
 `scalaapi-responses-compact-0810b` (Platform `18daa64`, Gateway `992f3fc`).
@@ -585,7 +592,7 @@ mutation semantics beyond read/input_items/cancel/delete, provider-group fault c
 open.
 
 The following detailed bullets are retained as the preceding-slice record; the
-current totals for Platform `f75fbfb` and Gateway `418da3a` are 257/257 and
+current totals for Platform `1cc4538` and Gateway `418da3a` are 259/259 and
 126/126 respectively:
 
 - Gateway built locally and passed 125/125 CTest cases, including deterministic

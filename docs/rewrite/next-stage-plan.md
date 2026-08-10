@@ -1,10 +1,10 @@
 # ScalaAPI Next Stage Plan
 
-Current checkpoint override: Platform/Admin Web/User Web `f75fbfb`, Gateway
+Current checkpoint override: Platform/Admin Web/User Web `1cc4538`, Gateway
 `418da3a`, and read-only `sub2api@43ec48d`. The latest gate is
-`scalaapi-media-batch-0810a`; it passed the durable image batch list/items slice
-and the full empty-volume matrix. The remaining plan below starts after this
-completed media boundary.
+`scalaapi-media-cancel-0810c`; it passed the durable image batch list/items and
+Provider-backed cancellation slice plus the full empty-volume matrix. The
+remaining plan below starts after this completed media boundary.
 
 The Embeddings provider-profile slice is complete for this checkpoint. Its
 source-owned OpenAI-compatible, Jina-compatible, and Gemini-compatible models
@@ -13,16 +13,20 @@ fixtures, Provider HTTP contracts, and four-request empty-stack settlement
 evidence. GW-07 remains `partial` until live adapter and provider-specific
 production fidelity evidence is added.
 
-The image batch list/items slice is also complete for this checkpoint. Gateway
+The image batch list/items and cancellation slices are also complete for this
+checkpoint. Gateway
 `418da3a` sends the collection read to Platform and normalizes item responses;
-Platform `f75fbfb` enforces API-key isolation and bounded newest-first reads. The
-source smoke proves the real batch create, list, item projection, and object
-storage path. Cancellation propagation, orphan cleanup, restart restore, and
-complete batch download/reconciliation remain partial.
+Platform `1cc4538` carries the API-key isolation and bounded newest-first reads. The
+source smoke proves the real batch create, list, item projection, object storage,
+and Provider cancel path. Platform `7d0abc6` calls the Provider cancellation
+endpoint before the durable state transition; cancellation replay remains
+terminally idempotent and retains an unknown-charge hold until reconciliation.
+Orphan cleanup, restart restore, retention, and complete batch
+download/reconciliation remain partial.
 
 ## Checkpoint
 
-The next stage starts from Platform/Admin Web/User Web `f75fbfb`, Gateway
+The next stage starts from Platform/Admin Web/User Web `1cc4538`, Gateway
 `418da3a`, and read-only reference `sub2api@43ec48d`.
 
 The greenfield baseline now starts from empty volumes, uses PostgreSQL as authority,
@@ -253,7 +257,8 @@ stored media, retries missing/mismatched/transient metadata, and restores a row 
 lease. Object listing/orphan cleanup, restore, cancellation/restart, and full
 MinIO lifecycle evidence remain explicit follow-on gates.
 
-The completed bounded media slice was batch listing and item projection. The read-only
+The completed bounded media slice was batch listing, item projection, and
+Provider-backed cancellation. The read-only
 Sub2API batch handlers define owner-scoped, cursor-bounded list/items reads that
 return public metadata rather than provider response envelopes or reference-image
 bytes. ScalaAPI now routes `GET /v1/images/batches` to a PostgreSQL-backed
@@ -261,8 +266,10 @@ Platform query, returns a stable `object: list` envelope, and projects a success
 batch's `data` array for `/items`. Repeated reads must be side-effect free and a
 wrong API key must return 404 without contacting the Provider. The implementation
 retains ScalaAPI's PostgreSQL operation identity and imports no Sub2API schema or
-key. Provider cancellation, object listing/orphan cleanup, restart restore, and
-complete batch download/reconciliation remain separate gates.
+key. Cancellation calls the provider task/batch endpoint before local state is
+made terminal; any ambiguity retains the hold and produces an operator-visible
+reconciliation incident. Object listing/orphan cleanup, restart restore,
+retention, and complete batch download/reconciliation remain separate gates.
 Platform `6bc411b` adds the first Admin Web operator workflow for this authority:
 open/resolved incident filters, a manual reconciliation trigger, and
 evidence-backed settle/release submission with a stable idempotency key per selected
@@ -898,10 +905,11 @@ Then expand the remaining 58-domain work in this order:
    Anthropic Messages, Gemini generation, model catalogue/token counting, and
    runtime cross-protocol E2E; source-owned protocol fixtures are frozen in
    Gateway `8f33790`.
-2. Complete the media batch-list/item projection slice described above, then
-   Provider-specific OAuth refresh profiles and runtime evidence, provider-
-   specific price/tokenizer adapters, media cancellation/restart/restore, object
-   listing/orphan cleanup, and full object reconciliation lifecycle evidence.
+2. Complete the remaining media lifecycle after the now-finished batch
+   list/items/cancellation slice: Provider-specific OAuth refresh profiles and
+   runtime evidence, provider-specific price/tokenizer adapters, restart/restore,
+   object listing/orphan cleanup, retention, and full object reconciliation and
+   batch download lifecycle evidence.
 3. Complete identity hardening beyond the TOTP, OAuth PKCE, Passkey, and encrypted
    mail-outbox state machines, including backup-code recovery UX, live SMTP/provider
    delivery, anti-enumeration,
