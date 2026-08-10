@@ -1,5 +1,6 @@
 using System.Net;
 using System.Text;
+using Microsoft.Extensions.Logging.Abstractions;
 using Npgsql;
 using ScalaAPI.Host.Services;
 using Xunit;
@@ -333,6 +334,69 @@ public sealed class ContentPolicyClassifierTests
                 WHERE instance_id = ANY($1)
                 """);
             cleanup.Parameters.AddWithValue(new[] { firstInstance, secondInstance });
+            await cleanup.ExecuteNonQueryAsync();
+        }
+    }
+
+    [Fact]
+    public async Task OpenAiModerationMetricFlushWorkersPersistIndependentInstancesAndRestart()
+    {
+        var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
+        if (string.IsNullOrWhiteSpace(connectionString)) return;
+
+        await using var dataSource = NpgsqlDataSource.Create(connectionString);
+        var store = new OpenAiModerationMetricStore(dataSource);
+        var options = new OpenAiModerationMetricBudgetOptions(0.5, 2.5, 20, 60);
+        var firstMetrics = new OpenAiModerationMetrics();
+        var secondMetrics = new OpenAiModerationMetrics();
+        var first = new OpenAiModerationMetricFlushService(
+            firstMetrics, store, options,
+            NullLogger<OpenAiModerationMetricFlushService>.Instance);
+        var second = new OpenAiModerationMetricFlushService(
+            secondMetrics, store, options,
+            NullLogger<OpenAiModerationMetricFlushService>.Instance);
+        var restartedMetrics = new OpenAiModerationMetrics();
+        var restarted = new OpenAiModerationMetricFlushService(
+            restartedMetrics, store, options,
+            NullLogger<OpenAiModerationMetricFlushService>.Instance);
+        var instanceIds = new[] { first.InstanceId, second.InstanceId, restarted.InstanceId };
+        try
+        {
+            firstMetrics.Record(ContentClassifierResult.NoMatch(), TimeSpan.FromMilliseconds(25));
+            secondMetrics.Record(ContentClassifierResult.Match(), TimeSpan.FromMilliseconds(25));
+            await first.FlushOnceAsync();
+            await second.FlushOnceAsync();
+
+            restartedMetrics.Record(ContentClassifierResult.NoMatch(), TimeSpan.FromMilliseconds(25));
+            await restarted.FlushOnceAsync();
+
+            await using var rows = dataSource.CreateCommand("""
+                SELECT instance_id, sequence, requests
+                FROM content_classifier_metric_snapshots
+                WHERE instance_id = ANY($1)
+                ORDER BY instance_id
+                """);
+            rows.Parameters.AddWithValue(instanceIds);
+            await using var reader = await rows.ExecuteReaderAsync();
+            var snapshots = new List<(Guid InstanceId, long Sequence, long Requests)>();
+            while (await reader.ReadAsync())
+                snapshots.Add((reader.GetGuid(0), reader.GetInt64(1), reader.GetInt64(2)));
+            Assert.Equal(3, snapshots.Count);
+            Assert.All(snapshots, snapshot =>
+            {
+                Assert.Equal(1, snapshot.Sequence);
+                Assert.Equal(1, snapshot.Requests);
+            });
+            var totals = await store.ReadTotalsAsync();
+            Assert.Equal(3, totals.Requests);
+        }
+        finally
+        {
+            await using var cleanup = dataSource.CreateCommand("""
+                DELETE FROM content_classifier_metric_snapshots
+                WHERE instance_id = ANY($1)
+                """);
+            cleanup.Parameters.AddWithValue(instanceIds);
             await cleanup.ExecuteNonQueryAsync();
         }
     }

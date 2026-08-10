@@ -408,6 +408,10 @@ public sealed class OpenAiModerationMetricFlushService(
     private long _nextSequence = 1;
     private OpenAiModerationMetricSnapshot? _pending;
 
+    public Guid InstanceId => _instanceId;
+
+    public Task FlushOnceAsync(CancellationToken ct = default) => FlushAsync(ct);
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         using var timer = new PeriodicTimer(FlushInterval);
