@@ -135,6 +135,7 @@ builder.Services.AddSingleton<IMediaObjectStorage>(sp =>
     sp.GetRequiredService<ObjectStorageClient>());
 builder.Services.AddSingleton<RequestLeaseStore>();
 builder.Services.AddSingleton<MediaOperationStore>();
+builder.Services.AddSingleton<MediaRetentionService>();
 var classifierEndpoint = builder.Configuration["ContentClassifier:Endpoint"];
 var openAiClassifierEndpoint = builder.Configuration["ContentClassifier:OpenAI:Endpoint"];
 builder.Services.AddSingleton<OpenAiModerationMetrics>();

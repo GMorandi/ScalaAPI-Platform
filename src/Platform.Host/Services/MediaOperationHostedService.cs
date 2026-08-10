@@ -8,6 +8,7 @@ public sealed class MediaOperationHostedService(
     RequestLeaseStore leases,
     ProviderCredentialRefreshService credentials,
     ObjectStorageClient objectStorage,
+    MediaRetentionService retention,
     ILogger<MediaOperationHostedService> logger) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -35,30 +36,7 @@ public sealed class MediaOperationHostedService(
                     await AbortUnknownAsync(expired.LeaseToken, "media_operation_expired", stoppingToken);
                 }
 
-                foreach (var retained in await store.ClaimExpiredOutputBatchAsync(16,
-                    stoppingToken))
-                {
-                    try
-                    {
-                        await objectStorage.DeleteAsync(retained.ObjectKey, stoppingToken);
-                        foreach (var itemKey in await store.ListItemObjectKeysAsync(
-                            retained.OperationId, stoppingToken))
-                            await objectStorage.DeleteAsync(itemKey, stoppingToken);
-                        await store.ClearExpiredOutputAsync(retained, stoppingToken);
-                    }
-                    catch (Exception ex) when (ex is not OperationCanceledException)
-                    {
-                        var error = JsonSerializer.Serialize(new
-                        {
-                            type = "media_retention_delete_failed",
-                            message = ex.Message.Length > 500 ? ex.Message[..500] : ex.Message,
-                        });
-                        await store.RecordExpiredOutputFailureAsync(retained, error,
-                            stoppingToken);
-                        logger.LogWarning(ex, "Media retention cleanup failed for {OperationId}",
-                            retained.OperationId);
-                    }
-                }
+                await retention.RunOnceAsync(16, stoppingToken);
 
                 foreach (var batch in await store.ListBatchesMissingItemsAsync(8,
                     stoppingToken))

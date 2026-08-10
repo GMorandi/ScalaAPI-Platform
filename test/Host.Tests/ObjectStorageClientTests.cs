@@ -96,6 +96,48 @@ public sealed class ObjectStorageClientTests
         Assert.Equal(4, handler.PutBodies.Count);
     }
 
+    [Fact]
+    public async Task PartialBatchPutFailureRetriesIntoTheSameObjectKeys()
+    {
+        var handler = new ArchiveHandler(failObjectPutAttempt: 2);
+        using var http = new HttpClient(handler);
+        var configuration = new ConfigurationBuilder().AddInMemoryCollection(
+            new Dictionary<string, string?>
+            {
+                ["ObjectStorage:Endpoint"] = "http://storage.test:9000",
+                ["ObjectStorage:PublicEndpoint"] = "http://storage.test:9000",
+                ["ObjectStorage:Bucket"] = "scalaapi-media",
+                ["ObjectStorage:AccessKey"] = "platform",
+                ["ObjectStorage:SecretKey"] = "secret-key",
+            }).Build();
+        var client = new ObjectStorageClient(http, configuration,
+            NullLogger<ObjectStorageClient>.Instance);
+        const string metadata = """
+            {"data":[
+              {"custom_id":"first","url":"http://provider.test/output/one"},
+              {"custom_id":"second","url":"http://provider.test/output/two"}
+            ]}
+            """;
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            client.CreateBatchObjectsAsync(metadata, "med_partial_put"));
+        Assert.Contains("PUT failed with 503", error.Message);
+        Assert.Single(handler.StoredObjects);
+
+        var recovered = await client.CreateBatchObjectsAsync(metadata, "med_partial_put");
+
+        Assert.Equal(4, handler.ProviderRequests);
+        Assert.Equal(3, handler.StoredObjects.Count);
+        Assert.Equal("media/med_partial_put.zip", recovered.Archive.ObjectKey);
+        Assert.Equal(
+            [
+                "/scalaapi-media/media/med_partial_put.zip",
+                "/scalaapi-media/media/med_partial_put/items/0001-first.png",
+                "/scalaapi-media/media/med_partial_put/items/0002-second.png",
+            ],
+            handler.StoredObjects.Keys.Order(StringComparer.Ordinal).ToArray());
+    }
+
     private sealed class RecordingHandler : HttpMessageHandler
     {
         public List<HttpRequestMessage> Requests { get; } = [];
@@ -128,10 +170,13 @@ public sealed class ObjectStorageClientTests
         }
     }
 
-    private sealed class ArchiveHandler : HttpMessageHandler
+    private sealed class ArchiveHandler(int? failObjectPutAttempt = null) : HttpMessageHandler
     {
         public List<byte[]> PutBodies { get; } = [];
+        public Dictionary<string, byte[]> StoredObjects { get; } = new(StringComparer.Ordinal);
         public int ProviderRequests { get; private set; }
+        private int _objectPutAttempts;
+        private bool _failureEmitted;
 
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request,
             CancellationToken cancellationToken)
@@ -150,8 +195,23 @@ public sealed class ObjectStorageClientTests
 
             if (request.Method == HttpMethod.Put)
             {
-                PutBodies.Add(request.Content is null
-                    ? [] : await request.Content.ReadAsByteArrayAsync(cancellationToken));
+                var body = request.Content is null
+                    ? [] : await request.Content.ReadAsByteArrayAsync(cancellationToken);
+                PutBodies.Add(body);
+                var path = request.RequestUri.AbsolutePath;
+                if (path != "/scalaapi-media")
+                {
+                    _objectPutAttempts++;
+                    if (!_failureEmitted && _objectPutAttempts == failObjectPutAttempt)
+                    {
+                        _failureEmitted = true;
+                        return new HttpResponseMessage(HttpStatusCode.ServiceUnavailable)
+                        {
+                            Content = new StringContent("injected partial PUT failure"),
+                        };
+                    }
+                    StoredObjects[path] = body;
+                }
                 var response = new HttpResponseMessage(HttpStatusCode.OK);
                 response.Headers.ETag = new System.Net.Http.Headers.EntityTagHeaderValue(
                     "\"archive-etag\"");

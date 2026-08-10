@@ -174,6 +174,81 @@ public sealed class MediaObjectReconciliationTests
     }
 
     [Fact]
+    public async Task PartialRetentionDeleteRetriesAllKeysAndPreservesCompletedLease()
+    {
+        var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
+        if (string.IsNullOrWhiteSpace(connectionString)) return;
+
+        await using var dataSource = NpgsqlDataSource.Create(connectionString);
+        var suffix = Guid.NewGuid().ToString("N");
+        var leaseToken = $"media-partial-delete-lease-{suffix}";
+        var operationId = $"med_partial_delete_{suffix}";
+        var archiveKey = $"media/{operationId}.zip";
+        var firstItemKey = $"media/{operationId}/items/first.png";
+        var secondItemKey = $"media/{operationId}/items/second.png";
+        await InsertSettledMediaAsync(dataSource, leaseToken, operationId, archiveKey);
+        var store = new MediaOperationStore(dataSource);
+        var storage = new FakeObjectStorage(new(true, "etag-1", 5, "application/zip"))
+        {
+            FailDeleteAttempt = 3,
+        };
+        var service = new MediaRetentionService(store, storage,
+            NullLogger<MediaRetentionService>.Instance);
+        try
+        {
+            var retention = DateTime.UtcNow.AddMinutes(-1);
+            Assert.True(await store.ReplaceItemsAsync(88001, operationId,
+            [
+                new(0, "first", "https://provider.test/first", firstItemKey,
+                    "etag-first", 12, "image/png", "stored",
+                    "https://storage.test/first", "", retention),
+                new(1, "second", "https://provider.test/second", secondItemKey,
+                    "etag-second", 13, "image/png", "stored",
+                    "https://storage.test/second", "", retention),
+            ]));
+
+            Assert.Equal(new MediaRetentionRunResult(1, 0, 1),
+                await service.RunOnceAsync());
+            Assert.Equal([archiveKey, firstItemKey, secondItemKey], storage.Deleted);
+            Assert.Equal(("succeeded", "failed"),
+                await ReadStateAsync(dataSource, operationId));
+            Assert.Contains("media_retention_delete_failed",
+                await ReadErrorAsync(dataSource, operationId));
+            Assert.All(await store.ListItemsAsync(88001, operationId),
+                item => Assert.Equal("stored", item.ObjectStatus));
+
+            await MakeDueAsync(dataSource, operationId);
+            Assert.Equal(new MediaRetentionRunResult(1, 1, 0),
+                await service.RunOnceAsync());
+            Assert.Equal(
+                [archiveKey, firstItemKey, secondItemKey,
+                 archiveKey, firstItemKey, secondItemKey], storage.Deleted);
+            Assert.Equal(("succeeded", "deleted"),
+                await ReadStateAsync(dataSource, operationId));
+            Assert.All(await store.ListItemsAsync(88001, operationId), item =>
+            {
+                Assert.Equal("deleted", item.ObjectStatus);
+                Assert.Equal("", item.ObjectKey);
+            });
+            await using var lease = dataSource.CreateCommand(
+                "SELECT status FROM request_leases WHERE lease_token = $1");
+            lease.Parameters.AddWithValue(leaseToken);
+            Assert.Equal("completed", (string?)await lease.ExecuteScalarAsync());
+        }
+        finally
+        {
+            await using var media = dataSource.CreateCommand(
+                "DELETE FROM media_operations WHERE operation_id = $1");
+            media.Parameters.AddWithValue(operationId);
+            await media.ExecuteNonQueryAsync();
+            await using var lease = dataSource.CreateCommand(
+                "DELETE FROM request_leases WHERE lease_token = $1");
+            lease.Parameters.AddWithValue(leaseToken);
+            await lease.ExecuteNonQueryAsync();
+        }
+    }
+
+    [Fact]
     public async Task BatchItemsAreOwnerScopedReplaceableAndReferenced()
     {
         var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
@@ -394,6 +469,9 @@ public sealed class MediaObjectReconciliationTests
         public List<string> Deleted { get; } = [];
         public int Copies { get; private set; }
         public Exception? CopyException { get; set; }
+        public int? FailDeleteAttempt { get; set; }
+        private int _deleteAttempts;
+        private bool _deleteFailureEmitted;
 
         public Task<ObjectStorageHeadResult> HeadAsync(string objectKey,
             CancellationToken ct = default) => Task.FromResult(Head);
@@ -415,6 +493,12 @@ public sealed class MediaObjectReconciliationTests
         public Task DeleteAsync(string objectKey, CancellationToken ct = default)
         {
             Deleted.Add(objectKey);
+            _deleteAttempts++;
+            if (!_deleteFailureEmitted && _deleteAttempts == FailDeleteAttempt)
+            {
+                _deleteFailureEmitted = true;
+                throw new InvalidOperationException("injected partial DELETE failure");
+            }
             return Task.CompletedTask;
         }
     }

@@ -2504,9 +2504,31 @@ echo "PASS: durable batch download archive with manifest"
 assert_equals "stored" \
     "$(db_query "SELECT object_status FROM media_operations WHERE operation_id = '$media_batch_id';")" \
     "Media batch object status"
+compose stop object-storage >/dev/null
 db_query "UPDATE media_operations
 SET retention_until = now() - interval '1 minute',
     object_next_check_at = now() - interval '1 minute'
+WHERE operation_id = '$media_batch_id';" >/dev/null
+media_batch_retention_failure_recorded() {
+    [[ "$(db_query "
+        SELECT operation.status || '|' || operation.object_status || '|' ||
+               COALESCE(operation.object_error ->> 'type', '') || '|' ||
+               item.object_status || '|' || lease.status || '|' || hold.status
+        FROM media_operations AS operation
+        JOIN media_operation_items AS item
+          ON item.operation_id = operation.operation_id
+        JOIN request_leases AS lease ON lease.lease_token = operation.lease_token
+        JOIN balance_holds AS hold ON hold.hold_id = lease.hold_handle
+        WHERE operation.operation_id = '$media_batch_id';")" == \
+       "succeeded|failed|media_retention_delete_failed|stored|completed|committed" ]]
+}
+wait_for "media retention delete-outage evidence" 75 media_batch_retention_failure_recorded
+
+compose start object-storage >/dev/null
+wait_for "object storage readiness after retention failure" 60 \
+    curl -fsS "http://127.0.0.1:${OBJECT_STORAGE_PORT}/minio/health/live" >/dev/null
+db_query "UPDATE media_operations
+SET object_next_check_at = now() - interval '1 minute'
 WHERE operation_id = '$media_batch_id';" >/dev/null
 media_batch_retention_complete() {
     [[ "$(db_query "SELECT object_status FROM media_operations WHERE operation_id = '$media_batch_id';")" == "deleted" ]]
@@ -2518,7 +2540,7 @@ assert_equals "|deleted|" \
 assert_equals "1" \
     "$(db_query "SELECT count(*) FROM media_operation_items WHERE operation_id = '$media_batch_id' AND object_key = '' AND object_status = 'deleted' AND output_url = '';")" \
     "Media batch retention clears per-item object metadata"
-echo "PASS: durable media retention deletes object and clears download metadata"
+echo "PASS: failed media retention delete retries and clears parent/item metadata"
 
 terminal_state="$(db_query "
 SELECT
