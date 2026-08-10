@@ -1,10 +1,10 @@
 # ScalaAPI Next Stage Plan
 
-Current checkpoint override: Platform/Admin Web/User Web `0134323`, Gateway
+Current checkpoint override: Platform/Admin Web/User Web `b5586cf`, Gateway
 `418da3a`, and read-only `sub2api@43ec48d`. The latest gate is
-`scalaapi-media-retention-0810a`; it passed durable image batch list/items,
+`scalaapi-media-restart-0810`; it passed durable image batch list/items,
 Provider-backed cancellation, S3-backed ZIP download with manifest/error entries,
-retention cleanup, and the full empty-volume matrix. The
+retention cleanup, Platform restart recovery, and the full empty-volume matrix. The
 remaining plan below starts after this completed media boundary.
 
 The Embeddings provider-profile slice is complete for this checkpoint. Its
@@ -29,14 +29,15 @@ covered by database and HTTP contract tests. Platform `c1bbb4d` creates bounded
 batch ZIPs from provider item URLs, writes manifest/error entries, stores the
 archive in S3-compatible storage, and returns a signed download URL; Host and
 empty-stack smoke cover this path. Platform `0134323` adds an independent
-retention deadline and retryable terminal-object cleanup, and the empty-stack
-smoke verifies the object and download projection are cleared after deletion.
-Restart restore, per-item download reconciliation, and deployment-scale
-lifecycle remain partial.
+retention deadline and retryable terminal-object cleanup, and `b5586cf` exposes
+those windows in Compose. The `scalaapi-media-restart-0810` smoke verifies a
+running operation survives a Platform replacement, resumes its PostgreSQL-backed
+poll, stores the object, and settles after restart. Per-item download
+reconciliation and deployment-scale lifecycle remain partial.
 
 ## Checkpoint
 
-The next stage starts from Platform/Admin Web/User Web `0134323`, Gateway
+The next stage starts from Platform/Admin Web/User Web `b5586cf`, Gateway
 `418da3a`, and read-only reference `sub2api@43ec48d`.
 
 The greenfield baseline now starts from empty volumes, uses PostgreSQL as authority,
@@ -284,9 +285,9 @@ made terminal; any ambiguity retains the hold and produces an operator-visible
 reconciliation incident. Object orphan cleanup is now a bounded background pass.
 Platform `c1bbb4d` adds bounded S3-backed batch-download ZIPs with manifest/error
 entries and a signed redirect smoke assertion. Platform `0134323` adds terminal
-retention cleanup with retryable deletion. Restart restore, per-item download
-reconciliation, and deployment-scale lifecycle remain
-separate gates.
+retention cleanup with retryable deletion; `b5586cf` proves running-operation
+restart restore and Compose retention windows. Per-item download reconciliation
+and deployment-scale lifecycle remain separate gates.
 Platform `6bc411b` adds the first Admin Web operator workflow for this authority:
 open/resolved incident filters, a manual reconciliation trigger, and
 evidence-backed settle/release submission with a stable idempotency key per selected
@@ -925,8 +926,8 @@ Then expand the remaining 58-domain work in this order:
 2. Complete the remaining media lifecycle after the now-finished batch
    list/items/cancellation/orphan-cleanup/archive/retention slice: Provider-specific OAuth refresh
    profiles and runtime evidence, provider-specific price/tokenizer adapters,
-   restart/restore, per-item download reconciliation, and full object
-   lifecycle evidence.
+   per-item download reconciliation, deployment-scale object storage, and full
+   object lifecycle evidence.
 3. Complete identity hardening beyond the TOTP, OAuth PKCE, Passkey, and encrypted
    mail-outbox state machines, including backup-code recovery UX, live SMTP/provider
    delivery, anti-enumeration,
