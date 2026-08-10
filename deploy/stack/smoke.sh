@@ -32,7 +32,8 @@ for command_name in curl jq python3; do
         exit 2
     fi
 done
-if [[ "${PUBLIC_UI_SMOKE_ONLY:-0}" == "1" ]] && ! command -v npm >/dev/null 2>&1; then
+if [[ "${PUBLIC_UI_SMOKE_ONLY:-0}" == "1" ||
+      "${AUTHENTICATED_UI_SMOKE_ONLY:-0}" == "1" ]] && ! command -v npm >/dev/null 2>&1; then
     echo "npm is required for PUBLIC_UI_SMOKE_ONLY" >&2
     exit 2
 fi
@@ -594,6 +595,16 @@ user_login_response="$(admin_request POST /auth/login \
         '{email:$email,password:$password}')")"
 user_access_token="$(jq -er '.token' <<<"$user_login_response")"
 user_refresh_token="$(jq -er '.refresh_token' <<<"$user_login_response")"
+
+if [[ "${AUTHENTICATED_UI_SMOKE_ONLY:-0}" == "1" ]]; then
+    PUBLIC_UI_BASE_URL="$user_web_url" \
+    PUBLIC_UI_USER_EMAIL="$user_email" \
+    PUBLIC_UI_USER_PASSWORD="$user_password" \
+        npm --prefix "$repo_root/user-web" run test:e2e -- \
+            tests/public-pages.live.spec.ts tests/authenticated-portal.live.spec.ts
+    echo "PASS: source-built User Web public and authenticated portal routes"
+    exit 0
+fi
 
 oauth_redirect_uri="http://localhost:3000/oauth/callback"
 oauth_start="$(admin_request GET "/auth/oauth/github/start?redirectUri=$(jq -rn --arg value "$oauth_redirect_uri" '$value|@uri')")"
