@@ -183,6 +183,7 @@ embedding_invalid_idempotency_key="smoke-embeddings-invalid-idem-${suffix}"
 responses_request_id="smoke-responses-${suffix}"
 responses_idempotency_key="smoke-responses-idem-${suffix}"
 responses_get_request_id="smoke-responses-get-${suffix}"
+responses_delete_request_id="smoke-responses-delete-${suffix}"
 responses_stream_request_id="smoke-responses-stream-${suffix}"
 responses_stream_idempotency_key="smoke-responses-stream-idem-${suffix}"
 concurrent_request_id="smoke-chat-concurrent-${suffix}"
@@ -1719,6 +1720,17 @@ jq -e --arg response_id "$responses_id" \
     '.object == "response" and .id == $response_id and .status == "completed" and .output_text == "mock response"' \
     <<<"$responses_get_body" >/dev/null
 
+responses_delete_response="$(curl -sS --max-time 30 --write-out $'\n%{http_code}' \
+    -X DELETE "$gateway_url/v1/responses/$responses_id" \
+    -H "Authorization: Bearer $api_key" \
+    -H "X-Request-ID: $responses_delete_request_id")"
+assert_equals "200" "${responses_delete_response##*$'\n'}" \
+    "OpenAI Responses DELETE subresource status"
+responses_delete_body="${responses_delete_response%$'\n'*}"
+jq -e --arg response_id "$responses_id" \
+    '.id == $response_id and .object == "response.deleted" and .deleted == true' \
+    <<<"$responses_delete_body" >/dev/null
+
 responses_stream_response="$(curl -sS --max-time 30 --write-out $'\n%{http_code}' \
     "$gateway_url/v1/responses" \
     -H "Authorization: Bearer $api_key" -H "Content-Type: application/json" \
@@ -1757,18 +1769,18 @@ responses_control_released() {
     [[ "$(db_query "
 SELECT
   (SELECT count(*) FROM request_leases
-   WHERE request_id = '$responses_get_request_id' AND status = 'aborted') || '|' ||
+   WHERE request_id IN ('$responses_get_request_id', '$responses_delete_request_id') AND status = 'aborted') || '|' ||
   (SELECT count(*) FROM usage_events
-   WHERE request_id = '$responses_get_request_id') || '|' ||
+   WHERE request_id IN ('$responses_get_request_id', '$responses_delete_request_id')) || '|' ||
   (SELECT count(*) FROM usage_logs
-   WHERE request_id = '$responses_get_request_id') || '|' ||
+   WHERE request_id IN ('$responses_get_request_id', '$responses_delete_request_id')) || '|' ||
   (SELECT count(*) FROM balance_holds h JOIN request_leases l USING (lease_token)
-   WHERE l.request_id = '$responses_get_request_id' AND h.status = 'released') || '|' ||
+   WHERE l.request_id IN ('$responses_get_request_id', '$responses_delete_request_id') AND h.status = 'released') || '|' ||
   (SELECT count(*) FROM balance_ledger b JOIN request_leases l USING (lease_token)
-   WHERE l.request_id = '$responses_get_request_id' AND b.entry_type = 'usage_debit');")" == "1|0|0|1|0" ]]
+   WHERE l.request_id IN ('$responses_get_request_id', '$responses_delete_request_id') AND b.entry_type = 'usage_debit');")" == "2|0|0|2|0" ]]
 }
-wait_for "OpenAI Responses GET subresource release" 30 responses_control_released
-echo "PASS: OpenAI Responses GET subresource is non-billable and idempotently released"
+wait_for "OpenAI Responses read/delete subresource release" 30 responses_control_released
+echo "PASS: OpenAI Responses read/delete subresources are non-billable and idempotently released"
 
 embedding_response="$(curl -fsS "$gateway_url/v1/embeddings" \
     -H "Authorization: Bearer $api_key" -H "Content-Type: application/json" \

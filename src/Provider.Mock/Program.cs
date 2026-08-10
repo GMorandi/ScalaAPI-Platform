@@ -625,6 +625,11 @@ app.MapGet("/v1/responses/{responseId}", (string responseId) =>
         ? Results.Text(response, "application/json")
         : Results.NotFound(new { error = new { code = "response_not_found" } }));
 
+app.MapDelete("/v1/responses/{responseId}", (string responseId) =>
+    responses.TryRemove(responseId, out _)
+        ? Results.Ok(new { id = responseId, @object = "response.deleted", deleted = true })
+        : Results.NotFound(new { error = new { code = "response_not_found" } }));
+
 app.MapPost("/v1beta/models/{model}:generateContent", async (
     string model, HttpContext context, CancellationToken cancellationToken) =>
 {
