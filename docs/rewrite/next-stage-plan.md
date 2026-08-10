@@ -326,12 +326,14 @@ automated.
    Add live authenticated authorization/audit/replay coverage, User Web browser
    tests for the user-visible 400/503 policy errors, and browser evidence for
    reconciliation, monitor, backup, and recovery workflows.
-4. Close release reliability gates in parallel: Platform `6ae059b` now proves
+4. Close release reliability gates in parallel: Platform `c7bd987` now proves
    concurrent shared-idempotency settlement through two Gateways after the
-   secondary pair restarts. Remaining gates are Provider golden request/response
-   fixtures, long WebSocket/backpressure soak, broader multi-Gateway/multi-Silo
-   contention and Silo removal, Garnet TLS/outage/rebuild, PostgreSQL/Garnet
-   recovery, and backup/restore drills.
+   secondary pair restarts, plus primary availability during a controlled
+   secondary Silo/Gateway outage and settlement after rejoin. Remaining gates
+   are Provider golden request/response fixtures, long WebSocket/backpressure
+   soak, broader multi-Gateway/multi-Silo contention and partition recovery,
+   Garnet TLS/outage/rebuild, PostgreSQL/Garnet recovery, and backup/restore
+   drills.
    Every scenario must run from empty volumes or an explicitly created fixture and
    must make the top-level command non-zero on failure.
 
