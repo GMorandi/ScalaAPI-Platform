@@ -1000,8 +1000,70 @@ SELECT (SELECT count(*) FROM request_leases
        (SELECT count(*) FROM balance_ledger b JOIN request_leases l USING (lease_token)
         WHERE l.request_id IN ('$metric_request_one', '$metric_request_two') AND b.entry_type = 'usage_debit');")" \
         "Runtime classifier audit and exactly-once settlement"
+
+    multi_gateway_idempotency_key="smoke-multi-gateway-idem-${suffix}"
+    multi_gateway_request_primary="smoke-multi-gateway-primary-${suffix}"
+    multi_gateway_request_secondary="smoke-multi-gateway-secondary-${suffix}"
+    multi_gateway_body='{"model":"gpt-4o","messages":[{"role":"user","content":"multi gateway idempotency"}],"stream":false}'
+    multi_gateway_tmp_dir="$(mktemp -d)"
+    primary_multi_response="$multi_gateway_tmp_dir/primary"
+    secondary_multi_response="$multi_gateway_tmp_dir/secondary"
+    curl -sS --max-time 30 --write-out $'\n%{http_code}' "$gateway_url/v1/chat/completions" \
+        -H "Authorization: Bearer $api_key" \
+        -H "Content-Type: application/json" \
+        -H "X-Request-ID: $multi_gateway_request_primary" \
+        -H "Idempotency-Key: $multi_gateway_idempotency_key" \
+        --data "$multi_gateway_body" >"$primary_multi_response" &
+    primary_multi_pid=$!
+    "$container_cli" exec "$secondary_gateway_container" curl -sS --max-time 30 \
+        --write-out $'\n%{http_code}' http://127.0.0.1:8080/v1/chat/completions \
+        -H "Authorization: Bearer $api_key" \
+        -H "Content-Type: application/json" \
+        -H "X-Request-ID: $multi_gateway_request_secondary" \
+        -H "Idempotency-Key: $multi_gateway_idempotency_key" \
+        --data "$multi_gateway_body" >"$secondary_multi_response" &
+    secondary_multi_pid=$!
+    wait "$primary_multi_pid"
+    wait "$secondary_multi_pid"
+    primary_multi_status="$(tail -n 1 "$primary_multi_response")"
+    secondary_multi_status="$(tail -n 1 "$secondary_multi_response")"
+    assert_one_of "200|409" "$primary_multi_status" \
+        "Primary Gateway shared-idempotency response"
+    assert_one_of "200|409" "$secondary_multi_status" \
+        "Secondary Gateway shared-idempotency response"
+    multi_gateway_settled() {
+        [[ "$(db_query "
+SELECT (SELECT count(*) FROM request_idempotency
+        WHERE idempotency_key = '$multi_gateway_idempotency_key' AND status = 'completed') || '|' ||
+       (SELECT count(*) FROM request_leases
+        WHERE lease_token = (SELECT lease_token FROM request_idempotency
+                             WHERE idempotency_key = '$multi_gateway_idempotency_key')) || '|' ||
+       (SELECT count(*) FROM usage_events
+        WHERE lease_token = (SELECT lease_token FROM request_idempotency
+                             WHERE idempotency_key = '$multi_gateway_idempotency_key')) || '|' ||
+       (SELECT count(*) FROM balance_ledger
+        WHERE lease_token = (SELECT lease_token FROM request_idempotency
+                             WHERE idempotency_key = '$multi_gateway_idempotency_key')
+          AND entry_type = 'usage_debit');")" == "1|1|1|1" ]]
+    }
+    wait_for "cross-Gateway shared-idempotency settlement" 45 multi_gateway_settled
+    assert_equals "1|1|1|1" "$(db_query "
+SELECT (SELECT count(*) FROM request_idempotency
+        WHERE idempotency_key = '$multi_gateway_idempotency_key' AND status = 'completed') || '|' ||
+       (SELECT count(*) FROM request_leases
+        WHERE lease_token = (SELECT lease_token FROM request_idempotency
+                             WHERE idempotency_key = '$multi_gateway_idempotency_key')) || '|' ||
+       (SELECT count(*) FROM usage_events
+        WHERE lease_token = (SELECT lease_token FROM request_idempotency
+                             WHERE idempotency_key = '$multi_gateway_idempotency_key')) || '|' ||
+       (SELECT count(*) FROM balance_ledger
+        WHERE lease_token = (SELECT lease_token FROM request_idempotency
+                             WHERE idempotency_key = '$multi_gateway_idempotency_key')
+          AND entry_type = 'usage_debit');")" \
+        "Cross-Gateway exactly-once lease, usage, and debit"
+    rm -rf "$multi_gateway_tmp_dir"
     admin_request DELETE "/admin/content-audit/rules/$metric_rule_id" "" "$admin_token" >/dev/null
-    echo "PASS: two Platform processes flushed OpenAI classifier metrics, restarted, and aggregated exactly once"
+    echo "PASS: two Platform processes flushed metrics, restarted, and two Gateways serialized shared idempotency exactly once"
     exit 0
 fi
 
