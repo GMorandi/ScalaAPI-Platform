@@ -107,6 +107,7 @@ builder.Services.AddSingleton<ScalaAPI.Grains.Interfaces.ICredentialProtector>(s
 builder.Services.AddHttpClient<ProviderTokenEndpointClient>(client =>
     client.Timeout = TimeSpan.FromSeconds(15));
 builder.Services.AddSingleton<ProviderCredentialRefreshService>();
+builder.Services.AddSingleton<ProviderMediaCancellationClient>();
 
 // Invalidation publisher (bumps Garnet version on auth data changes)
 builder.Services.AddSingleton<ScalaAPI.Host.Services.InvalidationService>();

@@ -529,6 +529,7 @@ public class DispatchService
     private readonly ModelPricingService _pricing;
     private readonly AuthProjectionCache _authCache;
     private readonly ProviderCredentialRefreshService _credentials;
+    private readonly ProviderMediaCancellationClient _mediaCancellation;
     private readonly GarnetWriteThroughService _garnet;
     private readonly ILogger<DispatchService> _logger;
     private readonly FaultInjection _faults;
@@ -543,6 +544,7 @@ public class DispatchService
                            ModelPricingService pricing,
                            AuthProjectionCache authCache, GarnetWriteThroughService garnet,
                            ProviderCredentialRefreshService credentials,
+                           ProviderMediaCancellationClient mediaCancellation,
                            NpgsqlDataSource dataSource,
                            IConfiguration configuration,
                            ILogger<DispatchService> logger,
@@ -556,6 +558,7 @@ public class DispatchService
         _pricing = pricing;
         _authCache = authCache;
         _credentials = credentials;
+        _mediaCancellation = mediaCancellation;
         _dataSource = dataSource;
         _garnet = garnet;
         _logger = logger;
@@ -1125,8 +1128,28 @@ public class DispatchService
         switch (req.Action)
         {
             case "cancel":
+                if (operation is null)
+                    return MediaOperationRpcResult.Error(404, "not_found_error", "Media operation not found");
+                if (operation.Status is "succeeded" or "failed" or "canceled" or "expired")
+                    break;
+                if (!string.IsNullOrWhiteSpace(operation.UpstreamTaskId))
+                {
+                    try
+                    {
+                        var credentials = await _credentials.GetFreshAsync(
+                            operation.AccountId, CancellationToken.None, "media");
+                        await _mediaCancellation.CancelAsync(credentials, operation);
+                    }
+                    catch (Exception ex) when (ex is not OperationCanceledException)
+                    {
+                        _logger.LogWarning(ex,
+                            "Provider cancellation failed for {OperationId}", operation.OperationId);
+                        return MediaOperationRpcResult.Error(502, "provider_cancel_failed",
+                            "The provider did not accept media cancellation");
+                    }
+                }
                 operation = await _mediaOperations.CancelAsync(auth.ApiKeyId, req.OperationId);
-                if (operation is not null)
+                if (operation?.Status == "canceled")
                     await _leases.AbortAsync(operation.LeaseToken, "media_operation_canceled",
                         LeaseAbortDisposition.Unknown);
                 break;

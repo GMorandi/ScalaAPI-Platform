@@ -225,6 +225,7 @@ gemini_stream_request_id="smoke-gemini-stream-${suffix}"
 fault_request_prefix="smoke-fault-${suffix}"
 media_idempotency_key="smoke-media-idem-${suffix}"
 media_batch_idempotency_key="smoke-media-batch-idem-${suffix}"
+media_batch_cancel_idempotency_key="smoke-media-batch-cancel-idem-${suffix}"
 chat_price_version="smoke-chat-${suffix}-v1"
 embedding_price_version="smoke-embeddings-${suffix}-v1"
 embedding_jina_price_version="smoke-embeddings-jina-${suffix}-v1"
@@ -2314,6 +2315,21 @@ fi
 assert_equals "stored" \
     "$(db_query "SELECT object_status FROM media_operations WHERE operation_id = '$media_id';")" \
     "Media object status"
+
+media_batch_cancel_response="$(curl -fsS "$gateway_url/v1/images/batches" \
+    -H "Authorization: Bearer $api_key" -H "Content-Type: application/json" \
+    -H "Idempotency-Key: $media_batch_cancel_idempotency_key" \
+    --data '{"model":"mock-image-1","items":[{"custom_id":"batch-cancel-1","prompt":"batch cancellation smoke"}]}')"
+media_batch_cancel_id="$(jq -er '.id' <<<"$media_batch_cancel_response")"
+media_batch_cancel_result="$(curl -fsS -X POST \
+    "$gateway_url/v1/images/batches/$media_batch_cancel_id/cancel" \
+    -H "Authorization: Bearer $api_key")"
+assert_equals "canceled" "$(jq -er '.status' <<<"$media_batch_cancel_result")" \
+    "Provider-backed media batch cancellation"
+media_batch_cancel_poll="$(curl -fsS "$gateway_url/v1/images/batches/$media_batch_cancel_id" \
+    -H "Authorization: Bearer $api_key")"
+assert_equals "canceled" "$(jq -er '.status' <<<"$media_batch_cancel_poll")" \
+    "Durable canceled media batch state"
 
 media_batch_response="$(curl -fsS "$gateway_url/v1/images/batches" \
     -H "Authorization: Bearer $api_key" -H "Content-Type: application/json" \

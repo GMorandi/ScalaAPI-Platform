@@ -12,6 +12,7 @@ builder.WebHost.UseUrls("http://0.0.0.0:8081");
 var app = builder.Build();
 var responses = new ConcurrentDictionary<string, string>(StringComparer.Ordinal);
 var responseInputItems = new ConcurrentDictionary<string, string>(StringComparer.Ordinal);
+var mediaStatuses = new ConcurrentDictionary<string, string>(StringComparer.Ordinal);
 app.UseWebSockets(new WebSocketOptions
 {
     KeepAliveInterval = TimeSpan.FromSeconds(15),
@@ -813,52 +814,97 @@ app.MapPost("/v1/images/edits", (HttpContext context) =>
     });
 });
 
-app.MapPost("/v1/images/generations/async", () => Results.Accepted(value: new
+app.MapPost("/v1/images/generations/async", () =>
 {
-    id = MockProviderHelpers.Id("image-task"),
-    status = "pending",
-    progress = 0
-}));
+    var id = MockProviderHelpers.Id("image-task");
+    mediaStatuses[id] = "pending";
+    return Results.Accepted(value: new
+    {
+        id,
+        status = "pending",
+        progress = 0
+    });
+});
 
-app.MapPost("/v1/images/edits/async", () => Results.Accepted(value: new
+app.MapPost("/v1/images/edits/async", () =>
 {
-    id = MockProviderHelpers.Id("image-edit-task"),
-    status = "pending",
-    progress = 0
-}));
+    var id = MockProviderHelpers.Id("image-edit-task");
+    mediaStatuses[id] = "pending";
+    return Results.Accepted(value: new
+    {
+        id,
+        status = "pending",
+        progress = 0
+    });
+});
 
-app.MapPost("/v1/images/batches", () => Results.Accepted(value: new
+app.MapPost("/v1/images/batches", () =>
 {
-    id = MockProviderHelpers.Id("image-batch"),
-    status = "pending",
-    progress = 0
-}));
+    var id = MockProviderHelpers.Id("image-batch");
+    mediaStatuses[id] = "pending";
+    return Results.Accepted(value: new
+    {
+        id,
+        status = "pending",
+        progress = 0
+    });
+});
+
+app.MapPost("/v1/images/tasks/{taskId}/cancel", (string taskId) =>
+{
+    if (!mediaStatuses.ContainsKey(taskId))
+        return Results.NotFound(new { error = "media_task_not_found" });
+    mediaStatuses[taskId] = "canceled";
+    return Results.Ok(new { id = taskId, status = "canceled", progress = 100 });
+});
+
+app.MapPost("/v1/images/batches/{batchId}/cancel", (string batchId) =>
+{
+    if (!mediaStatuses.ContainsKey(batchId))
+        return Results.NotFound(new { error = "media_batch_not_found" });
+    mediaStatuses[batchId] = "canceled";
+    return Results.Ok(new { id = batchId, status = "canceled", progress = 100 });
+});
+
+app.MapGet("/v1/images/tasks/{taskId}", (string taskId) =>
+{
+    var status = mediaStatuses.TryGetValue(taskId, out var current) ? current : "succeeded";
+    object[] data = status == "canceled"
+        ? []
+        : [new { url = MockProviderHelpers.OutputUrl(taskId) }];
+    return Results.Ok(new
+    {
+        id = taskId,
+        status,
+        progress = 100,
+        output_url = status == "canceled" ? "" : MockProviderHelpers.OutputUrl(taskId),
+        content_type = "image/png",
+        data,
+        size = "1024x1024"
+    });
+});
+
+app.MapGet("/v1/images/batches/{batchId}", (string batchId) =>
+{
+    var status = mediaStatuses.TryGetValue(batchId, out var current) ? current : "succeeded";
+    object[] data = status == "canceled"
+        ? []
+        : [new { custom_id = "mock-1", url = MockProviderHelpers.OutputUrl(batchId) }];
+    return Results.Ok(new
+    {
+        id = batchId,
+        status,
+        progress = 100,
+        output_url = status == "canceled" ? "" : MockProviderHelpers.OutputUrl(batchId),
+        content_type = "application/json",
+        data
+    });
+});
 
 app.MapGet("/v1/images/batches/models", () => Results.Ok(new
 {
     @object = "list",
     data = new[] { new { id = "mock-image-1", @object = "model", owned_by = "scalaapi-provider-mock" } }
-}));
-
-app.MapGet("/v1/images/tasks/{taskId}", (string taskId) => Results.Ok(new
-{
-    id = taskId,
-    status = "succeeded",
-    progress = 100,
-    output_url = MockProviderHelpers.OutputUrl(taskId),
-    content_type = "image/png",
-    data = new[] { new { url = MockProviderHelpers.OutputUrl(taskId) } },
-    size = "1024x1024"
-}));
-
-app.MapGet("/v1/images/batches/{batchId}", (string batchId) => Results.Ok(new
-{
-    id = batchId,
-    status = "succeeded",
-    progress = 100,
-    output_url = MockProviderHelpers.OutputUrl(batchId),
-    content_type = "application/json",
-    data = new[] { new { custom_id = "mock-1", url = MockProviderHelpers.OutputUrl(batchId) } }
 }));
 
 app.MapPost("/v1/videos/generations", () => Results.Accepted(value: new
