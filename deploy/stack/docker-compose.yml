@@ -65,6 +65,8 @@ services:
     build:
       context: ../..
       target: provider-mock
+    environment:
+      MediaPollDelayMs: ${PROVIDER_MOCK_MEDIA_POLL_DELAY_MS:-0}
     healthcheck:
       test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:8081/health"]
       interval: 5s
@@ -122,6 +124,8 @@ services:
       ObjectStorage__Bucket: ${OBJECT_STORAGE_BUCKET:-scalaapi-media}
       ObjectStorage__AccessKey: ${OBJECT_STORAGE_ACCESS_KEY:-platform}
       ObjectStorage__SecretKey: ${OBJECT_STORAGE_SECRET_KEY:?OBJECT_STORAGE_SECRET_KEY is required}
+      ObjectStorage__AsyncRetentionHours: ${OBJECT_STORAGE_ASYNC_RETENTION_HOURS:-24}
+      ObjectStorage__BatchRetentionHours: ${OBJECT_STORAGE_BATCH_RETENTION_HOURS:-168}
       ASPNETCORE_URLS: http://0.0.0.0:5000
     volumes:
       - runtime_sockets:/var/run/scalaapi

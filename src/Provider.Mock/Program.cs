@@ -13,6 +13,8 @@ var app = builder.Build();
 var responses = new ConcurrentDictionary<string, string>(StringComparer.Ordinal);
 var responseInputItems = new ConcurrentDictionary<string, string>(StringComparer.Ordinal);
 var mediaStatuses = new ConcurrentDictionary<string, string>(StringComparer.Ordinal);
+var mediaPollDelayMs = Math.Clamp(
+    builder.Configuration.GetValue<int>("MediaPollDelayMs"), 0, 30000);
 app.UseWebSockets(new WebSocketOptions
 {
     KeepAliveInterval = TimeSpan.FromSeconds(15),
@@ -866,8 +868,10 @@ app.MapPost("/v1/images/batches/{batchId}/cancel", (string batchId) =>
     return Results.Ok(new { id = batchId, status = "canceled", progress = 100 });
 });
 
-app.MapGet("/v1/images/tasks/{taskId}", (string taskId) =>
+app.MapGet("/v1/images/tasks/{taskId}", async (string taskId, CancellationToken ct) =>
 {
+    if (mediaPollDelayMs > 0)
+        await Task.Delay(mediaPollDelayMs, ct);
     var status = mediaStatuses.TryGetValue(taskId, out var current)
         && current == "canceled" ? "canceled" : "succeeded";
     object[] data = status == "canceled"
@@ -885,8 +889,10 @@ app.MapGet("/v1/images/tasks/{taskId}", (string taskId) =>
     });
 });
 
-app.MapGet("/v1/images/batches/{batchId}", (string batchId) =>
+app.MapGet("/v1/images/batches/{batchId}", async (string batchId, CancellationToken ct) =>
 {
+    if (mediaPollDelayMs > 0)
+        await Task.Delay(mediaPollDelayMs, ct);
     var status = mediaStatuses.TryGetValue(batchId, out var current)
         && current == "canceled" ? "canceled" : "succeeded";
     object[] data = status == "canceled"

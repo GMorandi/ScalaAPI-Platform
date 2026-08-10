@@ -224,6 +224,7 @@ gemini_request_id="smoke-gemini-${suffix}"
 gemini_stream_request_id="smoke-gemini-stream-${suffix}"
 fault_request_prefix="smoke-fault-${suffix}"
 media_idempotency_key="smoke-media-idem-${suffix}"
+media_restart_idempotency_key="smoke-media-restart-idem-${suffix}"
 media_batch_idempotency_key="smoke-media-batch-idem-${suffix}"
 media_batch_cancel_idempotency_key="smoke-media-batch-cancel-idem-${suffix}"
 chat_price_version="smoke-chat-${suffix}-v1"
@@ -2315,6 +2316,33 @@ fi
 assert_equals "stored" \
     "$(db_query "SELECT object_status FROM media_operations WHERE operation_id = '$media_id';")" \
     "Media object status"
+
+media_restart_response="$(curl -fsS "$gateway_url/v1/images/generations/async" \
+    -H "Authorization: Bearer $api_key" -H "Content-Type: application/json" \
+    -H "Idempotency-Key: $media_restart_idempotency_key" \
+    --data '{"model":"mock-image-1","prompt":"media restart recovery smoke","size":"1024x1024"}')"
+media_restart_id="$(jq -er '.id' <<<"$media_restart_response")"
+media_restart_pending() {
+    [[ "$(db_query "SELECT count(*) FROM media_operations WHERE operation_id = '$media_restart_id' AND status IN ('pending', 'running') AND upstream_task_id <> '';")" == "1" ]]
+}
+wait_for "durable media operation before restart" 15 media_restart_pending
+db_query "UPDATE media_operations SET next_poll_at = now() + interval '30 seconds' WHERE operation_id = '$media_restart_id';" >/dev/null
+recreate_service platform-silo
+wait_for "Platform readiness after media restart" 90 compose exec -T platform-silo \
+    curl -fsS http://127.0.0.1:5000/ready >/dev/null
+db_query "UPDATE media_operations SET next_poll_at = now() - interval '1 minute' WHERE operation_id = '$media_restart_id' AND status IN ('pending', 'running');" >/dev/null
+media_restart_result=""
+media_restart_stored() {
+    media_restart_result="$(curl -fsS "$gateway_url/v1/images/tasks/$media_restart_id" \
+        -H "Authorization: Bearer $api_key")" || return 1
+    [[ "$(jq -r '.status' <<<"$media_restart_result")" == "succeeded" ]] \
+        && [[ "$(jq -r '.url // empty' <<<"$media_restart_result")" == http://* ]]
+}
+wait_for "media operation recovery after Platform restart" 45 media_restart_stored
+assert_equals "stored" \
+    "$(db_query "SELECT object_status FROM media_operations WHERE operation_id = '$media_restart_id';")" \
+    "Media restart recovery object status"
+echo "PASS: pending media operation resumed and settled after Platform restart"
 
 media_batch_cancel_response="$(curl -fsS "$gateway_url/v1/images/batches" \
     -H "Authorization: Bearer $api_key" -H "Content-Type: application/json" \
