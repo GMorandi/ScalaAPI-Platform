@@ -11,7 +11,7 @@ read-only requirements reference and is excluded from builds and runtime.
 | Repository | Commit | Worktree | Role |
 | --- | --- | --- | --- |
 | `gateway` | `3da0d33` | clean | C++ HTTP/WebSocket edge, protocol parsing/conversion, versioned OpenAI Chat/Responses, Anthropic Messages, and Gemini request/response/SSE golden contracts, full pairwise provider request/response/error matrix assertions, fail-closed model catalog and token-count validation, bounded Embeddings and Responses validation, streaming, strict Provider media contracts, bounded transport timers, normalized Provider availability errors, shared retryable Platform transport policy, durable usage delivery, authenticated Garnet projections, bounded request/response content-policy RPC evaluation, event-boundary streaming response moderation, and fail-closed response delivery including retryable classifier outages |
-| `platform` | `330b9a8` backend + Admin Web + User Web | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, Provider mock contracts, bounded provider pricing catalog refresh with immutable source/checksum history and admin-source precedence, media object HEAD reconciliation with retryable missing/mismatch state, native mock and Stripe Checkout Session payment adapters with HTTPS/auth/amount bounds and idempotent pending-order retry, Stripe raw-body webhook verification and event normalization with provider payment-id association, native partial-refund Provider commands with pending/retryable state, cumulative order refund state, independent Provider/ledger refund effects, SKIP LOCKED refund recovery with expiring claims, and one NUMERIC ledger effect per refund, User Web provider selection and checkout links, rotating identity/session/TOTP/OAuth state, native Passkey/WebAuthn ceremonies, encrypted email notification outbox and retry worker, API-key policy and audit, versioned runtime configuration, persistent scheduling and lease/hold/ledger state, atomic subscription quota reservation and settlement, idempotent subscription expiry/renewal worker, audited operator reconciliation, Admin Web incident filtering/run/evidence-backed settle-release workflow with replay-key preservation, content-policy rule CRUD/change/alert operations with an API-intercepted Playwright smoke, source-built OpenAI Moderation empty-stack smoke coverage, atomic audited referral rewards, authenticated and audited operational metrics, bounded redacted audit queries/exports, encrypted proxy and validated TLS profile administration, audited bounded channel monitor checks, auditable user data export, bounded authentication/ceremony cleanup, user announcement read tracking, media/object lifecycle, staged request/response content-policy evaluation with versioned Unicode normalization, explicitly selectable source-owned/OpenAI Moderation classifiers, fixed-label OpenAI moderation counters, persisted cross-process snapshots, p95 and unavailable-ratio telemetry, isolated Provider fault fixtures with deterministic empty-stream EOF, durable no-TTL policy revision propagation and PostgreSQL-backed Garnet rebuild, operational alert evidence, redacted audits, and crash-reclaimable content-policy outbox propagation |
+| `platform` | `f565d9f` backend + Admin Web + User Web | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, Provider mock contracts, bounded provider pricing catalog refresh with immutable source/checksum history and admin-source precedence, media object HEAD reconciliation with retryable missing/mismatch state, native mock and Stripe Checkout Session payment adapters with HTTPS/auth/amount bounds and idempotent pending-order retry, Stripe raw-body webhook verification and event normalization with provider payment-id association, native partial-refund Provider commands with pending/retryable state, cumulative order refund state, independent Provider/ledger refund effects, SKIP LOCKED refund recovery with expiring claims, and one NUMERIC ledger effect per refund, User Web provider selection and checkout links, rotating identity/session/TOTP/OAuth state, native Passkey/WebAuthn ceremonies, encrypted email notification outbox and retry worker, API-key policy and audit, versioned runtime configuration, persistent scheduling and lease/hold/ledger state, atomic subscription quota reservation and settlement, idempotent subscription expiry/renewal worker, audited operator reconciliation, Admin Web incident filtering/run/evidence-backed settle-release workflow with replay-key preservation, content-policy rule CRUD/change/alert operations with an API-intercepted Playwright smoke, source-built OpenAI Moderation empty-stack smoke coverage, atomic audited referral rewards, authenticated and audited operational metrics, bounded redacted audit queries/exports, encrypted proxy and validated TLS profile administration, audited bounded channel monitor checks, auditable user data export, bounded authentication/ceremony cleanup, user announcement read tracking, media/object lifecycle, staged request/response content-policy evaluation with versioned Unicode normalization, explicitly selectable source-owned/OpenAI Moderation classifiers, fixed-label OpenAI moderation counters, persisted cross-process snapshots, configuration-backed p95/unavailable-ratio budget gauges and durable budget alerts, isolated Provider fault fixtures with deterministic empty-stream EOF, durable no-TTL policy revision propagation and PostgreSQL-backed Garnet rebuild, operational alert evidence, redacted audits, and crash-reclaimable content-policy outbox propagation |
 | `sub2api` | `43ec48d` | read-only clean | Requirements catalogue only; never a runtime or compatibility dependency |
 
 The current tracked inventory is:
@@ -87,9 +87,11 @@ current-source runtime evidence.
   content, rule, endpoint, or credential labels. Migration 044 persists
   instance/sequence-idempotent snapshots, a hosted worker flushes retryable
   deltas, and `/metrics` merges PostgreSQL totals with the live process to expose
-  unavailable ratio and bucketed p95. Runtime multi-process flush/restart
-  evidence, threshold enforcement, credential rotation, and browser workflows
-  remain open.
+  unavailable ratio, bucketed p95, and configuration-backed breach gauges.
+  Migration 045 updates durable unavailable-ratio/p95 alert state in the same
+  transaction as snapshot append. Runtime multi-process flush/restart and
+  windowed budget recovery, credential rotation, and browser workflows remain
+  open.
 - S3-compatible storage owns media bytes. PostgreSQL owns media metadata,
   authorization, object keys, ETags, sizes, and lifecycle state.
 - All business money is `decimal`; PostgreSQL uses `NUMERIC`; the RPC boundary
@@ -418,11 +420,13 @@ current-source runtime evidence.
 
 ### Bootstrap and deployment
 
-- The direct source migrator applies product migrations 001-044 plus the Orleans
-  baseline to an empty PostgreSQL 17 database and skips all 45 records on replay.
+- The direct source migrator applies product migrations 001-045 plus the Orleans
+  baseline to an empty PostgreSQL 17 database; the Compose gate therefore expects
+  46 records (45 product migrations plus the image-owned Orleans baseline).
   Migration 043 makes `openai` an explicit allowed classifier for policy rules and
-  migration 044 adds cross-process classifier metric snapshots. A temporary
-  PostgreSQL 17 run applied all 45 records and the second run skipped all 45.
+  migration 044 adds cross-process classifier metric snapshots; migration 045 adds
+  budget alert state. A temporary PostgreSQL 17 run applied all 45 product records
+  and the second run skipped all 45.
   audit rows. The source smoke derives this count from the checked-in migration
   directory plus the image-owned Orleans schema, so a new forward migration cannot
   leave the gate stale. No source database, snapshot, old key, CDC table, or
@@ -442,7 +446,7 @@ current-source runtime evidence.
 
 ## Current verification evidence
 
-At Platform/Admin Web/User Web `330b9a8` and Gateway `3da0d33`:
+At Platform/Admin Web/User Web `f565d9f` and Gateway `3da0d33`:
 
 - Gateway built locally and passed 125/125 CTest cases, including deterministic
   fault-hook claim/repeat behavior, terminal SSE detection, provider EOF
@@ -489,12 +493,14 @@ At Platform/Admin Web/User Web `330b9a8` and Gateway `3da0d33`:
   no-matches, unavailable/protocol errors, and cancellations; a bounded histogram
   records completed classifier latency. Platform `330b9a8` adds migration 044,
   instance/sequence-idempotent PostgreSQL snapshots, retryable hosted flushing,
-  cross-instance aggregation, unavailable-ratio and bucketed p95 output. The
-  targeted real-PostgreSQL classifier/schema run passed 23/23 and the Release
-  build passed with zero warnings/errors; output remains free of content, policy
-  patterns, endpoints, and credentials. Runtime multi-process flush/restart,
-  threshold enforcement, credential rotation, and deployed malformed/oversized/
-  timeout/long-stream evidence remain release gates.
+  cross-instance aggregation, unavailable-ratio and bucketed p95 output. Platform
+  `f565d9f` adds migration 045, validated budget configuration, atomic durable
+  breach alerts, and `/metrics` breach gauges. The targeted real-PostgreSQL
+  classifier/schema run passed 23/23 and the Release build passed with zero
+  warnings/errors; output remains free of content, policy patterns, endpoints, and
+  credentials. Runtime multi-process flush/restart, windowed budget recovery,
+  credential rotation, and deployed malformed/oversized/timeout/long-stream
+  evidence remain release gates.
 - Platform `926b98e` adds a deterministic `platform.after_policy_outbox_claim`
   process hook. The source-built `scalaapi-policy-reclaim-0810e` smoke terminated
   Platform after a PostgreSQL policy-event claim, restarted the same container,
@@ -571,11 +577,13 @@ At Platform/Admin Web/User Web `330b9a8` and Gateway `3da0d33`:
   schema. Platform `94e0db8` removes the policy revision TTL and extends the
   authenticated cache rebuild with PostgreSQL revision plus Garnet invalidation
   evidence; the dedicated RemoteGarnet test proves recovery after both keys are
-  deleted. Platform `330b9a8` adds migration 044 with idempotent instance/sequence
-  snapshots, retryable flush, aggregate unavailable-ratio and bucketed p95 output,
-  and 23/23 real-PostgreSQL/schema coverage without sensitive labels. Runtime
-  multi-process flush/restart, threshold enforcement, browser evidence, credential
-  rotation, and long-stream soak remain open, so the domain is still `partial`.
+  deleted. Platform `f565d9f` adds migrations 044-045 with idempotent
+  instance/sequence snapshots, retryable flush, aggregate unavailable-ratio and
+  bucketed p95 output, configuration-backed breach gauges, and durable budget
+  alerts; the real-PostgreSQL/schema coverage is 23/23 without sensitive labels.
+  Runtime multi-process flush/restart, windowed budget recovery, browser evidence,
+  credential rotation, and long-stream soak remain open, so the domain is still
+  `partial`.
 - AUTH-01 coverage includes email/password boundary tests, PostgreSQL-backed login
   identity/IP lockout and success reset tests, independent-IP accounting,
   registration-IP lockout, migration schema assertions, and duplicate insert
