@@ -235,10 +235,14 @@ public sealed class ContentPolicyClassifierTests
         metrics.Record(ContentClassifierResult.Unavailable(
             "content_policy_classifier_protocol_error"), TimeSpan.FromMilliseconds(250));
 
-        var output = metrics.RenderPrometheus();
+        var output = metrics.RenderPrometheus(null,
+            new OpenAiModerationMetricBudgetOptions(0.05, 0.1, 20));
 
         Assert.Contains("platform_content_classifier_unavailable_ratio{classifier=\"openai\"} 0.1", output);
         Assert.Contains("platform_content_classifier_duration_seconds_p95{classifier=\"openai\"} 0.25", output);
+        Assert.Contains("platform_content_classifier_unavailable_budget_breached{classifier=\"openai\"} 1", output);
+        Assert.Contains("platform_content_classifier_p95_budget_breached{classifier=\"openai\"} 1", output);
+        Assert.Contains("platform_content_classifier_budget_breached{classifier=\"openai\"} 1", output);
         Assert.DoesNotContain("content_policy", output);
     }
 
@@ -260,9 +264,10 @@ public sealed class ContentPolicyClassifierTests
             [0, 0, 0, 0, 10, 0, 0, 0, 0, 0]);
         try
         {
-            await store.AppendAsync(first);
-            await store.AppendAsync(first);
-            await store.AppendAsync(second);
+            var budget = new OpenAiModerationMetricBudgetOptions(0.05, 0.1, 10);
+            await store.AppendAndEvaluateAsync(first, budget);
+            await store.AppendAndEvaluateAsync(first, budget);
+            await store.AppendAndEvaluateAsync(second, budget);
 
             var totals = await store.ReadTotalsAsync();
             Assert.Equal(20, totals.Requests);
@@ -275,9 +280,28 @@ public sealed class ContentPolicyClassifierTests
             Assert.Contains("platform_content_classifier_requests_total{classifier=\"openai\"} 20", output);
             Assert.Contains("platform_content_classifier_unavailable_ratio{classifier=\"openai\"} 0.2", output);
             Assert.Contains("platform_content_classifier_duration_seconds_p95{classifier=\"openai\"} 0.25", output);
+            await using var alerts = dataSource.CreateCommand("""
+                SELECT budget_kind, status, sample_count
+                FROM content_classifier_budget_alerts
+                WHERE event_key IN ('openai:unavailable_ratio', 'openai:p95_latency')
+                ORDER BY budget_kind
+                """);
+            await using var alertReader = await alerts.ExecuteReaderAsync();
+            var alertRows = new List<(string Kind, string Status, long Samples)>();
+            while (await alertReader.ReadAsync())
+                alertRows.Add((alertReader.GetString(0), alertReader.GetString(1),
+                    alertReader.GetInt64(2)));
+            Assert.Equal(2, alertRows.Count);
+            Assert.All(alertRows, row => Assert.Equal("open", row.Status));
+            Assert.All(alertRows, row => Assert.Equal(20, row.Samples));
         }
         finally
         {
+            await using var alertCleanup = dataSource.CreateCommand("""
+                DELETE FROM content_classifier_budget_alerts
+                WHERE event_key IN ('openai:unavailable_ratio', 'openai:p95_latency')
+                """);
+            await alertCleanup.ExecuteNonQueryAsync();
             await using var cleanup = dataSource.CreateCommand("""
                 DELETE FROM content_classifier_metric_snapshots
                 WHERE instance_id = ANY($1)

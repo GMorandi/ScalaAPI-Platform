@@ -138,6 +138,8 @@ var classifierEndpoint = builder.Configuration["ContentClassifier:Endpoint"];
 var openAiClassifierEndpoint = builder.Configuration["ContentClassifier:OpenAI:Endpoint"];
 builder.Services.AddSingleton<OpenAiModerationMetrics>();
 builder.Services.AddSingleton<OpenAiModerationMetricStore>();
+builder.Services.AddSingleton(OpenAiModerationMetricBudgetOptions.FromConfiguration(
+    builder.Configuration));
 if (!string.IsNullOrWhiteSpace(openAiClassifierEndpoint))
 {
     var allowInsecureOpenAi = builder.Configuration.GetValue(
@@ -284,7 +286,9 @@ app.MapPost("/internal/reconciliation/incidents/{incidentId:long}/resolve", asyn
 });
 app.MapGet("/metrics", async (NpgsqlDataSource db,
     OpenAiModerationMetrics? openAiMetrics,
-    OpenAiModerationMetricStore? openAiMetricStore, CancellationToken ct) =>
+    OpenAiModerationMetricStore? openAiMetricStore,
+    OpenAiModerationMetricBudgetOptions? openAiMetricBudget,
+    CancellationToken ct) =>
 {
     await using var command = db.CreateCommand("""
         SELECT
@@ -333,7 +337,8 @@ app.MapGet("/metrics", async (NpgsqlDataSource db,
     var persistedClassifierMetrics = openAiMetricStore is null
         ? null
         : await openAiMetricStore.ReadTotalsAsync(ct);
-    return Results.Text(body + (openAiMetrics?.RenderPrometheus(persistedClassifierMetrics) ?? ""),
+    return Results.Text(body + (openAiMetrics?.RenderPrometheus(
+        persistedClassifierMetrics, openAiMetricBudget) ?? ""),
         "text/plain; version=0.0.4");
 });
 

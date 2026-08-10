@@ -277,10 +277,13 @@ public sealed class OpenAiModerationMetrics
             Interlocked.Add(ref _buckets[index], -snapshot.Buckets[index]);
     }
 
-    public string RenderPrometheus(OpenAiModerationMetricTotals? persisted = null)
+    public string RenderPrometheus(OpenAiModerationMetricTotals? persisted = null,
+        OpenAiModerationMetricBudgetOptions? budgetOptions = null)
     {
         var total = (persisted ?? OpenAiModerationMetricTotals.Empty)
             .Add(CaptureValues());
+        var budget = OpenAiModerationMetricCalculator.Evaluate(
+            total, budgetOptions ?? OpenAiModerationMetricBudgetOptions.Defaults);
         var requests = total.Requests;
         var cumulative = 0L;
         var builder = new StringBuilder();
@@ -311,7 +314,13 @@ public sealed class OpenAiModerationMetrics
         var unavailableRatio = evaluated == 0 ? 0 : (double)total.Unavailable / evaluated;
         builder.AppendLine($"platform_content_classifier_unavailable_ratio{{classifier=\"openai\"}} {unavailableRatio.ToString(System.Globalization.CultureInfo.InvariantCulture)}");
         builder.AppendLine("# TYPE platform_content_classifier_duration_seconds_p95 gauge");
-        builder.AppendLine($"platform_content_classifier_duration_seconds_p95{{classifier=\"openai\"}} {EstimateP95(total.Buckets, evaluated).ToString(System.Globalization.CultureInfo.InvariantCulture)}");
+        builder.AppendLine($"platform_content_classifier_duration_seconds_p95{{classifier=\"openai\"}} {budget.P95Seconds.ToString(System.Globalization.CultureInfo.InvariantCulture)}");
+        builder.AppendLine("# TYPE platform_content_classifier_unavailable_budget_breached gauge");
+        builder.AppendLine($"platform_content_classifier_unavailable_budget_breached{{classifier=\"openai\"}} {(budget.UnavailableBreached ? 1 : 0)}");
+        builder.AppendLine("# TYPE platform_content_classifier_p95_budget_breached gauge");
+        builder.AppendLine($"platform_content_classifier_p95_budget_breached{{classifier=\"openai\"}} {(budget.P95Breached ? 1 : 0)}");
+        builder.AppendLine("# TYPE platform_content_classifier_budget_breached gauge");
+        builder.AppendLine($"platform_content_classifier_budget_breached{{classifier=\"openai\"}} {(budget.AnyBreached ? 1 : 0)}");
         return builder.ToString();
     }
 
@@ -325,19 +334,6 @@ public sealed class OpenAiModerationMetrics
         Interlocked.Read(ref _durationTicks),
         _buckets.Select(value => value).ToArray());
 
-    private static double EstimateP95(long[] buckets, long count)
-    {
-        if (count <= 0) return 0;
-        var target = Math.Max(1, (long)Math.Ceiling(count * 0.95));
-        var cumulative = 0L;
-        for (var index = 0; index < buckets.Length; index++)
-        {
-            cumulative += buckets[index];
-            if (cumulative >= target)
-                return index < BucketsSeconds.Length ? BucketsSeconds[index] : double.PositiveInfinity;
-        }
-        return double.PositiveInfinity;
-    }
 }
 
 /// <summary>
