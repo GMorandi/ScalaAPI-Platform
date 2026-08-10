@@ -86,10 +86,21 @@ no usage log, no ledger entry, no request log, and one aborted idempotency recor
 Independent accounts prevent one scenario's scheduler cooldown from masking the
 next scenario.
 
+The media section also starts a second Platform Silo and injects two isolated
+partitions with runtime-neutral `network disconnect/connect` operations. The
+first removes only the secondary Silo's object-storage path and requires one
+fenced object-reconciliation failure followed by recovery. The second removes
+only its PostgreSQL path, requires due media work to remain visible, and after
+rejoin verifies `stored|completed|committed`, one usage event, and one usage
+debit. This uses a temporary private bridge with explicit dependency aliases,
+so it works with rootless Podman and Docker without host firewall privileges.
+The cleanup trap detaches every temporary endpoint before removing that bridge.
+
 Use `CONTAINER_CLI=podman` or `CONTAINER_CLI=docker` to select the runtime. Set
 `KEEP_STACK=1` to retain a failed or successful project for inspection, and set
 the `SMOKE_*_PORT` variables documented in `smoke.sh` when the default host ports
 are occupied. To exercise a previously built Gateway image without rebuilding
 it, set `GATEWAY_IMAGE` together with `SMOKE_SKIP_BUILD=1`; the default still
 builds the sibling source. By default, the cleanup trap removes only the unique
-Compose project and volumes created by that smoke run.
+Compose project, volumes, and any temporary partition network created by that
+smoke run.

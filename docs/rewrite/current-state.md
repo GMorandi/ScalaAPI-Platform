@@ -11,7 +11,7 @@ read-only requirements reference and is excluded from builds and runtime.
 | Repository | Commit | Worktree | Active role |
 | --- | --- | --- | --- |
 | `gateway` | `418da3a` | clean | C++ Gateway edge, protocol routing/conversion, Provider transport, and Garnet client |
-| `platform` | `3a52f72` | clean | C# Orleans control plane, PostgreSQL authority, Provider mock, Admin Web, User Web, and source-owned smoke fault tooling |
+| `platform` | `d7cad26` | clean | C# Orleans control plane, PostgreSQL authority, Provider mock, Admin Web, User Web, and source-owned smoke fault tooling |
 | `sub2api` | `43ec48d` | read-only clean | Requirements reference only; no runtime or compatibility dependency |
 
 ## Historical role descriptions
@@ -23,7 +23,7 @@ read-only requirements reference and is excluded from builds and runtime.
 | `sub2api` | `43ec48d` | read-only clean | Requirements catalogue only; never a runtime or compatibility dependency |
 
 The active source snapshot for this document is Platform/Admin Web/User Web
-`3a52f72` and Gateway `418da3a`; both worktrees are clean. The table's longer
+`d7cad26` and Gateway `418da3a`; both worktrees are clean. The table's longer
 capability descriptions are retained as inventory context, while this override
 and the evidence below define the current commits.
 
@@ -592,8 +592,14 @@ smoke assertion. Platform `0134323` adds independent retention deadlines,
   preserving the completed lease and committed hold. Platform `fffc712` and
   `scalaapi-media-transport-0811a` add real mid-body request interruption and
   post-commit response loss while proving deterministic item/archive keys and
-  exactly-once settlement. Partition recovery, longer soak, and deployment-scale
-  lifecycle remain follow-on work.
+  exactly-once settlement. Platform `d7cad26` adds rootless runtime-neutral
+  private-network injection for a secondary Silo: an object-storage partition
+  records one fenced failure and recovers the item/archive projections, while a
+  PostgreSQL partition leaves due work visible and, after rejoin, preserves
+  `stored|completed|committed`, one usage event, and one price-aware debit. The
+  `scalaapi-media-partition-0811d` source gate passed with 50 empty-volume
+  migrations and removed its temporary containers, volumes, and networks.
+  Longer soak and deployment-scale lifecycle remain follow-on work.
 
 The preceding completed vertical slice is the source-built protocol gate
 `scalaapi-responses-compact-0810b` (Platform `18daa64`, Gateway `992f3fc`).
@@ -657,7 +663,7 @@ mutation semantics beyond read/input_items/cancel/delete, provider-group fault c
 open.
 
 The following detailed bullets are retained as the preceding-slice record; the
-current totals for Platform `3a52f72` and Gateway `418da3a` are 271/271 and
+current totals for Platform `d7cad26` and Gateway `418da3a` are 271/271 and
 126/126 respectively:
 
 - Gateway built locally and passed 126/126 CTest cases, including deterministic
@@ -806,7 +812,8 @@ current totals for Platform `3a52f72` and Gateway `418da3a` are 271/271 and
   completed lease or committed hold. Platform `fffc712` then proves two real
   transport ambiguities: a signed PUT reset after 16 body bytes and a committed
   upstream PUT whose 200 response is lost. Both retry without duplicate objects,
-  usage, or billing. Partition recovery, longer soak, and HA/offsite storage
+  usage, or billing. The source smoke now covers single-Silo object-storage and
+  PostgreSQL network partitions; longer contention soak and HA/offsite storage
   evidence remain open.
 - SEC-01 now has executable request, non-stream response, and SSE event-boundary
   evidence: the canonical Cap'n Proto contract carries bounded request/response
@@ -1201,8 +1208,10 @@ Detailed gate results and residual coverage are maintained in `verification.md`.
   Garnet TLS image flags and read-only certificate mounts are now source-smoke
   proven by Platform `8ca919b`; the source gate also rejects wrong-name and expired
   bundles, recovers a valid bundle, and settles a new request. Concurrent
-  multi-Gateway/multi-Silo ordering and partition recovery are not release gates
-  yet.
+  multi-Gateway/multi-Silo ordering, cache failure under load, and
+  deployment-scale failover are not release gates yet. The current source smoke
+  does include rootless single-Silo object-storage and PostgreSQL partition
+  recovery for media work.
 - Hosted CI cannot currently check out the private sibling repository with the
   default per-repository token. The local cross-repository smoke must become a
   blocking release workflow with a read-only checkout boundary.

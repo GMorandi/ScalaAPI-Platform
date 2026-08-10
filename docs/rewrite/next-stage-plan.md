@@ -1,8 +1,8 @@
 # ScalaAPI Next Stage Plan
 
-Current checkpoint override: Platform/Admin Web/User Web `3a52f72`, Gateway
+Current checkpoint override: Platform/Admin Web/User Web `d7cad26`, Gateway
 `418da3a`, and read-only `sub2api@43ec48d`. The latest gate is
-`scalaapi-media-transport-0811a`; it passed durable image batch list/items,
+`scalaapi-media-partition-0811d`; it passed durable image batch list/items,
 Provider-backed cancellation, S3-backed ZIP download with manifest/error entries,
 owner-scoped per-item objects and signed downloads, retention cleanup, Platform
 restart recovery, fenced item integrity verification, one-fetch archive/item
@@ -14,7 +14,12 @@ tests prove partial-PUT deterministic-key convergence and mid-sequence DELETE
 replay. A smoke-only private TCP proxy additionally reset a signed PUT after 16
 request-body bytes and discarded a 200 response after MinIO committed another
 PUT. Both retries preserved deterministic item/archive keys and exactly-once
-settlement. The remaining plan below starts after this completed media boundary.
+settlement. The latest gate also disconnected only the secondary Silo from
+object storage and PostgreSQL using a rootless private network. It proved one
+fenced object-storage failure and recovery, then due PostgreSQL work surviving
+the partition with `stored|completed|committed`, one usage event, and one debit
+after rejoin. The remaining plan below starts after this completed partition
+boundary.
 
 The Embeddings provider-profile slice is complete for this checkpoint. Its
 source-owned OpenAI-compatible, Jina-compatible, and Gemini-compatible models
@@ -54,12 +59,13 @@ Platform `10adfb5` proves source-level partial PUT convergence, real-PostgreSQL
 partial retention DELETE replay, and runtime retention outage/recovery with the
 completed lease and committed hold preserved. Platform `fffc712` then proves real
 mid-body request interruption and post-commit response loss converge without
-duplicate objects or billing. Partition recovery, a one-hour worker-contention
-soak, and deployment-scale HA/offsite lifecycle remain partial.
+duplicate objects or billing. Rootless single-Silo object-storage/PostgreSQL
+partition recovery is now a completed gate; a one-hour worker-contention soak
+and deployment-scale HA/offsite lifecycle remain partial.
 
 ## Checkpoint
 
-The next stage starts from Platform/Admin Web/User Web `3a52f72`, Gateway
+The next stage starts from Platform/Admin Web/User Web `d7cad26`, Gateway
 `418da3a`, and read-only reference `sub2api@43ec48d`.
 
 The greenfield baseline now starts from empty volumes, uses PostgreSQL as authority,
@@ -428,14 +434,13 @@ automated.
 
 ## Next implementation slice
 
-1. **Media partition recovery and soak (P0).** The source-owned fault proxy now
-   covers mid-body and post-commit response-loss PUT outcomes. Next, partition one
-   of two Silos from object storage and then PostgreSQL while item verification,
-   archive creation, and retention are due. Preserve claim fencing, terminal
-   lease/hold state, owner isolation, and orphan grace periods through recovery.
-   Exit when the empty-volume gate covers storage/Silo/database partitions and a
-   one-hour worker-contention soak with zero duplicate billing, duplicate final
-   objects, or premature deletion.
+1. **Media worker contention soak (P0).** The source-owned fault proxy and
+   `scalaapi-media-partition-0811d` gate now cover mid-body and post-commit
+   response-loss PUT outcomes plus rootless object-storage and PostgreSQL
+   partitions of one secondary Silo. Preserve claim fencing, terminal lease/hold
+   state, owner isolation, and orphan grace periods under a one-hour run with
+   repeated due work and Silo rejoin. Exit when the soak records zero duplicate
+   billing effects, duplicate final objects, or premature deletion.
 2. **Protocol and Provider fidelity (P0).** Add provider-specific malformed,
    timeout, disconnect-before-output, partial-output, cancellation, and retry
    fixtures for Anthropic Messages and Gemini generation, then complete the
@@ -860,7 +865,9 @@ Deliverables:
   realtime sessions, bounded connection holds, Provider usage validation, and
   exactly-once billing after the sessions close.
 - Extend that gate with cache flush and stale-version recovery after restart, and
-  concurrent clients during Garnet outage, Silo replacement, and partition recovery.
+  concurrent clients during Garnet outage and Silo replacement. Media partition
+  recovery is already covered by the dedicated source smoke; retain its network
+  helper as a reusable failure-injection primitive.
 - Prove cache loss fails new rate-sensitive dispatch closed but does not block usage
   settlement, hold recovery, or outbox drain.
 - Exercise Silo removal, Gateway rolling replacement, and concurrent requests for
@@ -955,9 +962,9 @@ Then expand the remaining 58-domain work in this order:
    runtime cross-protocol E2E; source-owned protocol fixtures are frozen in
    Gateway `8f33790`.
 2. Complete the remaining media lifecycle after the now-finished batch
-   list/items/cancellation/orphan-cleanup/archive/retention/item-storage and
-   transport-loss slice: Silo/object-store/PostgreSQL partition recovery, a
-   one-hour worker contention soak, Provider-specific OAuth refresh and pricing/tokenizer
+   list/items/cancellation/orphan-cleanup/archive/retention/item-storage,
+   transport-loss, and single-Silo partition slice: a one-hour worker contention
+   soak, Provider-specific OAuth refresh and pricing/tokenizer
    adapters, deployment-scale HA/offsite object storage, and full lifecycle evidence.
 3. Complete identity hardening beyond the TOTP, OAuth PKCE, Passkey, and encrypted
    mail-outbox state machines, including backup-code recovery UX, live SMTP/provider
