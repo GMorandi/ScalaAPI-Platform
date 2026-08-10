@@ -2,7 +2,7 @@
 
 ## Checkpoint
 
-The next stage starts from Platform/Admin Web/User Web `28fdea1`, Gateway `d9638b4`, and read-only
+The next stage starts from Platform/Admin Web/User Web `ef2ff8c`, Gateway `d9638b4`, and read-only
 reference `sub2api@43ec48d`.
 
 The greenfield baseline now starts from empty volumes, uses PostgreSQL as authority,
@@ -38,7 +38,9 @@ has source-level terminal-event-gated SSE completion, incomplete chunked-body
 classification, and client-cancellation classification. The empty stack proves
 Provider disconnect, disconnect-before-output, malformed-usage, timeout before
 response headers, and actual downstream client-cancellation and invalid-content-type
-SSE retention with eleven total unknown-charge incidents. The pre-header timeout now
+SSE retention with twelve total unknown-charge incidents, including a malformed
+non-stream OpenAI Responses 2xx payload mapped to public `502/provider_error` with
+one retained reconciliation hold and no usage/debit. The pre-header timeout now
 returns a bounded 502/provider_protocol_error and retains its hold; direct and
 zero-output Provider resets now return 503/provider_unavailable, while partial SSE
 resets retain their unknown-charge hold. Gateway CTest now independently proves the
@@ -72,13 +74,16 @@ Platform `7c4836a` releases terminal account/user slots and adds the seeded
 Claude price alias. Provider-specific error/disconnect fixtures, real adapters,
 and broader cross-protocol runtime coverage remain open.
 The OpenAI Responses root and read/delete-subresource runtime slice is now complete in
-`scalaapi-responses-delete-0810`: JSON and SSE both pass
+`scalaapi-responses-fault-0810e`: JSON and SSE both pass
 envelope/terminal/usage validation and settle exactly once, while
 `GET /v1/responses/{id}` retrieves the stored response and `DELETE
 /v1/responses/{id}` returns a deletion envelope through Gateway to Platform to
-Provider; both controls release their routing leases without billing. The next
-Responses work is remaining mutation semantics, provider-specific fault
-coverage, and real adapter evidence.
+Provider; both controls release their routing leases without billing. The same
+gate sends a malformed non-stream success through the source-owned Provider mock,
+maps it to `502/provider_error`, retains the ambiguous lease for reconciliation,
+and proves no usage/debit before the audited resolution pass. The next Responses
+work is remaining mutation semantics, broader provider-group fault coverage, and
+real adapter evidence.
 The current source-built `scalaapi-openai-moderation-0810e` gate applies and
 replays 44 migration records from empty volumes, proves Garnet-authenticated
 request routing, staged request/response policy, the versioned Unicode evaluator,

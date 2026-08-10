@@ -6,8 +6,18 @@ The source-built smoke above is the current release evidence. Rows later in this
 document that mention earlier classifier projects or migration counts are retained
 as historical checkpoints and do not define the current bootstrap or release gate.
 
-The latest source snapshot is Platform/Admin Web/User Web `28fdea1` and Gateway
+The latest source snapshot is Platform/Admin Web/User Web `ef2ff8c` and Gateway
 `d9638b4`.
+
+The latest source-built project `scalaapi-responses-fault-0810e` exited zero.
+In addition to the root Responses JSON/SSE and GET/DELETE control checks, it
+sent a source-owned malformed non-stream success response through the public
+`scenario=malformed` query. Gateway returned HTTP 502 with the public
+`provider_error` envelope, PostgreSQL retained exactly one
+`reconciliation_needed` lease, and the request produced no usage event, usage
+log, or NUMERIC usage debit. The run then passed the full existing restart,
+fault, reconciliation/operator, media/S3, policy, and realtime matrix and
+removed its Compose project and volumes.
 
 The latest source-built project `scalaapi-responses-delete-0810` exited zero. In
 addition to the root OpenAI Responses JSON and SSE checks, it issued `GET` and
@@ -454,7 +464,7 @@ supersedes them where commit, image, or late-usage results differ.
 
 | Gate | Result | Interpretation |
 | --- | --- | --- |
-| OpenAI Responses runtime gate | `scalaapi-responses-delete-0810`, exit 0 | Platform `28fdea1` and Gateway `d9638b4` built from source on empty volumes. Provider mock Responses emits a terminal SSE event with usage; JSON and SSE requests returned valid envelopes and each settled one lease/event/log/committed hold/NUMERIC debit. GET `/v1/responses/{id}` replayed the stored response and DELETE `/v1/responses/{id}` returned `response.deleted`; each released one non-billable lease with no usage/debit. Remaining mutation semantics, provider-specific faults, and live adapters remain open |
+| OpenAI Responses runtime gate | `scalaapi-responses-fault-0810e`, exit 0 | Platform `ef2ff8c` and Gateway `d9638b4` built from source on empty volumes. Provider mock Responses emits a terminal SSE event with usage; JSON and SSE requests returned valid envelopes and each settled one lease/event/log/committed hold/NUMERIC debit. GET `/v1/responses/{id}` replayed the stored response and DELETE `/v1/responses/{id}` returned `response.deleted`; each released one non-billable lease with no usage/debit. A malformed non-stream 2xx fixture returned HTTP 502 `provider_error`, retained one reconciliation hold, and produced no usage/debit before the audited resolution pass. Remaining mutation semantics, provider-group faults, and live adapters remain open |
 | Anthropic and Gemini provider-group gate | `scalaapi-provider-groups-0810l`, exit 0 | Platform `7c4836a` and Gateway `7b8b03c` built from source on empty volumes. Anthropic count-tokens, Messages JSON, and Messages SSE plus Gemini catalog, JSON generation, and SSE generation returned valid protocol-native payloads. Four billable requests each produced exactly one completed lease, usage event, usage log, committed hold, and NUMERIC debit. The two non-billable controls each aborted and released their hold with zero usage/debit rows. The same run passed restart/recovery, content policy, Provider fault, audited reconciliation, media/S3, and realtime soak checks; retryable usage reports no longer starve independent leases, and the authenticated Garnet RESP health probe emits correct CRLF bytes. Cleanup left `podman ps -a` empty |
 | Current source-built policy and stack gate | `scalaapi-policy-reclaim-0810e`, exit 0 | Platform `926b98e` and Gateway `3da0d33` built from source; 44 empty-volume migration records applied and skipped on replay; Garnet-authenticated routing, OpenAI response match/unavailable 400/503, redacted audits, warning/critical alerts, normal settlement/replay, Chat/Embeddings/Realtime, Provider faults including `disconnect_before_output -> 503`, restart/recovery, reconciliation/operator resolution, and S3 persistence passed. Platform also crashed after a policy outbox claim and its replacement reclaimed/published the event. The trap removed all named containers and anonymous volumes and `podman ps -a` was empty afterward |
 | Garnet TLS source deployment gate | `scalaapi-garnet-tls-0810e`, exit 0 | Platform `bcf80e7` and Gateway `3da0d33` built from source. The TLS override enabled Garnet PFX server mode with explicit password authentication and no client-certificate requirement, mounted the CA/PFX read-only with rootless relabeling, and passed the full source smoke through Platform's authenticated TLS readiness endpoint. Empty-volume migrations, OAuth, policy, API-key lifecycle, Embeddings, Realtime, restart/recovery, Provider fault matrix, audited reconciliation/operator resolution, and S3 persistence passed; the trap removed the isolated project and `podman ps -a` was empty. Rotation/expiry is covered by the newer `scalaapi-garnet-rotation-0810` row; partition recovery remains open |
