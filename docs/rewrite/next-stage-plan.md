@@ -2,7 +2,7 @@
 
 ## Checkpoint
 
-The next stage starts from Platform/Admin Web/User Web `75c4908`, Gateway `3da0d33`, and read-only
+The next stage starts from Platform/Admin Web/User Web `30cc8dc`, Gateway `3da0d33`, and read-only
 reference `sub2api@43ec48d`.
 
 The greenfield baseline now starts from empty volumes, uses PostgreSQL as authority,
@@ -276,10 +276,12 @@ automated.
    convergence after worker failure, and alert correlation after outage; the latest
    full smoke still has a host-boundary Provider timeout that must be stabilized.
 2. Harden the production OpenAI classifier boundary. Keep the `3da2e29` empty-stack
-   match/unavailable proof and HTTPS-only default. Add measured p95/error budgets,
-   credential rotation and redaction checks, malformed/oversized/timeout/cancellation
-   scenarios through real deployment configuration, and long-stream buffer/late-usage
-   soak.
+   match/unavailable proof and HTTPS-only default. Platform `30cc8dc` now exports
+   fixed-label counters and a bounded latency histogram through `/metrics`, with
+   Host coverage for cancellation, protocol errors, and secret-free output. Add
+   cross-process metric aggregation and enforced p95/error budgets, credential
+   rotation and redaction checks, malformed/oversized/timeout/cancellation scenarios
+   through real deployment configuration, and long-stream buffer/late-usage soak.
 3. Extend operator and browser evidence. Platform `3da2e29` provides Admin Web
    rule CRUD, propagation-change history, alert filters, bilingual navigation, and a
    passing Chromium smoke with intercepted `/admin/content-audit/{rules,changes,alerts}`

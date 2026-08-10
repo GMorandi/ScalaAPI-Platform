@@ -11,7 +11,7 @@ read-only requirements reference and is excluded from builds and runtime.
 | Repository | Commit | Worktree | Role |
 | --- | --- | --- | --- |
 | `gateway` | `3da0d33` | clean | C++ HTTP/WebSocket edge, protocol parsing/conversion, versioned OpenAI Chat/Responses, Anthropic Messages, and Gemini request/response/SSE golden contracts, full pairwise provider request/response/error matrix assertions, fail-closed model catalog and token-count validation, bounded Embeddings and Responses validation, streaming, strict Provider media contracts, bounded transport timers, normalized Provider availability errors, shared retryable Platform transport policy, durable usage delivery, authenticated Garnet projections, bounded request/response content-policy RPC evaluation, event-boundary streaming response moderation, and fail-closed response delivery including retryable classifier outages |
-| `platform` | `3da2e29` backend + Admin Web + User Web | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, Provider mock contracts, bounded provider pricing catalog refresh with immutable source/checksum history and admin-source precedence, media object HEAD reconciliation with retryable missing/mismatch state, native mock and Stripe Checkout Session payment adapters with HTTPS/auth/amount bounds and idempotent pending-order retry, Stripe raw-body webhook verification and event normalization with provider payment-id association, native partial-refund Provider commands with pending/retryable state, cumulative order refund state, independent Provider/ledger refund effects, SKIP LOCKED refund recovery with expiring claims, and one NUMERIC ledger effect per refund, User Web provider selection and checkout links, rotating identity/session/TOTP/OAuth state, native Passkey/WebAuthn ceremonies, encrypted email notification outbox and retry worker, API-key policy and audit, versioned runtime configuration, persistent scheduling and lease/hold/ledger state, atomic subscription quota reservation and settlement, idempotent subscription expiry/renewal worker, audited operator reconciliation, Admin Web incident filtering/run/evidence-backed settle-release workflow with replay-key preservation, content-policy rule CRUD/change/alert operations with an API-intercepted Playwright smoke, source-built OpenAI Moderation empty-stack smoke coverage, atomic audited referral rewards, authenticated and audited operational metrics, bounded redacted audit queries/exports, encrypted proxy and validated TLS profile administration, audited bounded channel monitor checks, auditable user data export, bounded authentication/ceremony cleanup, user announcement read tracking, media/object lifecycle, staged request/response content-policy evaluation with versioned Unicode normalization, explicitly selectable source-owned/OpenAI Moderation classifiers, durable no-TTL policy revision propagation and PostgreSQL-backed Garnet rebuild, operational alert evidence, and redacted audits |
+| `platform` | `30cc8dc` backend + Admin Web + User Web | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, Provider mock contracts, bounded provider pricing catalog refresh with immutable source/checksum history and admin-source precedence, media object HEAD reconciliation with retryable missing/mismatch state, native mock and Stripe Checkout Session payment adapters with HTTPS/auth/amount bounds and idempotent pending-order retry, Stripe raw-body webhook verification and event normalization with provider payment-id association, native partial-refund Provider commands with pending/retryable state, cumulative order refund state, independent Provider/ledger refund effects, SKIP LOCKED refund recovery with expiring claims, and one NUMERIC ledger effect per refund, User Web provider selection and checkout links, rotating identity/session/TOTP/OAuth state, native Passkey/WebAuthn ceremonies, encrypted email notification outbox and retry worker, API-key policy and audit, versioned runtime configuration, persistent scheduling and lease/hold/ledger state, atomic subscription quota reservation and settlement, idempotent subscription expiry/renewal worker, audited operator reconciliation, Admin Web incident filtering/run/evidence-backed settle-release workflow with replay-key preservation, content-policy rule CRUD/change/alert operations with an API-intercepted Playwright smoke, source-built OpenAI Moderation empty-stack smoke coverage, atomic audited referral rewards, authenticated and audited operational metrics, bounded redacted audit queries/exports, encrypted proxy and validated TLS profile administration, audited bounded channel monitor checks, auditable user data export, bounded authentication/ceremony cleanup, user announcement read tracking, media/object lifecycle, staged request/response content-policy evaluation with versioned Unicode normalization, explicitly selectable source-owned/OpenAI Moderation classifiers, fixed-label OpenAI moderation counters and latency histogram, durable no-TTL policy revision propagation and PostgreSQL-backed Garnet rebuild, operational alert evidence, and redacted audits |
 | `sub2api` | `43ec48d` | read-only clean | Requirements catalogue only; never a runtime or compatibility dependency |
 
 The current tracked inventory is:
@@ -19,7 +19,7 @@ The current tracked inventory is:
 - Gateway: 52 production C++ source/header files, 11 test source files, and 125
   CTest cases.
 - Platform: 119 hand-written production C# files, 3 generated Cap'n Proto C#
-  files, 63 test/benchmark C# files, and 235 tests: 69 Grain, 73 Host, 45 Admin,
+  files, 63 test/benchmark C# files, and 236 tests: 69 Grain, 74 Host, 45 Admin,
   and 48 Provider mock tests.
 - Product surface: 125 direct Admin API route declarations, 50 product tables,
   22 SQLSugar entity types, 25 Admin Web TypeScript/TSX files and 13 page views,
@@ -82,8 +82,11 @@ current-source runtime evidence.
   claimed and published once. Revision writes no longer expire during idle periods;
   the authenticated cache rebuild restores the PostgreSQL revision and increments
   invalidation after Garnet key loss. A dedicated RemoteGarnet test deletes both
-  keys and reads back the rebuilt values. Separate-process worker ordering/failure,
-  browser workflows, and long-stream classifier metrics remain open.
+  keys and reads back the rebuilt values. `OpenAiModerationMetrics` now exports
+  fixed-label request/outcome counters and a bounded latency histogram without
+  content, rule, endpoint, or credential labels; it is process-local, so cross-
+  instance aggregation and enforced p95/error budgets remain open. Separate-
+  process worker ordering/failure and browser workflows also remain open.
 - S3-compatible storage owns media bytes. PostgreSQL owns media metadata,
   authorization, object keys, ETags, sizes, and lifecycle state.
 - All business money is `decimal`; PostgreSQL uses `NUMERIC`; the RPC boundary
@@ -434,7 +437,7 @@ current-source runtime evidence.
 
 ## Current verification evidence
 
-At Platform/Admin Web/User Web `75c4908` and Gateway `3da0d33`:
+At Platform/Admin Web/User Web `30cc8dc` and Gateway `3da0d33`:
 
 - Gateway built locally and passed 125/125 CTest cases, including deterministic
   fault-hook claim/repeat behavior, terminal SSE detection, provider EOF
@@ -446,8 +449,8 @@ At Platform/Admin Web/User Web `75c4908` and Gateway `3da0d33`:
   sixteen request pairs, all sixteen response pairs, cross-protocol response
   envelope validation, and cross-protocol error normalization with standard
   status precedence.
-- Platform Release test/build passed with 0 warnings and 0 errors: 235/235 tests,
-  including 73 Host tests, 69 Grain tests, 45 Admin tests, and 48 Provider mock
+- Platform Release test/build passed with 0 warnings and 0 errors: 236/236 tests,
+  including 74 Host tests, 69 Grain tests, 45 Admin tests, and 48 Provider mock
   tests. Admin coverage
   includes PostgreSQL-backed TOTP replay, backup-code consumption, lockout,
   recovery, OAuth provider/redirect/verifier binding, one-time state consumption,
@@ -476,6 +479,14 @@ At Platform/Admin Web/User Web `75c4908` and Gateway `3da0d33`:
   advisory lock only for one Garnet publication and its durable mark. The concurrent
   Host test now requires both workers to claim and propagate one event each; failed
   rows remain retryable.
+- Platform `30cc8dc` adds `OpenAiModerationMetrics` to the classifier boundary and
+  `/metrics`: fixed `classifier="openai"` counters cover requests, matches,
+  no-matches, unavailable/protocol errors, and cancellations; a bounded histogram
+  records completed classifier latency. Host coverage is 74/74 and asserts the
+  rendered output excludes content, policy patterns, and credentials. The metrics
+  are process-local; cross-process aggregation, alert thresholds, credential
+  rotation, and deployed malformed/oversized/timeout/long-stream evidence remain
+  release gates.
 - Announcement coverage adds published/expiry filtering, read-state listing,
   duplicate-read replay, and exactly one `announcement.read` audit row through a
   real PostgreSQL test; User Web builds with the Dashboard read action.
@@ -536,9 +547,10 @@ At Platform/Admin Web/User Web `75c4908` and Gateway `3da0d33`:
   schema. Platform `94e0db8` removes the policy revision TTL and extends the
   authenticated cache rebuild with PostgreSQL revision plus Garnet invalidation
   evidence; the dedicated RemoteGarnet test proves recovery after both keys are
-  deleted. Multi-instance ordering,
-  runtime browser evidence, and long-stream classifier metrics remain open, so the
-  domain is still `partial`.
+  deleted. Fixed-label process-local classifier counters and latency histograms
+  now exist, but multi-instance aggregation/error budgets, runtime browser
+  evidence, credential rotation, and long-stream soak remain open, so the domain
+  is still `partial`.
 - AUTH-01 coverage includes email/password boundary tests, PostgreSQL-backed login
   identity/IP lockout and success reset tests, independent-IP accounting,
   registration-IP lockout, migration schema assertions, and duplicate insert

@@ -6,7 +6,7 @@ The source-built smoke above is the current release evidence. Rows later in this
 document that mention earlier classifier projects or migration counts are retained
 as historical checkpoints and do not define the current bootstrap or release gate.
 
-The latest source snapshot is Gateway `3da0d33`, Platform/Admin Web/User Web `75c4908`.
+The latest source snapshot is Gateway `3da0d33`, Platform/Admin Web/User Web `30cc8dc`.
 
 The current source-built project `scalaapi-openai-moderation-0810e` exited zero.
 It built the current Gateway, Platform, Admin Web, and User Web images, applied
@@ -23,15 +23,24 @@ named container and volume; `podman ps -a` was empty after cleanup. Production
 OpenAI remains HTTPS-only; HTTP is enabled only by the explicit smoke development
 switch.
 
+The empty-stack smoke above was built from the earlier Platform `3da2e29` image;
+the latest `30cc8dc` classifier metrics code was verified separately against the
+same classifier contract and is not retroactively attributed to that image.
 Platform `75c4908` then made revision publication monotonic and replay-safe under
 the shared PostgreSQL advisory lock used by propagation and Garnet rebuild. Full
-Host tests pass 73/73, including duplicate/stale/rebuild cases. A source smoke
+Host tests at that checkpoint passed 73/73, including duplicate/stale/rebuild cases. A source smoke
 using real Garnet passed the policy propagation, OpenAI match/unavailable, and
 response-policy gates after this change; the later Provider
 `disconnect_before_output` case timed out at the host boundary and returned 000,
 so that rerun is not a full-stack green release result.
 Platform `32e9576` additionally narrows the advisory lock to one publication while
 keeping claims independent with `SKIP LOCKED`; the full Host suite remains 73/73.
+Platform `30cc8dc` adds fixed-label `OpenAiModerationMetrics` counters and a
+bounded Prometheus latency histogram to `/metrics`, recording match, no-match,
+unavailable/protocol-error, and cancellation outcomes without content, rules,
+endpoints, or credentials. Release build and the full Host suite pass with
+0 warnings/0 errors and 74/74 Host tests; cross-process aggregation and enforced
+p95/error-budget alerts remain open.
 The SEC-01 slice now extends the single revision-3 Cap'n Proto contract with
 bounded request and response content and a dedicated response-evaluation method.
 Platform evaluates request rules before scheduling and non-stream response rules
@@ -302,7 +311,7 @@ supersedes them where commit, image, or late-usage results differ.
 | Gate | Result | Interpretation |
 | --- | --- | --- |
 | Current source-built policy and stack gate | `scalaapi-openai-moderation-0810e`, exit 0 | Platform `3da2e29` and Gateway `3da0d33` built from source; 44 empty-volume migration records applied and skipped on replay; Garnet-authenticated routing, OpenAI response match/unavailable 400/503, redacted audits, warning/critical alerts, normal settlement/replay, Chat/Embeddings/Realtime, Provider faults, restart/recovery, reconciliation/operator resolution, and S3 persistence passed. The trap removed all named containers and volumes and `podman ps -a` was empty afterward |
-| Current Platform tests | 235/235, exit 0; Release build 0 warnings/0 errors | 69 Grain, 73 Host, 45 Admin, and 48 Provider tests; Host includes the PostgreSQL-backed administrative-price precedence regression test and monotonic Garnet revision publication coverage |
+| Current Platform tests | 236/236, exit 0; Release build 0 warnings/0 errors | 69 Grain, 74 Host, 45 Admin, and 48 Provider tests; Host includes the PostgreSQL-backed administrative-price precedence regression test, monotonic Garnet revision publication coverage, and fixed-label OpenAI classifier metrics/secret-redaction assertions |
 | Gateway provider-completion crash recovery | `scalaapi-gateway-recovery-0907` source-built smoke passed; Gateway terminated after Provider completion, was explicitly restarted, and the same request retained one active hold in `reconciliation_needed` with no usage/debit | Durable lease evidence survives Gateway process loss; the one-shot marker prevents a restart loop, and the normal reconciliation/operator path remains authoritative |
 | Gateway before-provider-dispatch crash recovery | `scalaapi-gateway-dispatch-recovery-0911` source-built smoke passed; Gateway terminated before Provider contact, was explicitly restarted, and the same held lease became `expired` with released hold/idempotency and no usage/debit | Never-forwarded work remains safe to expire after Gateway loss and does not create an unknown-charge incident |
 | Platform before-provider-dispatch crash recovery | `scalaapi-platform-dispatch-recovery-0912` source-built smoke passed; Platform terminated after persisting an unforwarded lease/hold, the same container was restarted, and TTL changed `held` to `expired` with released hold/idempotency and no usage/debit/incident | Platform loss before the dispatch RPC response is safe to reclaim and cannot create a billable or unknown-charge outcome |
