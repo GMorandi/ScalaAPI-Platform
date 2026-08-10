@@ -193,8 +193,14 @@ multi-instance evidence remain release gates.
 Garnet is a separate Microsoft Garnet Server, pinned by image digest and reached by
 TCP on the private service network. The product uses Garnet's RESP transport but
 does not run Redis or an in-process RESP server. Development uses password
-authentication. Both clients support TLS 1.2/1.3 with certificate-name validation;
-production deployment must enable it and mount trust material through an override.
+authentication. Both clients support TLS 1.2/1.3 with certificate-name validation.
+The checked-in `deploy/stack/docker-compose.tls.yml` enables Garnet server TLS
+with a password-protected PFX, mounts the CA read-only into Platform and Gateway,
+and passes the configured DNS server name to both clients. The accompanying
+`deploy/stack/garnet_tls_smoke.sh` creates a short-lived test chain and exercises
+the full source smoke through the production TLS readiness path. The default
+development stack remains plaintext; certificate rotation/expiry and partitioned
+multi-process convergence remain deployment gates.
 
 Key namespaces are prefixed with `scalaapi:v1`. Auth, model, route, sticky-session,
 rate-window, content-policy revision, and invalidation keys have explicit TTLs or

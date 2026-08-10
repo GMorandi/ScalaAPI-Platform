@@ -2,7 +2,7 @@
 
 ## Checkpoint
 
-The next stage starts from Platform/Admin Web/User Web `e5c341d`, Gateway `3da0d33`, and read-only
+The next stage starts from Platform/Admin Web/User Web `bcf80e7`, Gateway `3da0d33`, and read-only
 reference `sub2api@43ec48d`.
 
 The greenfield baseline now starts from empty volumes, uses PostgreSQL as authority,
@@ -343,8 +343,8 @@ automated.
    secondary Silo/Gateway outage and settlement after rejoin. Remaining gates
    are Provider golden request/response fixtures, long WebSocket/backpressure
    soak, broader multi-Gateway/multi-Silo contention and partition recovery,
-   Garnet TLS/outage/rebuild, PostgreSQL/Garnet recovery, and backup/restore
-   drills.
+   Garnet certificate rotation/expiry and partition recovery, PostgreSQL/Garnet
+   convergence under concurrent clients, and backup/restore drills.
    Every scenario must run from empty volumes or an explicitly created fixture and
    must make the top-level command non-zero on failure.
 
@@ -715,10 +715,16 @@ Deliverables:
   configured Garnet DNS server name, and covers authenticated TLS RESP traffic
   plus wrong-name rejection with an in-process listener. Compose passes the CA
   path into Platform alongside the existing Gateway setting.
-- Complete the deployment gate with Garnet server-side TLS flags, read-only CA
-  mounts for both clients, password rejection, concurrent clients, flush, stale
-  invalidation version, restart, projection rebuild, certificate rotation, and
-  expiry/failure recovery. The client unit boundary is not deployment evidence.
+- Platform `bcf80e7` closes the server-side deployment slice with
+  `docker-compose.tls.yml` and `garnet_tls_smoke.sh`: Garnet PFX server TLS,
+  explicit password authentication, read-only relabeled CA/PFX mounts, and
+  Platform/Gateway DNS-validated readiness are exercised in the complete
+  source-built smoke. The client unit boundary is not deployment evidence.
+- Extend that gate with certificate rotation and expiry/failure recovery while
+  TLS is enabled, cache flush and stale-version recovery after restart, and
+  concurrent clients during Garnet outage, Silo replacement, and partition
+  recovery. Keep default development Compose plaintext and select TLS only via
+  the checked-in override.
 - Prove cache loss fails new rate-sensitive dispatch closed but does not block usage
   settlement, hold recovery, or outbox drain.
 - Exercise Silo removal, Gateway rolling replacement, and concurrent requests for
