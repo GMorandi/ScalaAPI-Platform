@@ -2390,6 +2390,18 @@ echo "PASS: durable batch download archive with manifest"
 assert_equals "stored" \
     "$(db_query "SELECT object_status FROM media_operations WHERE operation_id = '$media_batch_id';")" \
     "Media batch object status"
+db_query "UPDATE media_operations
+SET retention_until = now() - interval '1 minute',
+    object_next_check_at = now() - interval '1 minute'
+WHERE operation_id = '$media_batch_id';" >/dev/null
+media_batch_retention_complete() {
+    [[ "$(db_query "SELECT object_status FROM media_operations WHERE operation_id = '$media_batch_id';")" == "deleted" ]]
+}
+wait_for "media batch retention cleanup" 60 media_batch_retention_complete
+assert_equals "|deleted|" \
+    "$(db_query "SELECT object_key || '|' || object_status || '|' || output_url FROM media_operations WHERE operation_id = '$media_batch_id';")" \
+    "Media batch retention clears object metadata"
+echo "PASS: durable media retention deletes object and clears download metadata"
 
 terminal_state="$(db_query "
 SELECT

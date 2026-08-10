@@ -32,6 +32,28 @@ public sealed class MediaOperationHostedService(
                     await AbortUnknownAsync(expired.LeaseToken, "media_operation_expired", stoppingToken);
                 }
 
+                foreach (var retained in await store.ClaimExpiredOutputBatchAsync(16,
+                    stoppingToken))
+                {
+                    try
+                    {
+                        await objectStorage.DeleteAsync(retained.ObjectKey, stoppingToken);
+                        await store.ClearExpiredOutputAsync(retained, stoppingToken);
+                    }
+                    catch (Exception ex) when (ex is not OperationCanceledException)
+                    {
+                        var error = JsonSerializer.Serialize(new
+                        {
+                            type = "media_retention_delete_failed",
+                            message = ex.Message.Length > 500 ? ex.Message[..500] : ex.Message,
+                        });
+                        await store.RecordExpiredOutputFailureAsync(retained, error,
+                            stoppingToken);
+                        logger.LogWarning(ex, "Media retention cleanup failed for {OperationId}",
+                            retained.OperationId);
+                    }
+                }
+
                 var due = await store.ClaimDueAsync(16, stoppingToken);
                 await Parallel.ForEachAsync(due,
                     new ParallelOptions { MaxDegreeOfParallelism = 8, CancellationToken = stoppingToken },

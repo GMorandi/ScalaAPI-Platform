@@ -537,6 +537,8 @@ public class DispatchService
     private readonly ContentPolicyService _contentPolicy;
     private readonly TimeSpan _leaseTtl;
     private readonly decimal _maxReservationUsd;
+    private readonly int _asyncMediaRetentionHours;
+    private readonly int _batchMediaRetentionHours;
 
     public DispatchService(IClusterClient cluster, RequestLeaseStore leases,
                            MediaOperationStore mediaOperations,
@@ -568,6 +570,10 @@ public class DispatchService
             configuration.GetValue("Dispatch:LeaseTtlSeconds", 360));
         _maxReservationUsd = Math.Max(0.01m,
             configuration.GetValue("Dispatch:MaxReservationUsd", 10m));
+        _asyncMediaRetentionHours = Math.Clamp(
+            configuration.GetValue("ObjectStorage:AsyncRetentionHours", 24), 1, 24 * 30);
+        _batchMediaRetentionHours = Math.Clamp(
+            configuration.GetValue("ObjectStorage:BatchRetentionHours", 24 * 7), 1, 24 * 90);
     }
 
     public async Task<DispatchResult> HandleDispatch(DispatchRequest req)
@@ -821,10 +827,13 @@ public class DispatchService
             if (isMediaOperation)
             {
                 var ttl = capability == "images_async" ? TimeSpan.FromHours(1) : TimeSpan.FromHours(24);
+                var retentionUntil = DateTime.UtcNow.AddHours(
+                    capability == "images_async"
+                        ? _asyncMediaRetentionHours : _batchMediaRetentionHours);
                 var media = await _mediaOperations.CreateOrGetAsync(
                     auth.ApiKeyId, accountId, req.RequestId, selection.LeaseToken!,
                     req.Operation, req.IdempotencyKey, req.RequestFingerprint,
-                    creds.Platform, DateTime.UtcNow.Add(ttl));
+                    creds.Platform, DateTime.UtcNow.Add(ttl), retentionUntil);
                 if (media.Conflict)
                 {
                     await _leases.AbortAsync(selection.LeaseToken!,

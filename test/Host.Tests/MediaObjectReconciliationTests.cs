@@ -112,6 +112,67 @@ public sealed class MediaObjectReconciliationTests
         }
     }
 
+    [Fact]
+    public async Task ExpiredOutputClaimIsRetryableAndClearsMetadataOnce()
+    {
+        var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
+        if (string.IsNullOrWhiteSpace(connectionString)) return;
+
+        await using var dataSource = NpgsqlDataSource.Create(connectionString);
+        var suffix = Guid.NewGuid().ToString("N");
+        var leaseToken = $"media-retention-lease-{suffix}";
+        var operationId = $"med_retention_{suffix}";
+        var objectKey = $"media/{operationId}.png";
+        await InsertSettledMediaAsync(dataSource, leaseToken, operationId, objectKey);
+        var store = new MediaOperationStore(dataSource);
+
+        try
+        {
+            var claimed = await store.ClaimExpiredOutputBatchAsync(8);
+            var operation = Assert.Single(claimed);
+            Assert.Equal("pending", operation.ObjectStatus);
+            Assert.Empty(await store.ClaimExpiredOutputBatchAsync(8));
+
+            Assert.True(await store.RecordExpiredOutputFailureAsync(operation,
+                "{\"type\":\"storage_timeout\"}"));
+            await using (var due = dataSource.CreateCommand("""
+                UPDATE media_operations
+                SET object_next_check_at = now() - interval '1 second'
+                WHERE operation_id = $1
+                """))
+            {
+                due.Parameters.AddWithValue(operationId);
+                await due.ExecuteNonQueryAsync();
+            }
+
+            var retry = Assert.Single(await store.ClaimExpiredOutputBatchAsync(8));
+            Assert.Equal("pending", retry.ObjectStatus);
+            Assert.True(await store.ClearExpiredOutputAsync(retry));
+            Assert.False(await store.ClearExpiredOutputAsync(retry));
+            await using var state = dataSource.CreateCommand("""
+                SELECT object_key, object_status, output_url
+                FROM media_operations WHERE operation_id = $1
+                """);
+            state.Parameters.AddWithValue(operationId);
+            await using var reader = await state.ExecuteReaderAsync();
+            Assert.True(await reader.ReadAsync());
+            Assert.Equal("", reader.GetString(0));
+            Assert.Equal("deleted", reader.GetString(1));
+            Assert.Equal("", reader.GetString(2));
+        }
+        finally
+        {
+            await using var media = dataSource.CreateCommand(
+                "DELETE FROM media_operations WHERE operation_id = $1");
+            media.Parameters.AddWithValue(operationId);
+            await media.ExecuteNonQueryAsync();
+            await using var lease = dataSource.CreateCommand(
+                "DELETE FROM request_leases WHERE lease_token = $1");
+            lease.Parameters.AddWithValue(leaseToken);
+            await lease.ExecuteNonQueryAsync();
+        }
+    }
+
     private static async Task InsertSettledMediaAsync(NpgsqlDataSource dataSource,
         string leaseToken, string operationId, string objectKey)
     {
@@ -133,11 +194,12 @@ public sealed class MediaObjectReconciliationTests
                 status, api_key_id, account_id, request_id, lease_token, provider,
                 upstream_task_id, progress, output_url, content_type, expires_at,
                 object_key, object_etag, object_size, object_status, object_error,
-                object_next_check_at)
+                object_next_check_at, retention_until)
             VALUES ($1, $2, 'media-fingerprint', 'images_create', 'succeeded',
                     88001, 88003, $3, $4, 'mock', 'task-1', 100,
                     'https://provider.test/output.png', 'image/png', now(),
-                    $5, 'etag-1', 5, 'stored', '{}'::jsonb, now())
+                    $5, 'etag-1', 5, 'stored', '{}'::jsonb, now(),
+                    now() - interval '1 minute')
             """);
         media.Parameters.AddWithValue(operationId);
         media.Parameters.AddWithValue($"idem-{operationId}");
