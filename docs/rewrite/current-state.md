@@ -20,7 +20,7 @@ The current tracked inventory is:
   CTest cases.
 - Platform: 120 hand-written production C# files, 5 generated Cap'n Proto/global C# files, 64 test/benchmark C# files, and 240 passing tests: 69 Grain, 77 Host, 46 Admin, and 48 Provider mock tests.
   The Admin Web source now has 29 TypeScript/TSX files and 16 page views.
-- Product surface: 128 direct Admin API route declarations, 50 product tables,
+- Product surface: 129 direct Admin API route declarations, 50 product tables,
   22 SQLSugar entity types, 29 Admin Web TypeScript/TSX files and 16 page views,
   plus 21 User Web TypeScript/TSX files and 14 user views.
 - Reference scope: approximately 612 Sub2API route registrations, 39 concrete
