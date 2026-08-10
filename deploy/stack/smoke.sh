@@ -5,6 +5,8 @@ stack_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "$stack_dir/../.." && pwd)"
 compose_file="$stack_dir/docker-compose.yml"
 project="${SMOKE_PROJECT_NAME:-scalaapi-smoke-$$}"
+secondary_platform_container=""
+secondary_gateway_container=""
 
 if [[ ! "$project" =~ ^[a-z0-9][a-z0-9_-]*$ ]]; then
     echo "SMOKE_PROJECT_NAME must contain only lowercase letters, numbers, dashes, and underscores" >&2
@@ -86,6 +88,11 @@ cleanup() {
         compose ps >&2
         compose logs --tail 200 >&2
     fi
+    for extra_container in "$secondary_platform_container" "$secondary_gateway_container"; do
+        if [[ -n "$extra_container" ]]; then
+            "$container_cli" rm -f "$extra_container" >/dev/null 2>&1
+        fi
+    done
     if [[ "${KEEP_STACK:-0}" == "1" ]]; then
         echo "Keeping Compose project '$project' (KEEP_STACK=1)" >&2
     else
@@ -907,6 +914,96 @@ admin_request POST /admin/pricing/versions \
         --arg from "$effective_from" \
         '{version:$version,model:$model,inputUsdPerMillion:0,outputUsdPerMillion:0,cacheReadUsdPerMillion:0,cacheWriteUsdPerMillion:0,effectiveFrom:$from,effectiveUntil:null}')" \
     "$admin_token" >/dev/null
+
+if [[ "${MULTI_PROCESS_METRICS_SMOKE_ONLY:-0}" == "1" ]]; then
+    metric_rule_response="$(admin_request POST /admin/content-audit/rules \
+        '{"pattern":"mock response","actionType":"block","scope":"chat_completions","status":"active","stage":"response","classifier":"openai","redactContent":true}' \
+        "$admin_token")"
+    metric_rule_id="$(jq -er '.id' <<<"$metric_rule_response")"
+    metric_rule_propagated() {
+        [[ "$(db_query "SELECT count(*) FROM content_policy_change_events WHERE rule_id = $metric_rule_id AND action = 'created' AND propagated_at IS NOT NULL;")" == "1" ]]
+    }
+    wait_for "multi-process metric policy propagation" 30 metric_rule_propagated
+    assert_equals "0" "$(db_query "SELECT count(*) FROM content_classifier_metric_snapshots;")" \
+        "Empty classifier snapshot baseline"
+
+    secondary_socket="/var/run/scalaapi/dispatch-metrics.sock"
+    secondary_platform_container="${project}_platform-metrics-2"
+    compose run --detach --no-deps --name "$secondary_platform_container" \
+        -e "CapnpRpc__SocketPath=$secondary_socket" \
+        -e "ASPNETCORE_URLS=http://0.0.0.0:5002" platform-silo >/dev/null
+    wait_for "secondary Platform readiness" 120 "$container_cli" exec \
+        "$secondary_platform_container" curl -fsS http://127.0.0.1:5002/ready >/dev/null
+    secondary_silos_ready() {
+        [[ "$(db_query "SELECT count(*) FROM OrleansMembershipTable WHERE DeploymentId = 'platform' AND Status = 3;")" -ge 2 ]]
+    }
+    wait_for "two active Platform silos" 60 secondary_silos_ready
+
+    secondary_gateway_container="${project}_gateway-metrics-2"
+    compose run --detach --no-deps --name "$secondary_gateway_container" \
+        -e "CAPNP_UDS_PATH=$secondary_socket" \
+        -e GATEWAY_USAGE_DB=/var/lib/scalaapi/metrics-usage-outbox.db gateway >/dev/null
+    wait_for "secondary Gateway readiness" 90 "$container_cli" exec \
+        "$secondary_gateway_container" curl -fsS http://127.0.0.1:8080/ready >/dev/null
+
+    secondary_chat_request() {
+        local request_id=$1
+        "$container_cli" exec "$secondary_gateway_container" curl -sS --max-time 30 \
+            --write-out $'\n%{http_code}' http://127.0.0.1:8080/v1/chat/completions \
+            -H "Authorization: Bearer $api_key" \
+            -H "Content-Type: application/json" \
+            -H "X-Request-ID: $request_id" \
+            -H "Idempotency-Key: ${request_id}-idem" \
+            --data '{"model":"gpt-4o","messages":[{"role":"user","content":"openai-moderation-flag-marker"}],"stream":false}'
+    }
+
+    metric_request_one="smoke-metric-process-one-${suffix}"
+    metric_response="$(secondary_chat_request "$metric_request_one")"
+    assert_equals "400" "${metric_response##*$'\n'}" \
+        "Secondary Platform OpenAI classifier response"
+    metric_snapshot_state() {
+        db_query "SELECT count(*) || '|' || coalesce(sum(requests), 0) || '|' || count(DISTINCT instance_id) FROM content_classifier_metric_snapshots;"
+    }
+    first_metric_snapshot_ready() {
+        [[ "$(metric_snapshot_state)" == "1|1|1" ]]
+    }
+    wait_for "first runtime classifier snapshot" 30 first_metric_snapshot_ready
+    assert_equals "1|1|1" "$(metric_snapshot_state)" \
+        "First runtime classifier snapshot"
+
+    "$container_cli" restart "$secondary_platform_container" >/dev/null
+    wait_for "secondary Platform readiness after restart" 120 "$container_cli" exec \
+        "$secondary_platform_container" curl -fsS http://127.0.0.1:5002/ready >/dev/null
+    "$container_cli" restart "$secondary_gateway_container" >/dev/null
+    wait_for "secondary Gateway readiness after restart" 90 "$container_cli" exec \
+        "$secondary_gateway_container" curl -fsS http://127.0.0.1:8080/ready >/dev/null
+
+    metric_request_two="smoke-metric-process-two-${suffix}"
+    metric_response="$(secondary_chat_request "$metric_request_two")"
+    assert_equals "400" "${metric_response##*$'\n'}" \
+        "Restarted Platform OpenAI classifier response"
+    restarted_metric_snapshot_ready() {
+        [[ "$(metric_snapshot_state)" == "2|2|2" ]]
+    }
+    wait_for "restarted runtime classifier snapshot" 30 restarted_metric_snapshot_ready
+    assert_equals "2|2|2" "$(metric_snapshot_state)" \
+        "Cross-process classifier snapshot aggregation"
+    assert_equals "2|2|2|2" "$(db_query "
+SELECT count(*) || '|' || count(DISTINCT instance_id) || '|' ||
+       count(*) FILTER (WHERE sequence = 1) || '|' || coalesce(sum(requests), 0)
+FROM content_classifier_metric_snapshots;")" \
+        "Restarted instance sequence and request totals"
+    assert_equals "2|2|2" "$(db_query "
+SELECT (SELECT count(*) FROM request_leases
+        WHERE request_id IN ('$metric_request_one', '$metric_request_two')) || '|' ||
+       (SELECT count(*) FROM usage_events WHERE request_id IN ('$metric_request_one', '$metric_request_two')) || '|' ||
+       (SELECT count(*) FROM balance_ledger b JOIN request_leases l USING (lease_token)
+        WHERE l.request_id IN ('$metric_request_one', '$metric_request_two') AND b.entry_type = 'usage_debit');")" \
+        "Runtime classifier audit and exactly-once settlement"
+    admin_request DELETE "/admin/content-audit/rules/$metric_rule_id" "" "$admin_token" >/dev/null
+    echo "PASS: two Platform processes flushed OpenAI classifier metrics, restarted, and aggregated exactly once"
+    exit 0
+fi
 
 sleep 6
 chat_body='{"model":"gpt-4o","messages":[{"role":"user","content":"greenfield compose smoke"}],"stream":false}'
