@@ -278,12 +278,15 @@ public sealed class OpenAiModerationMetrics
     }
 
     public string RenderPrometheus(OpenAiModerationMetricTotals? persisted = null,
-        OpenAiModerationMetricBudgetOptions? budgetOptions = null)
+        OpenAiModerationMetricBudgetOptions? budgetOptions = null,
+        OpenAiModerationMetricTotals? persistedBudget = null)
     {
-        var total = (persisted ?? OpenAiModerationMetricTotals.Empty)
-            .Add(CaptureValues());
+        var current = CaptureValues();
+        var total = (persisted ?? OpenAiModerationMetricTotals.Empty).Add(current);
+        var budgetTotals = (persistedBudget ?? persisted
+            ?? OpenAiModerationMetricTotals.Empty).Add(current);
         var budget = OpenAiModerationMetricCalculator.Evaluate(
-            total, budgetOptions ?? OpenAiModerationMetricBudgetOptions.Defaults);
+            budgetTotals, budgetOptions ?? OpenAiModerationMetricBudgetOptions.Defaults);
         var requests = total.Requests;
         var cumulative = 0L;
         var builder = new StringBuilder();
@@ -310,11 +313,11 @@ public sealed class OpenAiModerationMetrics
         builder.AppendLine($"platform_content_classifier_duration_seconds_count{{classifier=\"openai\"}} {requests - total.Cancellations}");
         builder.AppendLine($"platform_content_classifier_duration_seconds_sum{{classifier=\"openai\"}} {(total.DurationTicks / (double)TimeSpan.TicksPerSecond).ToString(System.Globalization.CultureInfo.InvariantCulture)}");
         builder.AppendLine("# TYPE platform_content_classifier_unavailable_ratio gauge");
-        var evaluated = Math.Max(0, requests - total.Cancellations);
-        var unavailableRatio = evaluated == 0 ? 0 : (double)total.Unavailable / evaluated;
-        builder.AppendLine($"platform_content_classifier_unavailable_ratio{{classifier=\"openai\"}} {unavailableRatio.ToString(System.Globalization.CultureInfo.InvariantCulture)}");
+        builder.AppendLine($"platform_content_classifier_unavailable_ratio{{classifier=\"openai\"}} {budget.UnavailableRatio.ToString(System.Globalization.CultureInfo.InvariantCulture)}");
         builder.AppendLine("# TYPE platform_content_classifier_duration_seconds_p95 gauge");
         builder.AppendLine($"platform_content_classifier_duration_seconds_p95{{classifier=\"openai\"}} {budget.P95Seconds.ToString(System.Globalization.CultureInfo.InvariantCulture)}");
+        builder.AppendLine("# TYPE platform_content_classifier_budget_window_seconds gauge");
+        builder.AppendLine($"platform_content_classifier_budget_window_seconds{{classifier=\"openai\"}} {(budgetOptions ?? OpenAiModerationMetricBudgetOptions.Defaults).WindowSeconds}");
         builder.AppendLine("# TYPE platform_content_classifier_unavailable_budget_breached gauge");
         builder.AppendLine($"platform_content_classifier_unavailable_budget_breached{{classifier=\"openai\"}} {(budget.UnavailableBreached ? 1 : 0)}");
         builder.AppendLine("# TYPE platform_content_classifier_p95_budget_breached gauge");

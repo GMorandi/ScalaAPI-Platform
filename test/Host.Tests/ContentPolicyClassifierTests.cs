@@ -264,7 +264,7 @@ public sealed class ContentPolicyClassifierTests
             [0, 0, 0, 0, 10, 0, 0, 0, 0, 0]);
         try
         {
-            var budget = new OpenAiModerationMetricBudgetOptions(0.05, 0.1, 10);
+            var budget = new OpenAiModerationMetricBudgetOptions(0.05, 0.1, 10, 60);
             await store.AppendAndEvaluateAsync(first, budget);
             await store.AppendAndEvaluateAsync(first, budget);
             await store.AppendAndEvaluateAsync(second, budget);
@@ -294,6 +294,32 @@ public sealed class ContentPolicyClassifierTests
             Assert.Equal(2, alertRows.Count);
             Assert.All(alertRows, row => Assert.Equal("open", row.Status));
             Assert.All(alertRows, row => Assert.Equal(20, row.Samples));
+
+            await using (var age = dataSource.CreateCommand("""
+                UPDATE content_classifier_metric_snapshots
+                SET captured_at = now() - interval '1 hour'
+                WHERE instance_id = ANY($1)
+                """))
+            {
+                age.Parameters.AddWithValue(new[] { firstInstance, secondInstance });
+                await age.ExecuteNonQueryAsync();
+            }
+            await store.EvaluateCurrentBudgetAsync(budget);
+            var windowTotals = await store.ReadWindowTotalsAsync(budget.WindowSeconds);
+            Assert.Equal(0, windowTotals.Requests);
+            await using var resolved = dataSource.CreateCommand("""
+                SELECT status, sample_count
+                FROM content_classifier_budget_alerts
+                WHERE event_key IN ('openai:unavailable_ratio', 'openai:p95_latency')
+                ORDER BY event_key
+                """);
+            await using var resolvedReader = await resolved.ExecuteReaderAsync();
+            var resolvedRows = new List<(string Status, long Samples)>();
+            while (await resolvedReader.ReadAsync())
+                resolvedRows.Add((resolvedReader.GetString(0), resolvedReader.GetInt64(1)));
+            Assert.Equal(2, resolvedRows.Count);
+            Assert.All(resolvedRows, row => Assert.Equal("resolved", row.Status));
+            Assert.All(resolvedRows, row => Assert.Equal(0, row.Samples));
         }
         finally
         {

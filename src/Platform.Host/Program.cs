@@ -337,8 +337,14 @@ app.MapGet("/metrics", async (NpgsqlDataSource db,
     var persistedClassifierMetrics = openAiMetricStore is null
         ? null
         : await openAiMetricStore.ReadTotalsAsync(ct);
+    var persistedClassifierBudgetMetrics = openAiMetricStore is null
+        ? null
+        : await openAiMetricStore.ReadWindowTotalsAsync(
+            (openAiMetricBudget ?? OpenAiModerationMetricBudgetOptions.Defaults).WindowSeconds,
+            ct);
     return Results.Text(body + (openAiMetrics?.RenderPrometheus(
-        persistedClassifierMetrics, openAiMetricBudget) ?? ""),
+        persistedClassifierMetrics, openAiMetricBudget,
+        persistedClassifierBudgetMetrics) ?? ""),
         "text/plain; version=0.0.4");
 });
 

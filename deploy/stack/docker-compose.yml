@@ -97,6 +97,7 @@ services:
       ContentClassifier__OpenAI__Budget__MaxUnavailableRatio: ${CONTENT_CLASSIFIER_OPENAI_BUDGET_MAX_UNAVAILABLE_RATIO:-0.05}
       ContentClassifier__OpenAI__Budget__MaxP95Seconds: ${CONTENT_CLASSIFIER_OPENAI_BUDGET_MAX_P95_SECONDS:-2.5}
       ContentClassifier__OpenAI__Budget__MinimumSamples: ${CONTENT_CLASSIFIER_OPENAI_BUDGET_MINIMUM_SAMPLES:-20}
+      ContentClassifier__OpenAI__Budget__WindowSeconds: ${CONTENT_CLASSIFIER_OPENAI_BUDGET_WINDOW_SECONDS:-900}
       Dispatch__LeaseTtlSeconds: ${DISPATCH_LEASE_TTL_SECONDS:-360}
       Pricing__AllowInsecureProviderEndpoints: ${PRICING_ALLOW_INSECURE_PROVIDER_ENDPOINTS:-true}
       Pricing__Providers__mock__Endpoint: ${PRICING_PROVIDER_MOCK_ENDPOINT:-http://provider-mock:8081/v1/pricing}

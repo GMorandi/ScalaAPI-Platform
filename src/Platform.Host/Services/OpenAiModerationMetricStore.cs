@@ -64,10 +64,11 @@ public sealed record OpenAiModerationMetricSnapshotValues(
 public sealed record OpenAiModerationMetricBudgetOptions(
     double MaxUnavailableRatio,
     double MaxP95Seconds,
-    long MinimumSamples)
+    long MinimumSamples,
+    long WindowSeconds = 900)
 {
     public static OpenAiModerationMetricBudgetOptions Defaults =>
-        new(0.05, 2.5, 20);
+        new(0.05, 2.5, 20, 900);
 
     public static OpenAiModerationMetricBudgetOptions FromConfiguration(
         IConfiguration configuration)
@@ -75,7 +76,8 @@ public sealed record OpenAiModerationMetricBudgetOptions(
         var options = new OpenAiModerationMetricBudgetOptions(
             configuration.GetValue("ContentClassifier:OpenAI:Budget:MaxUnavailableRatio", 0.05),
             configuration.GetValue("ContentClassifier:OpenAI:Budget:MaxP95Seconds", 2.5),
-            configuration.GetValue("ContentClassifier:OpenAI:Budget:MinimumSamples", 20L));
+            configuration.GetValue("ContentClassifier:OpenAI:Budget:MinimumSamples", 20L),
+            configuration.GetValue("ContentClassifier:OpenAI:Budget:WindowSeconds", 900L));
         if (!double.IsFinite(options.MaxUnavailableRatio)
             || options.MaxUnavailableRatio is < 0 or > 1)
             throw new InvalidOperationException(
@@ -87,6 +89,9 @@ public sealed record OpenAiModerationMetricBudgetOptions(
         if (options.MinimumSamples is < 1 or > 100_000)
             throw new InvalidOperationException(
                 "ContentClassifier:OpenAI:Budget:MinimumSamples must be between 1 and 100000");
+        if (options.WindowSeconds is < 60 or > 86_400)
+            throw new InvalidOperationException(
+                "ContentClassifier:OpenAI:Budget:WindowSeconds must be between 60 and 86400");
         return options;
     }
 }
@@ -187,16 +192,22 @@ public sealed class OpenAiModerationMetricStore(NpgsqlDataSource dataSource)
             await insert.ExecuteNonQueryAsync(ct);
         }
 
-        var totals = await ReadTotalsAsync(connection, transaction, ct);
-        var evaluation = OpenAiModerationMetricCalculator.Evaluate(totals, options);
-        await UpsertBudgetAlertAsync(connection, transaction,
-            "openai:unavailable_ratio", "unavailable_ratio",
-            evaluation.UnavailableBreached, evaluation.UnavailableRatio,
-            options.MaxUnavailableRatio, evaluation.EvaluatedSamples, ct);
-        await UpsertBudgetAlertAsync(connection, transaction,
-            "openai:p95_latency", "p95_latency",
-            evaluation.P95Breached, evaluation.P95Seconds,
-            options.MaxP95Seconds, evaluation.EvaluatedSamples, ct);
+        var totals = await ReadTotalsAsync(connection, transaction,
+            options.WindowSeconds, ct);
+        await EvaluateBudgetAsync(connection, transaction, totals, options, ct);
+        await transaction.CommitAsync(ct);
+    }
+
+    public async Task EvaluateCurrentBudgetAsync(
+        OpenAiModerationMetricBudgetOptions options,
+        CancellationToken ct = default)
+    {
+        ValidateWindow(options.WindowSeconds);
+        await using var connection = await dataSource.OpenConnectionAsync(ct);
+        await using var transaction = await connection.BeginTransactionAsync(ct);
+        var totals = await ReadTotalsAsync(connection, transaction,
+            options.WindowSeconds, ct);
+        await EvaluateBudgetAsync(connection, transaction, totals, options, ct);
         await transaction.CommitAsync(ct);
     }
 
@@ -226,10 +237,40 @@ public sealed class OpenAiModerationMetricStore(NpgsqlDataSource dataSource)
                 .Select(reader.GetInt64).ToArray());
     }
 
+    public async Task<OpenAiModerationMetricTotals> ReadWindowTotalsAsync(
+        long windowSeconds, CancellationToken ct = default)
+    {
+        ValidateWindow(windowSeconds);
+        await using var command = dataSource.CreateCommand("""
+            SELECT
+                COALESCE(sum(requests), 0), COALESCE(sum(matches), 0),
+                COALESCE(sum(no_matches), 0), COALESCE(sum(unavailable), 0),
+                COALESCE(sum(protocol_errors), 0), COALESCE(sum(cancellations), 0),
+                COALESCE(sum(duration_ticks), 0),
+                COALESCE(sum(bucket_0), 0), COALESCE(sum(bucket_1), 0),
+                COALESCE(sum(bucket_2), 0), COALESCE(sum(bucket_3), 0),
+                COALESCE(sum(bucket_4), 0), COALESCE(sum(bucket_5), 0),
+                COALESCE(sum(bucket_6), 0), COALESCE(sum(bucket_7), 0),
+                COALESCE(sum(bucket_8), 0), COALESCE(sum(bucket_9), 0)
+            FROM content_classifier_metric_snapshots
+            WHERE classifier = 'openai'
+              AND captured_at >= now() - ($1::bigint * interval '1 second')
+            """);
+        command.Parameters.AddWithValue(windowSeconds);
+        await using var reader = await command.ExecuteReaderAsync(ct);
+        await reader.ReadAsync(ct);
+        return new(
+            reader.GetInt64(0), reader.GetInt64(1), reader.GetInt64(2),
+            reader.GetInt64(3), reader.GetInt64(4), reader.GetInt64(5),
+            reader.GetInt64(6), Enumerable.Range(7, 10)
+                .Select(reader.GetInt64).ToArray());
+    }
+
     private static async Task<OpenAiModerationMetricTotals> ReadTotalsAsync(
         NpgsqlConnection connection, NpgsqlTransaction transaction,
-        CancellationToken ct)
+        long windowSeconds, CancellationToken ct)
     {
+        ValidateWindow(windowSeconds);
         await using var command = new NpgsqlCommand("""
             SELECT
                 COALESCE(sum(requests), 0), COALESCE(sum(matches), 0),
@@ -243,7 +284,9 @@ public sealed class OpenAiModerationMetricStore(NpgsqlDataSource dataSource)
                 COALESCE(sum(bucket_8), 0), COALESCE(sum(bucket_9), 0)
             FROM content_classifier_metric_snapshots
             WHERE classifier = 'openai'
+              AND captured_at >= now() - ($1::bigint * interval '1 second')
             """, connection, transaction);
+        command.Parameters.AddWithValue(windowSeconds);
         await using var reader = await command.ExecuteReaderAsync(ct);
         await reader.ReadAsync(ct);
         return new(
@@ -251,6 +294,23 @@ public sealed class OpenAiModerationMetricStore(NpgsqlDataSource dataSource)
             reader.GetInt64(3), reader.GetInt64(4), reader.GetInt64(5),
             reader.GetInt64(6), Enumerable.Range(7, 10)
                 .Select(reader.GetInt64).ToArray());
+    }
+
+    private static async Task EvaluateBudgetAsync(
+        NpgsqlConnection connection, NpgsqlTransaction transaction,
+        OpenAiModerationMetricTotals totals,
+        OpenAiModerationMetricBudgetOptions options,
+        CancellationToken ct)
+    {
+        var evaluation = OpenAiModerationMetricCalculator.Evaluate(totals, options);
+        await UpsertBudgetAlertAsync(connection, transaction,
+            "openai:unavailable_ratio", "unavailable_ratio",
+            evaluation.UnavailableBreached, evaluation.UnavailableRatio,
+            options.MaxUnavailableRatio, evaluation.EvaluatedSamples, ct);
+        await UpsertBudgetAlertAsync(connection, transaction,
+            "openai:p95_latency", "p95_latency",
+            evaluation.P95Breached, evaluation.P95Seconds,
+            options.MaxP95Seconds, evaluation.EvaluatedSamples, ct);
     }
 
     private static async Task UpsertBudgetAlertAsync(
@@ -318,6 +378,12 @@ public sealed class OpenAiModerationMetricStore(NpgsqlDataSource dataSource)
             : 0m;
     }
 
+    private static void ValidateWindow(long windowSeconds)
+    {
+        if (windowSeconds is < 60 or > 86_400)
+            throw new ArgumentOutOfRangeException(nameof(windowSeconds));
+    }
+
     private static void Validate(OpenAiModerationMetricSnapshot snapshot)
     {
         if (snapshot.InstanceId == Guid.Empty || snapshot.Sequence <= 0)
@@ -369,7 +435,10 @@ public sealed class OpenAiModerationMetricFlushService(
             {
                 var candidate = metrics.Capture(_instanceId, _nextSequence);
                 if (candidate.Requests == 0 && candidate.Cancellations == 0)
+                {
+                    await store.EvaluateCurrentBudgetAsync(budgetOptions, ct);
                     return;
+                }
                 _pending = candidate;
             }
             await store.AppendAndEvaluateAsync(_pending, budgetOptions, ct);
