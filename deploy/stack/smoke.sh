@@ -64,6 +64,15 @@ recreate_service() {
     fi
 }
 
+start_platform_after_fault() {
+    # Podman Compose may leave an exited container stopped even with
+    # restart: on-failure. Start the same container so the SQL claim and
+    # fault marker survive the recovery boundary.
+    compose start platform-silo >/dev/null
+    wait_for "Platform recovery after fault hook" 90 compose exec -T platform-silo \
+        curl -fsS http://127.0.0.1:5000/ready >/dev/null
+}
+
 cleanup() {
     local status=$?
     set +e
@@ -152,6 +161,7 @@ gateway_hook_safe_expiry=0
 platform_dispatch_fault_safe_expiry=0
 platform_dispatch_retry=0
 platform_worker_reclaim=0
+platform_fault_handled=0
 
 wait_for() {
     local description=$1
@@ -705,6 +715,22 @@ content_policy_rule_id="$(jq -er '.id' <<<"$content_policy_rule")"
 content_policy_change_propagated() {
     [[ "$(db_query "SELECT count(*) FROM content_policy_change_events WHERE rule_id = $content_policy_rule_id AND action = 'created' AND propagated_at IS NOT NULL;")" == "1" ]]
 }
+platform_policy_faulted() {
+    local container_id
+    container_id="$(service_container_id platform-silo 2>/dev/null || true)"
+    [[ -n "$container_id" ]] && [[ "$($container_cli inspect --format '{{.State.Status}}' "$container_id" 2>/dev/null)" != "running" ]]
+}
+platform_policy_fault_claimed() {
+    compose exec -T platform-silo test -f \
+        "/var/run/scalaapi/fault-hooks/platform-after-policy-outbox-claim.claimed"
+}
+if [[ "${PLATFORM_FAULT_HOOK:-}" == "platform.after_policy_outbox_claim" ]]; then
+    wait_for "Platform policy outbox claim fault" 45 platform_policy_faulted
+    start_platform_after_fault
+    wait_for "Platform policy outbox claim marker" 30 platform_policy_fault_claimed
+    platform_fault_handled=1
+    echo "PASS: Platform policy outbox claim was reclaimed after process restart"
+fi
 wait_for "content policy change propagation" 30 content_policy_change_propagated
 content_policy_response="$(curl -sS --max-time 20 --write-out $'\n%{http_code}' \
     "$gateway_url/v1/chat/completions" \
@@ -794,11 +820,17 @@ scoped_revoked_result="$(curl -sS --max-time 20 --write-out $'\n%{http_code}' \
     -H "Idempotency-Key: smoke-scoped-revoked-idem-${suffix}" \
     --data '{"model":"gpt-4o","messages":[{"role":"user","content":"revoked"}],"stream":false}')"
 assert_equals "401" "${scoped_revoked_result##*$'\n'}" "Revoked API key HTTP status"
-assert_equals "1|1|1" "$(db_query "
+scoped_api_key_audit_state=""
+scoped_api_key_audit_ready() {
+    scoped_api_key_audit_state="$(db_query "
 SELECT
   (SELECT count(*) FROM api_key_audit_events WHERE api_key_id = $scoped_api_key_id AND action = 'updated') || '|' ||
   (SELECT count(*) FROM api_key_audit_events WHERE api_key_id = $scoped_api_key_id AND action = 'revoked') || '|' ||
-  (SELECT count(*) FROM request_leases WHERE request_id = '$scoped_updated_request_id' AND status = 'completed');")" \
+  (SELECT count(*) FROM request_leases WHERE request_id = '$scoped_updated_request_id' AND status = 'completed');")"
+    [[ "$scoped_api_key_audit_state" == "1|1|1" ]]
+}
+wait_for "API-key update/revoke audit persistence" 30 scoped_api_key_audit_ready
+assert_equals "1|1|1" "$scoped_api_key_audit_state" \
     "Admin API-key update/revoke audit and lease invariants"
 
 user_relogin_response="$(admin_request POST /auth/login \
@@ -1150,15 +1182,6 @@ assert_equals "1|1|1|0|0|1" "$response_stream_policy_state" \
 echo "PASS: streaming response policy with withheld first event and retained hold"
 admin_request DELETE "/admin/content-audit/rules/$response_policy_rule_id" "" "$admin_token" >/dev/null
 echo "PASS: response content policy with hidden output, normal settlement, and exact replay"
-start_platform_after_fault() {
-    # Podman Compose may leave an exited container stopped even with
-    # restart: on-failure. Start the same container so the SQL lease and
-    # fault marker survive the recovery boundary.
-    compose start platform-silo >/dev/null
-    wait_for "Platform recovery after fault hook" 90 compose exec -T platform-silo \
-        curl -fsS http://127.0.0.1:5000/ready >/dev/null
-}
-
 platform_dispatch_fault_claimed() {
     local marker_name=platform-before-provider-dispatch.claimed
     if [[ "${PLATFORM_FAULT_HOOK:-}" == "platform.before_provider_dispatch_retry" ]]; then
@@ -1405,7 +1428,7 @@ fi
 
 wait_for "chat settlement" 30 chat_settled
 
-if [[ -n "${PLATFORM_FAULT_HOOK:-}" && \
+if (( platform_fault_handled == 0 )) && [[ -n "${PLATFORM_FAULT_HOOK:-}" && \
       "${PLATFORM_FAULT_HOOK}" != "platform.before_settlement_commit" && \
       "${PLATFORM_FAULT_HOOK}" != "platform.before_provider_dispatch" && \
       "${PLATFORM_FAULT_HOOK}" != "platform.before_provider_dispatch_retry" ]]; then

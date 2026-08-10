@@ -17,7 +17,8 @@ internal static class ContentPolicyPropagationLock
 public sealed class ContentPolicyPropagationService(
     NpgsqlDataSource dataSource,
     GarnetWriteThroughService garnet,
-    ILogger<ContentPolicyPropagationService> logger)
+    ILogger<ContentPolicyPropagationService> logger,
+    FaultInjection? faults = null)
 {
     public async Task<ContentPolicyPropagationResult> PropagateOnceAsync(
         string workerId, CancellationToken ct = default)
@@ -29,6 +30,10 @@ public sealed class ContentPolicyPropagationService(
         {
             try
             {
+                // Verify that a replacement process can reclaim a policy event
+                // after the original worker dies with its PostgreSQL claim held.
+                faults?.CrashIfConfigured(
+                    "platform.after_policy_outbox_claim", change.Id.ToString());
                 await PublishOneAsync(change, workerId, ct);
                 propagated++;
             }
