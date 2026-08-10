@@ -13,6 +13,9 @@ import Usage from "./pages/Usage";
 import Billing from "./pages/Billing";
 import Profile from "./pages/Profile";
 import Security from "./pages/Security";
+import Models from "./pages/Models";
+import Status from "./pages/Status";
+import { Privacy, Terms } from "./pages/Legal";
 
 function Protected(props: { children?: JSX.Element }) {
   const { token } = useAuth();
@@ -21,6 +24,10 @@ function Protected(props: { children?: JSX.Element }) {
 
 export default function App() {
   return <>
+    <Route path="/models" component={Models} />
+    <Route path="/status" component={Status} />
+    <Route path="/terms" component={Terms} />
+    <Route path="/privacy" component={Privacy} />
     <Route path="/login" component={Login} />
     <Route path="/register" component={Register} />
     <Route path="/recover" component={Recovery} />

@@ -10,6 +10,8 @@ export default defineConfig({
       "/auth": "http://localhost:5001",
       "/user": "http://localhost:5001",
       "/announcements": "http://localhost:5001",
+      "/v1/models": "http://localhost:28080",
+      "/ready": "http://localhost:28080",
     },
   },
 });
