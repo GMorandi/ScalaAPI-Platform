@@ -84,6 +84,7 @@ services:
       Garnet__Password: ${GARNET_PASSWORD:?GARNET_PASSWORD is required}
       Garnet__UseTls: ${GARNET_TLS:-false}
       Garnet__ServerName: ${GARNET_SERVER_NAME:-garnet}
+      Garnet__CaCertificatePath: ${GARNET_CA_CERT_PATH:-}
       Security__MasterKey: ${SECURITY_MASTER_KEY:?SECURITY_MASTER_KEY is required}
       ProviderCredentials__AllowInsecureTokenEndpoints: ${PROVIDER_CREDENTIALS_ALLOW_INSECURE:-false}
       ProviderMock__BaseUrl: http://provider-mock:8081

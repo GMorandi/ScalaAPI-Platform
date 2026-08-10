@@ -1,6 +1,7 @@
 using System.Net.Security;
 using System.Net.Sockets;
 using System.Security.Authentication;
+using System.Security.Cryptography.X509Certificates;
 using System.Text;
 
 namespace ScalaAPI.Host.Services;
@@ -28,6 +29,7 @@ public sealed class RemoteGarnetService : IGarnetService, IDisposable
     private readonly int _timeoutMs;
     private readonly bool _useTls;
     private readonly string _serverName;
+    private readonly X509Certificate2? _caCertificate;
     private readonly object _gate = new();
     private TcpClient? _client;
     private Stream? _stream;
@@ -40,6 +42,16 @@ public sealed class RemoteGarnetService : IGarnetService, IDisposable
         _timeoutMs = Math.Max(250, configuration.GetValue("Garnet:TimeoutMs", 2000));
         _useTls = configuration.GetValue("Garnet:UseTls", false);
         _serverName = configuration["Garnet:ServerName"] ?? _host;
+        var caPath = configuration["Garnet:CaCertificatePath"]?.Trim();
+        if (!string.IsNullOrWhiteSpace(caPath))
+        {
+            if (!_useTls)
+                throw new InvalidOperationException(
+                    "Garnet:CaCertificatePath requires Garnet:UseTls=true");
+            if (!File.Exists(caPath))
+                throw new FileNotFoundException("Configured Garnet CA certificate was not found", caPath);
+            _caCertificate = X509Certificate2.CreateFromPem(File.ReadAllText(caPath));
+        }
     }
 
     public void Set(string key, string value, TimeSpan? ttl = null)
@@ -112,6 +124,7 @@ public sealed class RemoteGarnetService : IGarnetService, IDisposable
     {
         lock (_gate)
             Disconnect();
+        _caCertificate?.Dispose();
     }
 
     private GarnetReply Execute(IReadOnlyList<string> args)
@@ -156,7 +169,8 @@ public sealed class RemoteGarnetService : IGarnetService, IDisposable
             tlsStream.AuthenticateAsClientAsync(new SslClientAuthenticationOptions
             {
                 TargetHost = _serverName,
-                EnabledSslProtocols = SslProtocols.Tls12 | SslProtocols.Tls13
+                EnabledSslProtocols = SslProtocols.Tls12 | SslProtocols.Tls13,
+                RemoteCertificateValidationCallback = ValidateServerCertificate,
             }, timeout.Token).GetAwaiter().GetResult();
             _stream = tlsStream;
         }
@@ -277,6 +291,24 @@ public sealed class RemoteGarnetService : IGarnetService, IDisposable
         _client?.Dispose();
         _stream = null;
         _client = null;
+    }
+
+    private bool ValidateServerCertificate(object _, X509Certificate? certificate,
+        X509Chain? __, SslPolicyErrors errors)
+    {
+        if (certificate is null
+            || (errors & (SslPolicyErrors.RemoteCertificateNameMismatch
+                          | SslPolicyErrors.RemoteCertificateNotAvailable)) != 0)
+            return false;
+        if (_caCertificate is null)
+            return errors == SslPolicyErrors.None;
+
+        using var chain = new X509Chain();
+        chain.ChainPolicy.TrustMode = X509ChainTrustMode.CustomRootTrust;
+        chain.ChainPolicy.CustomTrustStore.Add(_caCertificate);
+        chain.ChainPolicy.RevocationMode = X509RevocationMode.NoCheck;
+        return certificate is X509Certificate2 certificate2
+            && chain.Build(certificate2);
     }
 
     private static string? ReadPassword(IConfiguration configuration)
