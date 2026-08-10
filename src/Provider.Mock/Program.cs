@@ -868,7 +868,8 @@ app.MapPost("/v1/images/batches/{batchId}/cancel", (string batchId) =>
 
 app.MapGet("/v1/images/tasks/{taskId}", (string taskId) =>
 {
-    var status = mediaStatuses.TryGetValue(taskId, out var current) ? current : "succeeded";
+    var status = mediaStatuses.TryGetValue(taskId, out var current)
+        && current == "canceled" ? "canceled" : "succeeded";
     object[] data = status == "canceled"
         ? []
         : [new { url = MockProviderHelpers.OutputUrl(taskId) }];
@@ -886,7 +887,8 @@ app.MapGet("/v1/images/tasks/{taskId}", (string taskId) =>
 
 app.MapGet("/v1/images/batches/{batchId}", (string batchId) =>
 {
-    var status = mediaStatuses.TryGetValue(batchId, out var current) ? current : "succeeded";
+    var status = mediaStatuses.TryGetValue(batchId, out var current)
+        && current == "canceled" ? "canceled" : "succeeded";
     object[] data = status == "canceled"
         ? []
         : [new { custom_id = "mock-1", url = MockProviderHelpers.OutputUrl(batchId) }];
