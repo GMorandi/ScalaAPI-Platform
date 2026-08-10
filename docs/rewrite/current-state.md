@@ -11,7 +11,7 @@ read-only requirements reference and is excluded from builds and runtime.
 | Repository | Commit | Worktree | Active role |
 | --- | --- | --- | --- |
 | `gateway` | `418da3a` | clean | C++ Gateway edge, protocol routing/conversion, Provider transport, and Garnet client |
-| `platform` | `c1bbb4d` | clean | C# Orleans control plane, PostgreSQL authority, Provider mock, Admin Web, and User Web |
+| `platform` | `0134323` | clean | C# Orleans control plane, PostgreSQL authority, Provider mock, Admin Web, and User Web |
 | `sub2api` | `43ec48d` | read-only clean | Requirements reference only; no runtime or compatibility dependency |
 
 ## Historical role descriptions
@@ -23,7 +23,7 @@ read-only requirements reference and is excluded from builds and runtime.
 | `sub2api` | `43ec48d` | read-only clean | Requirements catalogue only; never a runtime or compatibility dependency |
 
 The active source snapshot for this document is Platform/Admin Web/User Web
-`c1bbb4d` and Gateway `418da3a`; both worktrees are clean. The table's longer
+`0134323` and Gateway `418da3a`; both worktrees are clean. The table's longer
 capability descriptions are retained as inventory context, while this override
 and the evidence below define the current commits.
 
@@ -31,7 +31,7 @@ The current tracked inventory is:
 
 - Gateway: 52 production C++ source/header files, 11 test source files, and 126
   CTest cases.
-- Platform: 123 hand-written production C# files, 5 generated Cap'n Proto/global C# files, 68 test/benchmark C# files, and 262 passing tests: 69 Grain, 86 Host, 46 Admin, and 61 Provider mock tests.
+- Platform: 123 hand-written production C# files, 5 generated Cap'n Proto/global C# files, 68 test/benchmark C# files, and 263 passing tests: 69 Grain, 87 Host, 46 Admin, and 61 Provider mock tests.
   The Admin Web source now has 29 TypeScript/TSX files and 16 page views.
 - Product surface: 129 direct Admin API route declarations, 50 product tables,
   22 SQLSugar entity types, 29 Admin Web TypeScript/TSX files and 16 page views,
@@ -370,8 +370,10 @@ current-source runtime evidence.
   deleted only after a configurable 60-minute grace period; referenced and young
   objects are protected. Platform `c1bbb4d` also creates bounded S3-backed ZIP
   archives for completed image batches, with `manifest.json` and `errors.json`,
-  and returns a signed archive URL. Restart restore, retention, and deployment-
-  scale lifecycle coverage remain open.
+  and returns a signed archive URL. Platform `0134323` adds independent
+  retention deadlines and a retryable terminal-object deletion worker; the
+  empty-stack gate proves deletion clears the download projection. Restart/
+  restore, per-item reconciliation, and deployment-scale lifecycle remain open.
 - Signed payment webhooks, order paid/refunded transitions, stable ledger effects,
   pending-event recovery, subscription purchase/cancel/renew/expiry, and
   transactional redeem-code effects exist as partial commercial foundations.
@@ -454,13 +456,14 @@ current-source runtime evidence.
 
 ### Bootstrap and deployment
 
-- The direct source migrator applies product migrations 001-046 plus the Orleans
+- The direct source migrator applies product migrations 001-047 plus the Orleans
   baseline to an empty PostgreSQL 17 database; the Compose gate therefore expects
-  47 records (46 product migrations plus the image-owned Orleans baseline).
+  48 records (47 product migrations plus the image-owned Orleans baseline).
   Migration 043 makes `openai` an explicit allowed classifier for policy rules and
   migration 044 adds cross-process classifier metric snapshots; migration 045 adds
   budget alert state; migration 046 adds idempotent PostgreSQL backup jobs and
-  isolated restore runs. The `scalaapi-backup-0810b` source smoke applied all 46
+  isolated restore runs; migration 047 adds independent media retention
+  deadlines. The `scalaapi-backup-0810b` source smoke applied all 46
   product records, replay-skipped them, created a non-empty SHA-256-verified
   artifact, restored it to `platform_restore`, and replayed both commands without
   duplicate rows.
@@ -539,8 +542,10 @@ written keys are retained for the configured grace period. Database tests cover
 owner references and young-object protection, while the HTTP contract covers
 continuation signing. Platform `c1bbb4d` adds bounded batch-download ZIP
 creation from Provider item URLs, manifest/error entries, and a signed redirect
-smoke assertion. Restart restore, retention, per-item download reconciliation,
-and deployment-scale lifecycle remain follow-on work.
+smoke assertion. Platform `0134323` adds independent retention deadlines,
+retryable terminal-object deletion, and a full empty-stack assertion. Restart
+restore, per-item download reconciliation, and deployment-scale lifecycle remain
+follow-on work.
 
 The preceding completed vertical slice is the source-built protocol gate
 `scalaapi-responses-compact-0810b` (Platform `18daa64`, Gateway `992f3fc`).
@@ -604,7 +609,7 @@ mutation semantics beyond read/input_items/cancel/delete, provider-group fault c
 open.
 
 The following detailed bullets are retained as the preceding-slice record; the
-current totals for Platform `c1bbb4d` and Gateway `418da3a` are 262/262 and
+current totals for Platform `0134323` and Gateway `418da3a` are 263/263 and
 126/126 respectively:
 
 - Gateway built locally and passed 126/126 CTest cases, including deterministic
@@ -737,8 +742,10 @@ current totals for Platform `c1bbb4d` and Gateway `418da3a` are 262/262 and
   marks only metadata `failed`; after the object is restored, the next check clears
   the error and returns metadata to `stored`. Platform `1d7ec4f` adds signed,
   paginated object listing and a grace-period orphan pass that protects all
-  referenced and young `media/` objects. Restore, retention, and full MinIO
-  restart/cancellation evidence remain open.
+  referenced and young `media/` objects. Platform `0134323` adds independent
+  retention deadlines and retryable terminal-object deletion with projection
+  clearing. Restore/restart, per-item reconciliation, and full MinIO lifecycle
+  evidence remain open.
 - SEC-01 now has executable request, non-stream response, and SSE event-boundary
   evidence: the canonical Cap'n Proto contract carries bounded request/response
   policy content, Platform evaluates active scoped rules before lease creation or
