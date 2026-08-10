@@ -1,7 +1,7 @@
 # ScalaAPI Rewrite Risk Register
 
-Current baseline note: Platform `30cc8dc` and Gateway `3da0d33` passed the
-source-built `scalaapi-openai-moderation-0810e` empty-volume gate. OpenAI Moderation
+Current baseline note: Platform `e639b50` and Gateway `3da0d33` passed the
+source-built `scalaapi-fault-isolation-0810b` empty-volume gate. OpenAI Moderation
 response match and upstream-unavailable paths produced redacted audits, warning or
 critical alerts, normal NUMERIC settlement, and idempotent replay. The production
 endpoint remains HTTPS-only; the smoke HTTP switch is explicit and development-only.
@@ -9,6 +9,8 @@ endpoint remains HTTPS-only; the smoke HTTP switch is explicit and development-o
 each publication and Garnet rebuild share a PostgreSQL
 advisory lock and reject stale revision overwrite; the pinned Garnet image has Lua
 scripting disabled, so the implementation uses its native RESP operations.
+`e639b50` also isolates the zero-length `disconnect_before_output` Provider fixture
+and the smoke proves a prompt 503 with one retained unknown-charge hold.
 `OpenAiModerationMetrics` now exposes fixed-label classifier counters and a bounded
 latency histogram without content, rule, endpoint, or credential labels; the
 metrics are process-local and do not yet enforce cross-instance p95/error budgets.

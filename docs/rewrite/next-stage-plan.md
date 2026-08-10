@@ -2,7 +2,7 @@
 
 ## Checkpoint
 
-The next stage starts from Platform/Admin Web/User Web `30cc8dc`, Gateway `3da0d33`, and read-only
+The next stage starts from Platform/Admin Web/User Web `e639b50`, Gateway `3da0d33`, and read-only
 reference `sub2api@43ec48d`.
 
 The greenfield baseline now starts from empty volumes, uses PostgreSQL as authority,
@@ -273,8 +273,10 @@ automated.
    existing Garnet invalidation version without Lua scripting. The `15cdfc0` Host
    test covers concurrent workers in one process boundary and `94e0db8` covers key
    loss. Add separate-process crash windows, ordered outbox claims, Garnet
-   convergence after worker failure, and alert correlation after outage; the latest
-   full smoke still has a host-boundary Provider timeout that must be stabilized.
+   convergence after worker failure, and alert correlation after outage. The latest
+   `scalaapi-fault-isolation-0810b` smoke now passes the complete Provider matrix;
+   the remaining work is separate-process ordering/failure and alert correlation
+   after a real Garnet outage.
 2. Harden the production OpenAI classifier boundary. Keep the `3da2e29` empty-stack
    match/unavailable proof and HTTPS-only default. Platform `30cc8dc` now exports
    fixed-label counters and a bounded latency histogram through `/metrics`, with

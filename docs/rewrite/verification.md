@@ -6,9 +6,19 @@ The source-built smoke above is the current release evidence. Rows later in this
 document that mention earlier classifier projects or migration counts are retained
 as historical checkpoints and do not define the current bootstrap or release gate.
 
-The latest source snapshot is Gateway `3da0d33`, Platform/Admin Web/User Web `30cc8dc`.
+The latest source snapshot is Gateway `3da0d33`, Platform/Admin Web/User Web `e639b50`.
 
-The current source-built project `scalaapi-openai-moderation-0810e` exited zero.
+The latest source-built project `scalaapi-fault-isolation-0810b` exited zero. It
+built the current source images, applied 44 empty-volume migration records and
+skipped all 44 on the second migrator run, authenticated Garnet routing, passed
+the OpenAI/external policy gates, restart/recovery, realtime, audited
+reconciliation, MinIO persistence, and the complete Provider fault matrix. The
+`disconnect_before_output` case now returns 503 with one retained unknown-charge
+hold; its Provider fixture uses a normal zero-length EOF so the result is not
+masked by a host socket timeout. The smoke trap removed all named containers and
+anonymous volumes; `podman ps -a` was empty afterward.
+
+The previous source-built project `scalaapi-openai-moderation-0810e` exited zero.
 It built the current Gateway, Platform, Admin Web, and User Web images, applied
 44 empty-volume migration records (the image-owned Orleans baseline plus product
 migrations 001-043), and skipped all 44 on the second migrator run. It authenticated
@@ -23,9 +33,10 @@ named container and volume; `podman ps -a` was empty after cleanup. Production
 OpenAI remains HTTPS-only; HTTP is enabled only by the explicit smoke development
 switch.
 
-The empty-stack smoke above was built from the earlier Platform `3da2e29` image;
-the latest `30cc8dc` classifier metrics code was verified separately against the
-same classifier contract and is not retroactively attributed to that image.
+The preceding OpenAI smoke was built from the earlier Platform `3da2e29` image;
+the later `30cc8dc` classifier metrics code was verified separately against the
+same classifier contract, and the latest `e639b50` smoke covers the full runtime
+fault/recovery matrix.
 Platform `75c4908` then made revision publication monotonic and replay-safe under
 the shared PostgreSQL advisory lock used by propagation and Garnet rebuild. Full
 Host tests at that checkpoint passed 73/73, including duplicate/stale/rebuild cases. A source smoke
@@ -310,7 +321,7 @@ supersedes them where commit, image, or late-usage results differ.
 
 | Gate | Result | Interpretation |
 | --- | --- | --- |
-| Current source-built policy and stack gate | `scalaapi-openai-moderation-0810e`, exit 0 | Platform `3da2e29` and Gateway `3da0d33` built from source; 44 empty-volume migration records applied and skipped on replay; Garnet-authenticated routing, OpenAI response match/unavailable 400/503, redacted audits, warning/critical alerts, normal settlement/replay, Chat/Embeddings/Realtime, Provider faults, restart/recovery, reconciliation/operator resolution, and S3 persistence passed. The trap removed all named containers and volumes and `podman ps -a` was empty afterward |
+| Current source-built policy and stack gate | `scalaapi-fault-isolation-0810b`, exit 0 | Platform `e639b50` and Gateway `3da0d33` built from source; 44 empty-volume migration records applied and skipped on replay; Garnet-authenticated routing, OpenAI response match/unavailable 400/503, redacted audits, warning/critical alerts, normal settlement/replay, Chat/Embeddings/Realtime, Provider faults including `disconnect_before_output -> 503`, restart/recovery, reconciliation/operator resolution, and S3 persistence passed. The trap removed all named containers and anonymous volumes and `podman ps -a` was empty afterward |
 | Current Platform tests | 236/236, exit 0; Release build 0 warnings/0 errors | 69 Grain, 74 Host, 45 Admin, and 48 Provider tests; Host includes the PostgreSQL-backed administrative-price precedence regression test, monotonic Garnet revision publication coverage, and fixed-label OpenAI classifier metrics/secret-redaction assertions |
 | Gateway provider-completion crash recovery | `scalaapi-gateway-recovery-0907` source-built smoke passed; Gateway terminated after Provider completion, was explicitly restarted, and the same request retained one active hold in `reconciliation_needed` with no usage/debit | Durable lease evidence survives Gateway process loss; the one-shot marker prevents a restart loop, and the normal reconciliation/operator path remains authoritative |
 | Gateway before-provider-dispatch crash recovery | `scalaapi-gateway-dispatch-recovery-0911` source-built smoke passed; Gateway terminated before Provider contact, was explicitly restarted, and the same held lease became `expired` with released hold/idempotency and no usage/debit | Never-forwarded work remains safe to expire after Gateway loss and does not create an unknown-charge incident |
@@ -341,7 +352,7 @@ supersedes them where commit, image, or late-usage results differ.
 | Scheduler benchmark dry run | 4/4, exit 0; no-match negative probe exits 1 | Dependency injection and child-result propagation pass; not performance evidence |
 | Contract generation and digest | Canonical and Gateway vendor schemas match at the content-policy extension; fixed-scale pricing round-trip passed; official Cap'n Proto 1.0.2 commit `1a0e12c0` plus local `capnpc-csharp` 1.3.118 regenerated all three C# files byte-identically; an intentional drift probe exited 1 with a unified diff | Platform's single-repository generated-output gate is blocking; atomic cross-private-repository schema release coordination remains |
 | PostgreSQL migrator | The source-built stack applied product migrations 001-043 plus the image-owned Orleans baseline and skipped all 44 records on replay; migration 043 widens only the greenfield classifier constraints to local/external/openai | The current empty-volume Compose gate is authoritative for bootstrap; no source database, CDC, compatibility table, snapshot, or old key was used |
-| Empty-volume Compose gate | `deploy/stack/smoke.sh` passed from Platform `3da2e29`/Gateway `3da0d33` in unique project `scalaapi-openai-moderation-0810e`; the stack applied/skipped all 44 records, authenticated Garnet, waited for policy-change outbox propagation, queried policy-block and classifier-outage alerts, proved OpenAI match HTTP 400 and upstream-unavailable HTTP 503 with redacted audit, one normal settlement, and exact replay, settled/replayed Chat and realtime WebSocket, matched and redacted Unicode request content with no lease, withheld the first blocked response SSE event while retaining its unknown-charge hold, exercised restart/recovery and the complete Provider matrix, resolved one incident, and persisted/downloaded the MinIO object | Source-owned gate proves ordered accounts, evidence-backed holds, exactly-once recovery including dispatch retry and outbox claim reclaim, versioned/redacted content-policy behavior, bounded external classifier faults, safe never-forwarded expiry, late usage settlement, actual client cancellation retention, deterministic zero-output disconnect classification, serialized policy revision publication, audited alert evidence, and audited unknown-charge resolution. Hosted CI, runtime WebSocket soak, multi-instance ordering, production classifier, browser evidence, and cross-protocol automation remain |
+| Empty-volume Compose gate | `deploy/stack/smoke.sh` passed from Platform `e639b50`/Gateway `3da0d33` in unique project `scalaapi-fault-isolation-0810b`; the stack applied/skipped all 44 records, authenticated Garnet, waited for policy-change outbox propagation, queried policy-block and classifier-outage alerts, proved OpenAI match HTTP 400 and upstream-unavailable HTTP 503 with redacted audit, one normal settlement, and exact replay, settled/replayed Chat and realtime WebSocket, matched and redacted Unicode request content with no lease, withheld the first blocked response SSE event while retaining its unknown-charge hold, exercised restart/recovery and the complete Provider matrix including deterministic zero-output `disconnect_before_output -> 503`, resolved one incident, and persisted/downloaded the MinIO object | Source-owned gate proves ordered accounts, evidence-backed holds, exactly-once recovery including dispatch retry and outbox claim reclaim, versioned/redacted content-policy behavior, bounded external classifier faults, safe never-forwarded expiry, late usage settlement, actual client cancellation retention, serialized policy revision publication, audited alert evidence, and audited unknown-charge resolution. Hosted CI, runtime WebSocket soak, multi-instance ordering, production classifier, browser evidence, and cross-protocol automation remain |
 | Garnet smoke | Auth, PING, SET/GET, PX, INCR, DEL passed | Official digest; no Redis or embedded server |
 | Empty-volume Embeddings gate | `deploy/stack/smoke.sh` passed from Platform `ef1e474` in unique project `scalaapi-embeddings-20260809b` | The current source applied all 27 migrations and skipped all 27 on the second run, authenticated Garnet, settled two float and one base64 Embeddings request against the NUMERIC price version, retained one unknown-charge hold for a shape-invalid response, and passed the full restart, Provider, reconciliation, OAuth, realtime, and MinIO matrix |
 | Garnet outage/recovery | Platform readiness 503 then 200 | Automatic TCP reconnect verified |
