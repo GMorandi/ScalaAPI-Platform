@@ -570,6 +570,32 @@ app.MapPost("/v1/responses", async (HttpContext context, CancellationToken cance
     var inputTokens = MockProviderHelpers.EstimateInputTokens(root);
     var requestId = context.Request.Headers["X-Provider-Request-Id"].FirstOrDefault()
         ?? MockProviderHelpers.Id("resp");
+    var stream = root.TryGetProperty("stream", out var streamValue)
+        && streamValue.ValueKind == JsonValueKind.True;
+    if (stream)
+    {
+        context.Response.StatusCode = StatusCodes.Status200OK;
+        context.Response.ContentType = "text/event-stream";
+        context.Response.Headers.CacheControl = "no-cache";
+        var usage = new { input_tokens = inputTokens, output_tokens = 5,
+            total_tokens = inputTokens + 5 };
+        var events = new (string Type, object Payload)[]
+        {
+            ("response.created", new { type = "response.created", response = new { id = requestId, status = "in_progress", model } }),
+            ("response.output_item.added", new { type = "response.output_item.added", item = new { type = "message", role = "assistant" } }),
+            ("response.output_text.delta", new { type = "response.output_text.delta", delta = "mock response" }),
+            ("response.output_text.done", new { type = "response.output_text.done", text = "mock response" }),
+            ("response.output_item.done", new { type = "response.output_item.done", item = new { type = "message", role = "assistant" } }),
+            ("response.completed", new { type = "response.completed", response = new { id = requestId, status = "completed", model, usage } }),
+        };
+        foreach (var item in events)
+        {
+            await context.Response.WriteAsync(
+                $"event: {item.Type}\ndata: {JsonSerializer.Serialize(item.Payload)}\n\n",
+                cancellationToken);
+        }
+        return Results.Empty;
+    }
     return Results.Ok(new
     {
         id = requestId,

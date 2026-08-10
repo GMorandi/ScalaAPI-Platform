@@ -180,6 +180,10 @@ embedding_base64_request_id="smoke-embeddings-base64-${suffix}"
 embedding_base64_idempotency_key="smoke-embeddings-base64-idem-${suffix}"
 embedding_invalid_request_id="smoke-embeddings-invalid-${suffix}"
 embedding_invalid_idempotency_key="smoke-embeddings-invalid-idem-${suffix}"
+responses_request_id="smoke-responses-${suffix}"
+responses_idempotency_key="smoke-responses-idem-${suffix}"
+responses_stream_request_id="smoke-responses-stream-${suffix}"
+responses_stream_idempotency_key="smoke-responses-stream-idem-${suffix}"
 concurrent_request_id="smoke-chat-concurrent-${suffix}"
 concurrent_idempotency_key="smoke-chat-concurrent-idem-${suffix}"
 expired_key_request_id="smoke-expired-key-${suffix}"
@@ -1688,6 +1692,52 @@ chat_response="$(curl -fsS "$gateway_url/v1/chat/completions" \
     --data "$chat_body")"
 jq -e '(.choices | length > 0) and (.usage.total_tokens > 0)' \
     <<<"$chat_response" >/dev/null
+
+responses_response="$(curl -sS --max-time 30 --write-out $'\n%{http_code}' \
+    "$gateway_url/v1/responses" \
+    -H "Authorization: Bearer $api_key" -H "Content-Type: application/json" \
+    -H "X-Request-ID: $responses_request_id" \
+    -H "Idempotency-Key: $responses_idempotency_key" \
+    --data '{"model":"gpt-4o","input":[{"role":"user","content":[{"type":"input_text","text":"responses json smoke"}]}],"max_output_tokens":16,"stream":false}')"
+assert_equals "200" "${responses_response##*$'\n'}" \
+    "OpenAI Responses JSON status"
+responses_body="${responses_response%$'\n'*}"
+jq -e '.object == "response" and .status == "completed" and .output_text == "mock response" and (.usage.input_tokens > 0) and (.usage.output_tokens > 0) and (.usage.total_tokens >= (.usage.input_tokens + .usage.output_tokens))' \
+    <<<"$responses_body" >/dev/null
+
+responses_stream_response="$(curl -sS --max-time 30 --write-out $'\n%{http_code}' \
+    "$gateway_url/v1/responses" \
+    -H "Authorization: Bearer $api_key" -H "Content-Type: application/json" \
+    -H "X-Request-ID: $responses_stream_request_id" \
+    -H "Idempotency-Key: $responses_stream_idempotency_key" \
+    --data '{"model":"gpt-4o","input":"responses stream smoke","max_output_tokens":16,"stream":true}')"
+assert_equals "200" "${responses_stream_response##*$'\n'}" \
+    "OpenAI Responses streaming status"
+responses_stream_body="${responses_stream_response%$'\n'*}"
+grep -q 'event: response.created' <<<"$responses_stream_body"
+grep -q 'event: response.output_text.delta' <<<"$responses_stream_body"
+grep -q 'event: response.completed' <<<"$responses_stream_body"
+grep -q 'mock response' <<<"$responses_stream_body"
+
+responses_settled() {
+    [[ "$(db_query "
+SELECT
+  (SELECT count(*) FROM request_leases
+   WHERE request_id IN ('$responses_request_id', '$responses_stream_request_id')
+     AND status = 'completed' AND final_cost_usd > 0) || '|' ||
+  (SELECT count(*) FROM usage_events
+   WHERE request_id IN ('$responses_request_id', '$responses_stream_request_id')) || '|' ||
+  (SELECT count(*) FROM usage_logs
+   WHERE request_id IN ('$responses_request_id', '$responses_stream_request_id')) || '|' ||
+  (SELECT count(*) FROM balance_holds h JOIN request_leases l USING (lease_token)
+   WHERE l.request_id IN ('$responses_request_id', '$responses_stream_request_id')
+     AND h.status = 'committed') || '|' ||
+  (SELECT count(*) FROM balance_ledger b JOIN request_leases l USING (lease_token)
+   WHERE l.request_id IN ('$responses_request_id', '$responses_stream_request_id')
+     AND b.entry_type = 'usage_debit');")" == "2|2|2|2|2" ]]
+}
+wait_for "OpenAI Responses settlement" 30 responses_settled
+echo "PASS: OpenAI Responses JSON/SSE requests settled exactly once"
 
 embedding_response="$(curl -fsS "$gateway_url/v1/embeddings" \
     -H "Authorization: Bearer $api_key" -H "Content-Type: application/json" \
