@@ -14,6 +14,7 @@ import ApiKeysList from "./pages/apikeys/List";
 import ApiKeyForm from "./pages/apikeys/Form";
 import Config from "./pages/Config";
 import Reconciliation from "./pages/Reconciliation";
+import ContentPolicy from "./pages/ContentPolicy";
 
 function Protected(props: { children?: JSX.Element }) {
   const { token } = useAuth();
@@ -40,6 +41,7 @@ export default function App() {
         <Route path="/apikeys/new" component={ApiKeyForm} />
         <Route path="/config" component={Config} />
         <Route path="/reconciliation" component={Reconciliation} />
+        <Route path="/content-policy" component={ContentPolicy} />
       </Route>
     </>
   );

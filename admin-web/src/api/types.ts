@@ -91,3 +91,56 @@ export interface ReconciliationResolutionResult {
   action?: string;
   cost_usd?: number;
 }
+
+export interface ContentPolicyRule {
+  id: number;
+  pattern: string;
+  actionType: "log" | "block";
+  scope: string | null;
+  status: "active" | "disabled";
+  stage: "request" | "response" | "both";
+  evaluatorVersion: string;
+  classifier: "local" | "external" | "openai";
+  redactContent: boolean;
+  createdAt: string;
+}
+
+export interface ContentPolicyRuleRequest {
+  pattern: string;
+  actionType: "log" | "block";
+  scope: string | null;
+  status: "active" | "disabled";
+  stage: "request" | "response" | "both";
+  evaluatorVersion: string;
+  classifier: "local" | "external" | "openai";
+  redactContent: boolean;
+}
+
+export interface ContentPolicyChange {
+  id: number;
+  revision: number;
+  action: string;
+  ruleId: number | null;
+  actorId: number | null;
+  ipAddress: string | null;
+  details: string;
+  createdAt: string;
+  propagatedAt: string | null;
+  attempts: number;
+  lastError: string | null;
+}
+
+export interface ContentPolicyAlert {
+  id: number;
+  eventKey: string;
+  kind: string;
+  severity: "info" | "warning" | "critical" | string;
+  ruleId: number | null;
+  userId: number | null;
+  requestId: string | null;
+  stage: string;
+  code: string;
+  policyRevision: number;
+  details: string;
+  createdAt: string;
+}
