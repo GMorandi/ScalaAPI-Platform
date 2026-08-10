@@ -92,6 +92,9 @@ services:
       Dispatch__LeaseTtlSeconds: ${DISPATCH_LEASE_TTL_SECONDS:-360}
       Pricing__AllowInsecureProviderEndpoints: ${PRICING_ALLOW_INSECURE_PROVIDER_ENDPOINTS:-true}
       Pricing__Providers__mock__Endpoint: ${PRICING_PROVIDER_MOCK_ENDPOINT:-http://provider-mock:8081/v1/pricing}
+      Payments__AllowInsecureProviderEndpoints: ${PAYMENTS_ALLOW_INSECURE_PROVIDER_ENDPOINTS:-true}
+      Payments__Providers__mock__Endpoint: ${PAYMENTS_PROVIDER_MOCK_ENDPOINT:-http://provider-mock:8081/v1/payments/checkout}
+      Payments__Providers__mock__ApiKey: ${PAYMENTS_PROVIDER_MOCK_API_KEY:-mock-payment-key}
       FaultInjection__Hook: ${PLATFORM_FAULT_HOOK:-}
       FaultInjection__MarkerDirectory: ${PLATFORM_FAULT_MARKER_DIR:-/var/run/scalaapi/fault-hooks}
       FaultInjection__Repeat: ${PLATFORM_FAULT_REPEAT:-false}
@@ -136,6 +139,9 @@ services:
       Platform__InternalUrl: http://platform-silo:5000
       Internal__ReconciliationToken: ${INTERNAL_RECONCILIATION_TOKEN:?INTERNAL_RECONCILIATION_TOKEN is required}
       Payments__WebhookSecrets__mock: ${PAYMENTS_WEBHOOK_SECRET_MOCK:-}
+      Payments__AllowInsecureProviderEndpoints: ${PAYMENTS_ALLOW_INSECURE_PROVIDER_ENDPOINTS:-true}
+      Payments__Providers__mock__Endpoint: ${PAYMENTS_PROVIDER_MOCK_ENDPOINT:-http://provider-mock:8081/v1/payments/checkout}
+      Payments__Providers__mock__ApiKey: ${PAYMENTS_PROVIDER_MOCK_API_KEY:-mock-payment-key}
       PasswordReset__ExposeToken: ${PASSWORD_RESET_EXPOSE_TOKEN:-false}
       EmailVerification__ExposeToken: ${EMAIL_VERIFICATION_EXPOSE_TOKEN:-false}
       Email__Provider: ${EMAIL_PROVIDER:-smtp}

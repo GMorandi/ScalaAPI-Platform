@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Net.WebSockets;
 using System.Text;
 using Microsoft.AspNetCore.WebUtilities;
@@ -13,6 +14,36 @@ app.UseWebSockets(new WebSocketOptions
 });
 
 app.MapGet("/health", () => Results.Ok(new { status = "ok", provider = "scalaapi-mock" }));
+
+app.MapPost("/v1/payments/checkout", async (HttpRequest request,
+    CancellationToken ct) =>
+{
+    if (!string.Equals(request.Headers.Authorization.ToString(),
+        "Bearer mock-payment-key", StringComparison.Ordinal))
+        return Results.Unauthorized();
+
+    MockPaymentCheckoutRequest? payload;
+    try
+    {
+        payload = await request.ReadFromJsonAsync<MockPaymentCheckoutRequest>(ct);
+    }
+    catch (JsonException)
+    {
+        return Results.BadRequest(new { error = "invalid_json" });
+    }
+    if (payload is null)
+        return Results.BadRequest(new { error = "invalid_json" });
+
+    var result = MockPaymentCheckout.Create(payload.MerchantReference,
+        payload.Amount, payload.Currency, payload.Description);
+    return result is null
+        ? Results.BadRequest(new { error = "invalid_checkout_request" })
+        : Results.Ok(new
+        {
+            provider_order_id = result.ProviderOrderId,
+            checkout_url = result.CheckoutUrl,
+        });
+});
 
 app.MapGet("/v1/pricing", () => Results.Ok(new
 {
@@ -814,3 +845,9 @@ app.MapGet("/v1/requests/{requestId}", (string requestId) => Results.Ok(new
 app.Run();
 
 public partial class Program;
+
+public sealed record MockPaymentCheckoutRequest(
+    [property: JsonPropertyName("merchant_reference")] string MerchantReference,
+    [property: JsonPropertyName("amount")] decimal Amount,
+    [property: JsonPropertyName("currency")] string Currency,
+    [property: JsonPropertyName("description")] string? Description);

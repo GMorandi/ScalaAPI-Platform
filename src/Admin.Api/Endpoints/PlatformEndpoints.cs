@@ -11,6 +11,7 @@ using SqlSugar;
 using ScalaAPI.Data.Entities;
 using ScalaAPI.Data.Content;
 using ScalaAPI.Admin.Data;
+using ScalaAPI.Admin.Payments;
 using ScalaAPI.Data.Accounting;
 using ScalaAPI.Data.Repositories;
 using Orleans;
@@ -359,31 +360,82 @@ public static class PlatformEndpoints
         var userGroup = app.MapGroup("/user/payments").RequireAuthorization("UserOnly");
 
         userGroup.MapPost("/create", async (ClaimsPrincipal principal, PaymentOrderEntity req,
-            ISqlSugarClient db, HttpRequest http) =>
+            ISqlSugarClient db, HttpRequest http, MockPaymentProviderClient paymentProvider,
+            CancellationToken ct) =>
         {
             var email = principal.Identity?.Name ?? "";
             var user = await db.Queryable<UserAccountEntity>().Where(x => x.Email == email).FirstAsync();
             if (user is null) return Results.Unauthorized();
-            if (req.Amount <= 0 || req.Amount > 1_000_000m)
+            if (req.Amount <= 0 || req.Amount > 1_000_000m
+                || decimal.Round(req.Amount, 2) != req.Amount)
                 return Results.BadRequest(new { error = "Invalid payment amount" });
             var idempotencyKey = http.Headers["Idempotency-Key"].FirstOrDefault();
             if (string.IsNullOrWhiteSpace(idempotencyKey) || idempotencyKey.Length > 200)
                 return Results.BadRequest(new { error = "Idempotency-Key is required" });
+            req.Provider = (req.Provider ?? "").Trim().ToLowerInvariant();
+            req.Currency = (req.Currency ?? "").Trim().ToUpperInvariant();
+            if (req.Provider != "mock" || req.Currency.Length != 3
+                || req.Currency.Any(ch => ch is < 'A' or > 'Z'))
+                return Results.BadRequest(new { error = "Unsupported payment provider or currency" });
+
             var existing = await db.Queryable<PaymentOrderEntity>()
                 .Where(x => x.UserId == user.Id && x.IdempotencyKey == idempotencyKey).FirstAsync();
-            if (existing is not null)
-                return Results.Ok(new { id = existing.Id, status = existing.Status, duplicate = true });
+            if (existing is not null
+                && (existing.Amount != req.Amount
+                    || !string.Equals(existing.Currency, req.Currency, StringComparison.OrdinalIgnoreCase)
+                    || !string.Equals(existing.Provider, req.Provider, StringComparison.OrdinalIgnoreCase)
+                    || !string.Equals(existing.Description ?? "", req.Description ?? "", StringComparison.Ordinal)))
+                return Results.Conflict(new { error = "Idempotency-Key was already used with different payment data" });
+            if (existing is not null && !string.IsNullOrWhiteSpace(existing.ProviderOrderId))
+                return Results.Ok(new
+                {
+                    id = existing.Id, status = existing.Status, duplicate = true,
+                    provider_order_id = existing.ProviderOrderId,
+                    checkout_url = existing.CheckoutUrl,
+                });
 
-            req.UserId = user.Id;
-            req.IdempotencyKey = idempotencyKey;
-            req.Status = "pending";
-            req.CreatedAt = DateTime.UtcNow;
-            await db.Insertable(req).ExecuteCommandAsync();
-            req.Id = Convert.ToInt64(await db.Ado.GetScalarAsync(
-                "SELECT id FROM payment_orders WHERE user_id = @user_id AND idempotency_key = @key",
-                new SugarParameter("@user_id", user.Id),
-                new SugarParameter("@key", idempotencyKey)));
-            return Results.Ok(new { id = req.Id, status = req.Status });
+            if (existing is not null)
+                req = existing;
+            else
+            {
+                req.UserId = user.Id;
+                req.IdempotencyKey = idempotencyKey;
+                req.Status = "pending";
+                req.CreatedAt = DateTime.UtcNow;
+                await db.Insertable(req).ExecuteCommandAsync();
+                req.Id = Convert.ToInt64(await db.Ado.GetScalarAsync(
+                    "SELECT id FROM payment_orders WHERE user_id = @user_id AND idempotency_key = @key",
+                    new SugarParameter("@user_id", user.Id),
+                    new SugarParameter("@key", idempotencyKey)));
+            }
+
+            PaymentCheckoutResult checkout;
+            try
+            {
+                checkout = await paymentProvider.CreateCheckoutAsync(new(
+                    req.Id, req.Amount, req.Currency, req.Description), ct);
+            }
+            catch (PaymentProviderException ex)
+            {
+                return Results.Json(new { error = ex.Code, retryable = true },
+                    statusCode: StatusCodes.Status503ServiceUnavailable);
+            }
+
+            await db.Updateable<PaymentOrderEntity>()
+                .SetColumns(x => new PaymentOrderEntity
+                {
+                    ProviderOrderId = checkout.ProviderOrderId,
+                    CheckoutUrl = checkout.CheckoutUrl,
+                    Provider = req.Provider,
+                })
+                .Where(x => x.Id == req.Id && x.UserId == user.Id)
+                .ExecuteCommandAsync();
+            return Results.Ok(new
+            {
+                id = req.Id, status = req.Status, duplicate = existing is not null,
+                provider_order_id = checkout.ProviderOrderId,
+                checkout_url = checkout.CheckoutUrl,
+            });
         });
 
         userGroup.MapGet("/", async (ClaimsPrincipal principal, ISqlSugarClient db, int page = 1, int size = 20) =>

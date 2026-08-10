@@ -200,6 +200,9 @@ public class PaymentOrderEntity
     [SugarColumn(ColumnName = "provider_order_id", IsNullable = true)]
     public string? ProviderOrderId { get; set; }
 
+    [SugarColumn(ColumnName = "checkout_url", IsNullable = true)]
+    public string? CheckoutUrl { get; set; }
+
     [SugarColumn(ColumnName = "status")]
     public string Status { get; set; } = "pending";
 
