@@ -38,6 +38,9 @@ public sealed class PaymentRefundStoreTests
             var prepared = await store.PrepareAsync(orderId, actorId, key,
                 10m, "USD", "customer request");
             Assert.Equal(PaymentRefundPrepareStatus.Created, prepared.Status);
+            var competing = await store.PrepareAsync(orderId, actorId,
+                $"refund-competing-{Guid.NewGuid():N}", 10m, "USD", "customer request");
+            Assert.Equal(PaymentRefundPrepareStatus.InvalidState, competing.Status);
 
             var settled = await store.FinalizeAsync(prepared.RefundId, actorId,
                 "succeeded", "mock_rf_test", null, false);

@@ -47,6 +47,9 @@ CREATE UNIQUE INDEX IF NOT EXISTS ux_payment_refunds_user_idempotency
 CREATE UNIQUE INDEX IF NOT EXISTS ux_payment_refunds_provider_reference
     ON payment_refunds(provider, provider_refund_id)
     WHERE provider_refund_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS ux_payment_refunds_order_active
+    ON payment_refunds(payment_order_id)
+    WHERE status IN ('pending', 'reconciliation_needed', 'succeeded');
 CREATE INDEX IF NOT EXISTS ix_payment_refunds_order
     ON payment_refunds(payment_order_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS ix_payment_refunds_recovery

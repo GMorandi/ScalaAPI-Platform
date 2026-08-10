@@ -126,6 +126,28 @@ public sealed class PaymentRefundStore(
         }
         await existingReader.DisposeAsync();
 
+        await using var active = connection.CreateCommand();
+        active.Transaction = transaction;
+        active.CommandText = """
+            SELECT id
+            FROM payment_refunds
+            WHERE payment_order_id = $1
+              AND status IN ('pending', 'reconciliation_needed', 'succeeded')
+            LIMIT 1
+            FOR UPDATE
+            """;
+        active.Parameters.AddWithValue(paymentOrderId);
+        await using var activeReader = await active.ExecuteReaderAsync(ct);
+        if (await activeReader.ReadAsync(ct))
+        {
+            await activeReader.DisposeAsync();
+            await transaction.RollbackAsync(ct);
+            return new(PaymentRefundPrepareStatus.InvalidState, 0, paymentOrderId, userId,
+                provider, providerOrderId, providerPaymentId, orderAmount, orderCurrency,
+                reason, idempotencyKey, fingerprint, orderStatus, null);
+        }
+        await activeReader.DisposeAsync();
+
         if (!string.Equals(orderStatus, "paid", StringComparison.OrdinalIgnoreCase)
             || amount != orderAmount
             || !string.Equals(currency, orderCurrency, StringComparison.OrdinalIgnoreCase)
