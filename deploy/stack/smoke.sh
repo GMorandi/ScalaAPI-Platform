@@ -4,7 +4,8 @@ set -Eeuo pipefail
 stack_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "$stack_dir/../.." && pwd)"
 compose_file="$stack_dir/docker-compose.yml"
-compose_files=("$compose_file")
+faults_compose_file="$stack_dir/docker-compose.faults.yml"
+compose_files=("$compose_file" "$faults_compose_file")
 garnet_tls_enabled="${GARNET_TLS:-false}"
 garnet_tls_rotation_enabled="${GARNET_TLS_ROTATION:-false}"
 project="${SMOKE_PROJECT_NAME:-scalaapi-smoke-$$}"
@@ -227,6 +228,8 @@ media_idempotency_key="smoke-media-idem-${suffix}"
 media_restart_idempotency_key="smoke-media-restart-idem-${suffix}"
 media_batch_idempotency_key="smoke-media-batch-idem-${suffix}"
 media_batch_cancel_idempotency_key="smoke-media-batch-cancel-idem-${suffix}"
+media_batch_truncate_idempotency_key="smoke-media-batch-truncate-idem-${suffix}"
+media_batch_response_drop_idempotency_key="smoke-media-batch-response-drop-idem-${suffix}"
 chat_price_version="smoke-chat-${suffix}-v1"
 embedding_price_version="smoke-embeddings-${suffix}-v1"
 embedding_jina_price_version="smoke-embeddings-jina-${suffix}-v1"
@@ -2388,6 +2391,100 @@ if (( media_batch_item_size <= 0 )); then
     exit 1
 fi
 echo "PASS: durable per-item media object projection and signed download"
+
+compose exec -T platform-silo curl -fsS -X POST \
+    http://object-storage-fault-proxy:9002/faults/clear >/dev/null
+compose exec -T platform-silo curl -fsS -X POST \
+    http://object-storage-fault-proxy:9002/faults/arm \
+    -H 'Content-Type: application/json' \
+    --data '{"mode":"truncate_request","method":"PUT","pathContains":"/items/","requestBodyBytes":16}' \
+    >/dev/null
+media_batch_truncate_response="$(curl -fsS "$gateway_url/v1/images/batches" \
+    -H "Authorization: Bearer $api_key" -H "Content-Type: application/json" \
+    -H "Idempotency-Key: $media_batch_truncate_idempotency_key" \
+    --data '{"model":"mock-image-1","items":[{"custom_id":"transport-truncate","prompt":"truncate a real S3 request body"}]}')"
+media_batch_truncate_id="$(jq -er '.id' <<<"$media_batch_truncate_response")"
+media_batch_transport_recovered() {
+    local operation_id=$1
+    [[ "$(db_query "
+        SELECT operation.status || '|' || operation.object_status || '|' ||
+               lease.status || '|' || hold.status || '|' ||
+               (SELECT count(*) FROM media_operation_items AS item
+                WHERE item.operation_id = operation.operation_id
+                  AND item.object_status = 'stored')
+        FROM media_operations AS operation
+        JOIN request_leases AS lease ON lease.lease_token = operation.lease_token
+        JOIN balance_holds AS hold ON hold.hold_id = lease.hold_handle
+        WHERE operation.operation_id = '$operation_id';")" == \
+       "succeeded|stored|completed|committed|1" ]]
+}
+wait_for "mid-body S3 PUT recovery" 75 \
+    media_batch_transport_recovered "$media_batch_truncate_id"
+media_batch_truncate_fault_state="$(compose exec -T platform-silo curl -fsS \
+    http://object-storage-fault-proxy:9002/state)"
+jq -e --arg id "$media_batch_truncate_id" '
+    .armed == null and
+    ([.events[] | select(.action == "truncate_request" and
+      .method == "PUT" and .requestBodyBytes == 16 and (.path | contains($id)))] | length) == 1 and
+    ([.events[] | select(.method == "PUT" and (.path | contains($id))) | .path] |
+      unique | length) == 2
+' <<<"$media_batch_truncate_fault_state" >/dev/null
+assert_equals \
+    "media/$media_batch_truncate_id.zip|media/$media_batch_truncate_id/items/0001-mock-1.png|true|1|true" \
+    "$(db_query "
+        SELECT operation.object_key || '|' || item.object_key || '|' ||
+               (operation.attempts >= 2)::text || '|' ||
+               (SELECT count(*) FROM usage_events WHERE request_id = lease.request_id) || '|' ||
+               ((SELECT count(*) FROM balance_ledger
+                 WHERE lease_token = lease.lease_token AND entry_type = 'usage_debit') =
+                CASE WHEN lease.final_cost_usd > 0 THEN 1 ELSE 0 END)::text
+        FROM media_operations AS operation
+        JOIN media_operation_items AS item
+          ON item.operation_id = operation.operation_id
+        JOIN request_leases AS lease ON lease.lease_token = operation.lease_token
+        WHERE operation.operation_id = '$media_batch_truncate_id';")" \
+    "Mid-body S3 PUT converges into deterministic keys and one settlement"
+echo "PASS: real mid-body S3 PUT interruption retries deterministic item/archive keys"
+
+compose exec -T platform-silo curl -fsS -X POST \
+    http://object-storage-fault-proxy:9002/faults/clear >/dev/null
+compose exec -T platform-silo curl -fsS -X POST \
+    http://object-storage-fault-proxy:9002/faults/arm \
+    -H 'Content-Type: application/json' \
+    --data '{"mode":"drop_response","method":"PUT","pathContains":"/items/"}' \
+    >/dev/null
+media_batch_response_drop_response="$(curl -fsS "$gateway_url/v1/images/batches" \
+    -H "Authorization: Bearer $api_key" -H "Content-Type: application/json" \
+    -H "Idempotency-Key: $media_batch_response_drop_idempotency_key" \
+    --data '{"model":"mock-image-1","items":[{"custom_id":"transport-response-drop","prompt":"drop a committed S3 response"}]}')"
+media_batch_response_drop_id="$(jq -er '.id' <<<"$media_batch_response_drop_response")"
+wait_for "post-commit S3 response-loss recovery" 75 \
+    media_batch_transport_recovered "$media_batch_response_drop_id"
+media_batch_response_drop_fault_state="$(compose exec -T platform-silo curl -fsS \
+    http://object-storage-fault-proxy:9002/state)"
+jq -e --arg id "$media_batch_response_drop_id" '
+    .armed == null and
+    ([.events[] | select(.action == "drop_response" and .method == "PUT" and
+      .upstreamStatus == 200 and (.path | contains($id)))] | length) == 1 and
+    ([.events[] | select(.method == "PUT" and (.path | contains($id))) | .path] |
+      unique | length) == 2
+' <<<"$media_batch_response_drop_fault_state" >/dev/null
+assert_equals \
+    "media/$media_batch_response_drop_id.zip|media/$media_batch_response_drop_id/items/0001-mock-1.png|true|1|true" \
+    "$(db_query "
+        SELECT operation.object_key || '|' || item.object_key || '|' ||
+               (operation.attempts >= 2)::text || '|' ||
+               (SELECT count(*) FROM usage_events WHERE request_id = lease.request_id) || '|' ||
+               ((SELECT count(*) FROM balance_ledger
+                 WHERE lease_token = lease.lease_token AND entry_type = 'usage_debit') =
+                CASE WHEN lease.final_cost_usd > 0 THEN 1 ELSE 0 END)::text
+        FROM media_operations AS operation
+        JOIN media_operation_items AS item
+          ON item.operation_id = operation.operation_id
+        JOIN request_leases AS lease ON lease.lease_token = operation.lease_token
+        WHERE operation.operation_id = '$media_batch_response_drop_id';")" \
+    "Committed S3 response loss converges into deterministic keys and one settlement"
+echo "PASS: committed S3 response loss retries without duplicate objects or billing"
 
 secondary_media_socket="/var/run/scalaapi/dispatch-media.sock"
 secondary_platform_container="${project}_platform-media-2"

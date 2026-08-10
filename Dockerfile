@@ -5,6 +5,7 @@ RUN dotnet publish Platform.Host/Platform.Host.csproj -c Release -o /app/platfor
     && dotnet publish Admin.Api/Admin.Api.csproj -c Release -o /app/admin \
     && dotnet publish Db.Migrator/Db.Migrator.csproj -c Release -o /app/migrate \
     && dotnet publish Provider.Mock/Provider.Mock.csproj -c Release -o /app/provider-mock \
+    && dotnet publish ObjectStorage.FaultProxy/ObjectStorage.FaultProxy.csproj -c Release -o /app/object-storage-fault-proxy \
     && find . -type d \( -name bin -o -name obj \) -prune -exec rm -rf '{}' + \
     && rm -rf /root/.nuget/packages /root/.local/share/NuGet /root/.cache/NuGet
 
@@ -49,3 +50,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl \
 COPY --from=build /app/provider-mock ./provider-mock
 EXPOSE 8081
 ENTRYPOINT ["dotnet", "provider-mock/ScalaAPI.Provider.Mock.dll"]
+
+FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS object-storage-fault-proxy
+WORKDIR /app
+RUN apt-get update && apt-get install -y --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/*
+COPY --from=build /app/object-storage-fault-proxy ./object-storage-fault-proxy
+EXPOSE 9000 9002
+ENTRYPOINT ["dotnet", "object-storage-fault-proxy/ScalaAPI.ObjectStorage.FaultProxy.dll"]

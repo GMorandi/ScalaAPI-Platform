@@ -1,0 +1,24 @@
+services:
+  object-storage-fault-proxy:
+    build:
+      context: ../..
+      target: object-storage-fault-proxy
+    environment:
+      FaultProxy__ListenPort: 9000
+      FaultProxy__UpstreamHost: object-storage
+      FaultProxy__UpstreamPort: 9000
+    depends_on:
+      object-storage:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:9002/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  platform-silo:
+    environment:
+      ObjectStorage__Endpoint: http://object-storage-fault-proxy:9000
+    depends_on:
+      object-storage-fault-proxy:
+        condition: service_healthy

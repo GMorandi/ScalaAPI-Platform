@@ -15,6 +15,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="../../src/ObjectStorage.FaultProxy/ObjectStorage.FaultProxy.csproj" />
     <ProjectReference Include="../../src/Platform.Host/Platform.Host.csproj" />
   </ItemGroup>
 

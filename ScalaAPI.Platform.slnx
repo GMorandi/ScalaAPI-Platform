@@ -4,6 +4,7 @@
     <Project Path="src/Platform.Host/Platform.Host.csproj" />
     <Project Path="src/Grains.Interfaces/Grains.Interfaces.csproj" />
     <Project Path="src/Grains/Grains.csproj" />
+    <Project Path="src/ObjectStorage.FaultProxy/ObjectStorage.FaultProxy.csproj" />
     <Project Path="src/Admin.Api/Admin.Api.csproj" />
     <Project Path="src/Db.Migrator/Db.Migrator.csproj" />
     <Project Path="src/Provider.Mock/Provider.Mock.csproj" />
