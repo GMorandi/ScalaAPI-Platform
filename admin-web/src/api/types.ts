@@ -58,6 +58,29 @@ export interface DashboardStats {
   totalApiKeys: number;
 }
 
+export interface OpsMetricSummary {
+  metricName: string;
+  latestValue: number;
+  averageValue: number;
+  samples: number;
+  latestAt: string;
+}
+
+export interface OpsPolicyAlert {
+  id: number;
+  eventKey: string;
+  kind: string;
+  severity: string;
+  ruleId: number | null;
+  userId: number | null;
+  requestId: string | null;
+  stage: string;
+  code: string;
+  policyRevision: number;
+  details: string;
+  createdAt: string;
+}
+
 export interface ReconciliationIncident {
   id: number;
   incident_key: string;

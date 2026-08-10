@@ -10,6 +10,7 @@ const links = [
   { href: "/config", key: "nav.config" },
   { href: "/reconciliation", key: "nav.reconciliation" },
   { href: "/content-policy", key: "nav.contentPolicy" },
+  { href: "/operations", key: "nav.operations" },
 ];
 
 export default function Sidebar() {
