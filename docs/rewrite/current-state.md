@@ -11,7 +11,7 @@ read-only requirements reference and is excluded from builds and runtime.
 | Repository | Commit | Worktree | Active role |
 | --- | --- | --- | --- |
 | `gateway` | `418da3a` | clean | C++ Gateway edge, protocol routing/conversion, Provider transport, and Garnet client |
-| `platform` | `57d33f8` | clean | C# Orleans control plane, PostgreSQL authority, Provider mock, Admin Web, and User Web |
+| `platform` | `ee6934c` | clean | C# Orleans control plane, PostgreSQL authority, Provider mock, Admin Web, and User Web |
 | `sub2api` | `43ec48d` | read-only clean | Requirements reference only; no runtime or compatibility dependency |
 
 ## Historical role descriptions
@@ -23,7 +23,7 @@ read-only requirements reference and is excluded from builds and runtime.
 | `sub2api` | `43ec48d` | read-only clean | Requirements catalogue only; never a runtime or compatibility dependency |
 
 The active source snapshot for this document is Platform/Admin Web/User Web
-`57d33f8` and Gateway `418da3a`; both worktrees are clean. The table's longer
+`ee6934c` and Gateway `418da3a`; both worktrees are clean. The table's longer
 capability descriptions are retained as inventory context, while this override
 and the evidence below define the current commits.
 
@@ -382,8 +382,13 @@ current-source runtime evidence.
   Platform `57d33f8` adds migration 049, fenced `SKIP LOCKED` item claims,
   scheduled signed `HEAD` verification, and recopy repair for missing or mismatched
   items without touching the settled parent lease. ZIP and item objects now share
-  one bounded Provider download pass. Object-store restart, real multi-Silo
-  contention, and deployment-scale lifecycle remain open.
+  one bounded Provider download pass. Platform `ee6934c` adds the source-built
+  `scalaapi-media-storage-scale-0810b` gate: two active Silos claim one forced
+  item/archive reconciliation cycle exactly once, a stopped object store produces
+  deterministic retryable parent/item failures, restart repairs both projections,
+  and a force-recreated store preserves the original signed bytes on its named
+  volume. Partial PUT/delete faults, network partitions, longer soak, and
+  deployment-scale object-storage HA remain open.
 - Signed payment webhooks, order paid/refunded transitions, stable ledger effects,
   pending-event recovery, subscription purchase/cancel/renew/expiry, and
   transactional redeem-code effects exist as partial commercial foundations.
@@ -565,8 +570,11 @@ smoke assertion. Platform `0134323` adds independent retention deadlines,
   verification, fenced retry/repair, and one-fetch ZIP/item creation; the
   `scalaapi-media-item-reconcile-0810a` gate proves the runtime check and the real
   PostgreSQL test proves missing-object repair, retry recovery, concurrent claim
-  serialization, and stale-worker rejection. Object-store restart, multi-process
-  contention, and deployment-scale lifecycle remain follow-on work.
+  serialization, and stale-worker rejection. Platform `ee6934c` then proves two
+  real Silo workers, exact attempt fencing, object-store outage/restart recovery,
+  and force-replacement with volume and signed-byte preservation in
+  `scalaapi-media-storage-scale-0810b`. Partial PUT/delete failures, partition
+  recovery, longer soak, and deployment-scale lifecycle remain follow-on work.
 
 The preceding completed vertical slice is the source-built protocol gate
 `scalaapi-responses-compact-0810b` (Platform `18daa64`, Gateway `992f3fc`).
@@ -630,7 +638,7 @@ mutation semantics beyond read/input_items/cancel/delete, provider-group fault c
 open.
 
 The following detailed bullets are retained as the preceding-slice record; the
-current totals for Platform `57d33f8` and Gateway `418da3a` are 265/265 and
+current totals for Platform `ee6934c` and Gateway `418da3a` are 265/265 and
 126/126 respectively:
 
 - Gateway built locally and passed 126/126 CTest cases, including deterministic
@@ -770,7 +778,11 @@ current totals for Platform `57d33f8` and Gateway `418da3a` are 265/265 and
   projection recovery, orphan protection, and atomic item/parent cleanup.
   Platform `57d33f8` adds fenced item `HEAD` verification, missing/mismatched
   object repair with retry, and a single Provider fetch for ZIP plus item writes.
-  Full MinIO restart and multi-process lifecycle evidence remain open.
+  Platform `ee6934c` runs two live Silos against one due cycle, verifies exact
+  fenced attempt increments, recovers parent/item metadata after a MinIO outage,
+  and preserves signed bytes across a force-recreated MinIO container. Partial
+  PUT/delete injection, partition recovery, longer soak, and HA/offsite storage
+  evidence remain open.
 - SEC-01 now has executable request, non-stream response, and SSE event-boundary
   evidence: the canonical Cap'n Proto contract carries bounded request/response
   policy content, Platform evaluates active scoped rules before lease creation or

@@ -1,13 +1,14 @@
 # ScalaAPI Next Stage Plan
 
-Current checkpoint override: Platform/Admin Web/User Web `57d33f8`, Gateway
+Current checkpoint override: Platform/Admin Web/User Web `ee6934c`, Gateway
 `418da3a`, and read-only `sub2api@43ec48d`. The latest gate is
-`scalaapi-media-item-reconcile-0810a`; it passed durable image batch list/items,
+`scalaapi-media-storage-scale-0810b`; it passed durable image batch list/items,
 Provider-backed cancellation, S3-backed ZIP download with manifest/error entries,
 owner-scoped per-item objects and signed downloads, retention cleanup, Platform
 restart recovery, fenced item integrity verification, one-fetch archive/item
-creation, and the full empty-volume matrix. The remaining plan below starts after
-this completed media boundary.
+creation, exact claims across two live Silos, MinIO outage/restart recovery,
+force-replacement with volume preservation, and the full empty-volume matrix. The
+remaining plan below starts after this completed media boundary.
 
 The Embeddings provider-profile slice is complete for this checkpoint. Its
 source-owned OpenAI-compatible, Jina-compatible, and Gemini-compatible models
@@ -40,12 +41,15 @@ fresh signed item reads, restart projection recovery, orphan protection, and
 item-aware retention cleanup. Platform `57d33f8` adds migration 049, fenced
 `SKIP LOCKED` claims, per-item signed `HEAD`, missing/mismatched-object repair with
 retry, and one-fetch ZIP/item creation while preserving the completed parent lease.
-Object-store restart, partial storage faults, real multi-Silo contention, and
-deployment-scale lifecycle remain partial.
+Platform `ee6934c` proves two live Silos increment each forced item/archive attempt
+exactly once, outage records retryable parent/item failure, restart repairs both,
+and force-replacement preserves the signed bytes and later retention transition.
+Partial PUT/delete injection, partition recovery, longer soak, and deployment-scale
+HA/offsite lifecycle remain partial.
 
 ## Checkpoint
 
-The next stage starts from Platform/Admin Web/User Web `57d33f8`, Gateway
+The next stage starts from Platform/Admin Web/User Web `ee6934c`, Gateway
 `418da3a`, and read-only reference `sub2api@43ec48d`.
 
 The greenfield baseline now starts from empty volumes, uses PostgreSQL as authority,
@@ -280,8 +284,10 @@ deletion; `b5586cf` proves running-operation restart recovery. Platform `d797cb1
 adds durable item object ownership, fresh owner-scoped signed reads, projection
 recovery, orphan protection, and item-aware retention. Platform `57d33f8` adds
 fenced per-item verification/repair and a single-fetch archive/item pipeline.
-Object-store restart, partial PUT/delete recovery, multi-Silo contention, and
-deployment-scale MinIO lifecycle evidence remain explicit follow-on gates.
+Platform `ee6934c` adds real two-Silo claim contention, object-store outage/restart,
+and force-replacement with volume persistence. Partial PUT/delete recovery,
+partition handling, long soak, and deployment-scale MinIO HA/offsite evidence
+remain explicit follow-on gates.
 
 The completed bounded media slice was batch listing, item projection, and
 Provider-backed cancellation. The read-only
@@ -303,9 +309,9 @@ dedicated batch-item objects and rows, serves fresh signed URLs, and makes orpha
 and retention passes item-aware. Platform `57d33f8` closes bounded per-item `HEAD`
 verification, missing/mismatched repair, retry state, stale-worker fencing, and
 duplicate Provider downloads while preserving settled billing. The next package
-must restart S3-compatible storage during active writes and reconciliation, inject
-partial PUT/HEAD/delete failures, run real secondary Silo workers, and prove no
-referenced object is deleted and every orphan/retention transition converges.
+must inject partial PUT/delete failures, partition storage and one Silo during
+active writes/reconciliation, run a longer lifecycle soak, and prove no referenced
+object is deleted while every orphan/retention transition converges after recovery.
 Platform `6bc411b` adds the first Admin Web operator workflow for this authority:
 open/resolved incident filters, a manual reconciliation trigger, and
 evidence-backed settle/release submission with a stable idempotency key per selected
@@ -943,9 +949,9 @@ Then expand the remaining 58-domain work in this order:
    Gateway `8f33790`.
 2. Complete the remaining media lifecycle after the now-finished batch
    list/items/cancellation/orphan-cleanup/archive/retention/item-storage slice:
-   object-store restart and partial PUT/HEAD/delete recovery, real multi-Silo
-   worker contention, Provider-specific OAuth refresh and pricing/tokenizer adapters,
-   deployment-scale object storage, and full object lifecycle evidence.
+   partial PUT/delete recovery, Silo/object-store partition recovery, longer
+   worker contention soak, Provider-specific OAuth refresh and pricing/tokenizer
+   adapters, deployment-scale HA/offsite object storage, and full lifecycle evidence.
 3. Complete identity hardening beyond the TOTP, OAuth PKCE, Passkey, and encrypted
    mail-outbox state machines, including backup-code recovery UX, live SMTP/provider
    delivery, anti-enumeration,
