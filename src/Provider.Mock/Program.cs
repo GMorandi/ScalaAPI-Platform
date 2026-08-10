@@ -853,11 +853,13 @@ app.MapPost("/v1/chat/completions", async (HttpContext context, CancellationToke
             {
                 context.Response.StatusCode = StatusCodes.Status200OK;
                 context.Response.ContentType = "text/event-stream";
-                // A zero-length response closes deterministically without a
-                // terminal SSE event; the Gateway must retain the hold.
+                // A zero-length success body completes deterministically without
+                // a terminal SSE event; the Gateway must retain the hold. A
+                // hard Kestrel abort after a zero Content-Length can leave the
+                // Photon client waiting for its socket timeout instead of
+                // delivering EOF, so abrupt resets are covered by disconnect.
                 context.Response.ContentLength = 0;
                 await context.Response.StartAsync(cancellationToken);
-                context.Abort();
                 return;
             }
             context.Response.StatusCode = StatusCodes.Status200OK;
