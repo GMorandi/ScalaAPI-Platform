@@ -137,6 +137,7 @@ builder.Services.AddSingleton<MediaOperationStore>();
 var classifierEndpoint = builder.Configuration["ContentClassifier:Endpoint"];
 var openAiClassifierEndpoint = builder.Configuration["ContentClassifier:OpenAI:Endpoint"];
 builder.Services.AddSingleton<OpenAiModerationMetrics>();
+builder.Services.AddSingleton<OpenAiModerationMetricStore>();
 if (!string.IsNullOrWhiteSpace(openAiClassifierEndpoint))
 {
     var allowInsecureOpenAi = builder.Configuration.GetValue(
@@ -198,6 +199,7 @@ builder.Services.AddHostedService<AccountingReconciliationHostedService>();
 builder.Services.AddHostedService<MediaOperationHostedService>();
 builder.Services.AddHostedService<MediaObjectReconciliationService>();
 builder.Services.AddHostedService<ContentPolicyPropagationHostedService>();
+builder.Services.AddHostedService<OpenAiModerationMetricFlushService>();
 
 var app = builder.Build();
 
@@ -281,7 +283,8 @@ app.MapPost("/internal/reconciliation/incidents/{incidentId:long}/resolve", asyn
     };
 });
 app.MapGet("/metrics", async (NpgsqlDataSource db,
-    OpenAiModerationMetrics? openAiMetrics, CancellationToken ct) =>
+    OpenAiModerationMetrics? openAiMetrics,
+    OpenAiModerationMetricStore? openAiMetricStore, CancellationToken ct) =>
 {
     await using var command = db.CreateCommand("""
         SELECT
@@ -327,7 +330,10 @@ app.MapGet("/metrics", async (NpgsqlDataSource db,
         # TYPE platform_reconciliation_last_success_timestamp_seconds gauge
         platform_reconciliation_last_success_timestamp_seconds {reader.GetInt64(10)}
         """;
-    return Results.Text(body + (openAiMetrics?.RenderPrometheus() ?? ""),
+    var persistedClassifierMetrics = openAiMetricStore is null
+        ? null
+        : await openAiMetricStore.ReadTotalsAsync(ct);
+    return Results.Text(body + (openAiMetrics?.RenderPrometheus(persistedClassifierMetrics) ?? ""),
         "text/plain; version=0.0.4");
 });
 

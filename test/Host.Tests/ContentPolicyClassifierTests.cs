@@ -1,5 +1,6 @@
 using System.Net;
 using System.Text;
+using Npgsql;
 using ScalaAPI.Host.Services;
 using Xunit;
 
@@ -221,6 +222,69 @@ public sealed class ContentPolicyClassifierTests
         Assert.DoesNotContain("safe body", output);
         Assert.DoesNotContain("rule", output);
         Assert.DoesNotContain("sk-test", output);
+    }
+
+    [Fact]
+    public void OpenAiModerationMetricsExposeErrorBudgetAndP95FromFixedBuckets()
+    {
+        var metrics = new OpenAiModerationMetrics();
+        for (var index = 0; index < 18; index++)
+            metrics.Record(ContentClassifierResult.NoMatch(), TimeSpan.FromMilliseconds(25));
+        metrics.Record(ContentClassifierResult.Unavailable(
+            "content_policy_classifier_unavailable"), TimeSpan.FromMilliseconds(250));
+        metrics.Record(ContentClassifierResult.Unavailable(
+            "content_policy_classifier_protocol_error"), TimeSpan.FromMilliseconds(250));
+
+        var output = metrics.RenderPrometheus();
+
+        Assert.Contains("platform_content_classifier_unavailable_ratio{classifier=\"openai\"} 0.1", output);
+        Assert.Contains("platform_content_classifier_duration_seconds_p95{classifier=\"openai\"} 0.25", output);
+        Assert.DoesNotContain("content_policy", output);
+    }
+
+    [Fact]
+    public async Task OpenAiModerationMetricStoreAggregatesInstancesAndReplaysSequence()
+    {
+        var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
+        if (string.IsNullOrWhiteSpace(connectionString)) return;
+
+        var firstInstance = Guid.NewGuid();
+        var secondInstance = Guid.NewGuid();
+        await using var dataSource = NpgsqlDataSource.Create(connectionString);
+        var store = new OpenAiModerationMetricStore(dataSource);
+        var first = new OpenAiModerationMetricSnapshot(
+            firstInstance, 1, 10, 3, 5, 2, 1, 0, 100,
+            [0, 2, 3, 5, 0, 0, 0, 0, 0, 0]);
+        var second = new OpenAiModerationMetricSnapshot(
+            secondInstance, 1, 10, 4, 4, 2, 0, 0, 200,
+            [0, 0, 0, 0, 10, 0, 0, 0, 0, 0]);
+        try
+        {
+            await store.AppendAsync(first);
+            await store.AppendAsync(first);
+            await store.AppendAsync(second);
+
+            var totals = await store.ReadTotalsAsync();
+            Assert.Equal(20, totals.Requests);
+            Assert.Equal(7, totals.Matches);
+            Assert.Equal(4, totals.Unavailable);
+            Assert.Equal(300, totals.DurationTicks);
+            Assert.Equal(20, totals.Buckets.Sum());
+
+            var output = new OpenAiModerationMetrics().RenderPrometheus(totals);
+            Assert.Contains("platform_content_classifier_requests_total{classifier=\"openai\"} 20", output);
+            Assert.Contains("platform_content_classifier_unavailable_ratio{classifier=\"openai\"} 0.2", output);
+            Assert.Contains("platform_content_classifier_duration_seconds_p95{classifier=\"openai\"} 0.25", output);
+        }
+        finally
+        {
+            await using var cleanup = dataSource.CreateCommand("""
+                DELETE FROM content_classifier_metric_snapshots
+                WHERE instance_id = ANY($1)
+                """);
+            cleanup.Parameters.AddWithValue(new[] { firstInstance, secondInstance });
+            await cleanup.ExecuteNonQueryAsync();
+        }
     }
 
     private static HttpContentClassifier Create(HttpMessageHandler handler) =>

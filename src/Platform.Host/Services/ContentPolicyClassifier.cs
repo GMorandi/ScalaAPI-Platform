@@ -243,34 +243,100 @@ public sealed class OpenAiModerationMetrics
         Interlocked.Increment(ref _cancellations);
     }
 
-    public string RenderPrometheus()
+    public OpenAiModerationMetricSnapshot Capture(Guid instanceId, long sequence)
     {
-        var requests = Interlocked.Read(ref _requests);
+        var values = CaptureValues();
+        return new(
+            instanceId,
+            sequence,
+            values.Requests,
+            values.Matches,
+            values.NoMatches,
+            values.Unavailable,
+            values.ProtocolErrors,
+            values.Cancellations,
+            values.DurationTicks,
+            values.Buckets);
+    }
+
+    /// <summary>
+    /// Removes only the counters represented by a successfully persisted
+    /// snapshot. New requests recorded concurrently remain in memory for the
+    /// next flush, while a failed database write leaves the counters intact.
+    /// </summary>
+    public void Acknowledge(OpenAiModerationMetricSnapshot snapshot)
+    {
+        Interlocked.Add(ref _requests, -snapshot.Requests);
+        Interlocked.Add(ref _matches, -snapshot.Matches);
+        Interlocked.Add(ref _noMatches, -snapshot.NoMatches);
+        Interlocked.Add(ref _unavailable, -snapshot.Unavailable);
+        Interlocked.Add(ref _protocolErrors, -snapshot.ProtocolErrors);
+        Interlocked.Add(ref _cancellations, -snapshot.Cancellations);
+        Interlocked.Add(ref _durationTicks, -snapshot.DurationTicks);
+        for (var index = 0; index < _buckets.Length; index++)
+            Interlocked.Add(ref _buckets[index], -snapshot.Buckets[index]);
+    }
+
+    public string RenderPrometheus(OpenAiModerationMetricTotals? persisted = null)
+    {
+        var total = (persisted ?? OpenAiModerationMetricTotals.Empty)
+            .Add(CaptureValues());
+        var requests = total.Requests;
         var cumulative = 0L;
         var builder = new StringBuilder();
         builder.AppendLine("# TYPE platform_content_classifier_requests_total counter");
         builder.AppendLine($"platform_content_classifier_requests_total{{classifier=\"openai\"}} {requests}");
         builder.AppendLine("# TYPE platform_content_classifier_matches_total counter");
-        builder.AppendLine($"platform_content_classifier_matches_total{{classifier=\"openai\"}} {Interlocked.Read(ref _matches)}");
+        builder.AppendLine($"platform_content_classifier_matches_total{{classifier=\"openai\"}} {total.Matches}");
         builder.AppendLine("# TYPE platform_content_classifier_no_matches_total counter");
-        builder.AppendLine($"platform_content_classifier_no_matches_total{{classifier=\"openai\"}} {Interlocked.Read(ref _noMatches)}");
+        builder.AppendLine($"platform_content_classifier_no_matches_total{{classifier=\"openai\"}} {total.NoMatches}");
         builder.AppendLine("# TYPE platform_content_classifier_unavailable_total counter");
-        builder.AppendLine($"platform_content_classifier_unavailable_total{{classifier=\"openai\"}} {Interlocked.Read(ref _unavailable)}");
+        builder.AppendLine($"platform_content_classifier_unavailable_total{{classifier=\"openai\"}} {total.Unavailable}");
         builder.AppendLine("# TYPE platform_content_classifier_protocol_errors_total counter");
-        builder.AppendLine($"platform_content_classifier_protocol_errors_total{{classifier=\"openai\"}} {Interlocked.Read(ref _protocolErrors)}");
+        builder.AppendLine($"platform_content_classifier_protocol_errors_total{{classifier=\"openai\"}} {total.ProtocolErrors}");
         builder.AppendLine("# TYPE platform_content_classifier_cancellations_total counter");
-        builder.AppendLine($"platform_content_classifier_cancellations_total{{classifier=\"openai\"}} {Interlocked.Read(ref _cancellations)}");
+        builder.AppendLine($"platform_content_classifier_cancellations_total{{classifier=\"openai\"}} {total.Cancellations}");
         builder.AppendLine("# TYPE platform_content_classifier_duration_seconds histogram");
         for (var i = 0; i < BucketsSeconds.Length; i++)
         {
-            cumulative += Interlocked.Read(ref _buckets[i]);
+            cumulative += total.Buckets[i];
             builder.AppendLine($"platform_content_classifier_duration_seconds_bucket{{classifier=\"openai\",le=\"{BucketsSeconds[i].ToString(System.Globalization.CultureInfo.InvariantCulture)}\"}} {cumulative}");
         }
-        cumulative += Interlocked.Read(ref _buckets[^1]);
+        cumulative += total.Buckets[^1];
         builder.AppendLine($"platform_content_classifier_duration_seconds_bucket{{classifier=\"openai\",le=\"+Inf\"}} {cumulative}");
-        builder.AppendLine($"platform_content_classifier_duration_seconds_count{{classifier=\"openai\"}} {requests - Interlocked.Read(ref _cancellations)}");
-        builder.AppendLine($"platform_content_classifier_duration_seconds_sum{{classifier=\"openai\"}} {(Interlocked.Read(ref _durationTicks) / (double)TimeSpan.TicksPerSecond).ToString(System.Globalization.CultureInfo.InvariantCulture)}");
+        builder.AppendLine($"platform_content_classifier_duration_seconds_count{{classifier=\"openai\"}} {requests - total.Cancellations}");
+        builder.AppendLine($"platform_content_classifier_duration_seconds_sum{{classifier=\"openai\"}} {(total.DurationTicks / (double)TimeSpan.TicksPerSecond).ToString(System.Globalization.CultureInfo.InvariantCulture)}");
+        builder.AppendLine("# TYPE platform_content_classifier_unavailable_ratio gauge");
+        var evaluated = Math.Max(0, requests - total.Cancellations);
+        var unavailableRatio = evaluated == 0 ? 0 : (double)total.Unavailable / evaluated;
+        builder.AppendLine($"platform_content_classifier_unavailable_ratio{{classifier=\"openai\"}} {unavailableRatio.ToString(System.Globalization.CultureInfo.InvariantCulture)}");
+        builder.AppendLine("# TYPE platform_content_classifier_duration_seconds_p95 gauge");
+        builder.AppendLine($"platform_content_classifier_duration_seconds_p95{{classifier=\"openai\"}} {EstimateP95(total.Buckets, evaluated).ToString(System.Globalization.CultureInfo.InvariantCulture)}");
         return builder.ToString();
+    }
+
+    private OpenAiModerationMetricSnapshotValues CaptureValues() => new(
+        Interlocked.Read(ref _requests),
+        Interlocked.Read(ref _matches),
+        Interlocked.Read(ref _noMatches),
+        Interlocked.Read(ref _unavailable),
+        Interlocked.Read(ref _protocolErrors),
+        Interlocked.Read(ref _cancellations),
+        Interlocked.Read(ref _durationTicks),
+        _buckets.Select(value => value).ToArray());
+
+    private static double EstimateP95(long[] buckets, long count)
+    {
+        if (count <= 0) return 0;
+        var target = Math.Max(1, (long)Math.Ceiling(count * 0.95));
+        var cumulative = 0L;
+        for (var index = 0; index < buckets.Length; index++)
+        {
+            cumulative += buckets[index];
+            if (cumulative >= target)
+                return index < BucketsSeconds.Length ? BucketsSeconds[index] : double.PositiveInfinity;
+        }
+        return double.PositiveInfinity;
     }
 }
 
