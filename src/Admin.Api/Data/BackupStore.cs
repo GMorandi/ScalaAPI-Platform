@@ -298,6 +298,8 @@ public sealed class BackupStore(
         var connection = new NpgsqlConnectionStringBuilder(_sourceConnection);
         var start = StartProcess(_pgDump, connection, psi =>
         {
+            psi.ArgumentList.Add("--dbname");
+            psi.ArgumentList.Add(connection.Database ?? "postgres");
             psi.ArgumentList.Add("--format=custom");
             psi.ArgumentList.Add("--no-owner");
             psi.ArgumentList.Add("--no-privileges");
