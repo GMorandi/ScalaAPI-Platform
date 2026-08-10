@@ -2,7 +2,7 @@
 
 ## Checkpoint
 
-The next stage starts from Platform/Admin Web/User Web `5c4d519`, Gateway `3da0d33`, and read-only
+The next stage starts from Platform/Admin Web/User Web `49f68d5`, Gateway `3da0d33`, and read-only
 reference `sub2api@43ec48d`.
 
 The greenfield baseline now starts from empty volumes, uses PostgreSQL as authority,
@@ -80,8 +80,9 @@ instances with live counters and emits fixed-label unavailable-ratio, bucketed p
 and configuration-backed breach gauges. Migration 045 atomically updates durable
 budget alert state with each snapshot append. A temporary empty PostgreSQL run
 applied and replay-skipped all 45 product records; the Compose baseline count is
-now 46 including Orleans. Runtime multi-process flush/restart evidence is still
-open.
+now 46 including Orleans. The hosted-worker test covers two instances and a
+restarted instance with one sequence-one snapshot each; actual separate Compose
+process flush/restart evidence is still open.
 
 The completed policy-operations slice is committed as Platform `9fb449c`, with
 worker-order serialization finalized in `caa719e` and the bounded external
@@ -289,12 +290,13 @@ automated.
    correlation after outage. The latest smoke also passes the complete Provider
    matrix.
 2. Harden the production OpenAI classifier boundary. Keep the `3da2e29` empty-stack
-   match/unavailable proof and HTTPS-only default. Platform `5c4d519` persists
+   match/unavailable proof and HTTPS-only default. Platform `49f68d5` persists
    fixed-label instance snapshots with idempotent sequence keys, retries flushes,
    merges cross-instance counters into `/metrics`, and atomically records
    configuration-backed unavailable-ratio/p95 budget breaches. The targeted real-
-   PostgreSQL/schema run passed 23/23 and the Release build passed with zero
-   warnings/errors. Add runtime two-process flush/restart evidence, credential
+   PostgreSQL/schema/worker run passed 24/24 and the Release build passed with zero
+   warnings/errors; the hosted worker test covers independent instances and one
+   restart. Add actual runtime two-process flush/restart evidence, credential
    rotation and redaction checks, malformed/oversized/timeout/cancellation
    scenarios through real deployment configuration, and long-stream
    buffer/late-usage soak.

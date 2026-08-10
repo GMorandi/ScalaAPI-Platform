@@ -11,7 +11,7 @@ read-only requirements reference and is excluded from builds and runtime.
 | Repository | Commit | Worktree | Role |
 | --- | --- | --- | --- |
 | `gateway` | `3da0d33` | clean | C++ HTTP/WebSocket edge, protocol parsing/conversion, versioned OpenAI Chat/Responses, Anthropic Messages, and Gemini request/response/SSE golden contracts, full pairwise provider request/response/error matrix assertions, fail-closed model catalog and token-count validation, bounded Embeddings and Responses validation, streaming, strict Provider media contracts, bounded transport timers, normalized Provider availability errors, shared retryable Platform transport policy, durable usage delivery, authenticated Garnet projections, bounded request/response content-policy RPC evaluation, event-boundary streaming response moderation, and fail-closed response delivery including retryable classifier outages |
-| `platform` | `5c4d519` backend + Admin Web + User Web | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, Provider mock contracts, bounded provider pricing catalog refresh with immutable source/checksum history and admin-source precedence, media object HEAD reconciliation with retryable missing/mismatch state, native mock and Stripe Checkout Session payment adapters with HTTPS/auth/amount bounds and idempotent pending-order retry, Stripe raw-body webhook verification and event normalization with provider payment-id association, native partial-refund Provider commands with pending/retryable state, cumulative order refund state, independent Provider/ledger refund effects, SKIP LOCKED refund recovery with expiring claims, and one NUMERIC ledger effect per refund, User Web provider selection and checkout links, rotating identity/session/TOTP/OAuth state, native Passkey/WebAuthn ceremonies, encrypted email notification outbox and retry worker, API-key policy and audit, versioned runtime configuration, persistent scheduling and lease/hold/ledger state, atomic subscription quota reservation and settlement, idempotent subscription expiry/renewal worker, audited operator reconciliation, Admin Web incident filtering/run/evidence-backed settle-release workflow with replay-key preservation, content-policy rule CRUD/change/alert operations with an API-intercepted Playwright smoke, source-built OpenAI Moderation empty-stack smoke coverage, atomic audited referral rewards, authenticated and audited operational metrics, bounded redacted audit queries/exports, encrypted proxy and validated TLS profile administration, audited bounded channel monitor checks, auditable user data export, bounded authentication/ceremony cleanup, user announcement read tracking, media/object lifecycle, staged request/response content-policy evaluation with versioned Unicode normalization, explicitly selectable source-owned/OpenAI Moderation classifiers, fixed-label OpenAI moderation counters, persisted cross-process snapshots, configuration-backed p95/unavailable-ratio budget gauges, durable budget alerts with rolling-window recovery, isolated Provider fault fixtures with deterministic empty-stream EOF, durable no-TTL policy revision propagation and PostgreSQL-backed Garnet rebuild, operational alert evidence, redacted audits, and crash-reclaimable content-policy outbox propagation |
+| `platform` | `49f68d5` backend + Admin Web + User Web | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, Provider mock contracts, bounded provider pricing catalog refresh with immutable source/checksum history and admin-source precedence, media object HEAD reconciliation with retryable missing/mismatch state, native mock and Stripe Checkout Session payment adapters with HTTPS/auth/amount bounds and idempotent pending-order retry, Stripe raw-body webhook verification and event normalization with provider payment-id association, native partial-refund Provider commands with pending/retryable state, cumulative order refund state, independent Provider/ledger refund effects, SKIP LOCKED refund recovery with expiring claims, and one NUMERIC ledger effect per refund, User Web provider selection and checkout links, rotating identity/session/TOTP/OAuth state, native Passkey/WebAuthn ceremonies, encrypted email notification outbox and retry worker, API-key policy and audit, versioned runtime configuration, persistent scheduling and lease/hold/ledger state, atomic subscription quota reservation and settlement, idempotent subscription expiry/renewal worker, audited operator reconciliation, Admin Web incident filtering/run/evidence-backed settle-release workflow with replay-key preservation, content-policy rule CRUD/change/alert operations with an API-intercepted Playwright smoke, source-built OpenAI Moderation empty-stack smoke coverage, atomic audited referral rewards, authenticated and audited operational metrics, bounded redacted audit queries/exports, encrypted proxy and validated TLS profile administration, audited bounded channel monitor checks, auditable user data export, bounded authentication/ceremony cleanup, user announcement read tracking, media/object lifecycle, staged request/response content-policy evaluation with versioned Unicode normalization, explicitly selectable source-owned/OpenAI Moderation classifiers, fixed-label OpenAI moderation counters, persisted cross-process snapshots, configuration-backed p95/unavailable-ratio budget gauges, durable budget alerts with rolling-window recovery, deterministic hosted-worker multi-instance/restart replay evidence, isolated Provider fault fixtures with deterministic empty-stream EOF, durable no-TTL policy revision propagation and PostgreSQL-backed Garnet rebuild, operational alert evidence, redacted audits, and crash-reclaimable content-policy outbox propagation |
 | `sub2api` | `43ec48d` | read-only clean | Requirements catalogue only; never a runtime or compatibility dependency |
 
 The current tracked inventory is:
@@ -19,7 +19,7 @@ The current tracked inventory is:
 - Gateway: 52 production C++ source/header files, 11 test source files, and 125
   CTest cases.
 - Platform: 119 hand-written production C# files, 3 generated Cap'n Proto C#
-  files, 63 test/benchmark C# files, and 238 tests: 69 Grain, 76 Host, 45 Admin,
+  files, 63 test/benchmark C# files, and 239 tests: 69 Grain, 77 Host, 45 Admin,
   and 48 Provider mock tests.
 - Product surface: 125 direct Admin API route declarations, 50 product tables,
   22 SQLSugar entity types, 25 Admin Web TypeScript/TSX files and 13 page views,
@@ -446,7 +446,7 @@ current-source runtime evidence.
 
 ## Current verification evidence
 
-At Platform/Admin Web/User Web `5c4d519` and Gateway `3da0d33`:
+At Platform/Admin Web/User Web `49f68d5` and Gateway `3da0d33`:
 
 - Gateway built locally and passed 125/125 CTest cases, including deterministic
   fault-hook claim/repeat behavior, terminal SSE detection, provider EOF
@@ -458,8 +458,8 @@ At Platform/Admin Web/User Web `5c4d519` and Gateway `3da0d33`:
   sixteen request pairs, all sixteen response pairs, cross-protocol response
   envelope validation, and cross-protocol error normalization with standard
   status precedence.
-- Platform Release test/build passed with 0 warnings and 0 errors: 238/238 tests,
-  including 76 Host tests, 69 Grain tests, 45 Admin tests, and 48 Provider mock
+- Platform Release test/build passed with 0 warnings and 0 errors: 239/239 tests,
+  including 77 Host tests, 69 Grain tests, 45 Admin tests, and 48 Provider mock
   tests. Admin coverage
   includes PostgreSQL-backed TOTP replay, backup-code consumption, lockout,
   recovery, OAuth provider/redirect/verifier binding, one-time state consumption,
@@ -495,12 +495,13 @@ At Platform/Admin Web/User Web `5c4d519` and Gateway `3da0d33`:
   instance/sequence-idempotent PostgreSQL snapshots, retryable hosted flushing,
   cross-instance aggregation, unavailable-ratio and bucketed p95 output. Platform
   `f565d9f` adds migration 045, validated budget configuration, atomic durable
-  breach alerts, and `/metrics` breach gauges. Platform `5c4d519` adds bounded
+  breach alerts, and `/metrics` breach gauges. Platform `49f68d5` adds bounded
   rolling-window totals and automatic recovery of expired budget breaches. The
-  targeted real-PostgreSQL
-  classifier/schema run passed 23/23 and the Release build passed with zero
+  targeted real-PostgreSQL classifier/schema/worker run passed 24/24 and the
+  Release build passed with zero
   warnings/errors; output remains free of content, policy patterns, endpoints, and
-  credentials. Runtime multi-process flush/restart, credential rotation, and
+  credentials. Hosted-worker instance/restart replay is covered; actual
+  multi-process flush/restart, credential rotation, and
   deployed malformed/oversized/timeout/long-stream
   evidence remain release gates.
 - Platform `926b98e` adds a deterministic `platform.after_policy_outbox_claim`
@@ -579,12 +580,15 @@ At Platform/Admin Web/User Web `5c4d519` and Gateway `3da0d33`:
   schema. Platform `94e0db8` removes the policy revision TTL and extends the
   authenticated cache rebuild with PostgreSQL revision plus Garnet invalidation
   evidence; the dedicated RemoteGarnet test proves recovery after both keys are
-  deleted. Platform `f565d9f` adds migrations 044-045 with idempotent
+  deleted. Platform `49f68d5` adds migrations 044-045 with idempotent
   instance/sequence snapshots, retryable flush, aggregate unavailable-ratio and
   bucketed p95 output, configuration-backed breach gauges, and durable budget
-  alerts; the real-PostgreSQL/schema coverage is 23/23 without sensitive labels.
-  Runtime multi-process flush/restart, browser evidence, credential rotation, and
-  long-stream soak remain open, so the domain is still
+  alerts; the real-PostgreSQL/schema/worker coverage is 24/24 without sensitive
+  labels.
+  A deterministic hosted-worker test now creates two independent instances and a
+  restarted instance, proving one sequence-one snapshot per worker and complete
+  aggregate totals. Actual separate Compose process restart, browser evidence,
+  credential rotation, and long-stream soak remain open, so the domain is still
   `partial`.
 - AUTH-01 coverage includes email/password boundary tests, PostgreSQL-backed login
   identity/IP lockout and success reset tests, independent-IP accounting,
