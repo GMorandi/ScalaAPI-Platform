@@ -10,6 +10,9 @@ public sealed class ContentPolicyClassifierTests
     private static readonly ContentClassifierClientOptions Options =
         new(new Uri("http://classifier.test/v1/classifier/evaluate"),
             TimeSpan.FromMilliseconds(100));
+    private static readonly OpenAiModerationClientOptions OpenAiOptions =
+        new(new Uri("https://api.openai.test/v1/moderations"), "sk-test",
+            "omni-moderation-latest", TimeSpan.FromMilliseconds(100));
 
     [Fact]
     public async Task ExternalMatchUsesBoundedSourceOwnedContract()
@@ -102,8 +105,97 @@ public sealed class ContentPolicyClassifierTests
             classifier.EvaluateAsync("external", "body", "pattern", cancellation.Token));
     }
 
+    [Fact]
+    public async Task OpenAiModerationUsesBearerInputAndFlaggedResult()
+    {
+        string? requestBody = null;
+        string? authorization = null;
+        var classifier = CreateOpenAi(new StubHandler(async request =>
+        {
+            requestBody = await request.Content!.ReadAsStringAsync();
+            authorization = request.Headers.Authorization?.ToString();
+            return Json(HttpStatusCode.OK, """
+                {"id":"modr_test","model":"omni-moderation-latest",
+                 "results":[{"flagged":true}]}
+                """);
+        }));
+
+        var result = await classifier.EvaluateAsync("openai", "content", "rule");
+
+        Assert.Equal(ContentClassifierOutcome.Match, result.Outcome);
+        Assert.Equal("Bearer sk-test", authorization);
+        Assert.Contains("\"model\":\"omni-moderation-latest\"", requestBody);
+        Assert.Contains("\"input\":\"content\"", requestBody);
+        Assert.DoesNotContain("rule", requestBody);
+    }
+
+    [Theory]
+    [InlineData(HttpStatusCode.TooManyRequests, "content_policy_classifier_unavailable")]
+    [InlineData(HttpStatusCode.ServiceUnavailable, "content_policy_classifier_unavailable")]
+    [InlineData(HttpStatusCode.Unauthorized, "content_policy_classifier_protocol_error")]
+    public async Task OpenAiModerationStatusFailuresRemainFailClosed(
+        HttpStatusCode status, string code)
+    {
+        var classifier = CreateOpenAi(new StubHandler(_ =>
+            Task.FromResult(Json(status, "{\"error\":\"ignored\"}"))));
+
+        var result = await classifier.EvaluateAsync("openai", "body", "pattern");
+
+        Assert.Equal(ContentClassifierOutcome.Unavailable, result.Outcome);
+        Assert.Equal(code, result.Code);
+    }
+
+    [Theory]
+    [InlineData("{not-json")]
+    [InlineData("{\"results\":[]}")]
+    [InlineData("{\"results\":[{\"flagged\":\"yes\"}]}")]
+    public async Task OpenAiModerationInvalidResponsesFailClosed(string payload)
+    {
+        var classifier = CreateOpenAi(new StubHandler(_ =>
+            Task.FromResult(Json(HttpStatusCode.OK, payload))));
+
+        var result = await classifier.EvaluateAsync("openai", "body", "pattern");
+
+        Assert.Equal(ContentClassifierOutcome.Unavailable, result.Outcome);
+        Assert.Equal("content_policy_classifier_protocol_error", result.Code);
+    }
+
+    [Fact]
+    public async Task OpenAiModerationBoundsInputBeforeProviderContact()
+    {
+        var calls = 0;
+        var classifier = CreateOpenAi(new StubHandler(_ =>
+        {
+            calls++;
+            return Task.FromResult(Json(HttpStatusCode.OK,
+                "{\"results\":[{\"flagged\":false}]}"));
+        }));
+
+        var result = await classifier.EvaluateAsync("openai",
+            new string('x', OpenAiModerationClientOptions.MaxRequestBytes + 1), "pattern");
+
+        Assert.Equal(ContentClassifierOutcome.Unavailable, result.Outcome);
+        Assert.Equal("content_policy_classifier_protocol_error", result.Code);
+        Assert.Equal(0, calls);
+    }
+
+    [Fact]
+    public async Task OpenAiModerationTimeoutMapsToUnavailable()
+    {
+        var classifier = CreateOpenAi(new StubHandler(_ =>
+            throw new TaskCanceledException("simulated timeout")));
+
+        var result = await classifier.EvaluateAsync("openai", "body", "pattern");
+
+        Assert.Equal(ContentClassifierOutcome.Unavailable, result.Outcome);
+        Assert.Equal("content_policy_classifier_unavailable", result.Code);
+    }
+
     private static HttpContentClassifier Create(HttpMessageHandler handler) =>
         new(new HttpClient(handler), Options);
+
+    private static OpenAiModerationClassifier CreateOpenAi(HttpMessageHandler handler) =>
+        new(new HttpClient(handler), OpenAiOptions);
 
     private static HttpResponseMessage Json(HttpStatusCode status, string payload) =>
         new(status)

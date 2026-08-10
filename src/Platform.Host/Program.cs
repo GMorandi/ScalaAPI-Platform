@@ -134,6 +134,33 @@ builder.Services.AddSingleton<IMediaObjectStorage>(sp =>
 builder.Services.AddSingleton<RequestLeaseStore>();
 builder.Services.AddSingleton<MediaOperationStore>();
 var classifierEndpoint = builder.Configuration["ContentClassifier:Endpoint"];
+var openAiClassifierEndpoint = builder.Configuration["ContentClassifier:OpenAI:Endpoint"];
+if (!string.IsNullOrWhiteSpace(openAiClassifierEndpoint))
+{
+    if (!Uri.TryCreate(openAiClassifierEndpoint, UriKind.Absolute, out var endpoint)
+        || endpoint.Scheme != Uri.UriSchemeHttps)
+        throw new InvalidOperationException(
+            "ContentClassifier:OpenAI:Endpoint must be an absolute HTTPS URL");
+    var apiKey = builder.Configuration["ContentClassifier:OpenAI:ApiKey"]?.Trim();
+    if (string.IsNullOrWhiteSpace(apiKey) || apiKey.Length > 512)
+        throw new InvalidOperationException(
+            "ContentClassifier:OpenAI:ApiKey is required and bounded");
+    var model = (builder.Configuration["ContentClassifier:OpenAI:Model"]
+        ?? "omni-moderation-latest").Trim();
+    if (model.Length is < 1 or > 128)
+        throw new InvalidOperationException(
+            "ContentClassifier:OpenAI:Model is invalid");
+    var timeoutMs = Math.Clamp(
+        builder.Configuration.GetValue("ContentClassifier:OpenAI:TimeoutMs", 750), 100, 5000);
+    var options = new OpenAiModerationClientOptions(
+        endpoint, apiKey, model, TimeSpan.FromMilliseconds(timeoutMs));
+    builder.Services.AddSingleton(options);
+    builder.Services.AddHttpClient<OpenAiModerationClassifier>(client =>
+    {
+        client.Timeout = options.Timeout;
+        client.MaxResponseContentBufferSize = OpenAiModerationClientOptions.MaxResponseBytes;
+    });
+}
 if (string.IsNullOrWhiteSpace(classifierEndpoint))
 {
     builder.Services.AddSingleton<IContentClassifier, DefaultContentClassifier>();

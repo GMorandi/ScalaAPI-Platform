@@ -293,6 +293,52 @@ app.MapPost("/v1/classifier/evaluate", async (HttpContext context,
     return Results.Ok(new { outcome = matched ? "match" : "no_match" });
 });
 
+// Official OpenAI Moderations-shaped fixture for the production adapter. The
+// deterministic markers keep this source-owned contract free of live API calls.
+app.MapPost("/v1/moderations", async (HttpContext context,
+    CancellationToken cancellationToken) =>
+{
+    if (!string.Equals(context.Request.Headers.Authorization.ToString(),
+        "Bearer mock-openai-moderation-key", StringComparison.Ordinal))
+        return Results.Unauthorized();
+
+    using var body = await MockProviderHelpers.ReadJsonAsync(context, cancellationToken);
+    var root = body.RootElement;
+    if (root.ValueKind != JsonValueKind.Object
+        || !root.TryGetProperty("input", out var input)
+        || input.ValueKind != JsonValueKind.String
+        || !root.TryGetProperty("model", out var model)
+        || model.ValueKind != JsonValueKind.String)
+        return Results.BadRequest(new { error = "moderation_request_invalid" });
+
+    var content = input.GetString() ?? "";
+    var modelName = model.GetString() ?? "";
+    if (content.Length > 128 * 1024 || modelName.Length is < 1 or > 128)
+        return Results.BadRequest(new { error = "moderation_request_too_large" });
+    var scenario = context.Request.Headers["X-Provider-Scenario"].FirstOrDefault() ?? "";
+    if (scenario.Equals("openai-moderation-unavailable", StringComparison.Ordinal))
+        return Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
+    if (scenario.Equals("openai-moderation-malformed", StringComparison.Ordinal))
+        return Results.Text("{not-json", "application/json", statusCode: 200);
+    if (scenario.Equals("openai-moderation-oversized", StringComparison.Ordinal))
+        return Results.Text(new string('x', 17 * 1024), "application/json", statusCode: 200);
+    if (scenario.Equals("openai-moderation-timeout", StringComparison.Ordinal))
+    {
+        await Task.Delay(TimeSpan.FromSeconds(10), cancellationToken);
+        return Results.Ok(new { id = "modr_timeout", model = modelName,
+            results = new[] { new { flagged = false } } });
+    }
+
+    var flagged = content.Contains("openai-moderation-flag-marker",
+        StringComparison.Ordinal);
+    return Results.Ok(new
+    {
+        id = "modr_scalaapi_fixture",
+        model = modelName,
+        results = new[] { new { flagged } },
+    });
+});
+
 app.MapGet("/v1/responses", async (HttpContext context, CancellationToken cancellationToken) =>
 {
     if (!context.WebSockets.IsWebSocketRequest)
