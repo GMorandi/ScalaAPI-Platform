@@ -11,6 +11,7 @@ const links = [
   { href: "/reconciliation", key: "nav.reconciliation" },
   { href: "/content-policy", key: "nav.contentPolicy" },
   { href: "/operations", key: "nav.operations" },
+  { href: "/channel-monitors", key: "nav.channelMonitors" },
 ];
 
 export default function Sidebar() {

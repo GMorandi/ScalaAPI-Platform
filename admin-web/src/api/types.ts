@@ -81,6 +81,15 @@ export interface OpsPolicyAlert {
   createdAt: string;
 }
 
+export interface ChannelMonitor {
+  id: number;
+  accountId: number;
+  status: string;
+  latencyMs: number;
+  lastError: string | null;
+  checkedAt: string;
+}
+
 export interface ReconciliationIncident {
   id: number;
   incident_key: string;
