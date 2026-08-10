@@ -43,7 +43,11 @@ requirement for this password-authenticated deployment, mounts the PFX and CA
 read-only with rootless-container relabeling, and passes the CA path and server
 name to both production clients. The smoke verifies TLS through Platform's real
 authenticated Garnet readiness path, then runs the complete source-built fault,
-restart, reconciliation, and object-storage matrix. Set
+restart, reconciliation, and object-storage matrix. During the TLS gate, the
+wrapper replaces the PFX with a second certificate signed by the same CA,
+forces Platform/Gateway reconnects, rejects a wrong-SAN certificate and an
+expired certificate through readiness, restores the valid certificate, and
+settles one new billable request. Set
 `GARNET_SERVER_CERT_PASSWORD`, `GARNET_SERVER_NAME`, or
 `GARNET_CERT_REFRESH_SECONDS` to exercise deployment-specific values. The
 default development stack remains plaintext; TLS is selected only by the

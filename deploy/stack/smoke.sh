@@ -6,6 +6,7 @@ repo_root="$(cd "$stack_dir/../.." && pwd)"
 compose_file="$stack_dir/docker-compose.yml"
 compose_files=("$compose_file")
 garnet_tls_enabled="${GARNET_TLS:-false}"
+garnet_tls_rotation_enabled="${GARNET_TLS_ROTATION:-false}"
 project="${SMOKE_PROJECT_NAME:-scalaapi-smoke-$$}"
 secondary_platform_container=""
 secondary_gateway_container=""
@@ -24,6 +25,16 @@ if [[ "$garnet_tls_enabled" == "true" || "$garnet_tls_enabled" == "1" ]]; then
     : "${GARNET_CA_CERT_FILE:?GARNET_CA_CERT_FILE is required when GARNET_TLS=true}"
     : "${GARNET_SERVER_CERT_FILE:?GARNET_SERVER_CERT_FILE is required when GARNET_TLS=true}"
     : "${GARNET_SERVER_CERT_PASSWORD:?GARNET_SERVER_CERT_PASSWORD is required when GARNET_TLS=true}"
+    if [[ "$garnet_tls_rotation_enabled" == "true" || "$garnet_tls_rotation_enabled" == "1" ]]; then
+        : "${GARNET_SERVER_CERT_ROTATED_FILE:?GARNET_SERVER_CERT_ROTATED_FILE is required when GARNET_TLS_ROTATION=true}"
+        : "${GARNET_SERVER_CERT_WRONG_NAME_FILE:?GARNET_SERVER_CERT_WRONG_NAME_FILE is required when GARNET_TLS_ROTATION=true}"
+        : "${GARNET_SERVER_CERT_EXPIRED_FILE:?GARNET_SERVER_CERT_EXPIRED_FILE is required when GARNET_TLS_ROTATION=true}"
+        : "${GARNET_CERT_REFRESH_SECONDS:?GARNET_CERT_REFRESH_SECONDS is required when GARNET_TLS_ROTATION=true}"
+        if ! [[ "$GARNET_CERT_REFRESH_SECONDS" =~ ^[1-9][0-9]*$ ]]; then
+            echo "GARNET_CERT_REFRESH_SECONDS must be a positive integer for rotation smoke" >&2
+            exit 2
+        fi
+    fi
     compose_files+=("$tls_compose_file")
 fi
 
@@ -196,6 +207,7 @@ platform_dispatch_fault_safe_expiry=0
 platform_dispatch_retry=0
 platform_worker_reclaim=0
 platform_fault_handled=0
+garnet_tls_rotation_passed=0
 
 wait_for() {
     local description=$1
@@ -2019,6 +2031,69 @@ gateway_backlog() {
 }
 wait_for "Gateway usage outbox drain" 30 gateway_backlog
 
+if [[ "$GARNET_TLS" == "true" || "$GARNET_TLS" == "1" ]] &&
+   [[ "$garnet_tls_rotation_enabled" == "true" || "$garnet_tls_rotation_enabled" == "1" ]]; then
+    tls_platform_ready() {
+        compose exec -T platform-silo curl -fsS http://127.0.0.1:5000/ready >/dev/null
+    }
+
+    tls_platform_not_ready() {
+        local status
+        status="$(compose exec -T platform-silo \
+            curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:5000/ready \
+            2>/dev/null | tr -d '\r' | tail -n 1 || true)"
+        [[ "$status" == "503" ]]
+    }
+
+    tls_refresh_certificate() {
+        local replacement=$1
+        cp -- "$replacement" "$GARNET_SERVER_CERT_FILE"
+        sleep "$((GARNET_CERT_REFRESH_SECONDS + 2))"
+    }
+
+    tls_restart_clients() {
+        recreate_service platform-silo
+        recreate_service gateway
+    }
+
+    echo "Rotating Garnet TLS server certificate and reconnecting clients"
+    tls_refresh_certificate "$GARNET_SERVER_CERT_ROTATED_FILE"
+    tls_restart_clients
+    wait_for "Platform readiness after Garnet certificate rotation" 90 tls_platform_ready
+    wait_for "Gateway readiness after Garnet certificate rotation" 90 \
+        curl -fsS "$gateway_url/ready" >/dev/null
+
+    tls_wrong_name_request_id="smoke-garnet-tls-rotation-${suffix}"
+    tls_wrong_name_idempotency_key="${tls_wrong_name_request_id}-idem"
+    tls_refresh_certificate "$GARNET_SERVER_CERT_WRONG_NAME_FILE"
+    recreate_service platform-silo
+    wait_for "Garnet wrong-name certificate rejection" 45 tls_platform_not_ready
+
+    tls_refresh_certificate "$GARNET_SERVER_CERT_EXPIRED_FILE"
+    recreate_service platform-silo
+    wait_for "Garnet expired certificate rejection" 45 tls_platform_not_ready
+
+    tls_refresh_certificate "$GARNET_SERVER_CERT_ROTATED_FILE"
+    tls_restart_clients
+    wait_for "Platform readiness after Garnet certificate recovery" 90 tls_platform_ready
+    wait_for "Gateway readiness after Garnet certificate recovery" 90 \
+        curl -fsS "$gateway_url/ready" >/dev/null
+
+    tls_rotation_response="$(curl -fsS "$gateway_url/v1/chat/completions" \
+        -H "Authorization: Bearer $api_key" -H "Content-Type: application/json" \
+        -H "X-Request-ID: $tls_wrong_name_request_id" \
+        -H "Idempotency-Key: $tls_wrong_name_idempotency_key" \
+        --data "$chat_body")"
+    jq -e '(.choices | length > 0) and (.usage.total_tokens > 0)' \
+        <<<"$tls_rotation_response" >/dev/null
+    tls_rotation_settled() {
+        [[ "$(db_query "SELECT count(*) FROM request_leases WHERE request_id = '$tls_wrong_name_request_id' AND status = 'completed' AND final_cost_usd > 0;")" == "1" ]]
+    }
+    wait_for "post-Garnet-TLS-recovery settlement" 30 tls_rotation_settled
+    garnet_tls_rotation_passed=1
+    echo "PASS: Garnet TLS certificate rotation, wrong-name/expiry rejection, recovery, and billing"
+fi
+
 if [[ "$GARNET_TLS" == "true" || "$GARNET_TLS" == "1" ]]; then
     # The Platform readiness endpoint performs an authenticated TLS RESP PING
     # through the production RemoteGarnetService. The busybox helper has no TLS
@@ -2065,5 +2140,8 @@ if (( platform_dispatch_retry > 0 )); then
 fi
 if (( platform_worker_reclaim > 0 )); then
     echo "PASS: Platform worker claim recovery without duplicate settlement"
+fi
+if (( garnet_tls_rotation_passed > 0 )); then
+    echo "PASS: Garnet TLS certificate rotation and expiry/failure recovery"
 fi
 echo "PASS: S3-compatible bucket bootstrap, object persistence, and signed download ($media_size bytes)"
