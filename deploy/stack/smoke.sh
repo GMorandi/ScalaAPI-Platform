@@ -32,6 +32,10 @@ for command_name in curl jq python3; do
         exit 2
     fi
 done
+if [[ "${PUBLIC_UI_SMOKE_ONLY:-0}" == "1" ]] && ! command -v npm >/dev/null 2>&1; then
+    echo "npm is required for PUBLIC_UI_SMOKE_ONLY" >&2
+    exit 2
+fi
 
 compose() {
     "$container_cli" compose --project-name "$project" --file "$compose_file" "$@"
@@ -506,6 +510,13 @@ wait_for "Gateway readiness" 180 curl -fsS "$gateway_url/ready" >/dev/null
 wait_for "Admin API readiness" 60 compose exec -T admin-api \
     curl -fsS http://127.0.0.1:5001/ready >/dev/null
 wait_for "User Web readiness" 60 curl -fsS "$user_web_url/" >/dev/null
+
+if [[ "${PUBLIC_UI_SMOKE_ONLY:-0}" == "1" ]]; then
+    PUBLIC_UI_BASE_URL="$user_web_url" npm --prefix "$repo_root/user-web" run test:e2e -- \
+        tests/public-pages.live.spec.ts
+    echo "PASS: source-built User Web public catalog, readiness, terms, and privacy routes"
+    exit 0
+fi
 
 expected_migrations="$((1 + $(find "$repo_root/deploy/migrations" -maxdepth 1 -type f -name '*.sql' | wc -l)))"
 migration_count="$(db_query "SELECT count(*) FROM schema_migrations;")"

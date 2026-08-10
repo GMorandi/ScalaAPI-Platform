@@ -30,7 +30,7 @@ export default function Models() {
           <section aria-labelledby="model-list-heading" class="panel">
             <div class="section-head">
               <h2 id="model-list-heading">Model directory</h2>
-              <span class="status status-muted">{models()?.data?.length ?? 0} published</span>
+              <span role="status" class="status status-muted">{models()?.data?.length ?? 0} published</span>
             </div>
             <Show when={(models()?.data?.length ?? 0) > 0} fallback={<p class="muted">No models are currently published.</p>}>
               <div class="overflow-x-auto">
