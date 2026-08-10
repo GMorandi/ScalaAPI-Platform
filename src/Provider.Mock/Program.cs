@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using System.Net.WebSockets;
 using System.Text;
@@ -627,6 +628,21 @@ app.MapGet("/v1/responses/{responseId}", (string responseId) =>
     responses.TryGetValue(responseId, out var response)
         ? Results.Text(response, "application/json")
         : Results.NotFound(new { error = new { code = "response_not_found" } }));
+
+app.MapPost("/v1/responses/{responseId}/cancel", (string responseId) =>
+{
+    if (!responses.TryGetValue(responseId, out var current))
+        return Results.NotFound(new { error = new { code = "response_not_found" } });
+
+    var canceled = JsonNode.Parse(current)?.AsObject();
+    if (canceled is null)
+        return Results.Problem("Stored response cannot be canceled", statusCode: 500);
+
+    canceled["status"] = "cancelled";
+    var payload = canceled.ToJsonString();
+    responses[responseId] = payload;
+    return Results.Text(payload, "application/json");
+});
 
 app.MapDelete("/v1/responses/{responseId}", (string responseId) =>
     responses.TryRemove(responseId, out _)
