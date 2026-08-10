@@ -6,10 +6,22 @@ The source-built smoke above is the current release evidence. Rows later in this
 document that mention earlier classifier projects or migration counts are retained
 as historical checkpoints and do not define the current bootstrap or release gate.
 
-The latest source snapshot is Platform/Admin Web/User Web `10adfb5` and Gateway
+The latest source snapshot is Platform/Admin Web/User Web `3a52f72` and Gateway
 `418da3a`.
 
-The latest source-built project `scalaapi-media-partial-storage-0810a` exited zero.
+The latest source-built project `scalaapi-media-transport-0811a` exited zero from
+the committed source. Its smoke-only TCP proxy interrupted a signed object PUT
+after exactly 16 request-body bytes, then independently forwarded a complete PUT
+to MinIO and discarded the committed 200 response. Durable retries converged to
+exactly two unique final keys per batch (item plus ZIP), required at least two
+attempts, and finished with one usage event, a `completed` lease, a `committed`
+hold, and the price-aware ledger cardinality (one debit only when final cost is
+positive). The full 50-record empty-volume migration, Provider-fault, accounting,
+reconciliation/operator, Garnet, realtime, two-Silo, storage replacement,
+retention, S3, and Web matrix passed. The trap removed the isolated project and
+`podman ps -a` was empty.
+
+The preceding source-built project `scalaapi-media-partial-storage-0810a` exited zero.
 It applied and replay-skipped 49 product migrations plus the Orleans baseline,
 started two active Platform Silos, repeated the item/archive outage, restart, and
 force-replacement checks, and then stopped MinIO while terminal retention was due.
@@ -95,9 +107,10 @@ one-fetch ZIP/item creation. Platform `ee6934c` proves real two-Silo contention,
 object-store outage/restart recovery, force-replacement with volume persistence,
 and continued signed item/archive/retention behavior. Platform `10adfb5` adds
 deterministic-key partial-PUT convergence, mid-sequence retention DELETE replay,
-and runtime retention outage/recovery without changing completed billing. Real
-transport-level partial PUT, partition recovery, longer soak, and deployment-scale
-HA remain separate gates.
+and runtime retention outage/recovery without changing completed billing. Platform
+`fffc712` adds real mid-body request interruption and committed-response loss with
+deterministic object and accounting convergence. Partition recovery, longer soak,
+and deployment-scale HA remain separate gates.
 
 The Embeddings project adds Gateway model-specific dimension ceilings and
 versioned Jina/Gemini goldens, Platform Provider mock profiles/catalog entries, deterministic
@@ -412,8 +425,10 @@ per-item verification and repair plus one-fetch archive construction. Platform
 `ee6934c` adds the two-Silo MinIO outage/restart/replacement runtime gate with
 exact attempt-count and byte-preservation assertions. Platform `10adfb5` adds
 partial-PUT convergence plus partial/runtime retention DELETE recovery with
-completed billing preserved. Real transport-level partial PUT, partition,
-long-soak, and HA/offsite lifecycle evidence remain open.
+completed billing preserved. Platform `fffc712` then exercises a request-body
+reset after 16 bytes and a lost successful response after MinIO commit; both
+converge without duplicate objects or settlement. Partition, long-soak, and
+HA/offsite lifecycle evidence remain open.
 
 Platform `6bc411b` adds the Admin Web reconciliation workflow on top of the
 existing authenticated API. Operators can filter open/resolved incidents, run a
@@ -592,6 +607,7 @@ supersedes them where commit, image, or late-usage results differ.
 
 | Gate | Result | Interpretation |
 | --- | --- | --- |
+| Transport-level object-write recovery gate | `scalaapi-media-transport-0811a`, exit 0 | Platform `3a52f72` and Gateway `418da3a` ran the committed source image on empty volumes. A smoke-only private TCP proxy truncated one signed PUT after 16 body bytes and dropped one successful response only after MinIO committed the object. Each operation retried with deterministic item/archive keys, attempts >= 2, one usage event, a completed lease, a committed hold, and no duplicate price-aware debit. The complete 50-record migration, Provider, accounting, Garnet, realtime, two-Silo, storage replacement, retention, S3, and Web matrix passed; cleanup left `podman ps -a` empty |
 | Embeddings provider-profile runtime gate | `scalaapi-embeddings-profiles-0810a`, exit 0 | Platform `5f04bfd` and Gateway `22f65d4` built current sources on empty volumes. OpenAI-compatible, Jina-compatible, and Gemini-compatible profiles returned deterministic dimensions and token counts; four distinct pricing versions produced four completed leases and exactly-once usage/hold/ledger effects. Full existing stack matrix passed and cleanup left `podman ps -a` empty |
 | Image batch list/items runtime gate | `scalaapi-media-batch-0810a`, exit 0 | Platform `f75fbfb` and Gateway `418da3a` built current sources on empty volumes. A durable image batch was created through the Provider mock, listed through the PostgreSQL-backed Gateway route, and projected to a public `data` array through `/items`; the real Host test proves API-key isolation. MinIO object metadata remained `stored`, the complete fault/restart/reconciliation/operator/realtime/Web matrix passed, and cleanup left `podman ps -a` empty |
 | Image batch cancellation runtime gate | `scalaapi-media-cancel-0810c`, exit 0 | Platform `7d0abc6`/`1cc4538` and Gateway `418da3a` built current sources on empty volumes. A batch cancellation called the Provider mock cancel endpoint before the durable row became `canceled`; a follow-up read retained the state, repeated Provider cancellation was idempotent, and the conservative unknown-charge incident/hold was included in final accounting invariants. The full fault/restart/reconciliation/operator/realtime/S3/Web matrix passed and cleanup left `podman ps -a` empty |
@@ -612,7 +628,7 @@ supersedes them where commit, image, or late-usage results differ.
 | Multi-process classifier metric flush/restart | `scalaapi-metrics-process-0810f`, exit 0 | Source-built Compose started a second Platform silo and Gateway on an independent Cap'n Proto socket, sent an OpenAI Moderation response-policy request, restarted both secondary processes, then repeated the request. PostgreSQL contained two instance IDs, sequence 1 for each, two snapshots and two requests; usage_events and NUMERIC `usage_debit` ledger rows each counted two. The smoke cleanup removed the extra and baseline resources and `podman ps -a` was empty |
 | Cross-Gateway idempotency and Silo rejoin | `scalaapi-multi-gateway-0810b`, exit 0 | The source-owned empty-volume smoke started two Platform silos and two Gateways, restarted the secondary pair, then sent concurrent normal Chat requests through both Gateways with one API-key idempotency key. It stopped the secondary pair, proved the primary request still settled with one active Silo, restarted the original containers, verified two active Silos, and settled through the rejoined secondary Gateway. PostgreSQL proved one shared-idempotency lease/debit plus two outage/rejoin leases, usage events, and NUMERIC `usage_debit` rows. The trap removed the isolated project and `podman ps -a` was empty |
 | PostgreSQL backup and isolated restore | `scalaapi-backup-0810b`, exit 0 | The source-owned empty-volume gate applied and replay-skipped all 46 product migrations, registered a fresh user, created an Admin `postgres` backup through the new idempotent command, verified a non-empty artifact and 64-character SHA-256, replayed the same create key, restored into a separate `platform_restore` database with PostgreSQL 17 `pg_restore`, replayed the restore key, and verified the restored user row. The Admin API image now pins the PGDG PostgreSQL 17 client to match the Compose server. The trap removed the stack and `podman ps -a` was empty |
-| Current Platform tests | 267/267, exit 0; Release build 0 warnings/0 errors | 69 Grain, 91 Host, 46 Admin, and 61 Provider tests; current additions cover deterministic-key convergence after a partial batch PUT and real-PostgreSQL partial parent/item retention deletion with retry and unchanged completed lease state. Migration 049 item repair/fencing, migration 048 owner isolation, restart recovery, parent reconciliation, pricing, Garnet, classifier, and backup coverage remain passing |
+| Current Platform tests | 271/271, exit 0; Release build 0 warnings/0 errors | 69 Grain, 95 Host, 46 Admin, and 61 Provider tests; four new Host tests pin one-shot fault arming, matching, bounded evidence, and clear semantics. Deterministic-key convergence, real transport failure recovery, partial parent/item retention deletion, migration 049 fencing, owner isolation, restart recovery, pricing, Garnet, classifier, and backup coverage remain passing |
 | Admin Web backup controls | Platform `840636e`, `npm run typecheck`, `npm run build`, Playwright backup route `1/1` | `/backups` lists status, artifact size, and SHA-256 prefix, shows whether an isolated restore target is configured, creates PostgreSQL backups with an idempotency key, and exposes restore only for completed artifacts with a configured target. Live browser authorization, restore-failure UX, and signed/offsite artifact management remain |
 | Gateway provider-completion crash recovery | `scalaapi-gateway-recovery-0907` source-built smoke passed; Gateway terminated after Provider completion, was explicitly restarted, and the same request retained one active hold in `reconciliation_needed` with no usage/debit | Durable lease evidence survives Gateway process loss; the one-shot marker prevents a restart loop, and the normal reconciliation/operator path remains authoritative |
 | Gateway before-provider-dispatch crash recovery | `scalaapi-gateway-dispatch-recovery-0911` source-built smoke passed; Gateway terminated before Provider contact, was explicitly restarted, and the same held lease became `expired` with released hold/idempotency and no usage/debit | Never-forwarded work remains safe to expire after Gateway loss and does not create an unknown-charge incident |
@@ -656,7 +672,7 @@ supersedes them where commit, image, or late-usage results differ.
 | Protocol golden fixtures | Gateway `3da0d33` CTest, 126/126 | Versioned source-owned OpenAI Chat/Responses, Anthropic Messages, and Gemini request/response/SSE/error files are parsed, validated, usage/terminal events are checked, all sixteen request plus all sixteen response conversions are target-validated, and cross-protocol errors are normalized into target OpenAI/Anthropic/Gemini envelopes with status precedence while explicit same-format Provider errors pass through unchanged; Gateway-generated transport/protocol failures are translated to the inbound envelope; provider-specific catalogs/tokenizers, live adapters, and runtime E2E remain |
 | Responses envelope contract | Gateway `b27965f` and `8f33790` CTest | Direct non-stream Responses success requires a completed response object, model/id metadata, non-empty typed output, and consistent positive usage; malformed payloads are mapped to `502/provider_protocol_error` with the charge retained for reconciliation, while the matching streaming event sequence is frozen in the Responses golden fixture |
 | Gateway dispatch smoke | Seeded OpenAI Chat, Responses, models, embeddings, synchronous image, and asynchronous image/video requests returned success; independent Anthropic and Gemini groups returned 200 and settled against their own price versions; protocol-native JSON-on-stream injection returned bounded 503, four aborted leases/released holds, zero usage/debits, and no Photon overflow | Full runtime cross-protocol conversion/failure matrix and empty-stack automation for non-Chat protocols remain; source-level pairwise request/response and error goldens plus generated-error translation are now in `3da0d33` |
-| Media lifecycle smoke | Image and video create calls returned durable `med_*` IDs; Platform polling copied Provider bytes to MinIO and returned one-hour SigV4 downloads. Batch gates cover PostgreSQL-backed list/items, Provider cancellation, ZIP manifest/errors, terminal retention, and running-operation recovery. `scalaapi-media-items-0810a` adds owner-scoped item objects and item-aware orphan/retention cleanup. `scalaapi-media-item-reconcile-0810a` adds one-fetch ZIP/item creation and runtime signed `HEAD`; real PostgreSQL evidence covers missing/mismatched repair, retry, claim contention, stale-worker rejection, and unchanged completed billing. `scalaapi-media-storage-scale-0810b` adds exact two-Silo attempts and MinIO outage/replacement recovery. `scalaapi-media-partial-storage-0810a` adds partial-PUT convergence plus partial/runtime DELETE retry while preserving completed billing | Real transport-level partial PUT, partition recovery, long soak, and deployment-scale HA/offsite lifecycle remain |
+| Media lifecycle smoke | Image and video create calls returned durable `med_*` IDs; Platform polling copied Provider bytes to MinIO and returned one-hour SigV4 downloads. Batch gates cover PostgreSQL-backed list/items, Provider cancellation, ZIP manifest/errors, terminal retention, and running-operation recovery. `scalaapi-media-items-0810a` adds owner-scoped item objects and item-aware orphan/retention cleanup. `scalaapi-media-item-reconcile-0810a` adds one-fetch ZIP/item creation and runtime signed `HEAD`; real PostgreSQL evidence covers missing/mismatched repair, retry, claim contention, stale-worker rejection, and unchanged completed billing. `scalaapi-media-storage-scale-0810b` adds exact two-Silo attempts and MinIO outage/replacement recovery. `scalaapi-media-partial-storage-0810a` adds partial-PUT convergence plus partial/runtime DELETE retry. `scalaapi-media-transport-0811a` adds real mid-body PUT reset and committed-response-loss convergence while preserving completed billing | Storage/Silo/PostgreSQL partition recovery, one-hour soak, and deployment-scale HA/offsite lifecycle remain |
 | Billable settlement smoke | JSON, SSE, and realtime WebSocket completed; SQL-authoritative holds committed; usage outbox processed; one versioned NUMERIC ledger debit per successful lease; account balance equalled ledger sum, max version equalled account version, versions were contiguous/distinct, and projection backlog reached 0. Platform dispatch retry after process loss, before-provider-dispatch, after-outbox-claim, pre-settlement, post-settlement, and before-outbox-ack crashes plus Gateway before-provider-dispatch and after-provider-completion crashes were recovered by explicitly starting the same container; never-forwarded work expired safely at both dispatch boundaries, while forwarded ambiguity retained one reconciliation hold. Explicit non-stream and streaming 429/500 attempts released; malformed/disconnect/timeout-before-headers plus streaming disconnect, disconnect-before-output, malformed-usage, invalid-content-type, and downstream client-cancel attempts each retained one unknown hold. The truncated-stream profile settled valid usage exactly once before EOF; Admin settle replay returned `duplicate`; realtime settled exactly one lease/event/log/hold/debit; the latest gate ended with eight open incidents after nine were created. The separate 4-session/3-second realtime soak also passed with one complete financial effect per session | Longer load/backpressure soak, multi-instance recovery, and clean hosted CI image reproducibility remain |
 | Ordered accounting and reconciliation | All current money effects use one per-user serialized store. Real-database tests prove 20 concurrent versions, replay/conflict, hold oversubscription, protected debit, final account/ledger equality, safe terminal-hold and projection repair, mismatch/unknown-charge incidents, retained unknown-charge hold/idempotency, late settlement, audited settle/release, same-key conflict, concurrent decision serialization, later incident resolution, and subscription quota reservation/settlement/release. A PostgreSQL advisory lock serializes scheduled and Admin runs; the pre-settlement fault smoke proves reconnect/outbox replay remains exactly-once | Add multi-Silo lock evidence, collector alert delivery, and all remaining deterministic crash hooks; subscription payment/renewal and affiliate effects must adopt the same authority contract |
 | Administrative balance adjustment | New users started at zero; the first authenticated adjustment returned balance 1000 and ledger version 1, exact replay returned `duplicate=true`, changed replay returned 409, and an excessive debit returned 409. PostgreSQL held one `admin_adjustment` NUMERIC row and one `balance.adjust` actor audit. The real-database store test also covered an active hold that prevents a debit | Browser assertions and authorization matrix remain |
@@ -713,9 +729,9 @@ supersedes them where commit, image, or late-usage results differ.
    current audited operator settle/release path must be exercised at those boundaries
    rather than bypassed.
 5. Extend the passing Anthropic and Gemini provider-group scenarios with
-   protocol-specific error/disconnect fixtures, then inject a real transport-level
-   partial PUT and storage/Silo partitions into the now-passing two-Silo media path.
-   Add long-running metadata/object soak plus deployment-scale HA/offsite recovery.
+   protocol-specific error/disconnect fixtures, then partition object storage and
+   PostgreSQL from one Silo in the now-passing two-Silo media path. Add a one-hour
+   metadata/object worker-contention soak plus deployment-scale HA/offsite recovery.
 6. Run auth-session integration scenarios: refresh-token replay, concurrent rotation,
    logout revocation, expired-session rejection, and multi-device session listing.
 7. Run unit, integration, UI, load/soak, failure-recovery, backup/restore, and

@@ -1,7 +1,7 @@
 # ScalaAPI Rewrite Current State
 
 This document is the active baseline for the new ScalaAPI product as of
-2026-08-10. ScalaAPI reimplements the useful product capabilities catalogued in
+2026-08-11. ScalaAPI reimplements the useful product capabilities catalogued in
 Sub2API, but it does not preserve Sub2API APIs, internal contracts, schemas, IDs,
 keys, state mappings, deployment processes, or data. The Sub2API repository is a
 read-only requirements reference and is excluded from builds and runtime.
@@ -11,7 +11,7 @@ read-only requirements reference and is excluded from builds and runtime.
 | Repository | Commit | Worktree | Active role |
 | --- | --- | --- | --- |
 | `gateway` | `418da3a` | clean | C++ Gateway edge, protocol routing/conversion, Provider transport, and Garnet client |
-| `platform` | `10adfb5` | clean | C# Orleans control plane, PostgreSQL authority, Provider mock, Admin Web, and User Web |
+| `platform` | `3a52f72` | clean | C# Orleans control plane, PostgreSQL authority, Provider mock, Admin Web, User Web, and source-owned smoke fault tooling |
 | `sub2api` | `43ec48d` | read-only clean | Requirements reference only; no runtime or compatibility dependency |
 
 ## Historical role descriptions
@@ -23,7 +23,7 @@ read-only requirements reference and is excluded from builds and runtime.
 | `sub2api` | `43ec48d` | read-only clean | Requirements catalogue only; never a runtime or compatibility dependency |
 
 The active source snapshot for this document is Platform/Admin Web/User Web
-`10adfb5` and Gateway `418da3a`; both worktrees are clean. The table's longer
+`3a52f72` and Gateway `418da3a`; both worktrees are clean. The table's longer
 capability descriptions are retained as inventory context, while this override
 and the evidence below define the current commits.
 
@@ -31,7 +31,9 @@ The current tracked inventory is:
 
 - Gateway: 52 production C++ source/header files, 11 test source files, and 126
   CTest cases.
-- Platform: 124 hand-written production C# files, 5 generated Cap'n Proto/global C# files, 68 test/benchmark C# files, and 267 passing tests: 69 Grain, 91 Host, 46 Admin, and 61 Provider mock tests.
+- Platform: 128 hand-written source C# files, including 4 smoke-only object-storage
+  fault-proxy files, 5 generated Cap'n Proto/global C# files, 69 test/benchmark C#
+  files, and 271 passing tests: 69 Grain, 95 Host, 46 Admin, and 61 Provider mock tests.
   The Admin Web source now has 29 TypeScript/TSX files and 16 page views.
 - Product surface: 129 direct Admin API route declarations, 51 product tables,
   22 SQLSugar entity types, 29 Admin Web TypeScript/TSX files and 16 page views,
@@ -393,8 +395,13 @@ current-source runtime evidence.
   metadata retryable and completed billing untouched until all idempotent deletes
   succeed. The `scalaapi-media-partial-storage-0810a` gate stops MinIO during
   retention, records the durable failure, restarts storage, and clears parent/item
-  metadata on retry. Real transport-level partial PUT, network partitions, longer
-  soak, and deployment-scale object-storage HA remain open.
+  metadata on retry. Platform `fffc712` adds a source-owned, smoke-only TCP fault
+  proxy. The `scalaapi-media-transport-0811a` gate sends only 16 bytes of a signed
+  PUT body before resetting the connection, then separately lets MinIO commit a
+  PUT and drops its successful response. Both retries converge to the same item
+  and archive keys with one terminal usage settlement and no duplicate object or
+  billing effect. Network partitions, longer soak, and deployment-scale
+  object-storage HA remain open.
 - Signed payment webhooks, order paid/refunded transitions, stable ledger effects,
   pending-event recovery, subscription purchase/cancel/renew/expiry, and
   transactional redeem-code effects exist as partial commercial foundations.
@@ -582,9 +589,11 @@ smoke assertion. Platform `0134323` adds independent retention deadlines,
   `scalaapi-media-storage-scale-0810b`. Platform `10adfb5` adds source-level
   partial-PUT convergence, real-PostgreSQL partial retention DELETE replay, and the
   `scalaapi-media-partial-storage-0810a` MinIO retention-outage/recovery gate while
-  preserving the completed lease and committed hold. Real transport-level partial
-  PUT, partition recovery, longer soak, and deployment-scale lifecycle remain
-  follow-on work.
+  preserving the completed lease and committed hold. Platform `fffc712` and
+  `scalaapi-media-transport-0811a` add real mid-body request interruption and
+  post-commit response loss while proving deterministic item/archive keys and
+  exactly-once settlement. Partition recovery, longer soak, and deployment-scale
+  lifecycle remain follow-on work.
 
 The preceding completed vertical slice is the source-built protocol gate
 `scalaapi-responses-compact-0810b` (Platform `18daa64`, Gateway `992f3fc`).
@@ -648,7 +657,7 @@ mutation semantics beyond read/input_items/cancel/delete, provider-group fault c
 open.
 
 The following detailed bullets are retained as the preceding-slice record; the
-current totals for Platform `10adfb5` and Gateway `418da3a` are 267/267 and
+current totals for Platform `3a52f72` and Gateway `418da3a` are 271/271 and
 126/126 respectively:
 
 - Gateway built locally and passed 126/126 CTest cases, including deterministic
@@ -794,8 +803,11 @@ current totals for Platform `10adfb5` and Gateway `418da3a` are 267/267 and
   `10adfb5` proves deterministic object-key convergence after a source-level
   partial PUT and idempotent parent/item deletion after both an injected
   mid-sequence DELETE and a runtime MinIO retention outage, without reopening the
-  completed lease or committed hold. Real transport-level partial PUT, partition
-  recovery, longer soak, and HA/offsite storage evidence remain open.
+  completed lease or committed hold. Platform `fffc712` then proves two real
+  transport ambiguities: a signed PUT reset after 16 body bytes and a committed
+  upstream PUT whose 200 response is lost. Both retry without duplicate objects,
+  usage, or billing. Partition recovery, longer soak, and HA/offsite storage
+  evidence remain open.
 - SEC-01 now has executable request, non-stream response, and SSE event-boundary
   evidence: the canonical Cap'n Proto contract carries bounded request/response
   policy content, Platform evaluates active scoped rules before lease creation or

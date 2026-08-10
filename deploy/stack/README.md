@@ -70,6 +70,15 @@ limit), keeps each upgraded connection
 open for a bounded three-second hold, and verifies one completed lease, usage
 event/log, committed hold, and NUMERIC debit per session.
 
+`smoke.sh` automatically adds `docker-compose.faults.yml`, which places the
+source-owned object-storage TCP fault proxy on the private network. The gate uses
+its private control port to truncate one signed PUT after request bytes begin and
+to discard one successful response after MinIO has committed the object. Both
+paths must retry to deterministic item/archive keys without duplicate settlement.
+The normal `docker-compose.yml` does not include this proxy and Platform connects
+directly to the S3-compatible service, so the test control API is absent from the
+ordinary development and production topology.
+
 The same gate seeds independent Provider mock accounts for HTTP 429, HTTP 500,
 malformed usage, upstream disconnect, and timeout scenarios. For every scenario
 it requires a terminal aborted lease, a released balance hold, no usage event,
