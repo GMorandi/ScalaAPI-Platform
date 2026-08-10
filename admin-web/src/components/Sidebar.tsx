@@ -12,6 +12,7 @@ const links = [
   { href: "/content-policy", key: "nav.contentPolicy" },
   { href: "/operations", key: "nav.operations" },
   { href: "/channel-monitors", key: "nav.channelMonitors" },
+  { href: "/backups", key: "nav.backups" },
 ];
 
 export default function Sidebar() {

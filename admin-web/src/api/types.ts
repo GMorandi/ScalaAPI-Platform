@@ -176,3 +176,33 @@ export interface ContentPolicyAlert {
   details: string;
   createdAt: string;
 }
+
+export interface BackupJob {
+  id: string;
+  kind: string;
+  status: string;
+  artifactName: string | null;
+  sizeBytes: number | null;
+  sha256: string | null;
+  retentionUntil: string | null;
+  createdBy: number;
+  createdAt: string;
+  completedAt: string | null;
+  errorCode: string | null;
+  errorDetail: string | null;
+}
+
+export interface BackupListResponse {
+  items: BackupJob[];
+  restoreConfigured: boolean;
+}
+
+export interface RestoreRun {
+  id: string;
+  backupId: string;
+  status: string;
+  createdAt: string;
+  completedAt: string | null;
+  errorCode: string | null;
+  errorDetail: string | null;
+}

@@ -17,6 +17,7 @@ import Reconciliation from "./pages/Reconciliation";
 import ContentPolicy from "./pages/ContentPolicy";
 import Operations from "./pages/Operations";
 import ChannelMonitors from "./pages/ChannelMonitors";
+import Backups from "./pages/Backups";
 
 function Protected(props: { children?: JSX.Element }) {
   const { token } = useAuth();
@@ -46,6 +47,7 @@ export default function App() {
         <Route path="/content-policy" component={ContentPolicy} />
         <Route path="/operations" component={Operations} />
         <Route path="/channel-monitors" component={ChannelMonitors} />
+        <Route path="/backups" component={Backups} />
       </Route>
     </>
   );
