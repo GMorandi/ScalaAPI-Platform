@@ -1062,8 +1062,68 @@ SELECT (SELECT count(*) FROM request_idempotency
           AND entry_type = 'usage_debit');")" \
         "Cross-Gateway exactly-once lease, usage, and debit"
     rm -rf "$multi_gateway_tmp_dir"
+
+    rolling_primary_request="smoke-rolling-primary-${suffix}"
+    rolling_secondary_request="smoke-rolling-secondary-${suffix}"
+    rolling_body='{"model":"gpt-4o","messages":[{"role":"user","content":"rolling availability"}],"stream":false}'
+    "$container_cli" stop "$secondary_gateway_container" "$secondary_platform_container" >/dev/null
+    wait_for "primary Gateway readiness during secondary outage" 30 \
+        curl -fsS "$gateway_url/ready" >/dev/null
+    one_active_silo() {
+        [[ "$(db_query "SELECT count(*) FROM OrleansMembershipTable WHERE DeploymentId = 'platform' AND Status = 3;")" == "1" ]]
+    }
+    wait_for "secondary Silo removal" 60 one_active_silo
+    rolling_primary_response="$(curl -sS --max-time 30 --write-out $'\n%{http_code}' \
+        "$gateway_url/v1/chat/completions" \
+        -H "Authorization: Bearer $api_key" \
+        -H "Content-Type: application/json" \
+        -H "X-Request-ID: $rolling_primary_request" \
+        -H "Idempotency-Key: ${rolling_primary_request}-idem" \
+        --data "$rolling_body")"
+    assert_equals "200" "${rolling_primary_response##*$'\n'}" \
+        "Primary Gateway response during secondary outage"
+
+    "$container_cli" start "$secondary_platform_container" >/dev/null
+    wait_for "secondary Platform readiness after rejoin" 120 "$container_cli" exec \
+        "$secondary_platform_container" curl -fsS http://127.0.0.1:5002/ready >/dev/null
+    wait_for "two active Platform silos after rejoin" 60 secondary_silos_ready
+    "$container_cli" start "$secondary_gateway_container" >/dev/null
+    wait_for "secondary Gateway readiness after rejoin" 90 "$container_cli" exec \
+        "$secondary_gateway_container" curl -fsS http://127.0.0.1:8080/ready >/dev/null
+    rolling_secondary_response="$("$container_cli" exec "$secondary_gateway_container" \
+        curl -sS --max-time 30 --write-out $'\n%{http_code}' \
+        http://127.0.0.1:8080/v1/chat/completions \
+        -H "Authorization: Bearer $api_key" \
+        -H "Content-Type: application/json" \
+        -H "X-Request-ID: $rolling_secondary_request" \
+        -H "Idempotency-Key: ${rolling_secondary_request}-idem" \
+        --data "$rolling_body")"
+    assert_equals "200" "${rolling_secondary_response##*$'\n'}" \
+        "Secondary Gateway response after Silo rejoin"
+    rolling_settled() {
+        [[ "$(db_query "
+SELECT (SELECT count(*) FROM request_leases
+        WHERE request_id IN ('$rolling_primary_request', '$rolling_secondary_request')
+          AND status = 'completed') || '|' ||
+       (SELECT count(*) FROM usage_events
+        WHERE request_id IN ('$rolling_primary_request', '$rolling_secondary_request')) || '|' ||
+       (SELECT count(*) FROM balance_ledger b JOIN request_leases l USING (lease_token)
+        WHERE l.request_id IN ('$rolling_primary_request', '$rolling_secondary_request')
+          AND b.entry_type = 'usage_debit');")" == "2|2|2" ]]
+    }
+    wait_for "rolling Silo/Gateway settlement" 45 rolling_settled
+    assert_equals "2|2|2" "$(db_query "
+SELECT (SELECT count(*) FROM request_leases
+        WHERE request_id IN ('$rolling_primary_request', '$rolling_secondary_request')
+          AND status = 'completed') || '|' ||
+       (SELECT count(*) FROM usage_events
+        WHERE request_id IN ('$rolling_primary_request', '$rolling_secondary_request')) || '|' ||
+       (SELECT count(*) FROM balance_ledger b JOIN request_leases l USING (lease_token)
+        WHERE l.request_id IN ('$rolling_primary_request', '$rolling_secondary_request')
+          AND b.entry_type = 'usage_debit');")" \
+        "Rolling Silo/Gateway settlement before and after rejoin"
     admin_request DELETE "/admin/content-audit/rules/$metric_rule_id" "" "$admin_token" >/dev/null
-    echo "PASS: two Platform processes flushed metrics, restarted, and two Gateways serialized shared idempotency exactly once"
+    echo "PASS: two Platform/Gateway pairs preserved idempotency and settlement across restart, outage, and rejoin"
     exit 0
 fi
 
