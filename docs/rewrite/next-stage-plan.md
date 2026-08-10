@@ -2,7 +2,7 @@
 
 ## Checkpoint
 
-The next stage starts from Platform/Admin Web/User Web `0acdf9c`, Gateway `3da0d33`, and read-only
+The next stage starts from Platform/Admin Web/User Web `e5c341d`, Gateway `3da0d33`, and read-only
 reference `sub2api@43ec48d`.
 
 The greenfield baseline now starts from empty volumes, uses PostgreSQL as authority,
@@ -711,9 +711,14 @@ Deliverables:
   secondary Silo/Gateway stop, primary settlement with one active Silo, original
   container rejoin, and post-rejoin settlement. Treat these as baseline evidence,
   not as promotion to `implemented`.
-- Add Garnet TLS 1.2/1.3 tests with certificate-name validation, concurrent clients,
-  password rejection, flush, stale invalidation version, restart, and projection
-  rebuild.
+- Platform `e5c341d` now loads a configured PEM CA trust anchor, enforces the
+  configured Garnet DNS server name, and covers authenticated TLS RESP traffic
+  plus wrong-name rejection with an in-process listener. Compose passes the CA
+  path into Platform alongside the existing Gateway setting.
+- Complete the deployment gate with Garnet server-side TLS flags, read-only CA
+  mounts for both clients, password rejection, concurrent clients, flush, stale
+  invalidation version, restart, projection rebuild, certificate rotation, and
+  expiry/failure recovery. The client unit boundary is not deployment evidence.
 - Prove cache loss fails new rate-sensitive dispatch closed but does not block usage
   settlement, hold recovery, or outbox drain.
 - Exercise Silo removal, Gateway rolling replacement, and concurrent requests for
