@@ -2,7 +2,7 @@
 
 ## Checkpoint
 
-The next stage starts from Platform/Admin Web/User Web `2992964`, Gateway `3da0d33`, and read-only
+The next stage starts from Platform/Admin Web/User Web `94e0db8`, Gateway `3da0d33`, and read-only
 reference `sub2api@43ec48d`.
 
 The greenfield baseline now starts from empty volumes, uses PostgreSQL as authority,
@@ -92,7 +92,9 @@ and `scalaapi-classifier-20260809d` proves empty-stack propagation, classifier
 match/outage semantics, and alert queries. Platform `dcdca5e` adds the optional
 OpenAI Moderation adapter and an official-shaped `/v1/moderations` fixture;
 Platform `2992964` adds migration 043 and the tested Admin rule normalizer so the
-adapter is explicitly selectable and persists redacted audit evidence. This
+adapter is explicitly selectable and persists redacted audit evidence. Platform
+`94e0db8` removes the policy revision TTL and restores the authoritative revision
+plus invalidation version through authenticated cache rebuild after Garnet loss. This
 closes the single-instance operations and both source-owned/OpenAI adapter
 contracts, not cross-process ordering/failure, browser, or collector/dashboard
 gates.
@@ -241,7 +243,7 @@ concurrency, and idempotent group spend remain covered by the Grain suite; HTTP
 group CRUD validation, distributed rate-window contention, and multi-Silo fallback
 fault evidence remain release work.
 
-The `SEC-01` runtime slice is active at Gateway `8f33790` and Platform `2992964`.
+The `SEC-01` runtime slice is active at Gateway `8f33790` and Platform `94e0db8`.
 The canonical dispatch contract carries bounded request and response content.
 Platform applies request `log`/`block` rules before scheduler/lease activity and
 response rules after Provider validation but before non-stream delivery. Both stages
@@ -258,9 +260,11 @@ status/schema/transport mappings. Migration 043 and the Admin validator now acce
 only `local`, `external`, or `openai`; a real empty-schema test proves an `openai`
 rule can be persisted, evaluated, and audited. Migration 030 provides durable single-instance
 change propagation and alert evidence; Platform `15cdfc0` adds a concurrent
-two-worker PostgreSQL claim/publication assertion. The domain remains `partial`
-until cross-process ordering/failure, browser authorization, and long-stream
-metrics are automated.
+two-worker PostgreSQL claim/publication assertion. Platform `94e0db8` removes the
+revision TTL and makes authenticated cache rebuild restore the authoritative
+PostgreSQL revision plus an invalidation version; a dedicated RemoteGarnet test
+proves both deleted keys recover. The domain remains `partial` until separate-process
+ordering/failure, browser authorization, and long-stream metrics are automated.
 
 ## Next implementation slice
 
@@ -272,7 +276,8 @@ metrics are automated.
    stream terminal event.
 2. Extend policy revision propagation and operations to multiple Platform/Gateway
    instances. The `15cdfc0` Host test already verifies two concurrent workers do
-   not duplicate claims or revision publication. Add separate-process ordered
+   not duplicate claims or revision publication, and `94e0db8` proves no-TTL
+   revision rebuild after dedicated Garnet key loss. Add separate-process ordered
    outbox claims, Garnet invalidation convergence, monotonic revisions under
    concurrent rule changes, and alert correlation after worker failure or Garnet
    outage. The single-instance outbox, retry, and alert evidence is complete in
