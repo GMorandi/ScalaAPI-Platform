@@ -2,7 +2,7 @@
 
 ## Checkpoint
 
-The next stage starts from Platform/Admin Web/User Web `f565d9f`, Gateway `3da0d33`, and read-only
+The next stage starts from Platform/Admin Web/User Web `5c4d519`, Gateway `3da0d33`, and read-only
 reference `sub2api@43ec48d`.
 
 The greenfield baseline now starts from empty volumes, uses PostgreSQL as authority,
@@ -80,8 +80,8 @@ instances with live counters and emits fixed-label unavailable-ratio, bucketed p
 and configuration-backed breach gauges. Migration 045 atomically updates durable
 budget alert state with each snapshot append. A temporary empty PostgreSQL run
 applied and replay-skipped all 45 product records; the Compose baseline count is
-now 46 including Orleans. Runtime multi-process flush/restart and windowed budget
-recovery evidence is still open.
+now 46 including Orleans. Runtime multi-process flush/restart evidence is still
+open.
 
 The completed policy-operations slice is committed as Platform `9fb449c`, with
 worker-order serialization finalized in `caa719e` and the bounded external
@@ -103,8 +103,8 @@ latest source smoke at Platform `3da2e29` closes single-instance runtime executi
 for both source-owned and OpenAI adapter match/unavailable paths; pricing selection
 also prefers an effective administrative quote over a later provider refresh and has
 PostgreSQL test evidence. Cross-process ordering/failure, browser,
-collector/dashboard, runtime multi-process metric restart, windowed budget
-recovery, and long-stream metrics remain release gates.
+collector/dashboard, runtime multi-process metric restart, and long-stream metrics
+remain release gates.
 
 Provider OAuth credentials now use encrypted versioned state with a single-account
 refresh lease, compare-and-set completion, bounded error evidence, and scheduler
@@ -289,15 +289,15 @@ automated.
    correlation after outage. The latest smoke also passes the complete Provider
    matrix.
 2. Harden the production OpenAI classifier boundary. Keep the `3da2e29` empty-stack
-   match/unavailable proof and HTTPS-only default. Platform `f565d9f` persists
+   match/unavailable proof and HTTPS-only default. Platform `5c4d519` persists
    fixed-label instance snapshots with idempotent sequence keys, retries flushes,
    merges cross-instance counters into `/metrics`, and atomically records
    configuration-backed unavailable-ratio/p95 budget breaches. The targeted real-
    PostgreSQL/schema run passed 23/23 and the Release build passed with zero
-   warnings/errors. Add runtime two-process flush/restart evidence, windowed
-   budget recovery, credential rotation and redaction checks, malformed/oversized/
-   timeout/cancellation scenarios through real deployment configuration, and
-   long-stream buffer/late-usage soak.
+   warnings/errors. Add runtime two-process flush/restart evidence, credential
+   rotation and redaction checks, malformed/oversized/timeout/cancellation
+   scenarios through real deployment configuration, and long-stream
+   buffer/late-usage soak.
 3. Extend operator and browser evidence. Platform `3da2e29` provides Admin Web
    rule CRUD, propagation-change history, alert filters, bilingual navigation, and a
    passing Chromium smoke with intercepted `/admin/content-audit/{rules,changes,alerts}`
