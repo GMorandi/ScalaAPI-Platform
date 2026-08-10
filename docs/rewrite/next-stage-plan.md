@@ -2,7 +2,7 @@
 
 ## Checkpoint
 
-The next stage starts from Platform/Admin Web/User Web `43eb52c`, Gateway `3da0d33`, and read-only
+The next stage starts from Platform/Admin Web/User Web `7c4836a`, Gateway `7b8b03c`, and read-only
 reference `sub2api@43ec48d`.
 
 The greenfield baseline now starts from empty volumes, uses PostgreSQL as authority,
@@ -62,6 +62,15 @@ gate also holds four concurrent upgraded connections for three seconds and prove
 one terminal financial effect per session; longer backpressure/load soak, remaining
 boundaries, the worker/multi-silo matrix, and multi-instance scenarios are still
 open.
+The provider-group slice is now runtime-proven by
+`scalaapi-provider-groups-0810l`: Anthropic count-tokens, Messages JSON/SSE,
+and Gemini catalog, JSON/SSE generation pass through the new Gateway -> Platform
+-> Provider mock path. Four billable requests settle exactly once; catalog and
+token-count controls abort and release without billing. Gateway `7b8b03c` keeps
+retryable usage reports in the durable outbox without FIFO starvation, while
+Platform `7c4836a` releases terminal account/user slots and adds the seeded
+Claude price alias. Provider-specific error/disconnect fixtures, real adapters,
+and broader cross-protocol runtime coverage remain open.
 The current source-built `scalaapi-openai-moderation-0810e` gate applies and
 replays 44 migration records from empty volumes, proves Garnet-authenticated
 request routing, staged request/response policy, the versioned Unicode evaluator,
@@ -645,15 +654,18 @@ Deliverables:
   malformed/oversized response, and revoked-grant profiles are complete. Add
   provider-specific revocation/rotation profiles and test multi-Silo lease
   contention and refresh failure recovery.
-- Gateway `3da0d33` freezes versioned OpenAI Chat/Responses, Anthropic Messages,
+- Gateway `7b8b03c` freezes versioned OpenAI Chat/Responses, Anthropic Messages,
   and Gemini request/response/SSE/error fixtures, and tests parser normalization,
   usage/terminal events, response validation, all sixteen request/response pairs,
   cross-protocol error normalization, same-format Provider error passthrough,
-  and inbound translation of Gateway-generated failures. Add provider-specific
-  catalog/tokenizer fixtures and live adapter evidence.
+  and inbound translation of Gateway-generated failures. The
+  `scalaapi-provider-groups-0810l` gate now proves Anthropic JSON/SSE/count-token
+  and Gemini catalog/JSON/SSE runtime routing, exactly-once billable settlement,
+  and no-charge control release. Add provider-specific catalog/tokenizer fixtures,
+  malformed/disconnect runtime cases, and live adapter evidence.
 - Use the completed pairwise request/response/error goldens as the deterministic
-  baseline for malformed and provider-specific header fixtures, then prove the
-  same matrix through runtime provider-group E2E without external compatibility
+  baseline for the remaining provider-specific header/error matrix, then extend
+  the passing runtime provider-group gate without external compatibility
   assumptions.
 - Validate request IDs, idempotency fingerprints, Provider status mapping, proxy/TLS
   headers, response limits, and malformed payload rejection.
