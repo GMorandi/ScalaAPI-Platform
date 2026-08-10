@@ -11,7 +11,7 @@ public sealed record ContentPolicyPropagationResult(int Claimed, int Propagated,
 /// </summary>
 public sealed class ContentPolicyPropagationService(
     NpgsqlDataSource dataSource,
-    IGarnetService garnet,
+    GarnetWriteThroughService garnet,
     ILogger<ContentPolicyPropagationService> logger)
 {
     public async Task<ContentPolicyPropagationResult> PropagateOnceAsync(
@@ -32,9 +32,7 @@ public sealed class ContentPolicyPropagationService(
         {
             try
             {
-                garnet.Set(GarnetKeyspace.ContentPolicyRevision,
-                    change.Revision.ToString(), TimeSpan.FromDays(1));
-                garnet.Increment(GarnetKeyspace.InvalidationVersion);
+                garnet.PublishContentPolicyRevision(change.Revision);
                 await MarkPropagatedAsync(change.Id, workerId, ct);
                 propagated++;
             }

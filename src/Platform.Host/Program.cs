@@ -99,6 +99,7 @@ builder.Services.AddHostedService(sp => sp.GetRequiredService<CapnpRpcHostedServ
 // Garnet write-through service (used by grains)
 builder.Services.AddSingleton<GarnetWriteThroughService>();
 builder.Services.AddSingleton<AuthProjectionCache>();
+builder.Services.AddSingleton<GarnetPolicyRevisionRebuildService>();
 builder.Services.AddSingleton<GarnetProjectionRebuildService>();
 builder.Services.AddSingleton<CredentialProtector>();
 builder.Services.AddSingleton<ScalaAPI.Grains.Interfaces.ICredentialProtector>(sp =>

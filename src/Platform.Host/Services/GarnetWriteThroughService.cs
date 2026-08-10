@@ -44,6 +44,18 @@ public class GarnetWriteThroughService
             accountId.ToString(), ttl);
     }
 
+    public long PublishContentPolicyRevision(long revision)
+    {
+        if (revision < 1)
+            throw new ArgumentOutOfRangeException(nameof(revision));
+
+        // This projection must survive idle periods; PostgreSQL rebuild restores
+        // it after Garnet loss instead of relying on a time-based expiry.
+        _garnet.Set(GarnetKeyspace.ContentPolicyRevision,
+            revision.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        return _garnet.Increment(GarnetKeyspace.InvalidationVersion);
+    }
+
     public void Evict(string key)
     {
         _garnet.Delete(key);

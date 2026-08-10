@@ -20,7 +20,8 @@ public sealed class ContentPolicyPropagationTests
         {
             var garnet = new RecordingGarnet();
             var service = new ContentPolicyPropagationService(
-                dataSource, garnet, NullLogger<ContentPolicyPropagationService>.Instance);
+                dataSource, new GarnetWriteThroughService(garnet),
+                NullLogger<ContentPolicyPropagationService>.Instance);
 
             var result = await service.PropagateOnceAsync($"test-{Guid.NewGuid():N}");
 
@@ -29,7 +30,8 @@ public sealed class ContentPolicyPropagationTests
             Assert.Equal(0, result.Failed);
             Assert.Contains(garnet.SetCalls, call =>
                 call.Key == GarnetKeyspace.ContentPolicyRevision
-                && call.Value == revision.ToString());
+                && call.Value == revision.ToString()
+                && call.Ttl is null);
             Assert.Contains(GarnetKeyspace.InvalidationVersion, garnet.Increments);
             Assert.True(await IsPropagatedAsync(dataSource, eventId));
         }
@@ -52,7 +54,8 @@ public sealed class ContentPolicyPropagationTests
         {
             var garnet = new RecordingGarnet { Fail = true };
             var service = new ContentPolicyPropagationService(
-                dataSource, garnet, NullLogger<ContentPolicyPropagationService>.Instance);
+                dataSource, new GarnetWriteThroughService(garnet),
+                NullLogger<ContentPolicyPropagationService>.Instance);
 
             var failed = await service.PropagateOnceAsync($"test-{Guid.NewGuid():N}");
             Assert.Equal(1, failed.Failed);
@@ -89,10 +92,10 @@ public sealed class ContentPolicyPropagationTests
             var firstGarnet = new RecordingGarnet();
             var secondGarnet = new RecordingGarnet();
             var first = new ContentPolicyPropagationService(
-                dataSource, firstGarnet,
+                dataSource, new GarnetWriteThroughService(firstGarnet),
                 NullLogger<ContentPolicyPropagationService>.Instance);
             var second = new ContentPolicyPropagationService(
-                dataSource, secondGarnet,
+                dataSource, new GarnetWriteThroughService(secondGarnet),
                 NullLogger<ContentPolicyPropagationService>.Instance);
 
             var results = await Task.WhenAll(
@@ -163,13 +166,13 @@ public sealed class ContentPolicyPropagationTests
     private sealed class RecordingGarnet : IGarnetService
     {
         public bool Fail { get; set; }
-        public List<(string Key, string Value)> SetCalls { get; } = [];
+        public List<(string Key, string Value, TimeSpan? Ttl)> SetCalls { get; } = [];
         public List<string> Increments { get; } = [];
 
         public void Set(string key, string value, TimeSpan? ttl = null)
         {
             if (Fail) throw new InvalidOperationException("garnet unavailable");
-            SetCalls.Add((key, value));
+            SetCalls.Add((key, value, ttl));
         }
 
         public string? Get(string key) => null;

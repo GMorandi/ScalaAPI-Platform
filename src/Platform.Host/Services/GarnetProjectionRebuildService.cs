@@ -6,17 +6,25 @@ using ScalaAPI.Grains.Interfaces;
 namespace ScalaAPI.Host.Services;
 
 public sealed record GarnetRebuildResult(
-    int Discovered, int Written, int Deleted, int Errors, DateTimeOffset CompletedAt);
+    int Discovered,
+    int Written,
+    int Deleted,
+    int Errors,
+    long PolicyRevision,
+    long PolicyInvalidationVersion,
+    bool PolicyRevisionWritten,
+    DateTimeOffset CompletedAt);
 
 /// <summary>
-/// Rebuilds the Garnet auth projection from the product registry and Orleans
-/// aggregate projections. Garnet is disposable cache state; no business data is
-/// inferred from its contents.
+/// Rebuilds the Garnet auth projection from the product registry/Orleans and the
+/// content-policy revision from PostgreSQL. Garnet is disposable cache state; no
+/// business data is inferred from its contents.
 /// </summary>
 public sealed class GarnetProjectionRebuildService(
     NpgsqlDataSource dataSource,
     IClusterClient cluster,
     GarnetWriteThroughService garnet,
+    GarnetPolicyRevisionRebuildService policyRevisionRebuild,
     ILogger<GarnetProjectionRebuildService> logger)
 {
     public async Task<GarnetRebuildResult> RebuildAsync(CancellationToken ct = default)
@@ -42,6 +50,23 @@ public sealed class GarnetProjectionRebuildService(
         var written = 0;
         var deleted = 0;
         var errors = 0;
+        var policyRevision = 0L;
+        var policyInvalidationVersion = 0L;
+        var policyRevisionWritten = false;
+        try
+        {
+            var policyResult = await policyRevisionRebuild.RebuildAsync(ct);
+            policyRevision = policyResult.PolicyRevision;
+            policyInvalidationVersion = policyResult.InvalidationVersion;
+            policyRevisionWritten = true;
+        }
+        catch (Exception ex)
+        {
+            errors++;
+            logger.LogWarning(ex,
+                "Unable to rebuild Garnet content policy revision projection");
+        }
+
         foreach (var entry in entries)
         {
             ct.ThrowIfCancellationRequested();
@@ -93,7 +118,8 @@ public sealed class GarnetProjectionRebuildService(
         }
 
         return new GarnetRebuildResult(
-            entries.Count, written, deleted, errors, DateTimeOffset.UtcNow);
+            entries.Count, written, deleted, errors, policyRevision,
+            policyInvalidationVersion, policyRevisionWritten, DateTimeOffset.UtcNow);
     }
 
     private sealed record RegistryEntry(string EntityKey, long? EntityId, string Status);
