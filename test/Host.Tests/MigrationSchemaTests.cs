@@ -133,4 +133,29 @@ public sealed class MigrationSchemaTests
         await retiredReader.DisposeAsync();
 
     }
+
+    [Fact]
+    public async Task ContentPolicyClassifierConstraintIncludesOpenAi()
+    {
+        var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
+        if (string.IsNullOrWhiteSpace(connectionString)) return;
+
+        await using var connection = new NpgsqlConnection(connectionString);
+        await connection.OpenAsync();
+        await using var command = new NpgsqlCommand("""
+            SELECT conname, pg_get_constraintdef(oid)
+            FROM pg_constraint
+            WHERE conname IN ('ck_content_audit_rules_classifier',
+                              'ck_content_audit_logs_classifier')
+            ORDER BY conname
+            """, connection);
+        await using var reader = await command.ExecuteReaderAsync();
+        var definitions = new Dictionary<string, string>(StringComparer.Ordinal);
+        while (await reader.ReadAsync())
+            definitions[reader.GetString(0)] = reader.GetString(1);
+
+        Assert.Equal(2, definitions.Count);
+        Assert.Contains("openai", definitions["ck_content_audit_rules_classifier"]);
+        Assert.Contains("openai", definitions["ck_content_audit_logs_classifier"]);
+    }
 }

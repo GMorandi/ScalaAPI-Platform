@@ -1186,7 +1186,7 @@ public static class PlatformEndpoints
         group.MapPost("/rules", async (ContentAuditRuleRequest req, ISqlSugarClient db,
             ClaimsPrincipal principal, HttpRequest request) =>
         {
-            if (!TryNormalizeContentRule(req, out var rule, out var error))
+            if (!ContentPolicyRuleValidator.TryNormalize(req, out var rule, out var error))
                 return Results.BadRequest(new { error });
             if (!ScalaAPI.Admin.Auth.AuthClaims.TryGetUserId(principal, out var actorId))
                 return Results.Unauthorized();
@@ -1209,7 +1209,7 @@ public static class PlatformEndpoints
         group.MapPut("/rules/{id}", async (long id, ContentAuditRuleRequest req,
             ISqlSugarClient db, ClaimsPrincipal principal, HttpRequest request) =>
         {
-            if (!TryNormalizeContentRule(req, out var rule, out var error))
+            if (!ContentPolicyRuleValidator.TryNormalize(req, out var rule, out var error))
                 return Results.BadRequest(new { error });
             if (!ScalaAPI.Admin.Auth.AuthClaims.TryGetUserId(principal, out var actorId))
                 return Results.Unauthorized();
@@ -1359,83 +1359,6 @@ public static class PlatformEndpoints
             var blocked = matches.Any(m => m.ActionType == "block");
             return Results.Ok(new { passed = !blocked, matches });
         });
-    }
-
-    private static bool TryNormalizeContentRule(ContentAuditRuleRequest request,
-        out ContentAuditRuleEntity rule, out string error)
-    {
-        var pattern = request.Pattern?.Trim() ?? "";
-        var action = request.ActionType?.Trim().ToLowerInvariant() ?? "";
-        var status = request.Status?.Trim().ToLowerInvariant() ?? "";
-        var stage = string.IsNullOrWhiteSpace(request.Stage)
-            ? "request" : request.Stage.Trim().ToLowerInvariant();
-        var scope = string.IsNullOrWhiteSpace(request.Scope) ? null : request.Scope.Trim();
-        var evaluatorVersion = string.IsNullOrWhiteSpace(request.EvaluatorVersion)
-            ? ContentPolicyEvaluator.Version : request.EvaluatorVersion.Trim();
-        var classifier = string.IsNullOrWhiteSpace(request.Classifier)
-            ? "local" : request.Classifier.Trim().ToLowerInvariant();
-        if (pattern.Length is < 1 or > 512)
-        {
-            rule = new();
-            error = "pattern_length_invalid";
-            return false;
-        }
-        if (ContentPolicyEvaluator.Normalize(pattern).Length == 0)
-        {
-            rule = new();
-            error = "pattern_normalization_empty";
-            return false;
-        }
-        if (action is not ("log" or "block"))
-        {
-            rule = new();
-            error = "action_type_invalid";
-            return false;
-        }
-        if (status is not ("active" or "disabled"))
-        {
-            rule = new();
-            error = "status_invalid";
-            return false;
-        }
-        if (stage is not ("request" or "response" or "both"))
-        {
-            rule = new();
-            error = "stage_invalid";
-            return false;
-        }
-        if (!ContentPolicyEvaluator.IsSupported(evaluatorVersion))
-        {
-            rule = new();
-            error = "evaluator_version_invalid";
-            return false;
-        }
-        if (classifier is not ("local" or "external"))
-        {
-            rule = new();
-            error = "classifier_invalid";
-            return false;
-        }
-        if (scope is not null && (scope.Length > 128 || scope.Any(char.IsWhiteSpace)))
-        {
-            rule = new();
-            error = "scope_invalid";
-            return false;
-        }
-        rule = new ContentAuditRuleEntity
-        {
-            Pattern = pattern,
-            ActionType = action,
-            Scope = scope,
-            Status = status,
-            Stage = stage,
-            EvaluatorVersion = evaluatorVersion,
-            Classifier = classifier,
-            RedactContent = request.RedactContent,
-            CreatedAt = DateTime.UtcNow,
-        };
-        error = "";
-        return true;
     }
 
     private static async Task<long> RecordContentPolicyChangeAsync(ISqlSugarClient db,
@@ -1720,9 +1643,5 @@ public static class PlatformEndpoints
         long ReferrerUserId, long ReferredUserId, decimal BonusUsd, string Reason);
     private record ContentCheckRequest(string Content, long UserId, string? RequestId,
         string? Stage);
-    private record ContentAuditRuleRequest(string? Pattern, string? ActionType,
-        string? Scope, string? Status, string? Stage,
-        string? EvaluatorVersion = null, string? Classifier = null,
-        bool RedactContent = false);
     private record ContentAuditMatch(long Id, string Pattern, string ActionType);
 }

@@ -281,4 +281,83 @@ public sealed class ContentPolicyServiceTests
             await cleanupRule.ExecuteNonQueryAsync();
         }
     }
+
+    [Fact]
+    public async Task OpenAiClassifierRuleCanBePersistedAndEvaluated()
+    {
+        var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
+        if (string.IsNullOrWhiteSpace(connectionString)) return;
+
+        var suffix = Guid.NewGuid().ToString("N");
+        var requestId = $"content-policy-openai:{suffix}";
+        var pattern = $"openai-{suffix}";
+        await using var dataSource = NpgsqlDataSource.Create(connectionString);
+        try
+        {
+            await using (var command = dataSource.CreateCommand("""
+                INSERT INTO content_audit_rules(
+                    pattern, action_type, scope, status, stage, classifier, redact_content)
+                VALUES ($1, 'block', 'chat_completions', 'active', 'response', 'openai', true)
+                """))
+            {
+                command.Parameters.AddWithValue(pattern);
+                await command.ExecuteNonQueryAsync();
+            }
+
+            var service = new ContentPolicyService(
+                dataSource,
+                NullLogger<ContentPolicyService>.Instance,
+                new MatchingClassifier());
+            var decision = await service.EvaluateAsync(9_500_004L, requestId,
+                "chat_completions", "chat_completions", ContentPolicyStage.Response,
+                $"Provider payload {pattern}");
+
+            Assert.False(decision.Allowed);
+            Assert.Equal("content_policy_blocked", decision.Code);
+            Assert.Equal("openai", Assert.Single(decision.Matches).Classifier);
+
+            await using var verify = dataSource.CreateCommand("""
+                SELECT classifier, content_snippet, content_redacted
+                FROM content_audit_logs WHERE request_id = $1
+                """);
+            verify.Parameters.AddWithValue(requestId);
+            await using var reader = await verify.ExecuteReaderAsync();
+            Assert.True(await reader.ReadAsync());
+            Assert.Equal("openai", reader.GetString(0));
+            Assert.Equal("[REDACTED]", reader.GetString(1));
+            Assert.True(reader.GetBoolean(2));
+        }
+        finally
+        {
+            await using (var cleanupAlerts = dataSource.CreateCommand(
+                "DELETE FROM content_policy_alert_events WHERE request_id = $1"))
+            {
+                cleanupAlerts.Parameters.AddWithValue(requestId);
+                await cleanupAlerts.ExecuteNonQueryAsync();
+            }
+            await using (var cleanupLogs = dataSource.CreateCommand(
+                "DELETE FROM content_audit_logs WHERE request_id = $1"))
+            {
+                cleanupLogs.Parameters.AddWithValue(requestId);
+                await cleanupLogs.ExecuteNonQueryAsync();
+            }
+            await using var cleanupRule = dataSource.CreateCommand(
+                "DELETE FROM content_audit_rules WHERE pattern = $1");
+            cleanupRule.Parameters.AddWithValue(pattern);
+            await cleanupRule.ExecuteNonQueryAsync();
+        }
+    }
+
+    private sealed class MatchingClassifier : IContentClassifier
+    {
+        public Task<ContentClassifierResult> EvaluateAsync(
+            string classifier, string normalizedContent, string normalizedPattern,
+            CancellationToken ct = default)
+        {
+            ct.ThrowIfCancellationRequested();
+            return Task.FromResult(string.Equals(classifier, "openai", StringComparison.Ordinal)
+                ? ContentClassifierResult.Match()
+                : ContentClassifierResult.NoMatch());
+        }
+    }
 }
