@@ -74,6 +74,30 @@ public sealed class StripePaymentWebhookTests
         Assert.Null(payload?.OrderId);
         Assert.Equal("pi_test_1", payload?.ProviderPaymentId);
         Assert.Equal(12.34m, payload?.Amount);
+        Assert.True(payload?.IsCumulativeRefund);
+    }
+
+    [Fact]
+    public void ParsesPartialRefundCreatedWithIndependentRefundId()
+    {
+        var parsed = StripePaymentWebhookParser.TryParse(
+            Encoding.UTF8.GetBytes("""
+            {
+              "id": "evt_refund_partial_1",
+              "type": "refund.created",
+              "data": { "object": {
+                "id": "re_partial_1",
+                "payment_intent": "pi_test_1",
+                "amount": 500,
+                "currency": "usd"
+              }}
+            }
+            """), out var payload, out var error);
+
+        Assert.True(parsed, error);
+        Assert.Equal("re_partial_1", payload?.ProviderRefundId);
+        Assert.Equal(5m, payload?.Amount);
+        Assert.False(payload?.IsCumulativeRefund);
     }
 
     [Fact]

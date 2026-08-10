@@ -191,6 +191,9 @@ public class PaymentOrderEntity
     [SugarColumn(ColumnName = "amount", DecimalDigits = 2)]
     public decimal Amount { get; set; }
 
+    [SugarColumn(ColumnName = "refunded_amount", DecimalDigits = 2)]
+    public decimal RefundedAmount { get; set; }
+
     [SugarColumn(ColumnName = "currency")]
     public string Currency { get; set; } = "USD";
 

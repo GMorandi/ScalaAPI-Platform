@@ -92,7 +92,7 @@ public sealed class PaymentRefundStore(
         order.Transaction = transaction;
         order.CommandText = """
             SELECT user_id, amount, currency, provider, provider_order_id,
-                   provider_payment_id, status
+                   provider_payment_id, status, refunded_amount
             FROM payment_orders WHERE id = $1 FOR UPDATE
             """;
         order.Parameters.AddWithValue(paymentOrderId);
@@ -110,6 +110,7 @@ public sealed class PaymentRefundStore(
         var providerOrderId = reader.IsDBNull(4) ? null : reader.GetString(4);
         var providerPaymentId = reader.IsDBNull(5) ? null : reader.GetString(5);
         var orderStatus = reader.GetString(6);
+        var refundedAmount = reader.GetDecimal(7);
         await reader.DisposeAsync();
 
         await using var existing = connection.CreateCommand();
@@ -158,7 +159,7 @@ public sealed class PaymentRefundStore(
             SELECT id
             FROM payment_refunds
             WHERE payment_order_id = $1
-              AND status IN ('pending', 'reconciliation_needed', 'succeeded')
+              AND status IN ('pending', 'reconciliation_needed')
             LIMIT 1
             FOR UPDATE
             """;
@@ -174,8 +175,11 @@ public sealed class PaymentRefundStore(
         }
         await activeReader.DisposeAsync();
 
-        if (!string.Equals(orderStatus, "paid", StringComparison.OrdinalIgnoreCase)
-            || amount != orderAmount
+        var remainingAmount = orderAmount - refundedAmount;
+        if (orderStatus is not ("paid" or "partially_refunded")
+            || amount <= 0m
+            || decimal.Round(amount, 2) != amount
+            || amount > remainingAmount
             || !string.Equals(currency, orderCurrency, StringComparison.OrdinalIgnoreCase)
             || provider is not ("mock" or "stripe")
             || string.IsNullOrWhiteSpace(providerOrderId) && string.IsNullOrWhiteSpace(providerPaymentId))
@@ -321,8 +325,32 @@ public sealed class PaymentRefundStore(
             : providerStatus == "pending" ? "pending" : "failed";
         if (finalStatus == "succeeded")
         {
+            await using var order = connection.CreateCommand();
+            order.Transaction = transaction;
+            order.CommandText = "SELECT amount, refunded_amount, status FROM payment_orders WHERE id = $1 FOR UPDATE";
+            order.Parameters.AddWithValue(orderId);
+            await using var orderReader = await order.ExecuteReaderAsync(ct);
+            if (!await orderReader.ReadAsync(ct))
+            {
+                await orderReader.DisposeAsync();
+                await transaction.RollbackAsync(ct);
+                return new(PaymentRefundFinalizeStatus.Conflict, refundId, orderId, userId,
+                    providerRefundId, null, 0, 0m, "payment_order_not_found");
+            }
+            var orderAmount = orderReader.GetDecimal(0);
+            var refundedAmount = orderReader.GetDecimal(1);
+            var orderStatus = orderReader.GetString(2);
+            await orderReader.DisposeAsync();
+            if (orderStatus is not ("paid" or "partially_refunded")
+                || amount > orderAmount - refundedAmount)
+            {
+                await transaction.RollbackAsync(ct);
+                return new(PaymentRefundFinalizeStatus.Conflict, refundId, orderId, userId,
+                    providerRefundId, null, 0, 0m, "payment_refund_exceeds_remaining_amount");
+            }
+
             var effect = await accounting.AppendEffectAsync(connection, transaction,
-                new AccountingEffect(userId, $"payment-refund:{orderId}", "payment_refund",
+                new AccountingEffect(userId, $"payment-refund:{refundId}", "payment_refund",
                     -amount, IdempotencyKey: idempotencyKey,
                     Description: reason, CreatedBy: actorId), ct);
             if (effect.Status == AccountingEffectStatus.Conflict)
@@ -333,9 +361,22 @@ public sealed class PaymentRefundStore(
             }
             await using var orderUpdate = connection.CreateCommand();
             orderUpdate.Transaction = transaction;
-            orderUpdate.CommandText = "UPDATE payment_orders SET status = 'refunded' WHERE id = $1 AND status = 'paid'";
+            orderUpdate.CommandText = """
+                UPDATE payment_orders
+                SET refunded_amount = refunded_amount + $2,
+                    status = CASE WHEN refunded_amount + $2 >= amount
+                        THEN 'refunded' ELSE 'partially_refunded' END
+                WHERE id = $1 AND status IN ('paid', 'partially_refunded')
+                  AND refunded_amount + $2 <= amount
+                """;
             orderUpdate.Parameters.AddWithValue(orderId);
-            await orderUpdate.ExecuteNonQueryAsync(ct);
+            orderUpdate.Parameters.AddWithValue(amount);
+            if (await orderUpdate.ExecuteNonQueryAsync(ct) != 1)
+            {
+                await transaction.RollbackAsync(ct);
+                return new(PaymentRefundFinalizeStatus.Conflict, refundId, orderId, userId,
+                    providerRefundId, null, 0, 0m, "payment_refund_order_update_conflict");
+            }
             await UpdateRefundAsync(connection, transaction, refundId, "succeeded",
                 providerStatus, providerRefundId, null, ct);
             await InsertAuditAsync(connection, transaction, actorId, orderId,

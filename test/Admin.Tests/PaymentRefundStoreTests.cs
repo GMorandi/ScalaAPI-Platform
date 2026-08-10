@@ -108,4 +108,89 @@ public sealed class PaymentRefundStoreTests
             }
         }
     }
+
+    [Fact]
+    public async Task PartialRefundsAccumulateAndOnlyFinalRefundClosesOrder()
+    {
+        var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
+        if (string.IsNullOrWhiteSpace(connectionString)) return;
+
+        var userId = 9_000_000L + Random.Shared.Next(1, 800_000);
+        var actorId = userId + 2_000_000L;
+        await using var dataSource = NpgsqlDataSource.Create(connectionString);
+        var accounting = new AccountingStore(dataSource);
+        var orderId = 0L;
+        try
+        {
+            await accounting.AppendEffectAsync(new AccountingEffect(
+                userId, $"test-credit:{Guid.NewGuid():N}", "test_credit", 25m));
+            await using (var insert = dataSource.CreateCommand("""
+                INSERT INTO payment_orders(user_id, amount, currency, provider,
+                    provider_order_id, status, description, paid_at)
+                VALUES ($1, 10, 'USD', 'mock', $2, 'paid', 'test', now())
+                RETURNING id
+                """))
+            {
+                insert.Parameters.AddWithValue(userId);
+                insert.Parameters.AddWithValue($"mock_po_partial_{Guid.NewGuid():N}");
+                orderId = Convert.ToInt64(await insert.ExecuteScalarAsync());
+            }
+
+            var store = new PaymentRefundStore(dataSource, accounting);
+            var first = await store.PrepareAsync(orderId, actorId,
+                $"refund-partial-a-{Guid.NewGuid():N}", 6m, "USD", "first partial");
+            Assert.Equal(PaymentRefundPrepareStatus.Created, first.Status);
+            var firstResult = await store.FinalizeAsync(first.RefundId, actorId,
+                "succeeded", "mock_rf_partial_a", null, false);
+            Assert.Equal(PaymentRefundFinalizeStatus.Succeeded, firstResult.Status);
+
+            await using (var afterFirst = dataSource.CreateCommand(
+                "SELECT refunded_amount, status FROM payment_orders WHERE id = $1"))
+            {
+                afterFirst.Parameters.AddWithValue(orderId);
+                await using var reader = await afterFirst.ExecuteReaderAsync();
+                Assert.True(await reader.ReadAsync());
+                Assert.Equal(6m, reader.GetDecimal(0));
+                Assert.Equal("partially_refunded", reader.GetString(1));
+            }
+
+            var second = await store.PrepareAsync(orderId, actorId,
+                $"refund-partial-b-{Guid.NewGuid():N}", 4m, "USD", "final partial");
+            Assert.Equal(PaymentRefundPrepareStatus.Created, second.Status);
+            var secondResult = await store.FinalizeAsync(second.RefundId, actorId,
+                "succeeded", "mock_rf_partial_b", null, false);
+            Assert.Equal(PaymentRefundFinalizeStatus.Succeeded, secondResult.Status);
+
+            await using var verify = dataSource.CreateCommand("""
+                SELECT refunded_amount, status,
+                    (SELECT count(*) FROM balance_ledger
+                     WHERE user_id = $1 AND entry_type = 'payment_refund')
+                FROM payment_orders WHERE id = $2
+                """);
+            verify.Parameters.AddWithValue(userId);
+            verify.Parameters.AddWithValue(orderId);
+            await using var finalReader = await verify.ExecuteReaderAsync();
+            Assert.True(await finalReader.ReadAsync());
+            Assert.Equal(10m, finalReader.GetDecimal(0));
+            Assert.Equal("refunded", finalReader.GetString(1));
+            Assert.Equal(2L, finalReader.GetInt64(2));
+        }
+        finally
+        {
+            foreach (var statement in new[]
+            {
+                "DELETE FROM audit_logs WHERE user_id = $1",
+                "DELETE FROM payment_refunds WHERE user_id = $1",
+                "DELETE FROM payment_orders WHERE user_id = $1",
+                "DELETE FROM accounting_projection_outbox WHERE user_id = $1",
+                "DELETE FROM balance_ledger WHERE user_id = $1",
+                "DELETE FROM accounting_accounts WHERE user_id = $1",
+            })
+            {
+                await using var cleanup = dataSource.CreateCommand(statement);
+                cleanup.Parameters.AddWithValue(userId);
+                await cleanup.ExecuteNonQueryAsync();
+            }
+        }
+    }
 }

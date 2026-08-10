@@ -11,7 +11,9 @@ public sealed record PaymentWebhookPayload(
     [property: JsonPropertyName("provider_order_id")] string? ProviderOrderId,
     [property: JsonPropertyName("provider_payment_id")] string? ProviderPaymentId,
     [property: JsonPropertyName("amount")] decimal Amount,
-    [property: JsonPropertyName("currency")] string Currency);
+    [property: JsonPropertyName("currency")] string Currency,
+    [property: JsonPropertyName("provider_refund_id")] string? ProviderRefundId = null,
+    [property: JsonPropertyName("is_cumulative_refund")] bool IsCumulativeRefund = false);
 
 public static class StripePaymentWebhookParser
 {
@@ -54,6 +56,12 @@ public static class StripePaymentWebhookParser
                 : ReadString(payment, "payment_intent", 128)
                     ?? (eventType == "payment_intent.succeeded"
                         ? ReadString(payment, "id", 128) : null);
+            var providerRefundId = eventType switch
+            {
+                "refund.created" => ReadString(payment, "id", 128),
+                "charge.refunded" => ReadNestedRefundId(payment),
+                _ => null,
+            };
             if (string.IsNullOrWhiteSpace(providerOrderId)
                 && string.IsNullOrWhiteSpace(providerPaymentId))
             {
@@ -98,7 +106,9 @@ public static class StripePaymentWebhookParser
                 providerOrderId,
                 providerPaymentId,
                 amountMinor.Value / 100m,
-                currency);
+                currency,
+                providerRefundId,
+                eventType == "charge.refunded");
             return true;
         }
         catch (JsonException)
@@ -129,6 +139,21 @@ public static class StripePaymentWebhookParser
             || number <= 0)
             return null;
         return number;
+    }
+
+    private static string? ReadNestedRefundId(JsonElement payment)
+    {
+        if (!payment.TryGetProperty("refunds", out var refunds)
+            || refunds.ValueKind != JsonValueKind.Object
+            || !refunds.TryGetProperty("data", out var data)
+            || data.ValueKind != JsonValueKind.Array)
+            return null;
+        foreach (var item in data.EnumerateArray())
+        {
+            var id = ReadString(item, "id", 128);
+            if (id is not null) return id;
+        }
+        return null;
     }
 
     private static string RequiredString(JsonElement value, string name, int maxLength)
