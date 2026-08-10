@@ -2,7 +2,7 @@
 
 ## Checkpoint
 
-The next stage starts from Platform/Admin Web/User Web `8ca919b`, Gateway `3da0d33`, and read-only
+The next stage starts from Platform/Admin Web/User Web `43eb52c`, Gateway `3da0d33`, and read-only
 reference `sub2api@43ec48d`.
 
 The greenfield baseline now starts from empty volumes, uses PostgreSQL as authority,
@@ -57,7 +57,9 @@ one lease, usage event, usage log, and debit after this recovery. The shared
 Gateway source policy now covers HTTP and realtime dispatch retry with the same
 identity and bounded backoff. The full empty-stack realtime probe now passes
 through the clean Gateway runtime image, including exactly-once
-lease/usage/hold/ledger settlement; long-connection/backpressure soak, remaining
+lease/usage/hold/ledger settlement. The source-built `scalaapi-realtime-soak-0810b`
+gate also holds four concurrent upgraded connections for three seconds and proves
+one terminal financial effect per session; longer backpressure/load soak, remaining
 boundaries, the worker/multi-silo matrix, and multi-instance scenarios are still
 open.
 The current source-built `scalaapi-openai-moderation-0810e` gate applies and
@@ -477,8 +479,9 @@ Earlier reliability follow-up (now covered by the current gate):
   completion, abort, expiry, projection replacement, and process restart. Platform
   dispatch retry and active-lease recovery are proven for regular Chat, while
   Gateway source tests and the full-stack smoke cover the same policy for realtime.
-  Long-connection/backpressure soak, replay-after-restart, remaining Gateway crash
-  boundaries, and multi-silo recovery are carried into the release gates below.
+  The four-session/three-second WebSocket soak now passes; longer
+  backpressure/load soak, replay-after-restart, remaining Gateway crash boundaries,
+  and multi-silo recovery are carried into the release gates below.
 
 Remaining package deliverables:
 
@@ -582,6 +585,11 @@ Deliverables:
   invalid content type are covered by the current fault matrix.
 - Add bounded-buffer/backpressure assertions and verify that partial output cannot
   be replayed as a complete response or retried against another account.
+
+- The runtime `realtime_soak.py` gate now covers four concurrent sessions at the
+  seeded concurrency limit with a three-second hold and exactly-once lease/usage/
+  hold/ledger assertions. Extend it with longer-duration load, backpressure
+  pressure, and reconnect/replay after process replacement.
 
 Dependencies: package 1 terminal/reconciliation states.
 
@@ -725,6 +733,9 @@ Deliverables:
   valid-certificate recovery, client reconnect, and a post-recovery billable
   request. Keep default development Compose plaintext and select TLS only via the
   checked-in override.
+- The `scalaapi-realtime-soak-0810b` source gate now covers four concurrent
+  realtime sessions, bounded connection holds, Provider usage validation, and
+  exactly-once billing after the sessions close.
 - Extend that gate with cache flush and stale-version recovery after restart, and
   concurrent clients during Garnet outage, Silo replacement, and partition recovery.
 - Prove cache loss fails new rate-sensitive dispatch closed but does not block usage

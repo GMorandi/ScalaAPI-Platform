@@ -29,6 +29,12 @@ Gateway reads auth, model, and route projections from Garnet. It never writes th
 keys. On a cache miss it calls Platform RPC. Garnet failures cannot make billable
 requests fail open.
 
+The source-owned realtime boundary uses the same lease/idempotency contract as HTTP:
+the WebSocket upgrade and Provider usage frames are validated before settlement, and
+bounded concurrent sessions must each produce one terminal lease, usage, hold, and
+ledger effect. Runtime soak evidence is intentionally separate from protocol
+compatibility and does not introduce a legacy wire contract.
+
 Provider errors stay byte-preserving when the inbound and upstream protocols are
 the same. When Gateway crosses protocol boundaries, it extracts the bounded
 status/type/message contract and emits the target OpenAI, Anthropic, or Gemini
