@@ -198,9 +198,11 @@ The checked-in `deploy/stack/docker-compose.tls.yml` enables Garnet server TLS
 with a password-protected PFX, mounts the CA read-only into Platform and Gateway,
 and passes the configured DNS server name to both clients. The accompanying
 `deploy/stack/garnet_tls_smoke.sh` creates a short-lived test chain and exercises
-the full source smoke through the production TLS readiness path. The default
-development stack remains plaintext; certificate rotation/expiry and partitioned
-multi-process convergence remain deployment gates.
+the full source smoke through the production TLS readiness path. The wrapper then
+rotates the mounted PFX through Garnet's configured refresh period, forces client
+reconnects, rejects wrong-name and expired bundles, restores the valid bundle, and
+proves a new billable request. The default development stack remains plaintext;
+partitioned multi-process convergence remains a deployment gate.
 
 Key namespaces are prefixed with `scalaapi:v1`. Auth, model, route, sticky-session,
 rate-window, content-policy revision, and invalidation keys have explicit TTLs or

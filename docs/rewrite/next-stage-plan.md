@@ -2,7 +2,7 @@
 
 ## Checkpoint
 
-The next stage starts from Platform/Admin Web/User Web `bcf80e7`, Gateway `3da0d33`, and read-only
+The next stage starts from Platform/Admin Web/User Web `8ca919b`, Gateway `3da0d33`, and read-only
 reference `sub2api@43ec48d`.
 
 The greenfield baseline now starts from empty volumes, uses PostgreSQL as authority,
@@ -343,8 +343,8 @@ automated.
    secondary Silo/Gateway outage and settlement after rejoin. Remaining gates
    are Provider golden request/response fixtures, long WebSocket/backpressure
    soak, broader multi-Gateway/multi-Silo contention and partition recovery,
-   Garnet certificate rotation/expiry and partition recovery, PostgreSQL/Garnet
-   convergence under concurrent clients, and backup/restore drills.
+   Garnet partition recovery, PostgreSQL/Garnet convergence under concurrent
+   clients, and backup/restore drills.
    Every scenario must run from empty volumes or an explicitly created fixture and
    must make the top-level command non-zero on failure.
 
@@ -720,11 +720,13 @@ Deliverables:
   explicit password authentication, read-only relabeled CA/PFX mounts, and
   Platform/Gateway DNS-validated readiness are exercised in the complete
   source-built smoke. The client unit boundary is not deployment evidence.
-- Extend that gate with certificate rotation and expiry/failure recovery while
-  TLS is enabled, cache flush and stale-version recovery after restart, and
-  concurrent clients during Garnet outage, Silo replacement, and partition
-  recovery. Keep default development Compose plaintext and select TLS only via
-  the checked-in override.
+- The `scalaapi-garnet-rotation-0810` source gate now covers same-CA PFX rotation
+  through Garnet's refresh period, wrong-name and expired-certificate rejection,
+  valid-certificate recovery, client reconnect, and a post-recovery billable
+  request. Keep default development Compose plaintext and select TLS only via the
+  checked-in override.
+- Extend that gate with cache flush and stale-version recovery after restart, and
+  concurrent clients during Garnet outage, Silo replacement, and partition recovery.
 - Prove cache loss fails new rate-sensitive dispatch closed but does not block usage
   settlement, hold recovery, or outbox drain.
 - Exercise Silo removal, Gateway rolling replacement, and concurrent requests for
