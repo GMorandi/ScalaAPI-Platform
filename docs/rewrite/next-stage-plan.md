@@ -2,7 +2,7 @@
 
 ## Checkpoint
 
-The next stage starts from Platform/Admin Web/User Web `ef2ff8c`, Gateway `d9638b4`, and read-only
+The next stage starts from Platform/Admin Web/User Web `feb8bf4`, Gateway `f08e868`, and read-only
 reference `sub2api@43ec48d`.
 
 The greenfield baseline now starts from empty volumes, uses PostgreSQL as authority,
@@ -73,17 +73,18 @@ retryable usage reports in the durable outbox without FIFO starvation, while
 Platform `7c4836a` releases terminal account/user slots and adds the seeded
 Claude price alias. Provider-specific error/disconnect fixtures, real adapters,
 and broader cross-protocol runtime coverage remain open.
-The OpenAI Responses root and read/delete-subresource runtime slice is now complete in
-`scalaapi-responses-fault-0810e`: JSON and SSE both pass
+The OpenAI Responses root and read/cancel/delete-subresource runtime slice is now
+complete in `scalaapi-responses-cancel-0810a`: JSON and SSE both pass
 envelope/terminal/usage validation and settle exactly once, while
-`GET /v1/responses/{id}` retrieves the stored response and `DELETE
-/v1/responses/{id}` returns a deletion envelope through Gateway to Platform to
-Provider; both controls release their routing leases without billing. The same
-gate sends a malformed non-stream success through the source-owned Provider mock,
-maps it to `502/provider_error`, retains the ambiguous lease for reconciliation,
-and proves no usage/debit before the audited resolution pass. The next Responses
-work is remaining mutation semantics, broader provider-group fault coverage, and
-real adapter evidence.
+`GET /v1/responses/{id}`, `POST /v1/responses/{id}/cancel`, and `DELETE
+/v1/responses/{id}` traverse Gateway to Platform to Provider. Cancellation is
+idempotent, retrieval retains the `cancelled` state, and all three controls
+release their routing leases without billing. The same gate sends a malformed
+non-stream success through the source-owned Provider mock, maps it to
+`502/provider_error`, retains the ambiguous lease for reconciliation, and proves
+no usage/debit before the audited resolution pass. The next Responses work is
+remaining mutation semantics, broader provider-group fault coverage, and real
+adapter evidence.
 The current source-built `scalaapi-openai-moderation-0810e` gate applies and
 replays 44 migration records from empty volumes, proves Garnet-authenticated
 request routing, staged request/response policy, the versioned Unicode evaluator,
@@ -851,7 +852,8 @@ using the inventory's contract/test/runtime rule.
 
 Then expand the remaining 58-domain work in this order:
 
-1. Complete OpenAI Responses subresources, Embeddings/Images/video/realtime,
+1. Complete the remaining OpenAI Responses mutation subresources beyond the
+   implemented read/cancel/delete slice, then Embeddings/Images/video/realtime,
    Anthropic Messages, Gemini generation, model catalogue/token counting, and
    runtime cross-protocol E2E; source-owned protocol fixtures are frozen in
    Gateway `8f33790`.
