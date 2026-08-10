@@ -2,7 +2,7 @@
 
 ## Checkpoint
 
-The next stage starts from Platform/Admin Web `5ab5b25`, User Web `44d2096`, Gateway `3da0d33`, and read-only
+The next stage starts from Platform/Admin Web `de53df4`, User Web `de53df4`, Gateway `3da0d33`, and read-only
 reference `sub2api@43ec48d`.
 
 The greenfield baseline now starts from empty volumes, uses PostgreSQL as authority,
@@ -170,11 +170,13 @@ evidence-backed settle/release submission with a stable idempotency key per sele
 command, so network retries replay the same decision.
 Browser authorization, operator audit visibility, and the wider monitor/backup
 surface remain separate release gates.
-Platform `5ab5b25` adds the COM-01 native mock checkout boundary: migration 038,
-pending local order persistence before the provider call, deterministic merchant
-references, a bounded HTTPS/bearer adapter, checkout URL persistence, pending-order
-retry, and idempotency conflict semantics. Production payment adapters, webhook and
-refund reconciliation, exact-boundary crash injection, and browser checkout remain.
+Platform `de53df4` extends the COM-01 native checkout boundary: migration 038,
+pending local order persistence before the provider call, deterministic mock
+merchant references, a bounded HTTPS/Bearer mock adapter, a Stripe Checkout Session
+adapter using Basic secret auth and minor-unit form fields, checkout URL persistence,
+pending-order retry, provider selection, and idempotency conflict semantics. More
+production adapters, webhook/refund reconciliation, exact-boundary crash injection,
+and browser payment completion remain.
 Migration `023-auth-oauth-states.sql` now adds one-time OAuth state with S256 PKCE:
 the Admin start flow returns provider-bound state/verifier/challenge material,
 PostgreSQL stores only hashes, and callback consumption binds the exact redirect URI

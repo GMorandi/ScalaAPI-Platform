@@ -11,7 +11,7 @@ read-only requirements reference and is excluded from builds and runtime.
 | Repository | Commit | Worktree | Role |
 | --- | --- | --- | --- |
 | `gateway` | `3da0d33` | clean | C++ HTTP/WebSocket edge, protocol parsing/conversion, versioned OpenAI Chat/Responses, Anthropic Messages, and Gemini request/response/SSE golden contracts, full pairwise provider request/response/error matrix assertions, fail-closed model catalog and token-count validation, bounded Embeddings and Responses validation, streaming, strict Provider media contracts, bounded transport timers, normalized Provider availability errors, shared retryable Platform transport policy, durable usage delivery, authenticated Garnet projections, bounded request/response content-policy RPC evaluation, event-boundary streaming response moderation, and fail-closed response delivery including retryable classifier outages |
-| `platform` | `5ab5b25` backend + Admin Web + User Web | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, Provider mock contracts, bounded provider pricing catalog refresh with immutable source/checksum history, media object HEAD reconciliation with retryable missing/mismatch state, native mock payment checkout with bounded HTTPS/bearer provider adapter and idempotent pending-order retry, rotating identity/session/TOTP/OAuth state, native Passkey/WebAuthn ceremonies, encrypted email notification outbox and retry worker, API-key policy and audit, versioned runtime configuration, persistent scheduling and lease/hold/ledger state, atomic subscription quota reservation and settlement, idempotent subscription expiry/renewal worker, audited operator reconciliation, Admin Web incident filtering/run/evidence-backed settle-release workflow with replay-key preservation, atomic audited referral rewards, authenticated and audited operational metrics, bounded redacted audit queries/exports, encrypted proxy and validated TLS profile administration, audited bounded channel monitor checks, auditable user data export, bounded authentication/ceremony cleanup, user announcement read tracking, media/object lifecycle, staged request/response content-policy evaluation with versioned Unicode normalization, bounded source-owned external classifier adapter, durable policy revision propagation through Garnet, operational alert evidence, and redacted audits |
+| `platform` | `de53df4` backend + Admin Web + User Web | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, Provider mock contracts, bounded provider pricing catalog refresh with immutable source/checksum history, media object HEAD reconciliation with retryable missing/mismatch state, native mock and Stripe Checkout Session payment adapters with HTTPS/auth/amount bounds and idempotent pending-order retry, User Web provider selection and checkout links, rotating identity/session/TOTP/OAuth state, native Passkey/WebAuthn ceremonies, encrypted email notification outbox and retry worker, API-key policy and audit, versioned runtime configuration, persistent scheduling and lease/hold/ledger state, atomic subscription quota reservation and settlement, idempotent subscription expiry/renewal worker, audited operator reconciliation, Admin Web incident filtering/run/evidence-backed settle-release workflow with replay-key preservation, atomic audited referral rewards, authenticated and audited operational metrics, bounded redacted audit queries/exports, encrypted proxy and validated TLS profile administration, audited bounded channel monitor checks, auditable user data export, bounded authentication/ceremony cleanup, user announcement read tracking, media/object lifecycle, staged request/response content-policy evaluation with versioned Unicode normalization, bounded source-owned external classifier adapter, durable policy revision propagation through Garnet, operational alert evidence, and redacted audits |
 | `sub2api` | `43ec48d` | read-only clean | Requirements catalogue only; never a runtime or compatibility dependency |
 
 The current tracked inventory is:
@@ -19,7 +19,7 @@ The current tracked inventory is:
 - Gateway: 52 production C++ source/header files, 11 test source files, and 125
   CTest cases.
 - Platform: 111 hand-written production C# files, 3 generated Cap'n Proto C#
-  files, 55 test/benchmark C# files, and 201 tests: 69 Grain, 57 Host, 32 Admin,
+  files, 55 test/benchmark C# files, and 203 tests: 69 Grain, 57 Host, 34 Admin,
   and 43 Provider mock tests.
 - Product surface: 125 direct Admin API route declarations, 50 product tables,
   22 SQLSugar entity types, 24 Admin Web TypeScript/TSX files and 12 page views,
@@ -325,14 +325,16 @@ current-source runtime evidence.
 - Signed payment webhooks, order paid/refunded transitions, stable ledger effects,
   pending-event recovery, subscription purchase/cancel/renew/expiry, and
   transactional redeem-code effects exist as partial commercial foundations.
-- Platform `5ab5b25` adds the native payment checkout boundary: migration 038
-  persists a bounded checkout URL; `/user/payments/create` normalizes the mock
-  provider, amount, and currency, enforces idempotency payload conflicts, persists
-  a pending order before the provider call, retries pending orders, and returns a
-  provider order ID plus checkout URL. The HTTPS-by-default bearer adapter bounds
-  responses and rejects malformed provider data; Provider Mock returns a
-  deterministic checkout for the same merchant reference. Production adapters,
-  webhook/refund reconciliation crash evidence, and browser checkout remain open.
+- Platform `de53df4` extends the native payment checkout boundary: migration 038
+  persists a bounded checkout URL; `/user/payments/create` routes `mock` and
+  `stripe`, normalizes amount/currency, enforces idempotency payload conflicts,
+  persists a pending order before the provider call, retries pending orders, and
+  returns a provider order ID plus checkout URL. The mock adapter uses bounded
+  Bearer JSON; the Stripe adapter uses bounded HTTPS Basic-auth form requests,
+  minor-unit amounts, order metadata, strict Checkout Session response parsing,
+  and fail-closed redirect/secret handling. User Web exposes provider selection and
+  checkout links. Additional production adapters, webhook/refund reconciliation
+  crash evidence, and browser payment completion remain open.
 - Platform `6344f88` replaces the unaudited referral record mutation with an
   authenticated Admin reward command. It takes a deterministic lock on both
   users, requires an owned referral code, enforces one referrer/referred pair,
@@ -406,7 +408,7 @@ current-source runtime evidence.
 
 ## Current verification evidence
 
-At Platform/Admin Web `5ab5b25`, User Web `44d2096`, and Gateway `3da0d33`:
+At Platform/Admin Web `de53df4`, User Web `de53df4`, and Gateway `3da0d33`:
 
 - Gateway built locally and passed 125/125 CTest cases, including deterministic
   fault-hook claim/repeat behavior, terminal SSE detection, provider EOF
@@ -418,8 +420,8 @@ At Platform/Admin Web `5ab5b25`, User Web `44d2096`, and Gateway `3da0d33`:
   sixteen request pairs, all sixteen response pairs, cross-protocol response
   envelope validation, and cross-protocol error normalization with standard
   status precedence.
-- Platform Release test/build passed with 0 warnings and 0 errors: 201/201 tests,
-  including 57 Host tests, 69 Grain tests, 32 Admin tests, and 43 Provider mock
+- Platform Release test/build passed with 0 warnings and 0 errors: 203/203 tests,
+  including 57 Host tests, 69 Grain tests, 34 Admin tests, and 43 Provider mock
   tests. Admin coverage
   includes PostgreSQL-backed TOTP replay, backup-code consumption, lockout,
   recovery, OAuth provider/redirect/verifier binding, one-time state consumption,
