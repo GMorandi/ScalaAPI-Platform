@@ -2,7 +2,7 @@
 
 ## Checkpoint
 
-The next stage starts from Platform/Admin Web `911a22d`, User Web `911a22d`, Gateway `3da0d33`, and read-only
+The next stage starts from Platform/Admin Web `73fc79d`, User Web `73fc79d`, Gateway `3da0d33`, and read-only
 reference `sub2api@43ec48d`.
 
 The greenfield baseline now starts from empty volumes, uses PostgreSQL as authority,
@@ -170,7 +170,7 @@ evidence-backed settle/release submission with a stable idempotency key per sele
 command, so network retries replay the same decision.
 Browser authorization, operator audit visibility, and the wider monitor/backup
 surface remain separate release gates.
-Platform `911a22d` extends the COM-01 native checkout/refund boundary: migrations 038-040,
+Platform `73fc79d` extends the COM-01 native checkout/refund boundary: migrations 038-041,
 pending local order persistence before the provider call, deterministic mock
 merchant references, a bounded HTTPS/Bearer mock adapter, a Stripe Checkout Session
 adapter using Basic secret auth and minor-unit form fields, provider payment ID
@@ -181,9 +181,11 @@ new full-refund command state machine: the refund row is committed before Provid
 contact, ambiguous timeout/unavailable outcomes remain retryable under one command
 key, distinct active commands for one order are rejected, Stripe refund amounts are
 checked in minor units, and successful completion uses one audited NUMERIC
-`payment_refund` effect. Partial refunds, automatic pending
-row recovery, more production adapters, exact-boundary crash injection, and browser
-payment completion remain.
+`payment_refund` effect. Migration 041 adds an actor-bound recovery row, expiring
+`SKIP LOCKED` claims, original Provider idempotency replay, and a hosted retry worker;
+expired claims are reclaimable without creating a second command. Partial refunds,
+more production adapters, exact-boundary crash injection, and browser payment
+completion remain.
 Migration `023-auth-oauth-states.sql` now adds one-time OAuth state with S256 PKCE:
 the Admin start flow returns provider-bound state/verifier/challenge material,
 PostgreSQL stores only hashes, and callback consumption binds the exact redirect URI

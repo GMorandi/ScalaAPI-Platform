@@ -11,14 +11,14 @@ read-only requirements reference and is excluded from builds and runtime.
 | Repository | Commit | Worktree | Role |
 | --- | --- | --- | --- |
 | `gateway` | `3da0d33` | clean | C++ HTTP/WebSocket edge, protocol parsing/conversion, versioned OpenAI Chat/Responses, Anthropic Messages, and Gemini request/response/SSE golden contracts, full pairwise provider request/response/error matrix assertions, fail-closed model catalog and token-count validation, bounded Embeddings and Responses validation, streaming, strict Provider media contracts, bounded transport timers, normalized Provider availability errors, shared retryable Platform transport policy, durable usage delivery, authenticated Garnet projections, bounded request/response content-policy RPC evaluation, event-boundary streaming response moderation, and fail-closed response delivery including retryable classifier outages |
-| `platform` | `911a22d` backend + Admin Web + User Web | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, Provider mock contracts, bounded provider pricing catalog refresh with immutable source/checksum history, media object HEAD reconciliation with retryable missing/mismatch state, native mock and Stripe Checkout Session payment adapters with HTTPS/auth/amount bounds and idempotent pending-order retry, Stripe raw-body webhook verification and event normalization with provider payment-id association, native full-refund Provider commands with pending/retryable state, order-level active-refund serialization, and one NUMERIC ledger effect, User Web provider selection and checkout links, rotating identity/session/TOTP/OAuth state, native Passkey/WebAuthn ceremonies, encrypted email notification outbox and retry worker, API-key policy and audit, versioned runtime configuration, persistent scheduling and lease/hold/ledger state, atomic subscription quota reservation and settlement, idempotent subscription expiry/renewal worker, audited operator reconciliation, Admin Web incident filtering/run/evidence-backed settle-release workflow with replay-key preservation, atomic audited referral rewards, authenticated and audited operational metrics, bounded redacted audit queries/exports, encrypted proxy and validated TLS profile administration, audited bounded channel monitor checks, auditable user data export, bounded authentication/ceremony cleanup, user announcement read tracking, media/object lifecycle, staged request/response content-policy evaluation with versioned Unicode normalization, bounded source-owned external classifier adapter, durable policy revision propagation through Garnet, operational alert evidence, and redacted audits |
+| `platform` | `73fc79d` backend + Admin Web + User Web | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, Provider mock contracts, bounded provider pricing catalog refresh with immutable source/checksum history, media object HEAD reconciliation with retryable missing/mismatch state, native mock and Stripe Checkout Session payment adapters with HTTPS/auth/amount bounds and idempotent pending-order retry, Stripe raw-body webhook verification and event normalization with provider payment-id association, native full-refund Provider commands with pending/retryable state, order-level active-refund serialization, SKIP LOCKED refund recovery with expiring claims, and one NUMERIC ledger effect, User Web provider selection and checkout links, rotating identity/session/TOTP/OAuth state, native Passkey/WebAuthn ceremonies, encrypted email notification outbox and retry worker, API-key policy and audit, versioned runtime configuration, persistent scheduling and lease/hold/ledger state, atomic subscription quota reservation and settlement, idempotent subscription expiry/renewal worker, audited operator reconciliation, Admin Web incident filtering/run/evidence-backed settle-release workflow with replay-key preservation, atomic audited referral rewards, authenticated and audited operational metrics, bounded redacted audit queries/exports, encrypted proxy and validated TLS profile administration, audited bounded channel monitor checks, auditable user data export, bounded authentication/ceremony cleanup, user announcement read tracking, media/object lifecycle, staged request/response content-policy evaluation with versioned Unicode normalization, bounded source-owned external classifier adapter, durable policy revision propagation through Garnet, operational alert evidence, and redacted audits |
 | `sub2api` | `43ec48d` | read-only clean | Requirements catalogue only; never a runtime or compatibility dependency |
 
 The current tracked inventory is:
 
 - Gateway: 52 production C++ source/header files, 11 test source files, and 125
   CTest cases.
-- Platform: 115 hand-written production C# files, 3 generated Cap'n Proto C#
+- Platform: 116 hand-written production C# files, 3 generated Cap'n Proto C#
   files, 58 test/benchmark C# files, and 211 tests: 69 Grain, 57 Host, 41 Admin,
   and 44 Provider mock tests.
 - Product surface: 125 direct Admin API route declarations, 50 product tables,
@@ -325,7 +325,7 @@ current-source runtime evidence.
 - Signed payment webhooks, order paid/refunded transitions, stable ledger effects,
   pending-event recovery, subscription purchase/cancel/renew/expiry, and
   transactional redeem-code effects exist as partial commercial foundations.
-- Platform `911a22d` extends the native payment checkout/refund boundary: migrations 038
+- Platform `73fc79d` extends the native payment checkout/refund boundary: migrations 038-041
   and 039
   persists a bounded checkout URL; `/user/payments/create` routes `mock` and
   `stripe`, normalizes amount/currency, enforces idempotency payload conflicts,
@@ -342,9 +342,11 @@ current-source runtime evidence.
   timeout/unavailable outcomes remain retryable under the same command key, Stripe
   refunds use the payment-intent minor-unit contract, the deterministic Provider
   mock exposes the same endpoint, and successful settlement appends one audited
-  NUMERIC `payment_refund` effect. Partial refunds, automated pending-row recovery,
-  additional production adapters, browser payment completion, and exact-boundary
-  crash evidence remain open.
+  NUMERIC `payment_refund` effect. Migration 041 adds actor-bound attempts, expiring
+  claims, and a hosted `SKIP LOCKED` recovery worker that retries pending or
+  ambiguous rows with the original Provider idempotency key; expired claims are
+  safely reclaimable. Partial refunds, additional production adapters, browser
+  payment completion, and exact-boundary crash evidence remain open.
 - Platform `6344f88` replaces the unaudited referral record mutation with an
   authenticated Admin reward command. It takes a deterministic lock on both
   users, requires an owned referral code, enforces one referrer/referred pair,
@@ -396,11 +398,11 @@ current-source runtime evidence.
 
 ### Bootstrap and deployment
 
-- The direct source migrator applied product migrations 001-040 to a temporary
-  empty PostgreSQL 17 database and skipped all 40 on replay. The migrator image
+- The direct source migrator applied product migrations 001-041 to a temporary
+  empty PostgreSQL 17 database and skipped all 41 on replay. The migrator image
   copies the complete migration directory, so new forward migrations cannot be
   silently omitted. The targeted empty-schema subscription gate applies and replays
-  41 records including Orleans support. No source database, snapshot, old key, CDC
+  42 records including Orleans support. No source database, snapshot, old key, CDC
   table, or compatibility mapping is required; the full Compose image gate still
   needs to be rebuilt against this commit.
 - `deploy/stack` independently starts PostgreSQL, authenticated Garnet, MinIO,
@@ -418,7 +420,7 @@ current-source runtime evidence.
 
 ## Current verification evidence
 
-At Platform/Admin Web `911a22d`, User Web `911a22d`, and Gateway `3da0d33`:
+At Platform/Admin Web `73fc79d`, User Web `73fc79d`, and Gateway `3da0d33`:
 
 - Gateway built locally and passed 125/125 CTest cases, including deterministic
   fault-hook claim/repeat behavior, terminal SSE detection, provider EOF
