@@ -2,7 +2,7 @@
 
 ## Checkpoint
 
-The next stage starts from Platform/Admin Web/User Web `a5cb552`, Gateway `3da0d33`, and read-only
+The next stage starts from Platform/Admin Web/User Web `ec502a2`, Gateway `3da0d33`, and read-only
 reference `sub2api@43ec48d`.
 
 The greenfield baseline now starts from empty volumes, uses PostgreSQL as authority,
@@ -84,12 +84,13 @@ now 46 including Orleans. The hosted-worker test covers two instances and a
 restarted instance with one sequence-one snapshot each; actual separate Compose
 process flush/restart evidence is still open.
 
-Platform `a5cb552` also adds the first UI-06 public slice: User Web routes for
-the Gateway model directory and readiness status plus versioned Terms and Privacy
-pages. Its Chromium smoke passed without a session and checks navigation, table
-semantics, status feedback, and legal route access. Compose proxy/catalog evidence,
-deployment-specific accessibility scanning, and authenticated User Web workflows
-remain open.
+Platform `a5cb552` adds the first UI-06 public slice: User Web routes for the
+Gateway model directory and readiness status plus versioned Terms and Privacy
+pages. Platform `ec502a2` adds a source-built Compose-only Chromium gate; project
+`scalaapi-public-ui-0810b` passed the live nginx-to-Gateway catalog/readiness
+proxies and all four public routes (`1/1`) and removed its containers afterward.
+Deployment-specific accessibility scanning, legal-text configuration, and
+authenticated User Web workflows remain open.
 
 The completed policy-operations slice is committed as Platform `9fb449c`, with
 worker-order serialization finalized in `caa719e` and the bounded external
