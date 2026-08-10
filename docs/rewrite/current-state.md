@@ -1,7 +1,7 @@
 # ScalaAPI Rewrite Current State
 
 This document is the active baseline for the new ScalaAPI product as of
-2026-08-09. ScalaAPI reimplements the useful product capabilities catalogued in
+2026-08-10. ScalaAPI reimplements the useful product capabilities catalogued in
 Sub2API, but it does not preserve Sub2API APIs, internal contracts, schemas, IDs,
 keys, state mappings, deployment processes, or data. The Sub2API repository is a
 read-only requirements reference and is excluded from builds and runtime.
