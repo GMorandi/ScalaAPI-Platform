@@ -46,10 +46,7 @@ jobs:
         run: |
           scripts/verify-contracts.sh
           scripts/verify-generated-contracts.sh
-          if rg -n -i 'debezium|migration_fence|migrationwritegate|microsoft\.garnet|redis|legacy[_-]|sub2api|subdata' \
-              src deploy --glob '!deploy/stack/README.md'; then
-            exit 1
-          fi
+          scripts/verify-retired-dependencies.sh
       - run: dotnet restore ScalaAPI.Platform.slnx
       - run: dotnet build --no-restore -c Release
       - name: Apply the greenfield schema twice
