@@ -102,6 +102,7 @@ public sealed class ContentPolicyPropagationTests
                 first.PropagateOnceAsync($"test-a-{Guid.NewGuid():N}"),
                 second.PropagateOnceAsync($"test-b-{Guid.NewGuid():N}"));
 
+            Assert.All(results, result => Assert.Equal(1, result.Claimed));
             Assert.Equal(2, results.Sum(result => result.Propagated));
             Assert.Equal(0, results.Sum(result => result.Failed));
             foreach (var eventId in eventIds)

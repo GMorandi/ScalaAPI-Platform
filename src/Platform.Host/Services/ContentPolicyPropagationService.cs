@@ -22,15 +22,6 @@ public sealed class ContentPolicyPropagationService(
     public async Task<ContentPolicyPropagationResult> PropagateOnceAsync(
         string workerId, CancellationToken ct = default)
     {
-        await using var lockConnection = await dataSource.OpenConnectionAsync(ct);
-        await using var lockTransaction = await lockConnection.BeginTransactionAsync(ct);
-        await using (var lockCommand = new NpgsqlCommand(
-            $"SELECT pg_advisory_xact_lock({ContentPolicyPropagationLock.Key})",
-            lockConnection, lockTransaction))
-        {
-            await lockCommand.ExecuteNonQueryAsync(ct);
-        }
-
         var events = await ClaimAsync(workerId, ct);
         var propagated = 0;
         var failed = 0;
@@ -38,8 +29,7 @@ public sealed class ContentPolicyPropagationService(
         {
             try
             {
-                garnet.PublishContentPolicyRevision(change.Revision);
-                await MarkPropagatedAsync(change.Id, workerId, ct);
+                await PublishOneAsync(change, workerId, ct);
                 propagated++;
             }
             catch (Exception ex)
@@ -54,8 +44,28 @@ public sealed class ContentPolicyPropagationService(
             }
         }
 
-        await lockTransaction.CommitAsync(ct);
         return new ContentPolicyPropagationResult(events.Count, propagated, failed);
+    }
+
+    private async Task PublishOneAsync(PendingChange change, string workerId,
+        CancellationToken ct)
+    {
+        // Claims are independent across processes. Only the short publication
+        // section is serialized, so a slow Garnet call does not prevent another
+        // worker from claiming unrelated outbox rows. The monotonic Garnet
+        // operation makes a later revision win when workers finish out of order.
+        await using var connection = await dataSource.OpenConnectionAsync(ct);
+        await using var transaction = await connection.BeginTransactionAsync(ct);
+        await using (var lockCommand = new NpgsqlCommand(
+            $"SELECT pg_advisory_xact_lock({ContentPolicyPropagationLock.Key})",
+            connection, transaction))
+        {
+            await lockCommand.ExecuteNonQueryAsync(ct);
+        }
+
+        garnet.PublishContentPolicyRevision(change.Revision);
+        await MarkPropagatedAsync(change.Id, workerId, ct);
+        await transaction.CommitAsync(ct);
     }
 
     private async Task<IReadOnlyList<PendingChange>> ClaimAsync(
