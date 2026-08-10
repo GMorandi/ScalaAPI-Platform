@@ -2,7 +2,7 @@
 
 ## Checkpoint
 
-The next stage starts from Platform/Admin Web/User Web `35d9a9c`, Gateway `3da0d33`, and read-only
+The next stage starts from Platform/Admin Web/User Web `4ed1d5b`, Gateway `3da0d33`, and read-only
 reference `sub2api@43ec48d`.
 
 The greenfield baseline now starts from empty volumes, uses PostgreSQL as authority,
@@ -81,8 +81,12 @@ and configuration-backed breach gauges. Migration 045 atomically updates durable
 budget alert state with each snapshot append. A temporary empty PostgreSQL run
 applied and replay-skipped all 45 product records; the Compose baseline count is
 now 46 including Orleans. The hosted-worker test covers two instances and a
-restarted instance with one sequence-one snapshot each; actual separate Compose
-process flush/restart evidence is still open.
+restarted instance with one sequence-one snapshot each. The source-built
+`scalaapi-metrics-process-0810f` gate additionally runs two Platform silos and two
+Gateway processes, restarts the secondary pair, and proves two persisted instance
+snapshots, two requests, two usage events, and two NUMERIC debits exactly once.
+Credential rotation/redaction, deployed malformed/oversized/timeout/cancellation
+scenarios, and long-stream metrics remain open.
 
 Platform `a5cb552` adds the first UI-06 public slice: User Web routes for the
 Gateway model directory and readiness status plus versioned Terms and Privacy
@@ -111,9 +115,9 @@ plus invalidation version through authenticated cache rebuild after Garnet loss.
 latest source smoke at Platform `3da2e29` closes single-instance runtime execution
 for both source-owned and OpenAI adapter match/unavailable paths; pricing selection
 also prefers an effective administrative quote over a later provider refresh and has
-PostgreSQL test evidence. Cross-process ordering/failure, browser,
-collector/dashboard, runtime multi-process metric restart, and long-stream metrics
-remain release gates.
+PostgreSQL test evidence. Cross-process policy ordering/failure, browser,
+collector/dashboard, credential rotation/redaction, and long-stream metrics remain
+release gates.
 
 Provider OAuth credentials now use encrypted versioned state with a single-account
 refresh lease, compare-and-set completion, bounded error evidence, and scheduler
@@ -306,14 +310,15 @@ automated.
    configuration-backed unavailable-ratio/p95 budget breaches. The targeted real-
    PostgreSQL/schema/worker run passed 24/24 and the Release build passed with zero
    warnings/errors; the hosted worker test covers independent instances and one
-   restart. Add actual runtime two-process flush/restart evidence, credential
-   rotation and redaction checks, malformed/oversized/timeout/cancellation
-   scenarios through real deployment configuration, and long-stream
-   buffer/late-usage soak.
+   restart. The `scalaapi-metrics-process-0810f` source Compose gate now proves
+   two Platform processes and two Gateway processes flush, restart, and aggregate
+   snapshots with exactly-once usage settlement. Add credential rotation and
+   redaction checks, malformed/oversized/timeout/cancellation scenarios through
+   real deployment configuration, and long-stream buffer/late-usage soak.
 3. Extend operator and browser evidence. Platform `3da2e29` provides Admin Web
    rule CRUD, propagation-change history, alert filters, bilingual navigation, and a
    passing Chromium smoke with intercepted `/admin/content-audit/{rules,changes,alerts}`
-   contracts. Platform `35d9a9c` and `scalaapi-user-portal-0810b` add live User Web
+   contracts. Platform `4ed1d5b` and `scalaapi-user-portal-0810b` add live User Web
    login and basic portal navigation. Add live authenticated authorization/audit/
    replay coverage, User Web browser tests for the user-visible 400/503 policy
    errors, and browser evidence for reconciliation, monitor, backup, and recovery
