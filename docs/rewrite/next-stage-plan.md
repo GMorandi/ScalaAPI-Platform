@@ -318,11 +318,13 @@ automated.
 3. Extend operator and browser evidence. Platform `3da2e29` provides Admin Web
    rule CRUD, propagation-change history, alert filters, bilingual navigation, and a
    passing Chromium smoke with intercepted `/admin/content-audit/{rules,changes,alerts}`
-   contracts. Platform `4ed1d5b` and `scalaapi-user-portal-0810b` add live User Web
-   login and basic portal navigation. Add live authenticated authorization/audit/
-   replay coverage, User Web browser tests for the user-visible 400/503 policy
-   errors, and browser evidence for reconciliation, monitor, backup, and recovery
-   workflows.
+   contracts. Platform `0dd49cf` adds the authenticated Operations route with
+   bounded metric summaries, kind/severity alert filters, and explicit refresh;
+   the Admin Web Chromium suite passes `2/2`. Platform `0dd49cf` and
+   `scalaapi-user-portal-0810b` add live User Web login and basic portal navigation.
+   Add live authenticated authorization/audit/replay coverage, User Web browser
+   tests for the user-visible 400/503 policy errors, and browser evidence for
+   reconciliation, monitor, backup, and recovery workflows.
 4. Close release reliability gates in parallel: Provider golden request/response
    fixtures, long WebSocket/backpressure soak, multi-Gateway/multi-Silo contention,
    Garnet TLS/outage/rebuild, PostgreSQL/Garnet recovery, and backup/restore drills.
@@ -471,10 +473,12 @@ Remaining package deliverables:
   new monetary effect must use the same account/version API and cannot write
   `balance_ledger` directly.
 - The operational-metrics command is now an authority-compliant slice at Platform
-  `9848427`: authenticated bounded writes, atomic actor/IP audit, summary
-  aggregation, and filtered policy-alert evidence are covered by a real
-  PostgreSQL test. Add collectors, alert rules, dashboards, delivery/recovery,
-  and browser evidence before moving OPS-02 to implemented.
+  `9848427`, and Platform `0dd49cf` adds the authenticated Admin Operations
+  dashboard with typed summary rows, kind/severity alert filters, and explicit
+  refresh. The real PostgreSQL store test and Admin Web Chromium suite both pass
+  (`2/2`). Add projection collectors, alert rules, cross-service correlation,
+  alert delivery/recovery, credential rotation/redaction, long-stream metrics,
+  and live authorization before moving OPS-02 to implemented.
 - Admin audit reads are now a bounded safe-output slice at Platform `becf189`:
   list/export limits, recursive sensitive-field redaction, and removal of the
   generic client insert path are covered by a real PostgreSQL test. Add retention
