@@ -1177,6 +1177,9 @@ public class DispatchService
                 try
                 {
                     await _objectStorage.DeleteAsync(operation.ObjectKey);
+                    foreach (var itemKey in await _mediaOperations.ListItemObjectKeysAsync(
+                        operation.OperationId))
+                        await _objectStorage.DeleteAsync(itemKey);
                 }
                 catch (Exception ex)
                 {
@@ -1196,6 +1199,9 @@ public class DispatchService
                 try
                 {
                     await _objectStorage.DeleteAsync(operation.ObjectKey);
+                    foreach (var itemKey in await _mediaOperations.ListItemObjectKeysAsync(
+                        operation.OperationId))
+                        await _objectStorage.DeleteAsync(itemKey);
                 }
                 catch (Exception ex)
                 {
@@ -1212,6 +1218,32 @@ public class DispatchService
 
         if (operation is null)
             return MediaOperationRpcResult.Error(404, "not_found_error", "Media operation not found");
+        if (req.Action == "items")
+        {
+            var items = await _mediaOperations.ListItemsAsync(auth.ApiKeyId,
+                operation.OperationId);
+            if (items.Count > 0)
+            {
+                var payload = JsonSerializer.Serialize(new
+                {
+                    data = items.Select(item => new
+                    {
+                        custom_id = item.CustomId,
+                        url = item.ObjectStatus == "stored" && !string.IsNullOrWhiteSpace(item.ObjectKey)
+                            ? _objectStorage.PresignGet(item.ObjectKey, TimeSpan.FromHours(1))
+                            : "",
+                        content_type = item.ContentType,
+                        size = item.ObjectSize,
+                        status = item.ObjectStatus,
+                        error = string.IsNullOrWhiteSpace(item.Error) ? null : item.Error,
+                    }),
+                });
+                return MediaOperationRpcResult.From(operation) with
+                {
+                    OutputMetadata = payload,
+                };
+            }
+        }
         if (req.Action is "content" or "download"
             && (operation.Status != "succeeded" || string.IsNullOrWhiteSpace(operation.OutputUrl)))
             return MediaOperationRpcResult.Error(409, "output_not_ready", "Media output is not ready");

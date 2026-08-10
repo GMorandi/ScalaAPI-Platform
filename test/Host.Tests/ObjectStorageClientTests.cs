@@ -62,12 +62,14 @@ public sealed class ObjectStorageClientTests
         var client = new ObjectStorageClient(http, configuration,
             NullLogger<ObjectStorageClient>.Instance);
 
-        var result = await client.CreateBatchArchiveAsync("""
+        const string metadata = """
             {"data":[
               {"custom_id":"mock-1","url":"http://provider.test/output/one"},
               {"custom_id":"mock-1","url":"http://provider.test/output/two"}
             ]}
-            """, "med_batch_archive_test");
+            """;
+        var result = await client.CreateBatchArchiveAsync(metadata,
+            "med_batch_archive_test");
 
         Assert.Equal("media/med_batch_archive_test.zip", result.ObjectKey);
         Assert.Equal("application/zip", result.ContentType);
@@ -78,6 +80,20 @@ public sealed class ObjectStorageClientTests
         Assert.Contains(archive.Entries, entry => entry.FullName == "manifest.json");
         Assert.Contains(archive.Entries, entry => entry.FullName == "errors.json");
         Assert.Equal(2, handler.ProviderRequests);
+
+        var items = await client.CreateBatchItemObjectsAsync(metadata,
+            "med_batch_archive_test");
+        Assert.Equal(2, items.Count);
+        Assert.All(items, item =>
+        {
+            Assert.Equal("stored", item.ObjectStatus);
+            Assert.StartsWith("media/med_batch_archive_test/items/", item.ObjectKey);
+            Assert.StartsWith("http://storage.test:9000/", item.OutputUrl);
+            Assert.Equal("image/png", item.ContentType);
+            Assert.Equal("provider-bytes"u8.Length, item.Size);
+        });
+        Assert.Equal(4, handler.ProviderRequests);
+        Assert.Equal(4, handler.PutBodies.Count);
     }
 
     private sealed class RecordingHandler : HttpMessageHandler

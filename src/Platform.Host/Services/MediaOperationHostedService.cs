@@ -22,6 +22,9 @@ public sealed class MediaOperationHostedService(
                     try
                     {
                         await objectStorage.DeleteAsync(expired.ObjectKey, stoppingToken);
+                        foreach (var itemKey in await store.ListItemObjectKeysAsync(
+                            expired.OperationId, stoppingToken))
+                            await objectStorage.DeleteAsync(itemKey, stoppingToken);
                         await store.ClearOutputsAsync(expired.ApiKeyId, expired.OperationId, stoppingToken);
                     }
                     catch (Exception ex) when (ex is not OperationCanceledException)
@@ -38,6 +41,9 @@ public sealed class MediaOperationHostedService(
                     try
                     {
                         await objectStorage.DeleteAsync(retained.ObjectKey, stoppingToken);
+                        foreach (var itemKey in await store.ListItemObjectKeysAsync(
+                            retained.OperationId, stoppingToken))
+                            await objectStorage.DeleteAsync(itemKey, stoppingToken);
                         await store.ClearExpiredOutputAsync(retained, stoppingToken);
                     }
                     catch (Exception ex) when (ex is not OperationCanceledException)
@@ -51,6 +57,28 @@ public sealed class MediaOperationHostedService(
                             stoppingToken);
                         logger.LogWarning(ex, "Media retention cleanup failed for {OperationId}",
                             retained.OperationId);
+                    }
+                }
+
+                foreach (var batch in await store.ListBatchesMissingItemsAsync(8,
+                    stoppingToken))
+                {
+                    try
+                    {
+                        var items = await objectStorage.CreateBatchItemObjectsAsync(
+                            batch.OutputMetadata, batch.OperationId, stoppingToken);
+                        await store.ReplaceItemsAsync(batch.ApiKeyId, batch.OperationId,
+                            items.Select(item => new MediaOperationItemWrite(
+                                item.ItemIndex, item.CustomId, item.ProviderUrl,
+                                item.ObjectKey, item.ETag, item.Size, item.ContentType,
+                                item.ObjectStatus, item.OutputUrl, item.Error,
+                                batch.RetentionUntil)).ToArray(), stoppingToken);
+                    }
+                    catch (Exception ex) when (ex is not OperationCanceledException)
+                    {
+                        logger.LogWarning(ex,
+                            "Batch item projection recovery failed for {OperationId}",
+                            batch.OperationId);
                     }
                 }
 
@@ -117,13 +145,21 @@ public sealed class MediaOperationHostedService(
             if (parsed.Status == "succeeded")
             {
                 ObjectStoragePutResult stored;
+                IReadOnlyList<BatchItemObjectResult>? batchItems = null;
                 try
                 {
-                    stored = operation.OperationType == "images_batch_create"
-                        ? await objectStorage.CreateBatchArchiveAsync(body,
-                            operation.OperationId, ct)
-                        : await objectStorage.CopyFromUrlAsync(parsed.OutputUrl,
+                    if (operation.OperationType == "images_batch_create")
+                    {
+                        stored = await objectStorage.CreateBatchArchiveAsync(body,
+                            operation.OperationId, ct);
+                        batchItems = await objectStorage.CreateBatchItemObjectsAsync(body,
+                            operation.OperationId, ct);
+                    }
+                    else
+                    {
+                        stored = await objectStorage.CopyFromUrlAsync(parsed.OutputUrl,
                             operation.OperationId, parsed.ContentType, ct);
+                    }
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException)
                 {
@@ -174,6 +210,24 @@ public sealed class MediaOperationHostedService(
                     stored.ContentType, parsed.Error, objectKey: stored.ObjectKey,
                     objectEtag: stored.ETag, objectSize: stored.Size,
                     objectStatus: "stored", objectError: "", ct: ct);
+                if (batchItems is not null)
+                {
+                    try
+                    {
+                        await store.ReplaceItemsAsync(operation.ApiKeyId,
+                            operation.OperationId, batchItems.Select(item =>
+                                new MediaOperationItemWrite(item.ItemIndex, item.CustomId,
+                                    item.ProviderUrl, item.ObjectKey, item.ETag, item.Size,
+                                    item.ContentType, item.ObjectStatus, item.OutputUrl,
+                                    item.Error, operation.RetentionUntil)).ToArray(), ct);
+                    }
+                    catch (Exception ex) when (ex is not OperationCanceledException)
+                    {
+                        logger.LogWarning(ex,
+                            "Batch item projection failed for {OperationId}; archive remains available",
+                            operation.OperationId);
+                    }
+                }
             }
             else if (parsed.Status is "failed" or "canceled")
             {

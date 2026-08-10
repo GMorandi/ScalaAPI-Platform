@@ -16,6 +16,17 @@ public sealed record MediaOperation(
 
 public sealed record MediaCreateResult(MediaOperation Operation, bool Created, bool Conflict);
 
+public sealed record MediaOperationItem(
+    long ItemId, string OperationId, int ItemIndex, string CustomId,
+    string ProviderUrl, string ObjectKey, string ObjectETag, long ObjectSize,
+    string ContentType, string ObjectStatus, string OutputUrl, string Error,
+    DateTime? RetentionUntil);
+
+public sealed record MediaOperationItemWrite(
+    int ItemIndex, string CustomId, string ProviderUrl, string ObjectKey,
+    string ObjectETag, long ObjectSize, string ContentType, string ObjectStatus,
+    string OutputUrl, string Error, DateTime? RetentionUntil);
+
 // PostgreSQL owns media state. Gateway processes only submit commands and
 // render authenticated views; they never keep task state in process memory.
 public sealed class MediaOperationStore(
@@ -160,12 +171,39 @@ public sealed class MediaOperationStore(
         return result;
     }
 
+    public async Task<IReadOnlyList<MediaOperation>> ListBatchesMissingItemsAsync(
+        int limit, CancellationToken ct = default)
+    {
+        await using var command = dataSource.CreateCommand($"""
+            SELECT {Projection}
+            FROM media_operations operation
+            WHERE operation.operation_type = 'images_batch_create'
+              AND operation.status = 'succeeded'
+              AND jsonb_typeof(operation.output_metadata -> 'data') = 'array'
+              AND jsonb_array_length(operation.output_metadata -> 'data') > 0
+              AND NOT EXISTS (
+                  SELECT 1 FROM media_operation_items item
+                  WHERE item.operation_id = operation.operation_id)
+            ORDER BY operation.updated_at, operation.operation_id
+            LIMIT $1
+            """);
+        command.Parameters.AddWithValue(Math.Clamp(limit, 1, 100));
+        var result = new List<MediaOperation>();
+        await using var reader = await command.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct)) result.Add(Read(reader));
+        return result;
+    }
+
     public async Task<IReadOnlySet<string>> ListReferencedObjectKeysAsync(
         CancellationToken ct = default)
     {
         await using var command = dataSource.CreateCommand("""
-            SELECT DISTINCT object_key
+            SELECT object_key
             FROM media_operations
+            WHERE object_key <> ''
+            UNION
+            SELECT object_key
+            FROM media_operation_items
             WHERE object_key <> ''
             """);
         var result = new HashSet<string>(StringComparer.Ordinal);
@@ -173,6 +211,119 @@ public sealed class MediaOperationStore(
         while (await reader.ReadAsync(ct))
             result.Add(reader.GetString(0));
         return result;
+    }
+
+    public async Task<IReadOnlyList<MediaOperationItem>> ListItemsAsync(
+        long apiKeyId, string operationId, CancellationToken ct = default)
+    {
+        await using var command = dataSource.CreateCommand("""
+            SELECT item.item_id, item.operation_id, item.item_index, item.custom_id,
+                   item.provider_url, item.object_key, item.object_etag, item.object_size,
+                   item.content_type, item.object_status, item.output_url,
+                   COALESCE(item.error::text, ''), item.retention_until
+            FROM media_operation_items item
+            JOIN media_operations operation ON operation.operation_id = item.operation_id
+            WHERE operation.api_key_id = $1 AND item.operation_id = $2
+            ORDER BY item.item_index
+            """);
+        command.Parameters.AddWithValue(apiKeyId);
+        command.Parameters.AddWithValue(operationId);
+        var result = new List<MediaOperationItem>();
+        await using var reader = await command.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct)) result.Add(ReadItem(reader));
+        return result;
+    }
+
+    public async Task<IReadOnlyList<string>> ListItemObjectKeysAsync(
+        string operationId, CancellationToken ct = default)
+    {
+        await using var command = dataSource.CreateCommand("""
+            SELECT object_key
+            FROM media_operation_items
+            WHERE operation_id = $1 AND object_key <> ''
+            ORDER BY item_index
+            """);
+        command.Parameters.AddWithValue(operationId);
+        var result = new List<string>();
+        await using var reader = await command.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct)) result.Add(reader.GetString(0));
+        return result;
+    }
+
+    public async Task<bool> ReplaceItemsAsync(long apiKeyId, string operationId,
+        IReadOnlyList<MediaOperationItemWrite> items, CancellationToken ct = default)
+    {
+        if (items.Count > 200) throw new ArgumentOutOfRangeException(nameof(items));
+
+        await using var connection = await dataSource.OpenConnectionAsync(ct);
+        await using var transaction = await connection.BeginTransactionAsync(
+            IsolationLevel.ReadCommitted, ct);
+        await using var lockCommand = connection.CreateCommand();
+        lockCommand.Transaction = transaction;
+        lockCommand.CommandText = """
+            SELECT 1
+            FROM media_operations
+            WHERE api_key_id = $1 AND operation_id = $2 AND status = 'succeeded'
+            FOR UPDATE
+            """;
+        lockCommand.Parameters.AddWithValue(apiKeyId);
+        lockCommand.Parameters.AddWithValue(operationId);
+        if (await lockCommand.ExecuteScalarAsync(ct) is null)
+        {
+            await transaction.RollbackAsync(ct);
+            return false;
+        }
+
+        await using var delete = connection.CreateCommand();
+        delete.Transaction = transaction;
+        delete.CommandText = "DELETE FROM media_operation_items WHERE operation_id = $1";
+        delete.Parameters.AddWithValue(operationId);
+        await delete.ExecuteNonQueryAsync(ct);
+
+        foreach (var item in items.OrderBy(item => item.ItemIndex))
+        {
+            await using var insert = connection.CreateCommand();
+            insert.Transaction = transaction;
+            insert.CommandText = """
+                INSERT INTO media_operation_items(
+                    operation_id, item_index, custom_id, provider_url, object_key,
+                    object_etag, object_size, content_type, object_status, output_url,
+                    error, retention_until, updated_at)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+                        NULLIF($11, '')::jsonb, $12, now())
+                """;
+            insert.Parameters.AddWithValue(operationId);
+            insert.Parameters.AddWithValue(item.ItemIndex);
+            insert.Parameters.AddWithValue(item.CustomId);
+            insert.Parameters.AddWithValue(item.ProviderUrl);
+            insert.Parameters.AddWithValue(item.ObjectKey);
+            insert.Parameters.AddWithValue(item.ObjectETag);
+            insert.Parameters.AddWithValue(item.ObjectSize);
+            insert.Parameters.AddWithValue(item.ContentType);
+            insert.Parameters.AddWithValue(item.ObjectStatus);
+            insert.Parameters.AddWithValue(item.OutputUrl);
+            insert.Parameters.AddWithValue(item.Error);
+            insert.Parameters.AddWithValue(item.RetentionUntil.HasValue
+                ? (object)item.RetentionUntil.Value : DBNull.Value);
+            await insert.ExecuteNonQueryAsync(ct);
+        }
+
+        await transaction.CommitAsync(ct);
+        return true;
+    }
+
+    public async Task<bool> MarkItemsDeletedAsync(string operationId,
+        CancellationToken ct = default)
+    {
+        await using var command = dataSource.CreateCommand("""
+            UPDATE media_operation_items
+            SET object_key = '', object_etag = '', object_size = 0,
+                object_status = 'deleted', output_url = '', error = NULL,
+                updated_at = now()
+            WHERE operation_id = $1 AND object_status <> 'deleted'
+            """);
+        command.Parameters.AddWithValue(operationId);
+        return await command.ExecuteNonQueryAsync(ct) > 0;
     }
 
     public async Task<MediaOperation?> UpdateAsync(long apiKeyId, string operationId,
@@ -261,7 +412,12 @@ public sealed class MediaOperationStore(
     public async Task<MediaOperation?> ClearOutputsAsync(long apiKeyId,
         string operationId, CancellationToken ct = default)
     {
-        await using var command = dataSource.CreateCommand($"""
+        await using var connection = await dataSource.OpenConnectionAsync(ct);
+        await using var transaction = await connection.BeginTransactionAsync(
+            IsolationLevel.ReadCommitted, ct);
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = $"""
             UPDATE media_operations
             SET output_metadata = NULL, output_url = '', content_type = '',
                 object_key = '', object_etag = '', object_size = 0,
@@ -269,11 +425,21 @@ public sealed class MediaOperationStore(
             WHERE api_key_id = $1 AND operation_id = $2
               AND status IN ('succeeded', 'failed', 'canceled', 'expired')
             RETURNING {Projection}
-            """);
+            """;
         command.Parameters.AddWithValue(apiKeyId);
         command.Parameters.AddWithValue(operationId);
         await using var reader = await command.ExecuteReaderAsync(ct);
-        return await reader.ReadAsync(ct) ? Read(reader) : null;
+        if (!await reader.ReadAsync(ct))
+        {
+            await reader.DisposeAsync();
+            await transaction.RollbackAsync(ct);
+            return null;
+        }
+        var operation = Read(reader);
+        await reader.DisposeAsync();
+        await ClearItemsAsync(connection, transaction, operationId, ct);
+        await transaction.CommitAsync(ct);
+        return operation;
     }
 
     public async Task<int> ExpireDueAsync(CancellationToken ct = default)
@@ -441,7 +607,12 @@ public sealed class MediaOperationStore(
     public async Task<bool> ClearExpiredOutputAsync(MediaOperation operation,
         CancellationToken ct = default)
     {
-        await using var command = dataSource.CreateCommand("""
+        await using var connection = await dataSource.OpenConnectionAsync(ct);
+        await using var transaction = await connection.BeginTransactionAsync(
+            IsolationLevel.ReadCommitted, ct);
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
             UPDATE media_operations
             SET output_metadata = NULL, output_url = '', content_type = '',
                 object_key = '', object_etag = '', object_size = 0,
@@ -451,10 +622,17 @@ public sealed class MediaOperationStore(
             WHERE operation_id = $1 AND status IN ('succeeded', 'failed', 'canceled', 'expired')
               AND object_status = 'pending' AND object_key = $2
               AND retention_until IS NOT NULL AND retention_until <= now()
-            """);
+            """;
         command.Parameters.AddWithValue(operation.OperationId);
         command.Parameters.AddWithValue(operation.ObjectKey);
-        return await command.ExecuteNonQueryAsync(ct) == 1;
+        if (await command.ExecuteNonQueryAsync(ct) != 1)
+        {
+            await transaction.RollbackAsync(ct);
+            return false;
+        }
+        await ClearItemsAsync(connection, transaction, operation.OperationId, ct);
+        await transaction.CommitAsync(ct);
+        return true;
     }
 
     public async Task<bool> RecordExpiredOutputFailureAsync(MediaOperation operation,
@@ -506,4 +684,26 @@ public sealed class MediaOperationStore(
         reader.IsDBNull(26) ? null : reader.GetDateTime(26), reader.GetInt32(27),
         reader.IsDBNull(28) ? null : reader.GetDateTime(28),
         reader.IsDBNull(29) ? null : reader.GetDateTime(29));
+
+    private static MediaOperationItem ReadItem(NpgsqlDataReader reader) => new(
+        reader.GetInt64(0), reader.GetString(1), reader.GetInt32(2), reader.GetString(3),
+        reader.GetString(4), reader.GetString(5), reader.GetString(6), reader.GetInt64(7),
+        reader.GetString(8), reader.GetString(9), reader.GetString(10), reader.GetString(11),
+        reader.IsDBNull(12) ? null : reader.GetDateTime(12));
+
+    private static async Task ClearItemsAsync(NpgsqlConnection connection,
+        NpgsqlTransaction transaction, string operationId, CancellationToken ct)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            UPDATE media_operation_items
+            SET object_key = '', object_etag = '', object_size = 0,
+                object_status = 'deleted', output_url = '', error = NULL,
+                updated_at = now()
+            WHERE operation_id = $1 AND object_status <> 'deleted'
+            """;
+        command.Parameters.AddWithValue(operationId);
+        await command.ExecuteNonQueryAsync(ct);
+    }
 }

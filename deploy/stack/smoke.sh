@@ -2379,8 +2379,15 @@ assert_equals "true" "$(jq -er --arg id "$media_batch_id" \
 media_batch_items="$(curl -fsS "$gateway_url/v1/images/batches/$media_batch_id/items" \
     -H "Authorization: Bearer $api_key")"
 assert_equals "true" "$(jq -er \
-    'type == "array" and length == 1 and .[0].custom_id == "mock-1"' <<<"$media_batch_items")" \
+    'type == "array" and length == 1 and .[0].custom_id == "mock-1" and .[0].status == "stored" and (.[0].url | startswith("http://"))' <<<"$media_batch_items")" \
     "Normalized media batch items"
+media_batch_item_url="$(jq -er '.[0].url' <<<"$media_batch_items")"
+media_batch_item_size="$(curl -fsSL "$media_batch_item_url" | wc -c | tr -d ' ')"
+if (( media_batch_item_size <= 0 )); then
+    echo "Downloaded media batch item was empty" >&2
+    exit 1
+fi
+echo "PASS: durable per-item media object projection and signed download"
 media_batch_archive="${TMPDIR:-/tmp}/scalaapi-${project}-batch.zip"
 python3 - "$gateway_url/v1/images/batches/$media_batch_id/download" \
     "$api_key" "$media_batch_archive" <<'PY'
@@ -2429,6 +2436,9 @@ wait_for "media batch retention cleanup" 60 media_batch_retention_complete
 assert_equals "|deleted|" \
     "$(db_query "SELECT object_key || '|' || object_status || '|' || output_url FROM media_operations WHERE operation_id = '$media_batch_id';")" \
     "Media batch retention clears object metadata"
+assert_equals "1" \
+    "$(db_query "SELECT count(*) FROM media_operation_items WHERE operation_id = '$media_batch_id' AND object_key = '' AND object_status = 'deleted' AND output_url = '';")" \
+    "Media batch retention clears per-item object metadata"
 echo "PASS: durable media retention deletes object and clears download metadata"
 
 terminal_state="$(db_query "

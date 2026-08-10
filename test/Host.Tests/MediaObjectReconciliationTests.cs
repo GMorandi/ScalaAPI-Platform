@@ -173,6 +173,66 @@ public sealed class MediaObjectReconciliationTests
         }
     }
 
+    [Fact]
+    public async Task BatchItemsAreOwnerScopedReplaceableAndReferenced()
+    {
+        var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
+        if (string.IsNullOrWhiteSpace(connectionString)) return;
+
+        await using var dataSource = NpgsqlDataSource.Create(connectionString);
+        var suffix = Guid.NewGuid().ToString("N");
+        var leaseToken = $"media-items-lease-{suffix}";
+        var operationId = $"med_items_{suffix}";
+        var archiveKey = $"media/{operationId}.zip";
+        await InsertSettledMediaAsync(dataSource, leaseToken, operationId, archiveKey);
+        var store = new MediaOperationStore(dataSource);
+        try
+        {
+            var retention = DateTime.UtcNow.AddDays(1);
+            Assert.True(await store.ReplaceItemsAsync(88001, operationId,
+            [
+                new(0, "first", "https://provider.test/first", $"media/{operationId}/items/first.png",
+                    "etag-first", 12, "image/png", "stored", "https://storage.test/first", "", retention),
+                new(1, "second", "https://provider.test/second", $"media/{operationId}/items/second.png",
+                    "etag-second", 13, "image/png", "stored", "https://storage.test/second", "", retention),
+            ]));
+
+            var items = await store.ListItemsAsync(88001, operationId);
+            Assert.Equal(2, items.Count);
+            Assert.Equal("first", items[0].CustomId);
+            Assert.Empty(await store.ListItemsAsync(88099, operationId));
+            var references = await store.ListReferencedObjectKeysAsync();
+            Assert.Contains(archiveKey, references);
+            Assert.Contains(items[0].ObjectKey, references);
+            Assert.Contains(items[1].ObjectKey, references);
+
+            Assert.True(await store.ReplaceItemsAsync(88001, operationId,
+            [
+                new(0, "replacement", "https://provider.test/replacement",
+                    $"media/{operationId}/items/replacement.png", "etag-replacement", 14,
+                    "image/png", "stored", "https://storage.test/replacement", "", retention),
+            ]));
+            Assert.Equal("replacement",
+                Assert.Single(await store.ListItemsAsync(88001, operationId)).CustomId);
+            Assert.True(await store.MarkItemsDeletedAsync(operationId));
+            var deleted = Assert.Single(await store.ListItemsAsync(88001, operationId));
+            Assert.Equal("deleted", deleted.ObjectStatus);
+            Assert.Equal("", deleted.ObjectKey);
+            Assert.Equal("", deleted.OutputUrl);
+        }
+        finally
+        {
+            await using var media = dataSource.CreateCommand(
+                "DELETE FROM media_operations WHERE operation_id = $1");
+            media.Parameters.AddWithValue(operationId);
+            await media.ExecuteNonQueryAsync();
+            await using var lease = dataSource.CreateCommand(
+                "DELETE FROM request_leases WHERE lease_token = $1");
+            lease.Parameters.AddWithValue(leaseToken);
+            await lease.ExecuteNonQueryAsync();
+        }
+    }
+
     private static async Task InsertSettledMediaAsync(NpgsqlDataSource dataSource,
         string leaseToken, string operationId, string objectKey)
     {
