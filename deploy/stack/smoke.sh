@@ -11,6 +11,8 @@ garnet_tls_rotation_enabled="${GARNET_TLS_ROTATION:-false}"
 project="${SMOKE_PROJECT_NAME:-scalaapi-smoke-$$}"
 secondary_platform_container=""
 secondary_gateway_container=""
+partition_network=""
+secondary_default_network=""
 
 if [[ ! "$project" =~ ^[a-z0-9][a-z0-9_-]*$ ]]; then
     echo "SMOKE_PROJECT_NAME must contain only lowercase letters, numbers, dashes, and underscores" >&2
@@ -101,6 +103,72 @@ recreate_service() {
     fi
 }
 
+partition_secondary_silo() {
+    local omitted_service=$1
+    local dependency
+    local dependency_id
+    local secondary_id
+
+    if [[ -n "$partition_network" ]]; then
+        echo "A secondary Silo partition is already active" >&2
+        return 1
+    fi
+    secondary_id="$($container_cli inspect -f '{{.Id}}' "$secondary_platform_container")"
+    secondary_default_network="$($container_cli inspect -f \
+        '{{range $name, $_ := .NetworkSettings.Networks}}{{$name}}{{"\n"}}{{end}}' \
+        "$secondary_platform_container" | head -n 1 | tr -d '\r')"
+    if [[ -z "$secondary_default_network" ]]; then
+        echo "Could not resolve the secondary Silo default network" >&2
+        return 1
+    fi
+
+    partition_network="${project}_media_partition_${omitted_service}"
+    $container_cli network create "$partition_network" >/dev/null
+    $container_cli stop "$secondary_platform_container" >/dev/null
+    $container_cli network disconnect --force "$secondary_default_network" \
+        "$secondary_id" >/dev/null
+
+    for dependency in postgres garnet provider-mock; do
+        [[ "$dependency" == "$omitted_service" ]] && continue
+        dependency_id="$(service_container_id "$dependency")"
+        $container_cli network connect --alias "$dependency" \
+            "$partition_network" "$dependency_id" >/dev/null
+    done
+    if [[ "$omitted_service" == "postgres" ]]; then
+        dependency_id="$(service_container_id object-storage-fault-proxy)"
+        $container_cli network connect --alias object-storage-fault-proxy \
+            "$partition_network" "$dependency_id" >/dev/null
+    fi
+    $container_cli network connect --alias platform-media-2 \
+        "$partition_network" "$secondary_id" >/dev/null
+    $container_cli start "$secondary_platform_container" >/dev/null
+}
+
+restore_secondary_silo_network() {
+    local secondary_id
+    [[ -n "$partition_network" ]] || return 0
+    secondary_id="$($container_cli inspect -f '{{.Id}}' "$secondary_platform_container")"
+    $container_cli stop "$secondary_platform_container" >/dev/null
+    for dependency in postgres garnet provider-mock object-storage-fault-proxy; do
+        dependency_id="$(service_container_id "$dependency" 2>/dev/null || true)"
+        if [[ -n "$dependency_id" ]]; then
+            $container_cli network disconnect --force "$partition_network" \
+                "$dependency_id" >/dev/null 2>&1 || true
+        fi
+    done
+    $container_cli network disconnect --force "$partition_network" \
+        "$secondary_id" >/dev/null 2>&1 || true
+    $container_cli network connect --alias platform-media-2 \
+        "$secondary_default_network" "$secondary_id" >/dev/null
+    $container_cli start "$secondary_platform_container" >/dev/null
+    wait_for "secondary Silo readiness after network recovery" 90 \
+        $container_cli exec "$secondary_platform_container" \
+        curl -fsS http://127.0.0.1:5002/ready >/dev/null
+    $container_cli network rm "$partition_network" >/dev/null
+    partition_network=""
+    secondary_default_network=""
+}
+
 start_platform_after_fault() {
     # Podman Compose may leave an exited container stopped even with
     # restart: on-failure. Start the same container so the SQL claim and
@@ -123,6 +191,16 @@ cleanup() {
             "$container_cli" rm -f "$extra_container" >/dev/null 2>&1
         fi
     done
+    if [[ -n "$partition_network" ]]; then
+        for dependency in postgres garnet provider-mock object-storage-fault-proxy; do
+            dependency_id="$(service_container_id "$dependency" 2>/dev/null || true)"
+            if [[ -n "$dependency_id" ]]; then
+                "$container_cli" network disconnect --force "$partition_network" \
+                    "$dependency_id" >/dev/null 2>&1 || true
+            fi
+        done
+        "$container_cli" network rm "$partition_network" >/dev/null 2>&1
+    fi
     if [[ "${KEEP_STACK:-0}" == "1" ]]; then
         echo "Keeping Compose project '$project' (KEEP_STACK=1)" >&2
     else
@@ -230,6 +308,7 @@ media_batch_idempotency_key="smoke-media-batch-idem-${suffix}"
 media_batch_cancel_idempotency_key="smoke-media-batch-cancel-idem-${suffix}"
 media_batch_truncate_idempotency_key="smoke-media-batch-truncate-idem-${suffix}"
 media_batch_response_drop_idempotency_key="smoke-media-batch-response-drop-idem-${suffix}"
+media_batch_partition_idempotency_key="smoke-media-batch-partition-idem-${suffix}"
 chat_price_version="smoke-chat-${suffix}-v1"
 embedding_price_version="smoke-embeddings-${suffix}-v1"
 embedding_jina_price_version="smoke-embeddings-jina-${suffix}-v1"
@@ -2486,6 +2565,20 @@ assert_equals \
     "Committed S3 response loss converges into deterministic keys and one settlement"
 echo "PASS: committed S3 response loss retries without duplicate objects or billing"
 
+media_partition_batch_response="$(curl -fsS "$gateway_url/v1/images/batches" \
+    -H "Authorization: Bearer $api_key" -H "Content-Type: application/json" \
+    -H "Idempotency-Key: $media_batch_partition_idempotency_key" \
+    --data '{"model":"mock-image-1","items":[{"custom_id":"partition-recovery","prompt":"partition recovery media"}]}')"
+media_partition_batch_id="$(jq -er '.id' <<<"$media_partition_batch_response")"
+media_partition_batch_result=""
+media_partition_batch_stored() {
+    media_partition_batch_result="$(curl -fsS \
+        "$gateway_url/v1/images/batches/$media_partition_batch_id" \
+        -H "Authorization: Bearer $api_key")" || return 1
+    [[ "$(jq -r '.status' <<<"$media_partition_batch_result")" == "succeeded" ]]
+}
+wait_for "dedicated media partition batch persistence" 75 media_partition_batch_stored
+
 secondary_media_socket="/var/run/scalaapi/dispatch-media.sock"
 secondary_platform_container="${project}_platform-media-2"
 compose run --detach --no-deps --name "$secondary_platform_container" \
@@ -2497,6 +2590,127 @@ media_secondary_silos_ready() {
     [[ "$(db_query "SELECT count(*) FROM OrleansMembershipTable WHERE DeploymentId = 'platform' AND Status = 3;")" -ge 2 ]]
 }
 wait_for "two active media reconciliation silos" 60 media_secondary_silos_ready
+
+media_partition_item_attempts_before="$(db_query "
+    SELECT object_reconcile_attempts
+    FROM media_operation_items
+    WHERE operation_id = '$media_partition_batch_id';")"
+media_partition_parent_attempts_before="$(db_query "
+    SELECT object_reconcile_attempts
+    FROM media_operations
+    WHERE operation_id = '$media_partition_batch_id';")"
+
+# Stop the primary briefly so the isolated secondary is the only worker that
+# can claim the due object. The primary remains on the default network and
+# resumes before the secondary is restored, so recovery is still exercised by
+# two independent Silos.
+compose stop platform-silo >/dev/null
+partition_secondary_silo object-storage
+media_secondary_object_partition_visible() {
+    local secondary_health
+    secondary_health="$($container_cli exec "$secondary_platform_container" \
+        curl -sS -o /dev/null -w '%{http_code}' \
+        http://object-storage-fault-proxy:9000/minio/health/live 2>/dev/null || true)"
+    [[ "$secondary_health" != "200" ]] \
+        && $container_cli exec "$secondary_platform_container" \
+            curl -fsS http://127.0.0.1:5002/live >/dev/null
+}
+wait_for "secondary Silo object-storage partition" 30 \
+    media_secondary_object_partition_visible
+db_query "
+    UPDATE media_operation_items
+    SET object_next_check_at = now() - interval '1 second'
+    WHERE operation_id = '$media_partition_batch_id';
+    UPDATE media_operations
+    SET object_next_check_at = now() - interval '1 second'
+    WHERE operation_id = '$media_partition_batch_id';" >/dev/null
+media_partition_storage_failed() {
+    [[ "$(db_query "
+        SELECT
+          (SELECT object_status || '|' || object_reconcile_attempts || '|' ||
+                  COALESCE(error ->> 'type', '')
+           FROM media_operation_items WHERE operation_id = '$media_partition_batch_id') || '|' ||
+          (SELECT object_status || '|' || object_reconcile_attempts
+           FROM media_operations WHERE operation_id = '$media_partition_batch_id');")" == \
+       "failed|$((media_partition_item_attempts_before + 1))|item_object_reconcile_error|failed|$((media_partition_parent_attempts_before + 1))" ]]
+}
+wait_for "isolated secondary Silo object-storage failure" 75 media_partition_storage_failed
+compose start platform-silo >/dev/null
+wait_for "primary Silo readiness after object partition" 90 compose exec -T \
+    platform-silo curl -fsS http://127.0.0.1:5000/ready >/dev/null
+restore_secondary_silo_network
+db_query "
+    UPDATE media_operation_items
+    SET object_next_check_at = now() - interval '1 second'
+    WHERE operation_id = '$media_partition_batch_id';
+    UPDATE media_operations
+    SET object_next_check_at = now() - interval '1 second'
+    WHERE operation_id = '$media_partition_batch_id';" >/dev/null
+media_partition_storage_recovered() {
+    [[ "$(db_query "
+        SELECT
+          (SELECT object_status || '|' || object_reconcile_attempts || '|' ||
+                  (object_verified_at IS NOT NULL)::text
+           FROM media_operation_items WHERE operation_id = '$media_partition_batch_id') || '|' ||
+          (SELECT object_status || '|' || object_reconcile_attempts
+           FROM media_operations WHERE operation_id = '$media_partition_batch_id');")" == \
+       "stored|$((media_partition_item_attempts_before + 2))|true|stored|$((media_partition_parent_attempts_before + 2))" ]]
+}
+wait_for "isolated secondary Silo object-storage recovery" 75 \
+    media_partition_storage_recovered
+echo "PASS: one Silo object-storage partition preserved claim fencing and recovered"
+
+compose stop platform-silo >/dev/null
+db_query "
+    UPDATE media_operations
+    SET object_next_check_at = now() - interval '1 second'
+    WHERE operation_id = '$media_partition_batch_id';" >/dev/null
+partition_secondary_silo postgres
+media_secondary_postgres_partition_visible() {
+    local ready_status
+    ready_status="$($container_cli exec "$secondary_platform_container" \
+        curl -sS -o /dev/null -w '%{http_code}' \
+        http://127.0.0.1:5002/ready 2>/dev/null || true)"
+    [[ "$ready_status" != "200" ]]
+}
+wait_for "secondary Silo PostgreSQL partition" 30 \
+    media_secondary_postgres_partition_visible
+compose stop platform-silo >/dev/null
+db_query "
+    UPDATE media_operation_items
+    SET object_next_check_at = now() - interval '1 second'
+    WHERE operation_id = '$media_partition_batch_id';
+    UPDATE media_operations
+    SET object_next_check_at = now() - interval '1 second'
+    WHERE operation_id = '$media_partition_batch_id';" >/dev/null
+assert_equals "true" "$(db_query "
+    SELECT (item.object_next_check_at <= now() AND operation.object_next_check_at <= now())::text
+    FROM media_operation_items item
+    JOIN media_operations operation ON operation.operation_id = item.operation_id
+    WHERE item.operation_id = '$media_partition_batch_id';")" \
+    "PostgreSQL-partitioned Silo retained due media work"
+compose start platform-silo >/dev/null
+wait_for "primary Silo readiness after PostgreSQL partition" 90 compose exec -T \
+    platform-silo curl -fsS http://127.0.0.1:5000/ready >/dev/null
+restore_secondary_silo_network
+media_partition_postgres_recovered() {
+    [[ "$(db_query "
+        SELECT
+          operation.object_status || '|' || lease.status || '|' || hold.status || '|' ||
+          (SELECT count(*) FROM usage_events event
+           JOIN request_leases lease ON lease.request_id = event.request_id
+           WHERE lease.lease_token = operation.lease_token) || '|' ||
+          ((SELECT count(*) FROM balance_ledger
+            WHERE lease_token = lease.lease_token AND entry_type = 'usage_debit') =
+           CASE WHEN lease.final_cost_usd > 0 THEN 1 ELSE 0 END)::text
+        FROM media_operations operation
+        JOIN request_leases lease ON lease.lease_token = operation.lease_token
+        JOIN balance_holds hold ON hold.hold_id = lease.hold_handle
+        WHERE operation.operation_id = '$media_partition_batch_id';")" == \
+       "stored|completed|committed|1|true" ]]
+}
+wait_for "isolated secondary Silo PostgreSQL recovery" 75 media_partition_postgres_recovered
+echo "PASS: one Silo PostgreSQL partition retained due work and recovered without duplicate billing"
 
 media_batch_item_attempts_before_outage="$(db_query "
     SELECT object_reconcile_attempts
