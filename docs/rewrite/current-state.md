@@ -11,7 +11,7 @@ read-only requirements reference and is excluded from builds and runtime.
 | Repository | Commit | Worktree | Active role |
 | --- | --- | --- | --- |
 | `gateway` | `418da3a` | clean | C++ Gateway edge, protocol routing/conversion, Provider transport, and Garnet client |
-| `platform` | `b5586cf` | clean | C# Orleans control plane, PostgreSQL authority, Provider mock, Admin Web, and User Web |
+| `platform` | `d797cb1` | clean | C# Orleans control plane, PostgreSQL authority, Provider mock, Admin Web, and User Web |
 | `sub2api` | `43ec48d` | read-only clean | Requirements reference only; no runtime or compatibility dependency |
 
 ## Historical role descriptions
@@ -23,7 +23,7 @@ read-only requirements reference and is excluded from builds and runtime.
 | `sub2api` | `43ec48d` | read-only clean | Requirements catalogue only; never a runtime or compatibility dependency |
 
 The active source snapshot for this document is Platform/Admin Web/User Web
-`b5586cf` and Gateway `418da3a`; both worktrees are clean. The table's longer
+`d797cb1` and Gateway `418da3a`; both worktrees are clean. The table's longer
 capability descriptions are retained as inventory context, while this override
 and the evidence below define the current commits.
 
@@ -31,9 +31,9 @@ The current tracked inventory is:
 
 - Gateway: 52 production C++ source/header files, 11 test source files, and 126
   CTest cases.
-- Platform: 123 hand-written production C# files, 5 generated Cap'n Proto/global C# files, 68 test/benchmark C# files, and 263 passing tests: 69 Grain, 87 Host, 46 Admin, and 61 Provider mock tests.
+- Platform: 123 hand-written production C# files, 5 generated Cap'n Proto/global C# files, 68 test/benchmark C# files, and 264 passing tests: 69 Grain, 88 Host, 46 Admin, and 61 Provider mock tests.
   The Admin Web source now has 29 TypeScript/TSX files and 16 page views.
-- Product surface: 129 direct Admin API route declarations, 50 product tables,
+- Product surface: 129 direct Admin API route declarations, 51 product tables,
   22 SQLSugar entity types, 29 Admin Web TypeScript/TSX files and 16 page views,
   plus 21 User Web TypeScript/TSX files and 14 user views.
 - Reference scope: approximately 612 Sub2API route registrations, 39 concrete
@@ -375,7 +375,11 @@ current-source runtime evidence.
   empty-stack gate proves deletion clears the download projection. Platform
   `b5586cf` exposes bounded async/batch retention settings in Compose and the
   source smoke persists a running operation, restarts Platform, resumes its
-  PostgreSQL-backed poll claim, and settles the object. Per-item reconciliation
+  PostgreSQL-backed poll claim, and settles the object. Platform `d797cb1` adds
+  migration 048 and durable, owner-scoped batch-item rows; each downloadable item
+  is copied to its own S3-compatible object, returned through a freshly signed URL,
+  included in orphan protection, and cleared with the parent retention transition.
+  Per-item integrity/retry reconciliation, a single-fetch archive/item pipeline,
   and deployment-scale lifecycle remain open.
 - Signed payment webhooks, order paid/refunded transitions, stable ledger effects,
   pending-event recovery, subscription purchase/cancel/renew/expiry, and
@@ -459,18 +463,18 @@ current-source runtime evidence.
 
 ### Bootstrap and deployment
 
-- The direct source migrator applies product migrations 001-047 plus the Orleans
+- The direct source migrator applies product migrations 001-048 plus the Orleans
   baseline to an empty PostgreSQL 17 database; the Compose gate therefore expects
-  48 records (47 product migrations plus the image-owned Orleans baseline).
+  49 records (48 product migrations plus the image-owned Orleans baseline).
   Migration 043 makes `openai` an explicit allowed classifier for policy rules and
   migration 044 adds cross-process classifier metric snapshots; migration 045 adds
   budget alert state; migration 046 adds idempotent PostgreSQL backup jobs and
   isolated restore runs; migration 047 adds independent media retention
-  deadlines. The `scalaapi-backup-0810b` source smoke applied all 46
+  deadlines; migration 048 adds durable batch-item object ownership. The
+  `scalaapi-backup-0810b` source smoke applied all 46
   product records, replay-skipped them, created a non-empty SHA-256-verified
   artifact, restored it to `platform_restore`, and replayed both commands without
-  duplicate rows.
-  audit rows. The source smoke derives this count from the checked-in migration
+  duplicate rows. The source smoke derives the current count from the checked-in migration
   directory plus the image-owned Orleans schema, so a new forward migration cannot
   leave the gate stale. No source database, snapshot, old key, CDC table, or
   compatibility mapping is required.
@@ -509,7 +513,7 @@ accounting. The catalog, seeded account, default NUMERIC prices, HTTP tests,
 and versioned Gateway goldens cover all three. This is a new product contract;
 no Sub2API data, key, URL, or legacy mapping is imported at runtime.
 
-The latest completed vertical slice is the source-built Embeddings
+The preceding Embeddings vertical slice is the source-built
 provider-profile gate `scalaapi-embeddings-profiles-0810a` (Platform `5f04bfd`,
 Gateway `22f65d4`). It returned deterministic Jina/Gemini dimensions and token
 counts, then settled four pricing-versioned Embeddings requests exactly once.
@@ -547,8 +551,14 @@ continuation signing. Platform `c1bbb4d` adds bounded batch-download ZIP
 creation from Provider item URLs, manifest/error entries, and a signed redirect
 smoke assertion. Platform `0134323` adds independent retention deadlines,
   retryable terminal-object deletion, and a full empty-stack assertion; Platform
-  `b5586cf` proves a running operation resumes after Platform replacement. Per-item
-  download reconciliation and deployment-scale lifecycle remain follow-on work.
+  `b5586cf` proves a running operation resumes after Platform replacement. Platform
+  `d797cb1` stores each batch result in a dedicated S3-compatible object with a
+  PostgreSQL `media_operation_items` owner row, returns fresh signed URLs from
+  `/items`, rebuilds an absent projection after restart, protects item keys from
+  orphan deletion, and clears item metadata with parent retention. The
+  `scalaapi-media-items-0810a` empty-volume gate downloaded the item bytes and
+  verified the terminal cleanup. Per-item integrity/retry reconciliation,
+  duplicate-download removal, and deployment-scale lifecycle remain follow-on work.
 
 The preceding completed vertical slice is the source-built protocol gate
 `scalaapi-responses-compact-0810b` (Platform `18daa64`, Gateway `992f3fc`).
@@ -612,7 +622,7 @@ mutation semantics beyond read/input_items/cancel/delete, provider-group fault c
 open.
 
 The following detailed bullets are retained as the preceding-slice record; the
-current totals for Platform `b5586cf` and Gateway `418da3a` are 263/263 and
+current totals for Platform `d797cb1` and Gateway `418da3a` are 264/264 and
 126/126 respectively:
 
 - Gateway built locally and passed 126/126 CTest cases, including deterministic
@@ -747,8 +757,10 @@ current totals for Platform `b5586cf` and Gateway `418da3a` are 263/263 and
   paginated object listing and a grace-period orphan pass that protects all
   referenced and young `media/` objects. Platform `0134323` adds independent
   retention deadlines and retryable terminal-object deletion with projection
-  clearing. Restore/restart, per-item reconciliation, and full MinIO lifecycle
-  evidence remain open.
+  clearing. Platform `b5586cf` proves running-operation restart recovery, and
+  `d797cb1` adds durable item objects, owner isolation, fresh signed reads,
+  projection recovery, orphan protection, and atomic item/parent cleanup.
+  Per-item HEAD/retry reconciliation and full MinIO lifecycle evidence remain open.
 - SEC-01 now has executable request, non-stream response, and SSE event-boundary
   evidence: the canonical Cap'n Proto contract carries bounded request/response
   policy content, Platform evaluates active scoped rules before lease creation or
