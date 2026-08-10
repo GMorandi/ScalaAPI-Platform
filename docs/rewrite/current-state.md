@@ -503,6 +503,25 @@ Garnet-authenticated stack, fault/restart, reconciliation/operator, realtime
 soak, media/S3, and Web checks; the smoke exited zero and removed its Compose
 project, volumes, and containers.
 
+## Images/media lifecycle investigation
+
+The read-only Sub2API reference exposes a broader batch-image lifecycle than the
+current ScalaAPI edge: authenticated batch create/list/models/items/download,
+cancel, record deletion, output deletion, and per-item content download. Its
+public service keeps owner identity on every read or mutation, uses bounded cursor
+queries, and treats cancellation/output cleanup as durable state transitions.
+
+ScalaAPI already persists asynchronous image/video operations in PostgreSQL and
+copies successful Provider bytes into S3-compatible storage. Gateway routes single
+task polling, batch create/get/items/download/cancel/delete/output deletion, but
+`GET /v1/images/batches` is not yet a durable Platform list command: it falls
+through to the Provider path. Batch `items` currently returns the Provider poll
+document rather than its `data` array, and cancellation marks the operation and
+lease ambiguous without an idempotent object-cleanup boundary. The next bounded
+slice therefore closes durable batch listing and normalized item projection first;
+provider cancellation, object listing/orphan cleanup, restart restore, and full
+batch download/reconciliation remain follow-on work.
+
 The preceding completed vertical slice is the source-built protocol gate
 `scalaapi-responses-compact-0810b` (Platform `18daa64`, Gateway `992f3fc`).
 It adds exact, reserved `POST /v1/responses/compact` routing and forwards the

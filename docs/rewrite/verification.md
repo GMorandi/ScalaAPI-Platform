@@ -10,6 +10,15 @@ The latest source snapshot is Platform/Admin Web/User Web `5f04bfd` and Gateway
 `22f65d4`.
 
 The latest source-built project `scalaapi-embeddings-profiles-0810a` exited zero.
+
+The next media investigation is intentionally not a release gate yet. The
+Sub2API reference has owner-scoped batch list/items/download/cancel/delete and
+output-cleanup handlers. ScalaAPI currently has durable media rows and MinIO
+metadata reconciliation, but `GET /v1/images/batches` still follows the Provider
+dispatch path and batch items expose the poll envelope. The next gate must prove
+PostgreSQL-backed list isolation and a public `data` item projection before
+provider cancellation, orphan cleanup, restart restore, and full batch download
+are accepted.
 It adds Gateway model-specific dimension ceilings and versioned Jina/Gemini
 goldens, Platform Provider mock profiles/catalog entries, deterministic
 profile token accounting, and four pricing-versioned empty-stack Embeddings

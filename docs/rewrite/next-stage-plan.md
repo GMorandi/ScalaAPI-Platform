@@ -245,6 +245,17 @@ stored media, retries missing/mismatched/transient metadata, and restores a row 
 `stored` after the object becomes valid without changing the settled operation or
 lease. Object listing/orphan cleanup, restore, cancellation/restart, and full
 MinIO lifecycle evidence remain explicit follow-on gates.
+
+The next bounded media slice is batch listing and item projection. The read-only
+Sub2API batch handlers define owner-scoped, cursor-bounded list/items reads that
+return public metadata rather than provider response envelopes or reference-image
+bytes. ScalaAPI must route `GET /v1/images/batches` to a PostgreSQL-backed
+Platform query, return a stable `object: list` envelope, and project a successful
+batch's `data` array for `/items`. Repeated reads must be side-effect free and a
+wrong API key must return 404 without contacting the Provider. The implementation
+retains ScalaAPI's PostgreSQL operation identity and imports no Sub2API schema or
+key. Provider cancellation, object listing/orphan cleanup, restart restore, and
+complete batch download/reconciliation remain separate gates.
 Platform `6bc411b` adds the first Admin Web operator workflow for this authority:
 open/resolved incident filters, a manual reconciliation trigger, and
 evidence-backed settle/release submission with a stable idempotency key per selected
@@ -880,7 +891,8 @@ Then expand the remaining 58-domain work in this order:
    Anthropic Messages, Gemini generation, model catalogue/token counting, and
    runtime cross-protocol E2E; source-owned protocol fixtures are frozen in
    Gateway `8f33790`.
-2. Complete Provider-specific OAuth refresh profiles and runtime evidence, provider-
+2. Complete the media batch-list/item projection slice described above, then
+   Provider-specific OAuth refresh profiles and runtime evidence, provider-
    specific price/tokenizer adapters, media cancellation/restart/restore, object
    listing/orphan cleanup, and full object reconciliation lifecycle evidence.
 3. Complete identity hardening beyond the TOTP, OAuth PKCE, Passkey, and encrypted
