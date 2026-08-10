@@ -2388,6 +2388,21 @@ if (( media_batch_item_size <= 0 )); then
     exit 1
 fi
 echo "PASS: durable per-item media object projection and signed download"
+db_query "
+    UPDATE media_operation_items
+    SET object_next_check_at = now() - interval '1 second'
+    WHERE operation_id = '$media_batch_id';" >/dev/null
+media_batch_item_verified() {
+    [[ "$(db_query "
+        SELECT count(*)
+        FROM media_operation_items
+        WHERE operation_id = '$media_batch_id'
+          AND object_status = 'stored'
+          AND object_verified_at IS NOT NULL
+          AND object_reconcile_attempts >= 1;")" == "1" ]]
+}
+wait_for "media batch item integrity verification" 75 media_batch_item_verified
+echo "PASS: per-item media integrity claim and signed HEAD verification"
 media_batch_archive="${TMPDIR:-/tmp}/scalaapi-${project}-batch.zip"
 python3 - "$gateway_url/v1/images/batches/$media_batch_id/download" \
     "$api_key" "$media_batch_archive" <<'PY'

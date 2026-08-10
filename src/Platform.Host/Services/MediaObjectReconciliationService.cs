@@ -5,8 +5,8 @@ namespace ScalaAPI.Host.Services;
 public sealed record MediaOrphanCleanupResult(int Listed, int Protected, int SkippedYoung,
     int Deleted);
 
-// Reconciliation is deliberately metadata-only. It can mark a stored output
-// unavailable, while orphan cleanup deletes only unreferenced, aged media keys.
+// Parent reconciliation is metadata-only. Batch item repair can recopy one
+// Provider item, but it never changes the already-settled operation or lease.
 public sealed class MediaObjectReconciliationService(
     MediaOperationStore store,
     IMediaObjectStorage objectStorage,
@@ -44,6 +44,60 @@ public sealed class MediaObjectReconciliationService(
             }
         }
         return operations.Count;
+    }
+
+    public async Task<int> ReconcileItemsOnceAsync(CancellationToken ct = default)
+    {
+        var items = await store.ClaimItemReconciliationBatchAsync(64, ct);
+        foreach (var item in items)
+        {
+            try
+            {
+                string? verificationError;
+                if (string.IsNullOrWhiteSpace(item.ObjectKey))
+                {
+                    verificationError = JsonSerializer.Serialize(new
+                    {
+                        type = "item_object_key_missing",
+                        item_index = item.ItemIndex,
+                    });
+                }
+                else
+                {
+                    var head = await objectStorage.HeadAsync(item.ObjectKey, ct);
+                    verificationError = Validate(item, head);
+                    if (verificationError is null)
+                    {
+                        await store.RecordItemVerificationAsync(item, true, ct: ct);
+                        continue;
+                    }
+                }
+
+                var stored = await objectStorage.CopyBatchItemAsync(item.ProviderUrl,
+                    item.OperationId, item.ItemIndex, item.CustomId, ct);
+                if (await store.RecordItemRepairAsync(item, stored, ct))
+                    logger.LogInformation(
+                        "Repaired batch item object {OperationId}/{ItemIndex} after {VerificationError}",
+                        item.OperationId, item.ItemIndex, verificationError);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                var error = JsonSerializer.Serialize(new
+                {
+                    type = "item_object_reconcile_error",
+                    message = ex.Message.Length > 500 ? ex.Message[..500] : ex.Message,
+                });
+                await store.RecordItemVerificationAsync(item, false, error, ct);
+                logger.LogWarning(ex,
+                    "Batch item reconciliation failed for {OperationId}/{ItemIndex}",
+                    item.OperationId, item.ItemIndex);
+            }
+        }
+        return items.Count;
     }
 
     public async Task<MediaOrphanCleanupResult> ReconcileOrphansOnceAsync(
@@ -88,6 +142,7 @@ public sealed class MediaObjectReconciliationService(
             try
             {
                 await ReconcileOnceAsync(stoppingToken);
+                await ReconcileItemsOnceAsync(stoppingToken);
                 await ReconcileOrphansOnceAsync(stoppingToken);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
@@ -125,6 +180,38 @@ public sealed class MediaObjectReconciliationService(
             {
                 type = "object_etag_mismatch",
                 expected = operation.ObjectETag,
+                actual = head.ETag,
+            });
+        return null;
+    }
+
+    private static string? Validate(MediaOperationItem item,
+        ObjectStorageHeadResult head)
+    {
+        if (!head.Exists)
+            return JsonSerializer.Serialize(new
+            {
+                type = "item_object_missing",
+                item_index = item.ItemIndex,
+                object_key = item.ObjectKey,
+            });
+        if (item.ObjectSize != head.Size)
+            return JsonSerializer.Serialize(new
+            {
+                type = "item_object_size_mismatch",
+                item_index = item.ItemIndex,
+                expected = item.ObjectSize,
+                actual = head.Size,
+            });
+        if (!string.IsNullOrWhiteSpace(item.ObjectETag)
+            && !string.IsNullOrWhiteSpace(head.ETag)
+            && !string.Equals(item.ObjectETag, head.ETag,
+                StringComparison.OrdinalIgnoreCase))
+            return JsonSerializer.Serialize(new
+            {
+                type = "item_object_etag_mismatch",
+                item_index = item.ItemIndex,
+                expected = item.ObjectETag,
                 actual = head.ETag,
             });
         return null;

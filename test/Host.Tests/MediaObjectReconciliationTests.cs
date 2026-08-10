@@ -233,6 +233,84 @@ public sealed class MediaObjectReconciliationTests
         }
     }
 
+    [Fact]
+    public async Task MissingBatchItemIsRepairedAndConcurrentClaimsAreFenced()
+    {
+        var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
+        if (string.IsNullOrWhiteSpace(connectionString)) return;
+
+        await using var dataSource = NpgsqlDataSource.Create(connectionString);
+        var suffix = Guid.NewGuid().ToString("N");
+        var leaseToken = $"media-item-repair-lease-{suffix}";
+        var operationId = $"med_item_repair_{suffix}";
+        await InsertSettledMediaAsync(dataSource, leaseToken, operationId,
+            $"media/{operationId}.zip");
+        var store = new MediaOperationStore(dataSource);
+        var itemKey = $"media/{operationId}/items/0001-first.png";
+        var storage = new FakeObjectStorage(new(false, "", 0, ""));
+        var service = new MediaObjectReconciliationService(store, storage,
+            new ConfigurationBuilder().Build(),
+            NullLogger<MediaObjectReconciliationService>.Instance);
+
+        try
+        {
+            Assert.True(await store.ReplaceItemsAsync(88001, operationId,
+            [
+                new(0, "first", "https://provider.test/first", itemKey,
+                    "old-etag", 12, "image/png", "stored",
+                    "https://storage.test/old", "", DateTime.UtcNow.AddDays(1)),
+            ]));
+
+            Assert.Equal(1, await service.ReconcileItemsOnceAsync());
+            Assert.Equal(1, storage.Copies);
+            var repaired = Assert.Single(await store.ListItemsAsync(88001, operationId));
+            Assert.Equal("stored", repaired.ObjectStatus);
+            Assert.Equal("repaired-etag", repaired.ObjectETag);
+            Assert.Equal(14, repaired.ObjectSize);
+            Assert.Equal(1, repaired.ObjectReconcileAttempts);
+            Assert.NotNull(repaired.ObjectVerifiedAt);
+            Assert.Equal(0, await service.ReconcileItemsOnceAsync());
+
+            await MakeItemDueAsync(dataSource, repaired.ItemId);
+            var claims = await Task.WhenAll(
+                store.ClaimItemReconciliationBatchAsync(8),
+                new MediaOperationStore(dataSource).ClaimItemReconciliationBatchAsync(8));
+            var claim = Assert.Single(claims.SelectMany(items => items));
+            Assert.True(await store.RecordItemVerificationAsync(claim, true));
+            Assert.False(await store.RecordItemVerificationAsync(claim, false,
+                "{\"type\":\"stale_worker\"}"));
+
+            await MakeItemDueAsync(dataSource, repaired.ItemId);
+            storage.CopyException = new HttpRequestException("provider unavailable");
+            Assert.Equal(1, await service.ReconcileItemsOnceAsync());
+            var failed = Assert.Single(await store.ListItemsAsync(88001, operationId));
+            Assert.Equal("failed", failed.ObjectStatus);
+            Assert.Contains("item_object_reconcile_error", failed.Error);
+
+            storage.CopyException = null;
+            await MakeItemDueAsync(dataSource, repaired.ItemId);
+            Assert.Equal(1, await service.ReconcileItemsOnceAsync());
+            Assert.Equal("stored",
+                Assert.Single(await store.ListItemsAsync(88001, operationId)).ObjectStatus);
+
+            await using var lease = dataSource.CreateCommand(
+                "SELECT status FROM request_leases WHERE lease_token = $1");
+            lease.Parameters.AddWithValue(leaseToken);
+            Assert.Equal("completed", (string?)await lease.ExecuteScalarAsync());
+        }
+        finally
+        {
+            await using var media = dataSource.CreateCommand(
+                "DELETE FROM media_operations WHERE operation_id = $1");
+            media.Parameters.AddWithValue(operationId);
+            await media.ExecuteNonQueryAsync();
+            await using var lease = dataSource.CreateCommand(
+                "DELETE FROM request_leases WHERE lease_token = $1");
+            lease.Parameters.AddWithValue(leaseToken);
+            await lease.ExecuteNonQueryAsync();
+        }
+    }
+
     private static async Task InsertSettledMediaAsync(NpgsqlDataSource dataSource,
         string leaseToken, string operationId, string objectKey)
     {
@@ -277,6 +355,17 @@ public sealed class MediaObjectReconciliationTests
         await command.ExecuteNonQueryAsync();
     }
 
+    private static async Task MakeItemDueAsync(NpgsqlDataSource dataSource, long itemId)
+    {
+        await using var command = dataSource.CreateCommand("""
+            UPDATE media_operation_items
+            SET object_next_check_at = now()
+            WHERE item_id = $1
+            """);
+        command.Parameters.AddWithValue(itemId);
+        await command.ExecuteNonQueryAsync();
+    }
+
     private static async Task<(string Status, string ObjectStatus)> ReadStateAsync(
         NpgsqlDataSource dataSource, string operationId)
     {
@@ -303,12 +392,25 @@ public sealed class MediaObjectReconciliationTests
         public ObjectStorageHeadResult Head { get; set; } = initial;
         public IReadOnlyList<ObjectStorageItem> Objects { get; set; } = [];
         public List<string> Deleted { get; } = [];
+        public int Copies { get; private set; }
+        public Exception? CopyException { get; set; }
 
         public Task<ObjectStorageHeadResult> HeadAsync(string objectKey,
             CancellationToken ct = default) => Task.FromResult(Head);
 
         public Task<IReadOnlyList<ObjectStorageItem>> ListAsync(string prefix,
             CancellationToken ct = default) => Task.FromResult(Objects);
+
+        public Task<ObjectStoragePutResult> CopyBatchItemAsync(string providerUrl,
+            string operationId, int itemIndex, string customId,
+            CancellationToken ct = default)
+        {
+            Copies++;
+            if (CopyException is not null) throw CopyException;
+            return Task.FromResult(new ObjectStoragePutResult(
+                $"media/{operationId}/items/{itemIndex + 1:D4}-{customId}.png",
+                "repaired-etag", 14, "image/png", "https://storage.test/repaired"));
+        }
 
         public Task DeleteAsync(string objectKey, CancellationToken ct = default)
         {

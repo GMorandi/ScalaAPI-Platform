@@ -150,10 +150,10 @@ public sealed class MediaOperationHostedService(
                 {
                     if (operation.OperationType == "images_batch_create")
                     {
-                        stored = await objectStorage.CreateBatchArchiveAsync(body,
+                        var bundle = await objectStorage.CreateBatchObjectsAsync(body,
                             operation.OperationId, ct);
-                        batchItems = await objectStorage.CreateBatchItemObjectsAsync(body,
-                            operation.OperationId, ct);
+                        stored = bundle.Archive;
+                        batchItems = bundle.Items;
                     }
                     else
                     {

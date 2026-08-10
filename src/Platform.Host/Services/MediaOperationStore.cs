@@ -20,7 +20,8 @@ public sealed record MediaOperationItem(
     long ItemId, string OperationId, int ItemIndex, string CustomId,
     string ProviderUrl, string ObjectKey, string ObjectETag, long ObjectSize,
     string ContentType, string ObjectStatus, string OutputUrl, string Error,
-    DateTime? RetentionUntil);
+    DateTime? RetentionUntil, DateTime? ObjectVerifiedAt,
+    int ObjectReconcileAttempts, DateTime? ObjectNextCheckAt);
 
 public sealed record MediaOperationItemWrite(
     int ItemIndex, string CustomId, string ProviderUrl, string ObjectKey,
@@ -55,6 +56,14 @@ public sealed class MediaOperationStore(
         COALESCE(operation.object_error::text, ''), operation.object_verified_at,
         operation.object_reconcile_attempts, operation.object_next_check_at,
         operation.retention_until
+        """;
+    private const string ItemProjection = """
+        item.item_id, item.operation_id, item.item_index, item.custom_id,
+        item.provider_url, item.object_key, item.object_etag, item.object_size,
+        item.content_type, item.object_status, item.output_url,
+        COALESCE(item.error::text, ''), item.retention_until,
+        item.object_verified_at, item.object_reconcile_attempts,
+        item.object_next_check_at
         """;
 
     public async Task<MediaCreateResult> CreateOrGetAsync(long apiKeyId, long accountId,
@@ -216,11 +225,8 @@ public sealed class MediaOperationStore(
     public async Task<IReadOnlyList<MediaOperationItem>> ListItemsAsync(
         long apiKeyId, string operationId, CancellationToken ct = default)
     {
-        await using var command = dataSource.CreateCommand("""
-            SELECT item.item_id, item.operation_id, item.item_index, item.custom_id,
-                   item.provider_url, item.object_key, item.object_etag, item.object_size,
-                   item.content_type, item.object_status, item.output_url,
-                   COALESCE(item.error::text, ''), item.retention_until
+        await using var command = dataSource.CreateCommand($"""
+            SELECT {ItemProjection}
             FROM media_operation_items item
             JOIN media_operations operation ON operation.operation_id = item.operation_id
             WHERE operation.api_key_id = $1 AND item.operation_id = $2
@@ -319,6 +325,7 @@ public sealed class MediaOperationStore(
             UPDATE media_operation_items
             SET object_key = '', object_etag = '', object_size = 0,
                 object_status = 'deleted', output_url = '', error = NULL,
+                object_verified_at = now(), object_next_check_at = NULL,
                 updated_at = now()
             WHERE operation_id = $1 AND object_status <> 'deleted'
             """);
@@ -564,6 +571,105 @@ public sealed class MediaOperationStore(
         return await reader.ReadAsync(ct) ? Read(reader) : null;
     }
 
+    public async Task<IReadOnlyList<MediaOperationItem>> ClaimItemReconciliationBatchAsync(
+        int limit, CancellationToken ct = default)
+    {
+        await using var connection = await dataSource.OpenConnectionAsync(ct);
+        await using var transaction = await connection.BeginTransactionAsync(
+            IsolationLevel.ReadCommitted, ct);
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = $"""
+            WITH due AS (
+                SELECT item.item_id
+                FROM media_operation_items item
+                JOIN media_operations operation
+                  ON operation.operation_id = item.operation_id
+                WHERE operation.status = 'succeeded'
+                  AND item.object_status IN ('pending', 'stored', 'failed')
+                  AND (item.retention_until IS NULL OR item.retention_until > now())
+                  AND (item.object_next_check_at IS NULL
+                       OR item.object_next_check_at <= now())
+                ORDER BY COALESCE(item.object_next_check_at, item.updated_at),
+                         item.updated_at, item.item_id
+                FOR UPDATE OF item SKIP LOCKED
+                LIMIT $1
+            )
+            UPDATE media_operation_items AS item
+            SET object_reconcile_attempts = item.object_reconcile_attempts + 1,
+                object_next_check_at = now() + interval '5 minutes',
+                updated_at = now()
+            FROM due
+            WHERE item.item_id = due.item_id
+            RETURNING {ItemProjection}
+            """;
+        command.Parameters.AddWithValue(Math.Clamp(limit, 1, 100));
+        var result = new List<MediaOperationItem>();
+        await using var reader = await command.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct)) result.Add(ReadItem(reader));
+        await reader.DisposeAsync();
+        await transaction.CommitAsync(ct);
+        return result;
+    }
+
+    public async Task<bool> RecordItemVerificationAsync(MediaOperationItem item,
+        bool valid, string? error = null, CancellationToken ct = default)
+    {
+        await using var command = dataSource.CreateCommand("""
+            UPDATE media_operation_items
+            SET object_status = CASE WHEN $4 THEN 'stored' ELSE 'failed' END,
+                error = CASE WHEN $4 THEN NULL ELSE $5::jsonb END,
+                object_verified_at = now(),
+                object_next_check_at = now() + CASE WHEN $4
+                    THEN interval '1 hour' ELSE interval '5 minutes' END,
+                updated_at = now()
+            WHERE item_id = $1 AND operation_id = $2
+              AND object_status = $7
+              AND object_reconcile_attempts = $3
+              AND object_key = $6
+              AND object_next_check_at = $8
+            """);
+        command.Parameters.AddWithValue(item.ItemId);
+        command.Parameters.AddWithValue(item.OperationId);
+        command.Parameters.AddWithValue(item.ObjectReconcileAttempts);
+        command.Parameters.AddWithValue(valid);
+        command.Parameters.AddWithValue((object?)error ?? "{}");
+        command.Parameters.AddWithValue(item.ObjectKey);
+        command.Parameters.AddWithValue(item.ObjectStatus);
+        command.Parameters.AddWithValue(item.ObjectNextCheckAt
+            ?? throw new InvalidOperationException("Item reconciliation claim has no deadline"));
+        return await command.ExecuteNonQueryAsync(ct) == 1;
+    }
+
+    public async Task<bool> RecordItemRepairAsync(MediaOperationItem item,
+        ObjectStoragePutResult stored, CancellationToken ct = default)
+    {
+        await using var command = dataSource.CreateCommand("""
+            UPDATE media_operation_items
+            SET object_key = $4, object_etag = $5, object_size = $6,
+                content_type = $7, object_status = 'stored', output_url = $8,
+                error = NULL, object_verified_at = now(),
+                object_next_check_at = now() + interval '1 hour',
+                updated_at = now()
+            WHERE item_id = $1 AND operation_id = $2
+              AND object_status = $9
+              AND object_reconcile_attempts = $3
+              AND object_next_check_at = $10
+            """);
+        command.Parameters.AddWithValue(item.ItemId);
+        command.Parameters.AddWithValue(item.OperationId);
+        command.Parameters.AddWithValue(item.ObjectReconcileAttempts);
+        command.Parameters.AddWithValue(stored.ObjectKey);
+        command.Parameters.AddWithValue(stored.ETag);
+        command.Parameters.AddWithValue(stored.Size);
+        command.Parameters.AddWithValue(stored.ContentType);
+        command.Parameters.AddWithValue(stored.DownloadUrl);
+        command.Parameters.AddWithValue(item.ObjectStatus);
+        command.Parameters.AddWithValue(item.ObjectNextCheckAt
+            ?? throw new InvalidOperationException("Item reconciliation claim has no deadline"));
+        return await command.ExecuteNonQueryAsync(ct) == 1;
+    }
+
     public async Task<IReadOnlyList<MediaOperation>> ClaimExpiredOutputBatchAsync(
         int limit, CancellationToken ct = default)
     {
@@ -689,7 +795,9 @@ public sealed class MediaOperationStore(
         reader.GetInt64(0), reader.GetString(1), reader.GetInt32(2), reader.GetString(3),
         reader.GetString(4), reader.GetString(5), reader.GetString(6), reader.GetInt64(7),
         reader.GetString(8), reader.GetString(9), reader.GetString(10), reader.GetString(11),
-        reader.IsDBNull(12) ? null : reader.GetDateTime(12));
+        reader.IsDBNull(12) ? null : reader.GetDateTime(12),
+        reader.IsDBNull(13) ? null : reader.GetDateTime(13), reader.GetInt32(14),
+        reader.IsDBNull(15) ? null : reader.GetDateTime(15));
 
     private static async Task ClearItemsAsync(NpgsqlConnection connection,
         NpgsqlTransaction transaction, string operationId, CancellationToken ct)
@@ -700,6 +808,7 @@ public sealed class MediaOperationStore(
             UPDATE media_operation_items
             SET object_key = '', object_etag = '', object_size = 0,
                 object_status = 'deleted', output_url = '', error = NULL,
+                object_verified_at = now(), object_next_check_at = NULL,
                 updated_at = now()
             WHERE operation_id = $1 AND object_status <> 'deleted'
             """;

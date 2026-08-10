@@ -46,7 +46,7 @@ public sealed class ObjectStorageClientTests
     }
 
     [Fact]
-    public async Task BatchArchiveCopiesBoundedItemsAndWritesManifest()
+    public async Task BatchObjectsUseOneProviderFetchAndWriteArchiveManifest()
     {
         var handler = new ArchiveHandler();
         using var http = new HttpClient(handler);
@@ -68,12 +68,13 @@ public sealed class ObjectStorageClientTests
               {"custom_id":"mock-1","url":"http://provider.test/output/two"}
             ]}
             """;
-        var result = await client.CreateBatchArchiveAsync(metadata,
+        var bundle = await client.CreateBatchObjectsAsync(metadata,
             "med_batch_archive_test");
+        var result = bundle.Archive;
 
         Assert.Equal("media/med_batch_archive_test.zip", result.ObjectKey);
         Assert.Equal("application/zip", result.ContentType);
-        var archiveBytes = Assert.Single(handler.PutBodies.Skip(1));
+        var archiveBytes = handler.PutBodies.Last();
         using var archive = new ZipArchive(new MemoryStream(archiveBytes), ZipArchiveMode.Read);
         Assert.Contains(archive.Entries, entry => entry.FullName == "mock-1.png");
         Assert.Contains(archive.Entries, entry => entry.FullName == "mock-1-2.png");
@@ -81,8 +82,7 @@ public sealed class ObjectStorageClientTests
         Assert.Contains(archive.Entries, entry => entry.FullName == "errors.json");
         Assert.Equal(2, handler.ProviderRequests);
 
-        var items = await client.CreateBatchItemObjectsAsync(metadata,
-            "med_batch_archive_test");
+        var items = bundle.Items;
         Assert.Equal(2, items.Count);
         Assert.All(items, item =>
         {
@@ -92,7 +92,7 @@ public sealed class ObjectStorageClientTests
             Assert.Equal("image/png", item.ContentType);
             Assert.Equal("provider-bytes"u8.Length, item.Size);
         });
-        Assert.Equal(4, handler.ProviderRequests);
+        Assert.Equal(2, handler.ProviderRequests);
         Assert.Equal(4, handler.PutBodies.Count);
     }
 

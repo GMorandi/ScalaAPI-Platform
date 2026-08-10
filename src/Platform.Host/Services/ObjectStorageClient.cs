@@ -15,6 +15,9 @@ public sealed record BatchItemObjectResult(
     string ETag, long Size, string ContentType, string ObjectStatus,
     string OutputUrl, string Error);
 
+public sealed record BatchObjectBundle(
+    ObjectStoragePutResult Archive, IReadOnlyList<BatchItemObjectResult> Items);
+
 public sealed record ObjectStorageHeadResult(
     bool Exists, string ETag, long Size, string ContentType);
 
@@ -29,6 +32,10 @@ public interface IMediaObjectStorage
     Task<IReadOnlyList<ObjectStorageItem>> ListAsync(string prefix,
         CancellationToken ct = default);
 
+    Task<ObjectStoragePutResult> CopyBatchItemAsync(string providerUrl,
+        string operationId, int itemIndex, string customId,
+        CancellationToken ct = default);
+
     Task DeleteAsync(string objectKey, CancellationToken ct = default);
 }
 
@@ -36,6 +43,9 @@ public interface IMediaObjectStorage
 // infrastructure without adding a provider-specific SDK to the control plane.
 public sealed class ObjectStorageClient : IMediaObjectStorage
 {
+    private sealed record DownloadedBatchItem(int ItemIndex, string CustomId,
+        string ProviderUrl, byte[]? Bytes, string ContentType, string Error);
+
     private readonly HttpClient _http;
     private readonly ILogger<ObjectStorageClient> _logger;
     private readonly Uri _endpoint;
@@ -189,102 +199,54 @@ public sealed class ObjectStorageClient : IMediaObjectStorage
         return result;
     }
 
+    public async Task<BatchObjectBundle> CreateBatchObjectsAsync(
+        string metadataJson, string operationId, CancellationToken ct = default)
+    {
+        ValidateOperationId(operationId);
+        var downloaded = await DownloadBatchItemsAsync(metadataJson, ct);
+        var items = await StoreBatchItemsAsync(downloaded, operationId, ct);
+        var archive = await StoreBatchArchiveAsync(downloaded, operationId, ct);
+        return new(archive, items);
+    }
+
     public async Task<ObjectStoragePutResult> CreateBatchArchiveAsync(
         string metadataJson, string operationId, CancellationToken ct = default)
     {
-        if (string.IsNullOrWhiteSpace(operationId) || operationId.Length > 128
-            || operationId.Any(ch => !char.IsLetterOrDigit(ch) && ch is not ('_' or '-')))
-            throw new InvalidOperationException("Media operation ID is not safe for an archive key");
+        ValidateOperationId(operationId);
+        return await StoreBatchArchiveAsync(
+            await DownloadBatchItemsAsync(metadataJson, ct), operationId, ct);
+    }
 
-        using var document = JsonDocument.Parse(metadataJson,
-            new JsonDocumentOptions { MaxDepth = 32, CommentHandling = JsonCommentHandling.Disallow });
-        var root = document.RootElement;
-        if (root.ValueKind != JsonValueKind.Object)
-            throw new InvalidOperationException("Batch output metadata must be a JSON object");
+    public async Task<IReadOnlyList<BatchItemObjectResult>> CreateBatchItemObjectsAsync(
+        string metadataJson, string operationId, CancellationToken ct = default)
+    {
+        ValidateOperationId(operationId);
+        return await StoreBatchItemsAsync(
+            await DownloadBatchItemsAsync(metadataJson, ct), operationId, ct);
+    }
 
-        var items = root.TryGetProperty("data", out var data)
-            && data.ValueKind == JsonValueKind.Array
-            ? data.EnumerateArray().ToArray()
-            : Array.Empty<JsonElement>();
-        const int maxItems = 200;
-        const long maxArchiveBytes = 512 * 1024 * 1024;
-        if (items.Length > maxItems)
-            throw new InvalidOperationException("Batch output exceeds the item limit");
-
-        await EnsureBucketAsync(ct);
-        await using var archiveStream = new MemoryStream();
-        using (var archive = new ZipArchive(archiveStream, ZipArchiveMode.Create, leaveOpen: true))
-        {
-            var manifestFiles = new List<object>();
-            var errors = new List<object>();
-            var usedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            for (var index = 0; index < items.Length; index++)
-            {
-                ct.ThrowIfCancellationRequested();
-                var item = items[index];
-                var url = item.TryGetProperty("url", out var urlValue)
-                    && urlValue.ValueKind == JsonValueKind.String
-                    ? urlValue.GetString() ?? "" : "";
-                var customId = item.TryGetProperty("custom_id", out var customValue)
-                    && customValue.ValueKind == JsonValueKind.String
-                    ? customValue.GetString() ?? $"item-{index + 1}" : $"item-{index + 1}";
-                if (!Uri.TryCreate(url, UriKind.Absolute, out var source)
-                    || source.Scheme is not ("http" or "https"))
-                {
-                    errors.Add(new { custom_id = customId, error = "invalid_output_url" });
-                    continue;
-                }
-
-                using var response = await _http.GetAsync(source,
-                    HttpCompletionOption.ResponseHeadersRead, ct);
-                if (!response.IsSuccessStatusCode)
-                {
-                    errors.Add(new
-                    {
-                        custom_id = customId,
-                        error = "output_fetch_failed",
-                        status = (int)response.StatusCode,
-                    });
-                    continue;
-                }
-
-                var remaining = maxArchiveBytes - archiveStream.Length;
-                var bytes = await ReadBoundedAsync(response.Content, remaining, ct);
-                var contentType = response.Content.Headers.ContentType?.MediaType
-                    ?? "application/octet-stream";
-                var filename = UniqueArchiveName(customId, index, contentType, usedNames);
-                var entry = archive.CreateEntry(filename, CompressionLevel.Fastest);
-                await using (var output = entry.Open())
-                    await output.WriteAsync(bytes, ct);
-                manifestFiles.Add(new { custom_id = customId, filename, size = bytes.LongLength,
-                    content_type = contentType });
-            }
-
-            WriteArchiveJson(archive, "manifest.json", new { operation_id = operationId,
-                files = manifestFiles });
-            WriteArchiveJson(archive, "errors.json", errors);
-            if (items.Length > 0 && manifestFiles.Count == 0)
-                throw new InvalidOperationException("Batch output contains no downloadable items");
-        }
-
-        if (archiveStream.Length > maxArchiveBytes)
-            throw new InvalidOperationException("Batch archive exceeds the object limit");
-        var bytesToStore = archiveStream.ToArray();
-        var stored = await PutAsync($"media/{operationId}.zip", bytesToStore,
-            "application/zip", ct);
+    public async Task<ObjectStoragePutResult> CopyBatchItemAsync(string providerUrl,
+        string operationId, int itemIndex, string customId,
+        CancellationToken ct = default)
+    {
+        ValidateOperationId(operationId);
+        if (itemIndex < 0 || itemIndex >= 200)
+            throw new InvalidOperationException("Batch item index is out of range");
+        var downloaded = await DownloadBatchItemAsync(itemIndex,
+            NormalizeCustomId(customId, itemIndex), providerUrl, ct);
+        if (downloaded.Bytes is null)
+            throw new InvalidOperationException($"Batch item repair failed: {downloaded.Error}");
+        var key = ItemObjectKey(operationId, downloaded);
+        var stored = await PutAsync(key, downloaded.Bytes, downloaded.ContentType, ct);
         return stored with
         {
             DownloadUrl = PresignGet(stored.ObjectKey, TimeSpan.FromHours(1)),
         };
     }
 
-    public async Task<IReadOnlyList<BatchItemObjectResult>> CreateBatchItemObjectsAsync(
-        string metadataJson, string operationId, CancellationToken ct = default)
+    private async Task<IReadOnlyList<DownloadedBatchItem>> DownloadBatchItemsAsync(
+        string metadataJson, CancellationToken ct)
     {
-        if (string.IsNullOrWhiteSpace(operationId) || operationId.Length > 128
-            || operationId.Any(ch => !char.IsLetterOrDigit(ch) && ch is not ('_' or '-')))
-            throw new InvalidOperationException("Media operation ID is not safe for an item key");
-
         using var document = JsonDocument.Parse(metadataJson,
             new JsonDocumentOptions { MaxDepth = 32, CommentHandling = JsonCommentHandling.Disallow });
         var root = document.RootElement;
@@ -297,10 +259,8 @@ public sealed class ObjectStorageClient : IMediaObjectStorage
         if (items.Length > 200)
             throw new InvalidOperationException("Batch output exceeds the item limit");
 
-        await EnsureBucketAsync(ct);
-        const long maxItemBytes = 64 * 1024 * 1024;
+        var result = new List<DownloadedBatchItem>(items.Length);
         var totalBytes = 0L;
-        var result = new List<BatchItemObjectResult>(items.Length);
         for (var index = 0; index < items.Length; index++)
         {
             ct.ThrowIfCancellationRequested();
@@ -308,51 +268,123 @@ public sealed class ObjectStorageClient : IMediaObjectStorage
             var customId = item.TryGetProperty("custom_id", out var customValue)
                 && customValue.ValueKind == JsonValueKind.String
                 ? customValue.GetString() ?? $"item-{index + 1}" : $"item-{index + 1}";
-            customId = NormalizeCustomId(customId, index);
             var providerUrl = item.TryGetProperty("url", out var urlValue)
                 && urlValue.ValueKind == JsonValueKind.String
                 ? urlValue.GetString() ?? "" : "";
-            if (providerUrl.Length > 8192
-                || !Uri.TryCreate(providerUrl, UriKind.Absolute, out var source)
-                || source.Scheme is not ("http" or "https"))
-            {
-                result.Add(new(index, customId, providerUrl, "", "", 0,
-                    "application/octet-stream", "failed", "",
-                    JsonSerializer.Serialize(new { type = "invalid_output_url" })));
-                continue;
-            }
-
-            using var response = await _http.GetAsync(source,
-                HttpCompletionOption.ResponseHeadersRead, ct);
-            if (!response.IsSuccessStatusCode)
-            {
-                result.Add(new(index, customId, providerUrl, "", "", 0,
-                    "application/octet-stream", "failed", "",
-                    JsonSerializer.Serialize(new
-                    {
-                        type = "output_fetch_failed",
-                        status = (int)response.StatusCode,
-                    })));
-                continue;
-            }
-
-            var contentType = response.Content.Headers.ContentType?.MediaType
-                ?? "application/octet-stream";
-            var bytes = await ReadBoundedAsync(response.Content, maxItemBytes, ct);
-            totalBytes += bytes.LongLength;
+            var downloaded = await DownloadBatchItemAsync(index,
+                NormalizeCustomId(customId, index), providerUrl, ct);
+            totalBytes += downloaded.Bytes?.LongLength ?? 0;
             if (totalBytes > 512 * 1024 * 1024)
                 throw new InvalidOperationException("Batch item outputs exceed the object limit");
-
-            var key = $"media/{operationId}/items/{index + 1:D4}-{SafeItemName(customId)}.{ExtensionFor(contentType)}";
-            var stored = await PutAsync(key, bytes, contentType, ct);
-            result.Add(new(index, customId, providerUrl, stored.ObjectKey, stored.ETag,
-                stored.Size, stored.ContentType, "stored",
-                PresignGet(stored.ObjectKey, TimeSpan.FromHours(1)), ""));
+            result.Add(downloaded);
         }
+        return result;
+    }
 
-        if (items.Length > 0 && result.All(item => item.ObjectStatus != "stored"))
+    private async Task<DownloadedBatchItem> DownloadBatchItemAsync(int itemIndex,
+        string customId, string providerUrl, CancellationToken ct)
+    {
+        if (providerUrl.Length > 8192
+            || !Uri.TryCreate(providerUrl, UriKind.Absolute, out var source)
+            || source.Scheme is not ("http" or "https"))
+            return new(itemIndex, customId, providerUrl, null,
+                "application/octet-stream",
+                JsonSerializer.Serialize(new { type = "invalid_output_url" }));
+
+        using var response = await _http.GetAsync(source,
+            HttpCompletionOption.ResponseHeadersRead, ct);
+        if (!response.IsSuccessStatusCode)
+            return new(itemIndex, customId, providerUrl, null,
+                "application/octet-stream", JsonSerializer.Serialize(new
+                {
+                    type = "output_fetch_failed",
+                    status = (int)response.StatusCode,
+                }));
+
+        var bytes = await ReadBoundedAsync(response.Content, 64 * 1024 * 1024, ct);
+        var contentType = response.Content.Headers.ContentType?.MediaType
+            ?? "application/octet-stream";
+        if (contentType.Length > 256) contentType = contentType[..256];
+        return new(itemIndex, customId, providerUrl, bytes, contentType, "");
+    }
+
+    private async Task<IReadOnlyList<BatchItemObjectResult>> StoreBatchItemsAsync(
+        IReadOnlyList<DownloadedBatchItem> downloaded, string operationId,
+        CancellationToken ct)
+    {
+        var result = new List<BatchItemObjectResult>(downloaded.Count);
+        foreach (var item in downloaded)
+        {
+            if (item.Bytes is null)
+            {
+                result.Add(new(item.ItemIndex, item.CustomId, item.ProviderUrl, "", "", 0,
+                    item.ContentType, "failed", "", item.Error));
+                continue;
+            }
+
+            var stored = await PutAsync(ItemObjectKey(operationId, item),
+                item.Bytes, item.ContentType, ct);
+            result.Add(new(item.ItemIndex, item.CustomId, item.ProviderUrl,
+                stored.ObjectKey, stored.ETag, stored.Size, stored.ContentType,
+                "stored", PresignGet(stored.ObjectKey, TimeSpan.FromHours(1)), ""));
+        }
+        if (downloaded.Count > 0 && result.All(item => item.ObjectStatus != "stored"))
             throw new InvalidOperationException("Batch output contains no downloadable items");
         return result;
+    }
+
+    private async Task<ObjectStoragePutResult> StoreBatchArchiveAsync(
+        IReadOnlyList<DownloadedBatchItem> downloaded, string operationId,
+        CancellationToken ct)
+    {
+        const long maxArchiveBytes = 512 * 1024 * 1024;
+        await using var archiveStream = new MemoryStream();
+        using (var archive = new ZipArchive(archiveStream, ZipArchiveMode.Create, leaveOpen: true))
+        {
+            var manifestFiles = new List<object>();
+            var errors = new List<object>();
+            var usedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var item in downloaded)
+            {
+                ct.ThrowIfCancellationRequested();
+                if (item.Bytes is null)
+                {
+                    errors.Add(new { custom_id = item.CustomId, error = item.Error });
+                    continue;
+                }
+                var filename = UniqueArchiveName(item.CustomId, item.ItemIndex,
+                    item.ContentType, usedNames);
+                var entry = archive.CreateEntry(filename, CompressionLevel.Fastest);
+                await using (var output = entry.Open())
+                    await output.WriteAsync(item.Bytes, ct);
+                manifestFiles.Add(new { custom_id = item.CustomId, filename,
+                    size = item.Bytes.LongLength, content_type = item.ContentType });
+            }
+            WriteArchiveJson(archive, "manifest.json", new { operation_id = operationId,
+                files = manifestFiles });
+            WriteArchiveJson(archive, "errors.json", errors);
+            if (downloaded.Count > 0 && manifestFiles.Count == 0)
+                throw new InvalidOperationException("Batch output contains no downloadable items");
+        }
+
+        if (archiveStream.Length > maxArchiveBytes)
+            throw new InvalidOperationException("Batch archive exceeds the object limit");
+        var stored = await PutAsync($"media/{operationId}.zip", archiveStream.ToArray(),
+            "application/zip", ct);
+        return stored with
+        {
+            DownloadUrl = PresignGet(stored.ObjectKey, TimeSpan.FromHours(1)),
+        };
+    }
+
+    private static string ItemObjectKey(string operationId, DownloadedBatchItem item) =>
+        $"media/{operationId}/items/{item.ItemIndex + 1:D4}-{SafeItemName(item.CustomId)}.{ExtensionFor(item.ContentType)}";
+
+    private static void ValidateOperationId(string operationId)
+    {
+        if (string.IsNullOrWhiteSpace(operationId) || operationId.Length > 128
+            || operationId.Any(ch => !char.IsLetterOrDigit(ch) && ch is not ('_' or '-')))
+            throw new InvalidOperationException("Media operation ID is not safe for an object key");
     }
 
     public string PresignGet(string objectKey, TimeSpan lifetime)
