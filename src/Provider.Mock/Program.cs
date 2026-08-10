@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Net.WebSockets;
@@ -8,6 +9,7 @@ using ScalaAPI.Provider.Mock;
 var builder = WebApplication.CreateBuilder(args);
 builder.WebHost.UseUrls("http://0.0.0.0:8081");
 var app = builder.Build();
+var responses = new ConcurrentDictionary<string, string>(StringComparer.Ordinal);
 app.UseWebSockets(new WebSocketOptions
 {
     KeepAliveInterval = TimeSpan.FromSeconds(15),
@@ -572,31 +574,9 @@ app.MapPost("/v1/responses", async (HttpContext context, CancellationToken cance
         ?? MockProviderHelpers.Id("resp");
     var stream = root.TryGetProperty("stream", out var streamValue)
         && streamValue.ValueKind == JsonValueKind.True;
-    if (stream)
-    {
-        context.Response.StatusCode = StatusCodes.Status200OK;
-        context.Response.ContentType = "text/event-stream";
-        context.Response.Headers.CacheControl = "no-cache";
-        var usage = new { input_tokens = inputTokens, output_tokens = 5,
-            total_tokens = inputTokens + 5 };
-        var events = new (string Type, object Payload)[]
-        {
-            ("response.created", new { type = "response.created", response = new { id = requestId, status = "in_progress", model } }),
-            ("response.output_item.added", new { type = "response.output_item.added", item = new { type = "message", role = "assistant" } }),
-            ("response.output_text.delta", new { type = "response.output_text.delta", delta = "mock response" }),
-            ("response.output_text.done", new { type = "response.output_text.done", text = "mock response" }),
-            ("response.output_item.done", new { type = "response.output_item.done", item = new { type = "message", role = "assistant" } }),
-            ("response.completed", new { type = "response.completed", response = new { id = requestId, status = "completed", model, usage } }),
-        };
-        foreach (var item in events)
-        {
-            await context.Response.WriteAsync(
-                $"event: {item.Type}\ndata: {JsonSerializer.Serialize(item.Payload)}\n\n",
-                cancellationToken);
-        }
-        return Results.Empty;
-    }
-    return Results.Ok(new
+    var usage = new { input_tokens = inputTokens, output_tokens = 5,
+        total_tokens = inputTokens + 5 };
+    var completedResponse = new
     {
         id = requestId,
         @object = "response",
@@ -612,9 +592,38 @@ app.MapPost("/v1/responses", async (HttpContext context, CancellationToken cance
                 content = new[] { new { type = "output_text", text = "mock response" } }
             }
         },
-        usage = new { input_tokens = inputTokens, output_tokens = 5, total_tokens = inputTokens + 5 }
-    });
+        usage
+    };
+    responses[requestId] = JsonSerializer.Serialize(completedResponse);
+    if (stream)
+    {
+        context.Response.StatusCode = StatusCodes.Status200OK;
+        context.Response.ContentType = "text/event-stream";
+        context.Response.Headers.CacheControl = "no-cache";
+        var events = new (string Type, object Payload)[]
+        {
+            ("response.created", new { type = "response.created", response = new { id = requestId, status = "in_progress", model } }),
+            ("response.output_item.added", new { type = "response.output_item.added", item = new { type = "message", role = "assistant" } }),
+            ("response.output_text.delta", new { type = "response.output_text.delta", delta = "mock response" }),
+            ("response.output_text.done", new { type = "response.output_text.done", text = "mock response" }),
+            ("response.output_item.done", new { type = "response.output_item.done", item = new { type = "message", role = "assistant" } }),
+            ("response.completed", new { type = "response.completed", response = completedResponse }),
+        };
+        foreach (var item in events)
+        {
+            await context.Response.WriteAsync(
+                $"event: {item.Type}\ndata: {JsonSerializer.Serialize(item.Payload)}\n\n",
+                cancellationToken);
+        }
+        return Results.Empty;
+    }
+    return Results.Text(responses[requestId], "application/json");
 });
+
+app.MapGet("/v1/responses/{responseId}", (string responseId) =>
+    responses.TryGetValue(responseId, out var response)
+        ? Results.Text(response, "application/json")
+        : Results.NotFound(new { error = new { code = "response_not_found" } }));
 
 app.MapPost("/v1beta/models/{model}:generateContent", async (
     string model, HttpContext context, CancellationToken cancellationToken) =>

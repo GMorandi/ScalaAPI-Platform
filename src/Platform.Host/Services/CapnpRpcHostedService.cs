@@ -680,7 +680,8 @@ public class DispatchService
 
         var schedulerGrain = _cluster.GetGrain<ISchedulerGrain>(auth.GroupId);
         var capability = string.IsNullOrWhiteSpace(req.Capability) ? req.Endpoint : req.Capability;
-        var isControlOperation = capability is "models" or "gemini_models" or "count_tokens";
+        var isControlOperation = capability is "models" or "gemini_models" or "count_tokens"
+            or "responses_subpath";
         if (!string.IsNullOrWhiteSpace(req.ForcePlatform)
             && !string.Equals(groupProj.Platform, "composite", StringComparison.OrdinalIgnoreCase)
             && !string.Equals(groupProj.Platform, req.ForcePlatform, StringComparison.OrdinalIgnoreCase))

@@ -182,6 +182,7 @@ embedding_invalid_request_id="smoke-embeddings-invalid-${suffix}"
 embedding_invalid_idempotency_key="smoke-embeddings-invalid-idem-${suffix}"
 responses_request_id="smoke-responses-${suffix}"
 responses_idempotency_key="smoke-responses-idem-${suffix}"
+responses_get_request_id="smoke-responses-get-${suffix}"
 responses_stream_request_id="smoke-responses-stream-${suffix}"
 responses_stream_idempotency_key="smoke-responses-stream-idem-${suffix}"
 concurrent_request_id="smoke-chat-concurrent-${suffix}"
@@ -1704,6 +1705,19 @@ assert_equals "200" "${responses_response##*$'\n'}" \
 responses_body="${responses_response%$'\n'*}"
 jq -e '.object == "response" and .status == "completed" and .output_text == "mock response" and (.usage.input_tokens > 0) and (.usage.output_tokens > 0) and (.usage.total_tokens >= (.usage.input_tokens + .usage.output_tokens))' \
     <<<"$responses_body" >/dev/null
+responses_id="$(jq -r '.id' <<<"$responses_body")"
+[[ "$responses_id" != "null" && -n "$responses_id" ]]
+
+responses_get_response="$(curl -sS --max-time 30 --write-out $'\n%{http_code}' \
+    "$gateway_url/v1/responses/$responses_id" \
+    -H "Authorization: Bearer $api_key" \
+    -H "X-Request-ID: $responses_get_request_id")"
+assert_equals "200" "${responses_get_response##*$'\n'}" \
+    "OpenAI Responses GET subresource status"
+responses_get_body="${responses_get_response%$'\n'*}"
+jq -e --arg response_id "$responses_id" \
+    '.object == "response" and .id == $response_id and .status == "completed" and .output_text == "mock response"' \
+    <<<"$responses_get_body" >/dev/null
 
 responses_stream_response="$(curl -sS --max-time 30 --write-out $'\n%{http_code}' \
     "$gateway_url/v1/responses" \
@@ -1738,6 +1752,23 @@ SELECT
 }
 wait_for "OpenAI Responses settlement" 30 responses_settled
 echo "PASS: OpenAI Responses JSON/SSE requests settled exactly once"
+
+responses_control_released() {
+    [[ "$(db_query "
+SELECT
+  (SELECT count(*) FROM request_leases
+   WHERE request_id = '$responses_get_request_id' AND status = 'aborted') || '|' ||
+  (SELECT count(*) FROM usage_events
+   WHERE request_id = '$responses_get_request_id') || '|' ||
+  (SELECT count(*) FROM usage_logs
+   WHERE request_id = '$responses_get_request_id') || '|' ||
+  (SELECT count(*) FROM balance_holds h JOIN request_leases l USING (lease_token)
+   WHERE l.request_id = '$responses_get_request_id' AND h.status = 'released') || '|' ||
+  (SELECT count(*) FROM balance_ledger b JOIN request_leases l USING (lease_token)
+   WHERE l.request_id = '$responses_get_request_id' AND b.entry_type = 'usage_debit');")" == "1|0|0|1|0" ]]
+}
+wait_for "OpenAI Responses GET subresource release" 30 responses_control_released
+echo "PASS: OpenAI Responses GET subresource is non-billable and idempotently released"
 
 embedding_response="$(curl -fsS "$gateway_url/v1/embeddings" \
     -H "Authorization: Bearer $api_key" -H "Content-Type: application/json" \
