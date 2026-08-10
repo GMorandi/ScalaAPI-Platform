@@ -2,7 +2,7 @@
 
 ## Checkpoint
 
-The next stage starts from Platform/Admin Web/User Web `4ed1d5b`, Gateway `3da0d33`, and read-only
+The next stage starts from Platform/Admin Web/User Web `4f78b71`, Gateway `3da0d33`, and read-only
 reference `sub2api@43ec48d`.
 
 The greenfield baseline now starts from empty volumes, uses PostgreSQL as authority,
@@ -318,9 +318,10 @@ automated.
 3. Extend operator and browser evidence. Platform `3da2e29` provides Admin Web
    rule CRUD, propagation-change history, alert filters, bilingual navigation, and a
    passing Chromium smoke with intercepted `/admin/content-audit/{rules,changes,alerts}`
-   contracts. Platform `0dd49cf` adds the authenticated Operations route with
-   bounded metric summaries, kind/severity alert filters, and explicit refresh;
-   the Admin Web Chromium suite passes `2/2`. Platform `0dd49cf` and
+   contracts. Platform `4f78b71` adds the authenticated Operations route with
+   bounded metric summaries, kind/severity alert filters, explicit refresh, and
+   the Channel Monitors route with bounded history/filter/check submission; the
+   Admin Web Chromium suite passes `3/3`. Platform `4f78b71` and
    `scalaapi-user-portal-0810b` add live User Web login and basic portal navigation.
    Add live authenticated authorization/audit/replay coverage, User Web browser
    tests for the user-visible 400/503 policy errors, and browser evidence for
@@ -490,10 +491,11 @@ Remaining package deliverables:
   Add provider-specific outbound adapters, actual TLS fingerprint application,
   secret rotation/retention, browser authorization, and security scans before
   moving SEC-03 to implemented.
-- Channel-monitor writes are now an audited bounded slice at Platform `326fc43`:
-  active-account validation, health/latency/error bounds, paged history, and
-  actor/IP audit are covered by a real PostgreSQL test. Add scheduled runners,
-  monitor templates/history, feedback notifications, and browser evidence before
+- Channel-monitor writes are now an audited bounded slice at Platform `326fc43`,
+  with the authenticated Admin Web history/filter/check workflow at Platform
+  `4f78b71`. Active-account validation, health/latency/error bounds, paged history,
+  actor/IP audit, and the Chromium contract are covered. Add scheduled runners,
+  monitor templates/history, feedback notifications, and live authorization before
   moving OPS-03 to implemented.
 - OPS-05 now has a bounded maintenance slice at Platform `80ab783`: repeatable-read
   user export omits credential material, while cleanup migration 032 removes only
