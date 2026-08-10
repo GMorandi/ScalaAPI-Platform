@@ -680,6 +680,7 @@ public class DispatchService
 
         var schedulerGrain = _cluster.GetGrain<ISchedulerGrain>(auth.GroupId);
         var capability = string.IsNullOrWhiteSpace(req.Capability) ? req.Endpoint : req.Capability;
+        var isControlOperation = capability is "models" or "gemini_models" or "count_tokens";
         if (!string.IsNullOrWhiteSpace(req.ForcePlatform)
             && !string.Equals(groupProj.Platform, "composite", StringComparison.OrdinalIgnoreCase)
             && !string.Equals(groupProj.Platform, req.ForcePlatform, StringComparison.OrdinalIgnoreCase))
@@ -745,8 +746,12 @@ public class DispatchService
 
         var accountId = selection.AccountId!.Value;
         var accountGrain = _cluster.GetGrain<IAccountGrain>(accountId);
-        var userSlot = await userGrain.TryAcquireSlot(selection.LeaseToken!, DateTime.UtcNow.Add(_leaseTtl));
-        if (!userSlot.Acquired)
+        // Catalog/token-count calls still use an account lease, but they are
+        // not active generations and must not consume the user's generation
+        // concurrency budget while the usage outbox is being flushed.
+        if (!isControlOperation && !(
+            await userGrain.TryAcquireSlot(selection.LeaseToken!, DateTime.UtcNow.Add(_leaseTtl)))
+            .Acquired)
         {
             await accountGrain.ReleaseSlot(selection.LeaseToken!);
             return DispatchResult.Rejected("concurrencyExceeded", "User concurrency limit reached");
@@ -754,7 +759,8 @@ public class DispatchService
         if (auth.RpmLimit > 0 && !await userGrain.CheckAndRecordRpm(auth.RpmLimit))
         {
             await accountGrain.ReleaseSlot(selection.LeaseToken!);
-            await userGrain.ReleaseSlot(selection.LeaseToken!);
+            if (!isControlOperation)
+                await userGrain.ReleaseSlot(selection.LeaseToken!);
             return DispatchResult.Rejected("rpmExceeded", "User RPM limit reached");
         }
         var holdId = Guid.NewGuid().ToString("N");
@@ -999,7 +1005,7 @@ public class DispatchService
 
     public async Task<WriteAck> HandleReportUsage(UsageReportRequest req)
     {
-        return await _leases.CompleteAsync(new LeaseCompletion(
+        var ack = await _leases.CompleteAsync(new LeaseCompletion(
             req.LeaseToken,
             req.InputTokens, req.OutputTokens, req.CacheCreateTokens,
             req.CacheReadTokens, req.DurationMs, req.FirstTokenMs,
@@ -1011,6 +1017,9 @@ public class DispatchService
             req.UpstreamEndpoint, req.CancellationReason,
             req.MediaOperationId, req.PricingVersion,
             req.ResponseStatusCode, req.ResponseContentType, req.ResponseBody));
+        if (ack.Accepted)
+            await ReleaseTerminalLeaseSlotsAsync(req.LeaseToken);
+        return ack;
     }
 
     public async Task<ContentPolicyRpcResult> HandleContentPolicy(ContentPolicyRpcRequest req)
@@ -1168,8 +1177,34 @@ public class DispatchService
     public async Task<WriteAck> HandleAbort(string leaseToken, string reason,
         LeaseAbortDisposition disposition, int? providerStatusCode)
     {
-        return await _leases.AbortAsync(leaseToken, reason, disposition, providerStatusCode,
+        var ack = await _leases.AbortAsync(leaseToken, reason, disposition, providerStatusCode,
             source: "gateway");
+        if (ack.Accepted)
+            await ReleaseTerminalLeaseSlotsAsync(leaseToken);
+        return ack;
+    }
+
+    private async Task ReleaseTerminalLeaseSlotsAsync(string leaseToken)
+    {
+        var lease = await _leases.GetByLeaseTokenAsync(leaseToken);
+        if (lease is null)
+            return;
+
+        try
+        {
+            await _cluster.GetGrain<IAccountGrain>(lease.AccountId)
+                .ReleaseSlot(lease.LeaseToken);
+            await _cluster.GetGrain<IUserGrain>(lease.UserId)
+                .FinalizeLease(lease.LeaseToken, lease.RequestId);
+        }
+        catch (Exception ex)
+        {
+            // The durable outbox retries this cleanup after a transient grain
+            // failure; a successful billing write must remain acknowledged.
+            _logger.LogWarning(ex,
+                "Synchronous lease slot release failed for {LeaseToken}; outbox will retry",
+                leaseToken);
+        }
     }
 
     public async Task<WriteAck> HandleLeaseEvidence(string leaseToken,

@@ -198,6 +198,12 @@ realtime_idempotency_key="smoke-realtime-idem-${suffix}"
 realtime_soak_prefix="smoke-realtime-soak-${suffix}"
 realtime_soak_count=4
 realtime_soak_hold_seconds=3
+anthropic_request_id="smoke-anthropic-${suffix}"
+anthropic_count_request_id="smoke-anthropic-count-${suffix}"
+anthropic_stream_request_id="smoke-anthropic-stream-${suffix}"
+gemini_models_request_id="smoke-gemini-models-${suffix}"
+gemini_request_id="smoke-gemini-${suffix}"
+gemini_stream_request_id="smoke-gemini-stream-${suffix}"
 fault_request_prefix="smoke-fault-${suffix}"
 media_idempotency_key="smoke-media-idem-${suffix}"
 chat_price_version="smoke-chat-${suffix}-v1"
@@ -586,6 +592,10 @@ openai_group_id="$(jq -er '.providers[] | select(.provider == "openai") | .group
     <<<"$seed_response")"
 openai_account_id="$(jq -er '.providers[] | select(.provider == "openai") | .account_id' \
     <<<"$seed_response")"
+anthropic_group_id="$(jq -er '.providers[] | select(.provider == "anthropic") | .group_id' \
+    <<<"$seed_response")"
+gemini_group_id="$(jq -er '.providers[] | select(.provider == "gemini") | .group_id' \
+    <<<"$seed_response")"
 assert_equals "3" "$(jq -er '.providers | length' <<<"$seed_response")" \
     "Seeded provider count"
 
@@ -763,6 +773,8 @@ assert_equals "401" "$logout_access_status" "Logged-out access-token rejection"
 
 allowed_groups="$(jq -cn \
     --argjson openai "$openai_group_id" \
+    --argjson anthropic "$anthropic_group_id" \
+    --argjson gemini "$gemini_group_id" \
     --argjson fault429 "$fault_429_group_id" \
     --argjson fault500 "$fault_500_group_id" \
     --argjson timeout "$fault_timeout_group_id" \
@@ -773,7 +785,7 @@ allowed_groups="$(jq -cn \
     --argjson clientDisconnect "$fault_client_disconnect_group_id" \
     --argjson malformed "$fault_malformed_group_id" \
     --argjson invalidContentType "$fault_invalid_content_type_group_id" \
-    '[$openai,$fault429,$fault500,$timeout,$disconnect,$disconnectStream,$disconnectBeforeOutput,$disconnectAfterUsage,$clientDisconnect,$malformed,$invalidContentType]')"
+    '[$openai,$anthropic,$gemini,$fault429,$fault500,$timeout,$disconnect,$disconnectStream,$disconnectBeforeOutput,$disconnectAfterUsage,$clientDisconnect,$malformed,$invalidContentType]')"
 admin_request PUT "/admin/users/$user_id" \
     "$(jq -cn --argjson groups "$allowed_groups" \
         '{role:"user",concurrency:4,rpmLimit:0,allowedGroups:$groups}')" \
@@ -815,6 +827,8 @@ SELECT
     "Administrative balance ledger invariants"
 
 api_key="$(create_api_key "$openai_group_id")"
+anthropic_api_key="$(create_api_key "$anthropic_group_id")"
+gemini_api_key="$(create_api_key "$gemini_group_id")"
 content_policy_pattern="greenfield-policy-${suffix}"
 content_policy_request_id="smoke-content-policy-${suffix}"
 content_policy_rule="$(admin_request POST /admin/content-audit/rules \
@@ -1694,6 +1708,143 @@ embedding_settled() {
 }
 wait_for "embedding settlement" 30 embedding_settled
 echo "PASS: Embeddings input count, dimensions, float/base64 encoding, and usage settlement"
+
+anthropic_count_response="$(curl -sS --max-time 20 --write-out $'\n%{http_code}' \
+    "$gateway_url/v1/messages/count_tokens" \
+    -H "Authorization: Bearer $anthropic_api_key" \
+    -H "Content-Type: application/json" \
+    -H "anthropic-version: 2023-06-01" \
+    -H "X-Request-ID: $anthropic_count_request_id" \
+    --data '{"model":"claude-3-5-sonnet","messages":[{"role":"user","content":"provider group count"}]}')"
+anthropic_count_status="${anthropic_count_response##*$'\n'}"
+anthropic_count_response="${anthropic_count_response%$'\n'*}"
+assert_equals "200" "$anthropic_count_status" "Anthropic count_tokens response status"
+jq -e '.input_tokens > 0' <<<"$anthropic_count_response" >/dev/null
+
+anthropic_response="$(curl -sS --max-time 30 --write-out $'\n%{http_code}' \
+    "$gateway_url/v1/messages" \
+    -H "Authorization: Bearer $anthropic_api_key" \
+    -H "Content-Type: application/json" \
+    -H "anthropic-version: 2023-06-01" \
+    -H "X-Request-ID: $anthropic_request_id" \
+    -H "Idempotency-Key: ${anthropic_request_id}-idem" \
+    --data '{"model":"claude-3-5-sonnet","max_tokens":16,"messages":[{"role":"user","content":"provider group anthropic"}],"stream":false}')"
+anthropic_status="${anthropic_response##*$'\n'}"
+anthropic_response="${anthropic_response%$'\n'*}"
+assert_equals "200" "$anthropic_status" "Anthropic JSON provider-group status"
+jq -e '.type == "message" and .content[0].text == "mock response" and (.usage.input_tokens > 0) and (.usage.output_tokens > 0)' \
+    <<<"$anthropic_response" >/dev/null
+
+anthropic_stream_response="$(curl -sS --max-time 30 --write-out $'\n%{http_code}' \
+    "$gateway_url/v1/messages" \
+    -H "Authorization: Bearer $anthropic_api_key" \
+    -H "Content-Type: application/json" \
+    -H "anthropic-version: 2023-06-01" \
+    -H "X-Request-ID: $anthropic_stream_request_id" \
+    -H "Idempotency-Key: ${anthropic_stream_request_id}-idem" \
+    --data '{"model":"claude-3-5-sonnet","max_tokens":16,"messages":[{"role":"user","content":"provider group anthropic stream"}],"stream":true}')"
+anthropic_stream_status="${anthropic_stream_response##*$'\n'}"
+assert_equals "200" "$anthropic_stream_status" \
+    "Anthropic streaming provider-group status"
+anthropic_stream_body="${anthropic_stream_response%$'\n'*}"
+grep -q 'event: message_start' <<<"$anthropic_stream_body"
+grep -q 'event: message_delta' <<<"$anthropic_stream_body"
+
+gemini_models_response="$(curl -sS --max-time 20 --write-out $'\n%{http_code}' \
+    "$gateway_url/v1beta/models" \
+    -H "Authorization: Bearer $gemini_api_key" \
+    -H "X-Request-ID: $gemini_models_request_id")"
+gemini_models_status="${gemini_models_response##*$'\n'}"
+gemini_models_response="${gemini_models_response%$'\n'*}"
+assert_equals "200" "$gemini_models_status" "Gemini models provider-group status"
+jq -e '.models[0].name == "models/gemini-2.0-flash" and (.models[0].supportedGenerationMethods | index("generateContent")) != null' \
+    <<<"$gemini_models_response" >/dev/null
+
+gemini_response="$(curl -sS --max-time 30 --write-out $'\n%{http_code}' \
+    "$gateway_url/v1beta/models/gemini-2.0-flash:generateContent" \
+    -H "Authorization: Bearer $gemini_api_key" \
+    -H "Content-Type: application/json" \
+    -H "X-Request-ID: $gemini_request_id" \
+    -H "Idempotency-Key: ${gemini_request_id}-idem" \
+    --data '{"contents":[{"role":"user","parts":[{"text":"provider group gemini"}]}]}')"
+gemini_status="${gemini_response##*$'\n'}"
+gemini_response="${gemini_response%$'\n'*}"
+assert_equals "200" "$gemini_status" "Gemini JSON provider-group status"
+jq -e '.candidates[0].content.parts[0].text == "mock response" and (.usageMetadata.totalTokenCount > 0)' \
+    <<<"$gemini_response" >/dev/null
+
+gemini_stream_response="$(curl -sS --max-time 30 --write-out $'\n%{http_code}' \
+    "$gateway_url/v1beta/models/gemini-2.0-flash:streamGenerateContent?alt=sse" \
+    -H "Authorization: Bearer $gemini_api_key" \
+    -H "Content-Type: application/json" \
+    -H "X-Request-ID: $gemini_stream_request_id" \
+    -H "Idempotency-Key: ${gemini_stream_request_id}-idem" \
+    --data '{"contents":[{"role":"user","parts":[{"text":"provider group gemini stream"}]}]}')"
+assert_equals "200" "${gemini_stream_response##*$'\n'}" \
+    "Gemini streaming provider-group status"
+gemini_stream_body="${gemini_stream_response%$'\n'*}"
+grep -q 'data:' <<<"$gemini_stream_body"
+grep -q 'mock response' <<<"$gemini_stream_body"
+
+provider_group_settled() {
+    [[ "$(db_query "
+SELECT
+  (SELECT count(*) FROM request_leases
+   WHERE request_id IN ('$anthropic_request_id', '$anthropic_stream_request_id', '$gemini_request_id', '$gemini_stream_request_id')
+     AND status = 'completed' AND final_cost_usd > 0) || '|' ||
+  (SELECT count(*) FROM usage_events
+   WHERE request_id IN ('$anthropic_request_id', '$anthropic_stream_request_id', '$gemini_request_id', '$gemini_stream_request_id')) || '|' ||
+  (SELECT count(*) FROM usage_logs
+   WHERE request_id IN ('$anthropic_request_id', '$anthropic_stream_request_id', '$gemini_request_id', '$gemini_stream_request_id')) || '|' ||
+  (SELECT count(*) FROM balance_holds h JOIN request_leases l USING (lease_token)
+   WHERE l.request_id IN ('$anthropic_request_id', '$anthropic_stream_request_id', '$gemini_request_id', '$gemini_stream_request_id')
+     AND h.status = 'committed') || '|' ||
+  (SELECT count(*) FROM balance_ledger b JOIN request_leases l USING (lease_token)
+   WHERE l.request_id IN ('$anthropic_request_id', '$anthropic_stream_request_id', '$gemini_request_id', '$gemini_stream_request_id')
+     AND b.entry_type = 'usage_debit');")" == "4|4|4|4|4" ]]
+}
+if ! wait_for "Anthropic/Gemini provider-group settlement" 45 provider_group_settled; then
+    echo "Provider-group settlement diagnostics:" >&2
+    db_query "
+SELECT request_id, model, upstream_model, status, final_cost_usd,
+       pricing_version, price_input_per_million, price_output_per_million
+FROM request_leases
+WHERE request_id IN ('$anthropic_request_id', '$anthropic_stream_request_id',
+                     '$gemini_request_id', '$gemini_stream_request_id')
+ORDER BY request_id;" >&2 || true
+    db_query "
+SELECT l.request_id,
+       (SELECT count(*) FROM usage_events e WHERE e.request_id = l.request_id) AS usage_events,
+       (SELECT count(*) FROM usage_logs u WHERE u.request_id = l.request_id) AS usage_logs,
+       (SELECT count(*) FROM balance_holds h WHERE h.lease_token = l.lease_token AND h.status = 'committed') AS committed_holds,
+       (SELECT count(*) FROM balance_ledger b WHERE b.lease_token = l.lease_token AND b.entry_type = 'usage_debit') AS usage_debits
+FROM request_leases l
+WHERE l.request_id IN ('$anthropic_request_id', '$anthropic_stream_request_id',
+                       '$gemini_request_id', '$gemini_stream_request_id')
+ORDER BY l.request_id;" >&2 || true
+    exit 1
+fi
+echo "PASS: Anthropic and Gemini JSON/SSE provider-group requests settled exactly once"
+
+provider_control_released() {
+    [[ "$(db_query "
+SELECT
+  (SELECT count(*) FROM request_leases
+   WHERE request_id IN ('$anthropic_count_request_id', '$gemini_models_request_id')
+     AND status = 'aborted') || '|' ||
+  (SELECT count(*) FROM balance_holds h JOIN request_leases l USING (lease_token)
+   WHERE l.request_id IN ('$anthropic_count_request_id', '$gemini_models_request_id')
+     AND h.status = 'released') || '|' ||
+  (SELECT count(*) FROM usage_events
+   WHERE request_id IN ('$anthropic_count_request_id', '$gemini_models_request_id')) || '|' ||
+  (SELECT count(*) FROM usage_logs
+   WHERE request_id IN ('$anthropic_count_request_id', '$gemini_models_request_id')) || '|' ||
+  (SELECT count(*) FROM balance_ledger b JOIN request_leases l USING (lease_token)
+   WHERE l.request_id IN ('$anthropic_count_request_id', '$gemini_models_request_id')
+     AND b.entry_type = 'usage_debit');")" == "2|2|0|0|0" ]]
+}
+wait_for "Anthropic/Gemini control release" 30 provider_control_released
+echo "PASS: Anthropic count_tokens and Gemini models released without billing"
 
 embedding_invalid_response="$(curl -sS --max-time 30 --write-out $'\n%{http_code}' "$gateway_url/v1/embeddings" \
     -H "Authorization: Bearer $api_key" -H "Content-Type: application/json" \

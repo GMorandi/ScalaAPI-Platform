@@ -39,7 +39,7 @@ services:
       garnet:
         condition: service_started
     healthcheck:
-      test: 'pass="$${GARNET_PASSWORD}"; len=$$(printf %s "$${pass}" | wc -c); { printf ''*2\\r\\n$$4\\r\\nAUTH\\r\\n$$%s\\r\\n%s\\r\\n'' "$${len}" "$${pass}"; printf ''*1\\r\\n$$4\\r\\nPING\\r\\n''; } | nc -w 2 garnet 6379 | grep PONG >/dev/null'
+      test: 'pass="$${GARNET_PASSWORD}"; len=$$(printf %s "$${pass}" | wc -c); { printf ''*2\r\n$$4\r\nAUTH\r\n$$%s\r\n%s\r\n'' "$${len}" "$${pass}"; printf ''*1\r\n$$4\r\nPING\r\n''; } | nc -w 2 garnet 6379 | grep PONG >/dev/null'
       interval: 5s
       timeout: 3s
       retries: 20

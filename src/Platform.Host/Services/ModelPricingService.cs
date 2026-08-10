@@ -20,6 +20,7 @@ public class ModelPricingService
         _dataSource = dataSource;
         _defaultVersion = configuration["Pricing:Version"] ?? "runtime-v1";
         _prices["claude-sonnet-4"] = new(3m, 15m, 3.75m, 0.30m, Version: _defaultVersion);
+        _prices["claude-3-5-sonnet"] = new(3m, 15m, 3.75m, 0.30m, Version: _defaultVersion);
         _prices["claude-opus-4"] = new(15m, 75m, 18.75m, 1.50m, Version: _defaultVersion);
         _prices["claude-haiku"] = new(0.80m, 4m, 1m, 0.08m, Version: _defaultVersion);
         _prices["gpt-4o"] = new(2.50m, 10m, 1.25m, 0, Version: _defaultVersion);

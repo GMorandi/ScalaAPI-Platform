@@ -16,6 +16,17 @@ public class ModelPricingServiceTests
     }
 
     [Fact]
+    public void AnthropicSeedModelUsesTheDefaultPriceAlias()
+    {
+        var pricing = Create();
+
+        Assert.True(pricing.TryGetPrice("claude-3-5-sonnet", out var price));
+        Assert.Equal(3m, price.InputPerMillion);
+        Assert.Equal(15m, price.OutputPerMillion);
+        Assert.Equal("runtime-v1", price.Version);
+    }
+
+    [Fact]
     public void ConfigurationAddsMediaAndRealtimeRates()
     {
         var pricing = Create(new Dictionary<string, string?>
