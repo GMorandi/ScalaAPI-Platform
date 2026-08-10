@@ -1,6 +1,8 @@
 using System.Net;
 using System.Security.Cryptography;
 using System.Text;
+using System.IO.Compression;
+using System.Text.Json;
 using System.Xml.Linq;
 
 namespace ScalaAPI.Host.Services;
@@ -182,6 +184,95 @@ public sealed class ObjectStorageClient : IMediaObjectStorage
         return result;
     }
 
+    public async Task<ObjectStoragePutResult> CreateBatchArchiveAsync(
+        string metadataJson, string operationId, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(operationId) || operationId.Length > 128
+            || operationId.Any(ch => !char.IsLetterOrDigit(ch) && ch is not ('_' or '-')))
+            throw new InvalidOperationException("Media operation ID is not safe for an archive key");
+
+        using var document = JsonDocument.Parse(metadataJson,
+            new JsonDocumentOptions { MaxDepth = 32, CommentHandling = JsonCommentHandling.Disallow });
+        var root = document.RootElement;
+        if (root.ValueKind != JsonValueKind.Object)
+            throw new InvalidOperationException("Batch output metadata must be a JSON object");
+
+        var items = root.TryGetProperty("data", out var data)
+            && data.ValueKind == JsonValueKind.Array
+            ? data.EnumerateArray().ToArray()
+            : Array.Empty<JsonElement>();
+        const int maxItems = 200;
+        const long maxArchiveBytes = 512 * 1024 * 1024;
+        if (items.Length > maxItems)
+            throw new InvalidOperationException("Batch output exceeds the item limit");
+
+        await EnsureBucketAsync(ct);
+        await using var archiveStream = new MemoryStream();
+        using (var archive = new ZipArchive(archiveStream, ZipArchiveMode.Create, leaveOpen: true))
+        {
+            var manifestFiles = new List<object>();
+            var errors = new List<object>();
+            var usedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            for (var index = 0; index < items.Length; index++)
+            {
+                ct.ThrowIfCancellationRequested();
+                var item = items[index];
+                var url = item.TryGetProperty("url", out var urlValue)
+                    && urlValue.ValueKind == JsonValueKind.String
+                    ? urlValue.GetString() ?? "" : "";
+                var customId = item.TryGetProperty("custom_id", out var customValue)
+                    && customValue.ValueKind == JsonValueKind.String
+                    ? customValue.GetString() ?? $"item-{index + 1}" : $"item-{index + 1}";
+                if (!Uri.TryCreate(url, UriKind.Absolute, out var source)
+                    || source.Scheme is not ("http" or "https"))
+                {
+                    errors.Add(new { custom_id = customId, error = "invalid_output_url" });
+                    continue;
+                }
+
+                using var response = await _http.GetAsync(source,
+                    HttpCompletionOption.ResponseHeadersRead, ct);
+                if (!response.IsSuccessStatusCode)
+                {
+                    errors.Add(new
+                    {
+                        custom_id = customId,
+                        error = "output_fetch_failed",
+                        status = (int)response.StatusCode,
+                    });
+                    continue;
+                }
+
+                var remaining = maxArchiveBytes - archiveStream.Length;
+                var bytes = await ReadBoundedAsync(response.Content, remaining, ct);
+                var contentType = response.Content.Headers.ContentType?.MediaType
+                    ?? "application/octet-stream";
+                var filename = UniqueArchiveName(customId, index, contentType, usedNames);
+                var entry = archive.CreateEntry(filename, CompressionLevel.Fastest);
+                await using (var output = entry.Open())
+                    await output.WriteAsync(bytes, ct);
+                manifestFiles.Add(new { custom_id = customId, filename, size = bytes.LongLength,
+                    content_type = contentType });
+            }
+
+            WriteArchiveJson(archive, "manifest.json", new { operation_id = operationId,
+                files = manifestFiles });
+            WriteArchiveJson(archive, "errors.json", errors);
+            if (items.Length > 0 && manifestFiles.Count == 0)
+                throw new InvalidOperationException("Batch output contains no downloadable items");
+        }
+
+        if (archiveStream.Length > maxArchiveBytes)
+            throw new InvalidOperationException("Batch archive exceeds the object limit");
+        var bytesToStore = archiveStream.ToArray();
+        var stored = await PutAsync($"media/{operationId}.zip", bytesToStore,
+            "application/zip", ct);
+        return stored with
+        {
+            DownloadUrl = PresignGet(stored.ObjectKey, TimeSpan.FromHours(1)),
+        };
+    }
+
     public string PresignGet(string objectKey, TimeSpan lifetime)
     {
         var now = DateTimeOffset.UtcNow;
@@ -230,6 +321,45 @@ public sealed class ObjectStorageClient : IMediaObjectStorage
 
         var etag = response.Headers.ETag?.Tag?.Trim('"') ?? Hex(SHA256.HashData(bytes));
         return new ObjectStoragePutResult(objectKey, etag, bytes.LongLength, contentType, "");
+    }
+
+    private static async Task<byte[]> ReadBoundedAsync(HttpContent content, long maxBytes,
+        CancellationToken ct)
+    {
+        await using var input = await content.ReadAsStreamAsync(ct);
+        await using var output = new MemoryStream();
+        var buffer = new byte[64 * 1024];
+        while (true)
+        {
+            var read = await input.ReadAsync(buffer, ct);
+            if (read == 0) break;
+            if (output.Length + read > maxBytes)
+                throw new InvalidOperationException("Batch output exceeds the object limit");
+            await output.WriteAsync(buffer.AsMemory(0, read), ct);
+        }
+        return output.ToArray();
+    }
+
+    private static string UniqueArchiveName(string customId, int index, string contentType,
+        ISet<string> usedNames)
+    {
+        var normalized = new string(customId.Where(ch => char.IsLetterOrDigit(ch)
+            || ch is '_' or '-' or '.').ToArray());
+        if (string.IsNullOrWhiteSpace(normalized)) normalized = $"item-{index + 1}";
+        normalized = normalized.Length > 80 ? normalized[..80] : normalized;
+        var extension = ExtensionFor(contentType);
+        var candidate = $"{normalized}.{extension}";
+        var suffix = 1;
+        while (!usedNames.Add(candidate))
+            candidate = $"{normalized}-{++suffix}.{extension}";
+        return candidate;
+    }
+
+    private static void WriteArchiveJson(ZipArchive archive, string name, object value)
+    {
+        var entry = archive.CreateEntry(name, CompressionLevel.Fastest);
+        using var writer = new StreamWriter(entry.Open(), Encoding.UTF8, leaveOpen: false);
+        writer.Write(JsonSerializer.Serialize(value));
     }
 
     private async Task EnsureBucketAsync(CancellationToken ct)

@@ -1,3 +1,4 @@
+using System.IO.Compression;
 using System.Net;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -44,6 +45,41 @@ public sealed class ObjectStorageClientTests
         Assert.Contains("continuation-token=next-token", handler.Requests[2].RequestUri!.Query);
     }
 
+    [Fact]
+    public async Task BatchArchiveCopiesBoundedItemsAndWritesManifest()
+    {
+        var handler = new ArchiveHandler();
+        using var http = new HttpClient(handler);
+        var configuration = new ConfigurationBuilder().AddInMemoryCollection(
+            new Dictionary<string, string?>
+            {
+                ["ObjectStorage:Endpoint"] = "http://storage.test:9000",
+                ["ObjectStorage:PublicEndpoint"] = "http://storage.test:9000",
+                ["ObjectStorage:Bucket"] = "scalaapi-media",
+                ["ObjectStorage:AccessKey"] = "platform",
+                ["ObjectStorage:SecretKey"] = "secret-key",
+            }).Build();
+        var client = new ObjectStorageClient(http, configuration,
+            NullLogger<ObjectStorageClient>.Instance);
+
+        var result = await client.CreateBatchArchiveAsync("""
+            {"data":[
+              {"custom_id":"mock-1","url":"http://provider.test/output/one"},
+              {"custom_id":"mock-1","url":"http://provider.test/output/two"}
+            ]}
+            """, "med_batch_archive_test");
+
+        Assert.Equal("media/med_batch_archive_test.zip", result.ObjectKey);
+        Assert.Equal("application/zip", result.ContentType);
+        var archiveBytes = Assert.Single(handler.PutBodies.Skip(1));
+        using var archive = new ZipArchive(new MemoryStream(archiveBytes), ZipArchiveMode.Read);
+        Assert.Contains(archive.Entries, entry => entry.FullName == "mock-1.png");
+        Assert.Contains(archive.Entries, entry => entry.FullName == "mock-1-2.png");
+        Assert.Contains(archive.Entries, entry => entry.FullName == "manifest.json");
+        Assert.Contains(archive.Entries, entry => entry.FullName == "errors.json");
+        Assert.Equal(2, handler.ProviderRequests);
+    }
+
     private sealed class RecordingHandler : HttpMessageHandler
     {
         public List<HttpRequestMessage> Requests { get; } = [];
@@ -73,6 +109,40 @@ public sealed class ObjectStorageClientTests
             {
                 Content = new StringContent(page),
             });
+        }
+    }
+
+    private sealed class ArchiveHandler : HttpMessageHandler
+    {
+        public List<byte[]> PutBodies { get; } = [];
+        public int ProviderRequests { get; private set; }
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            if (request.RequestUri!.Host == "provider.test")
+            {
+                ProviderRequests++;
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new ByteArrayContent("provider-bytes"u8.ToArray())
+                    {
+                        Headers = { ContentType = new("image/png") },
+                    },
+                };
+            }
+
+            if (request.Method == HttpMethod.Put)
+            {
+                PutBodies.Add(request.Content is null
+                    ? [] : await request.Content.ReadAsByteArrayAsync(cancellationToken));
+                var response = new HttpResponseMessage(HttpStatusCode.OK);
+                response.Headers.ETag = new System.Net.Http.Headers.EntityTagHeaderValue(
+                    "\"archive-etag\"");
+                return response;
+            }
+
+            throw new InvalidOperationException($"Unexpected request {request.Method} {request.RequestUri}");
         }
     }
 }

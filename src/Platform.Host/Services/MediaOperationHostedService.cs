@@ -97,8 +97,11 @@ public sealed class MediaOperationHostedService(
                 ObjectStoragePutResult stored;
                 try
                 {
-                    stored = await objectStorage.CopyFromUrlAsync(parsed.OutputUrl,
-                        operation.OperationId, parsed.ContentType, ct);
+                    stored = operation.OperationType == "images_batch_create"
+                        ? await objectStorage.CreateBatchArchiveAsync(body,
+                            operation.OperationId, ct)
+                        : await objectStorage.CopyFromUrlAsync(parsed.OutputUrl,
+                            operation.OperationId, parsed.ContentType, ct);
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException)
                 {

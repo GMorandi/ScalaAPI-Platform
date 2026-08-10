@@ -2353,6 +2353,40 @@ media_batch_items="$(curl -fsS "$gateway_url/v1/images/batches/$media_batch_id/i
 assert_equals "true" "$(jq -er \
     'type == "array" and length == 1 and .[0].custom_id == "mock-1"' <<<"$media_batch_items")" \
     "Normalized media batch items"
+media_batch_archive="${TMPDIR:-/tmp}/scalaapi-${project}-batch.zip"
+python3 - "$gateway_url/v1/images/batches/$media_batch_id/download" \
+    "$api_key" "$media_batch_archive" <<'PY'
+import sys
+import urllib.request
+import zipfile
+from urllib.error import HTTPError
+
+url, api_key, output_path = sys.argv[1:4]
+request = urllib.request.Request(url, headers={"Authorization": f"Bearer {api_key}"})
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+opener = urllib.request.build_opener(NoRedirect)
+try:
+    response = opener.open(request, timeout=30)
+except HTTPError as error:
+    if error.code not in (301, 302, 303, 307, 308):
+        raise
+    signed_url = error.headers.get("Location")
+    if not signed_url:
+        raise RuntimeError("media download redirect omitted Location") from error
+    response = urllib.request.urlopen(signed_url, timeout=30)
+with response:
+    with open(output_path, "wb") as output:
+        output.write(response.read())
+with zipfile.ZipFile(output_path) as archive:
+    names = set(archive.namelist())
+    if not {"mock-1.png", "manifest.json", "errors.json"} <= names:
+        raise SystemExit(f"batch archive missing expected entries: {sorted(names)}")
+PY
+unlink "$media_batch_archive"
+echo "PASS: durable batch download archive with manifest"
 assert_equals "stored" \
     "$(db_query "SELECT object_status FROM media_operations WHERE operation_id = '$media_batch_id';")" \
     "Media batch object status"
