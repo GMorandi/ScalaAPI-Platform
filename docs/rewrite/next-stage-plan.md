@@ -2,7 +2,7 @@
 
 ## Checkpoint
 
-The next stage starts from Platform/Admin Web/User Web `ec502a2`, Gateway `3da0d33`, and read-only
+The next stage starts from Platform/Admin Web/User Web `35d9a9c`, Gateway `3da0d33`, and read-only
 reference `sub2api@43ec48d`.
 
 The greenfield baseline now starts from empty volumes, uses PostgreSQL as authority,
@@ -240,9 +240,11 @@ subscriptions, redeems promotion codes, and generates a referral code with summa
 totals. The Dashboard now also lists published, unexpired announcements and marks
 each item read through the authenticated idempotent read endpoint. The API adds
 user-scoped usage and balance reads and the Compose stack
-serves User Web separately from Admin Web. Browser automation, backup-code sign-in
-UX, real payment checkout, signup referral attribution/anti-abuse, and commercial
-audit remain
+serves User Web separately from Admin Web. Source-built project
+`scalaapi-user-portal-0810b` now proves login, Dashboard balance/identity, Usage,
+API keys, and Profile navigation through the real proxy; backup-code sign-in UX,
+recovery-mail delivery, real payment checkout, signup referral attribution/
+anti-abuse, and commercial audit remain
 open.
 - COM-05 now has a bounded read-tracking slice at Platform `acb1c66`: migration 033
   stores one user/announcement read state, the authenticated list/read endpoints
@@ -311,9 +313,11 @@ automated.
 3. Extend operator and browser evidence. Platform `3da2e29` provides Admin Web
    rule CRUD, propagation-change history, alert filters, bilingual navigation, and a
    passing Chromium smoke with intercepted `/admin/content-audit/{rules,changes,alerts}`
-   contracts. Add live authenticated authorization/audit/replay coverage, User Web
-   browser tests for the user-visible 400/503 policy errors, and browser evidence for
-   reconciliation, monitor, backup, and recovery workflows.
+   contracts. Platform `35d9a9c` and `scalaapi-user-portal-0810b` add live User Web
+   login and basic portal navigation. Add live authenticated authorization/audit/
+   replay coverage, User Web browser tests for the user-visible 400/503 policy
+   errors, and browser evidence for reconciliation, monitor, backup, and recovery
+   workflows.
 4. Close release reliability gates in parallel: Provider golden request/response
    fixtures, long WebSocket/backpressure soak, multi-Gateway/multi-Silo contention,
    Garnet TLS/outage/rebuild, PostgreSQL/Garnet recovery, and backup/restore drills.
