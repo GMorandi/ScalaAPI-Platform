@@ -2388,21 +2388,85 @@ if (( media_batch_item_size <= 0 )); then
     exit 1
 fi
 echo "PASS: durable per-item media object projection and signed download"
+
+secondary_media_socket="/var/run/scalaapi/dispatch-media.sock"
+secondary_platform_container="${project}_platform-media-2"
+compose run --detach --no-deps --name "$secondary_platform_container" \
+    -e "CapnpRpc__SocketPath=$secondary_media_socket" \
+    -e "ASPNETCORE_URLS=http://0.0.0.0:5002" platform-silo >/dev/null
+wait_for "secondary media Platform readiness" 120 "$container_cli" exec \
+    "$secondary_platform_container" curl -fsS http://127.0.0.1:5002/ready >/dev/null
+media_secondary_silos_ready() {
+    [[ "$(db_query "SELECT count(*) FROM OrleansMembershipTable WHERE DeploymentId = 'platform' AND Status = 3;")" -ge 2 ]]
+}
+wait_for "two active media reconciliation silos" 60 media_secondary_silos_ready
+
+media_batch_item_attempts_before_outage="$(db_query "
+    SELECT object_reconcile_attempts
+    FROM media_operation_items
+    WHERE operation_id = '$media_batch_id';")"
+media_batch_parent_attempts_before_outage="$(db_query "
+    SELECT object_reconcile_attempts
+    FROM media_operations
+    WHERE operation_id = '$media_batch_id';")"
+compose stop object-storage >/dev/null
 db_query "
     UPDATE media_operation_items
     SET object_next_check_at = now() - interval '1 second'
+    WHERE operation_id = '$media_batch_id';
+    UPDATE media_operations
+    SET object_next_check_at = now() - interval '1 second'
     WHERE operation_id = '$media_batch_id';" >/dev/null
-media_batch_item_verified() {
+media_batch_item_outage_recorded() {
     [[ "$(db_query "
-        SELECT count(*)
-        FROM media_operation_items
-        WHERE operation_id = '$media_batch_id'
-          AND object_status = 'stored'
-          AND object_verified_at IS NOT NULL
-          AND object_reconcile_attempts >= 1;")" == "1" ]]
+        SELECT
+          (SELECT object_status || '|' || object_reconcile_attempts || '|' ||
+                  COALESCE(error ->> 'type', '')
+           FROM media_operation_items WHERE operation_id = '$media_batch_id') || '|' ||
+          (SELECT object_status || '|' || object_reconcile_attempts
+           FROM media_operations WHERE operation_id = '$media_batch_id');")" == \
+       "failed|$((media_batch_item_attempts_before_outage + 1))|item_object_reconcile_error|failed|$((media_batch_parent_attempts_before_outage + 1))" ]]
 }
-wait_for "media batch item integrity verification" 75 media_batch_item_verified
-echo "PASS: per-item media integrity claim and signed HEAD verification"
+wait_for "media item storage-outage evidence" 75 media_batch_item_outage_recorded
+
+compose start object-storage >/dev/null
+wait_for "object storage readiness after outage" 60 \
+    curl -fsS "http://127.0.0.1:${OBJECT_STORAGE_PORT}/minio/health/live" >/dev/null
+db_query "
+    UPDATE media_operation_items
+    SET object_next_check_at = now() - interval '1 second'
+    WHERE operation_id = '$media_batch_id';
+    UPDATE media_operations
+    SET object_next_check_at = now() - interval '1 second'
+    WHERE operation_id = '$media_batch_id';" >/dev/null
+media_batch_item_recovered() {
+    [[ "$(db_query "
+        SELECT
+          (SELECT object_status || '|' || object_reconcile_attempts || '|' ||
+                  (object_verified_at IS NOT NULL)::text
+           FROM media_operation_items WHERE operation_id = '$media_batch_id') || '|' ||
+          (SELECT object_status || '|' || object_reconcile_attempts
+           FROM media_operations WHERE operation_id = '$media_batch_id');")" == \
+       "stored|$((media_batch_item_attempts_before_outage + 2))|true|stored|$((media_batch_parent_attempts_before_outage + 2))" ]]
+}
+wait_for "media item verification recovery" 75 media_batch_item_recovered
+
+recreate_service object-storage
+wait_for "replacement object storage readiness" 60 \
+    curl -fsS "http://127.0.0.1:${OBJECT_STORAGE_PORT}/minio/health/live" >/dev/null
+wait_for "Platform readiness after object storage replacement" 90 compose exec -T platform-silo \
+    curl -fsS http://127.0.0.1:5000/ready >/dev/null
+wait_for "Admin API readiness after object storage replacement" 90 compose exec -T admin-api \
+    curl -fsS http://127.0.0.1:5001/ready >/dev/null
+wait_for "Gateway readiness after object storage replacement" 90 \
+    curl -fsS "$gateway_url/ready" >/dev/null
+media_batch_item_size_after_replacement="$(curl -fsSL "$media_batch_item_url" | wc -c | tr -d ' ')"
+assert_equals "$media_batch_item_size" "$media_batch_item_size_after_replacement" \
+    "Signed item download after object storage replacement"
+
+"$container_cli" rm -f "$secondary_platform_container" >/dev/null
+secondary_platform_container=""
+echo "PASS: two Silo item claim, storage outage recovery, and volume-preserving replacement"
 media_batch_archive="${TMPDIR:-/tmp}/scalaapi-${project}-batch.zip"
 python3 - "$gateway_url/v1/images/batches/$media_batch_id/download" \
     "$api_key" "$media_batch_archive" <<'PY'
