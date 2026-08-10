@@ -224,6 +224,7 @@ gemini_request_id="smoke-gemini-${suffix}"
 gemini_stream_request_id="smoke-gemini-stream-${suffix}"
 fault_request_prefix="smoke-fault-${suffix}"
 media_idempotency_key="smoke-media-idem-${suffix}"
+media_batch_idempotency_key="smoke-media-batch-idem-${suffix}"
 chat_price_version="smoke-chat-${suffix}-v1"
 embedding_price_version="smoke-embeddings-${suffix}-v1"
 embedding_jina_price_version="smoke-embeddings-jina-${suffix}-v1"
@@ -2313,6 +2314,32 @@ fi
 assert_equals "stored" \
     "$(db_query "SELECT object_status FROM media_operations WHERE operation_id = '$media_id';")" \
     "Media object status"
+
+media_batch_response="$(curl -fsS "$gateway_url/v1/images/batches" \
+    -H "Authorization: Bearer $api_key" -H "Content-Type: application/json" \
+    -H "Idempotency-Key: $media_batch_idempotency_key" \
+    --data '{"model":"mock-image-1","items":[{"custom_id":"batch-item-1","prompt":"batch object smoke"}]}')"
+media_batch_id="$(jq -er '.id' <<<"$media_batch_response")"
+media_batch_result=""
+media_batch_stored() {
+    media_batch_result="$(curl -fsS "$gateway_url/v1/images/batches/$media_batch_id" \
+        -H "Authorization: Bearer $api_key")" || return 1
+    [[ "$(jq -r '.status' <<<"$media_batch_result")" == "succeeded" ]]
+}
+wait_for "media batch object persistence" 45 media_batch_stored
+media_batch_list="$(curl -fsS "$gateway_url/v1/images/batches" \
+    -H "Authorization: Bearer $api_key")"
+assert_equals "true" "$(jq -er --arg id "$media_batch_id" \
+    '.object == "list" and (.data | any(.id == $id))' <<<"$media_batch_list")" \
+    "Durable media batch list"
+media_batch_items="$(curl -fsS "$gateway_url/v1/images/batches/$media_batch_id/items" \
+    -H "Authorization: Bearer $api_key")"
+assert_equals "true" "$(jq -er \
+    'type == "array" and length == 1 and .[0].custom_id == "mock-1"' <<<"$media_batch_items")" \
+    "Normalized media batch items"
+assert_equals "stored" \
+    "$(db_query "SELECT object_status FROM media_operations WHERE operation_id = '$media_batch_id';")" \
+    "Media batch object status"
 
 terminal_state="$(db_query "
 SELECT

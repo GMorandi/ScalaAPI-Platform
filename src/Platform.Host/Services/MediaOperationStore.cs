@@ -137,6 +137,24 @@ public sealed class MediaOperationStore(
         return await reader.ReadAsync(ct) ? Read(reader) : null;
     }
 
+    public async Task<IReadOnlyList<MediaOperation>> ListBatchesAsync(long apiKeyId,
+        int limit = 100, CancellationToken ct = default)
+    {
+        await using var command = dataSource.CreateCommand($"""
+            SELECT {Projection}
+            FROM media_operations
+            WHERE api_key_id = $1 AND operation_type = 'images_batch_create'
+            ORDER BY created_at DESC, operation_id DESC
+            LIMIT $2
+            """);
+        command.Parameters.AddWithValue(apiKeyId);
+        command.Parameters.AddWithValue(Math.Clamp(limit, 1, 100));
+        var result = new List<MediaOperation>();
+        await using var reader = await command.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct)) result.Add(Read(reader));
+        return result;
+    }
+
     public async Task<MediaOperation?> UpdateAsync(long apiKeyId, string operationId,
         string status, int progress, string? upstreamTaskId = null,
         string? outputMetadata = null, string? outputUrl = null,

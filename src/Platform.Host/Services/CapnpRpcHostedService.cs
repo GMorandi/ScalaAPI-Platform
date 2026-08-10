@@ -1088,6 +1088,26 @@ public class DispatchService
                 "API key is not authorized for this media operation");
         }
 
+        if (req.Action == "list")
+        {
+            var batches = await _mediaOperations.ListBatchesAsync(auth.ApiKeyId);
+            var payload = JsonSerializer.Serialize(new
+            {
+                @object = "list",
+                data = batches.Select(batch => new
+                {
+                    id = batch.OperationId,
+                    @object = "image.batch",
+                    status = batch.Status,
+                    progress = batch.Progress,
+                    output_url = batch.OutputUrl,
+                    error = string.IsNullOrWhiteSpace(batch.Error) ? null : batch.Error,
+                }),
+                has_more = false,
+            });
+            return MediaOperationRpcResult.List(payload);
+        }
+
         if (req.Action == "lookup_idempotency")
         {
             if (operation is null)
@@ -1382,6 +1402,10 @@ public sealed record MediaOperationRpcResult(
     string Status, int Progress, string UpstreamTaskId, string OutputMetadata,
     string OutputUrl, string ContentType, string ErrorCode, string ErrorMessage)
 {
+    public static MediaOperationRpcResult List(string outputMetadata) => new(
+        true, 200, "", "images_batch_list", "completed", 100, "", outputMetadata,
+        "", "", "", "");
+
     public static MediaOperationRpcResult From(MediaOperation operation) => new(
         true, 200, operation.OperationId, operation.OperationType, operation.Status,
         operation.Progress, operation.UpstreamTaskId, operation.OutputMetadata,

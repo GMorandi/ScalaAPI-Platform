@@ -328,6 +328,61 @@ public sealed class MediaOperationStoreTests
     }
 
     [Fact]
+    public async Task BatchListIsOwnerScopedAndReturnsDurableOperations()
+    {
+        var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
+        if (string.IsNullOrWhiteSpace(connectionString)) return;
+
+        await using var dataSource = NpgsqlDataSource.Create(connectionString);
+        var suffix = Guid.NewGuid().ToString("N");
+        var leaseA = $"lease-media-list-a-{suffix}";
+        var leaseB = $"lease-media-list-b-{suffix}";
+        var leaseOther = $"lease-media-list-other-{suffix}";
+        var operationIds = new[]
+        {
+            $"med_batch_a_{suffix}", $"med_batch_b_{suffix}", $"med_batch_other_{suffix}"
+        };
+        try
+        {
+            await InsertLease(dataSource, leaseA, $"request-media-list-a-{suffix}");
+            await InsertLease(dataSource, leaseB, $"request-media-list-b-{suffix}");
+            await InsertLease(dataSource, leaseOther, $"request-media-list-other-{suffix}");
+            var store = new MediaOperationStore(dataSource);
+
+            Assert.True((await store.CreateOrGetAsync(91001, 92001,
+                $"request-media-list-a-{suffix}", leaseA, "images_batch_create",
+                $"idem-list-a-{suffix}", "fingerprint-a", "openai",
+                DateTime.UtcNow.AddHours(1))).Created);
+            Assert.True((await store.CreateOrGetAsync(91001, 92001,
+                $"request-media-list-b-{suffix}", leaseB, "images_batch_create",
+                $"idem-list-b-{suffix}", "fingerprint-b", "openai",
+                DateTime.UtcNow.AddHours(1))).Created);
+            Assert.True((await store.CreateOrGetAsync(91002, 92001,
+                $"request-media-list-other-{suffix}", leaseOther, "images_batch_create",
+                $"idem-list-other-{suffix}", "fingerprint-other", "openai",
+                DateTime.UtcNow.AddHours(1))).Created);
+
+            var listed = await store.ListBatchesAsync(91001);
+            Assert.Equal(2, listed.Count);
+            Assert.All(listed, operation => Assert.Contains(operation.OperationId, operationIds[..2]));
+            Assert.DoesNotContain(listed, operation => operation.OperationId == operationIds[2]);
+        }
+        finally
+        {
+            await using (var cleanupMedia = dataSource.CreateCommand(
+                "DELETE FROM media_operations WHERE operation_id = ANY($1)"))
+            {
+                cleanupMedia.Parameters.AddWithValue(operationIds);
+                await cleanupMedia.ExecuteNonQueryAsync();
+            }
+            await using var cleanupLeases = dataSource.CreateCommand(
+                "DELETE FROM request_leases WHERE lease_token = ANY($1)");
+            cleanupLeases.Parameters.AddWithValue(new[] { leaseA, leaseB, leaseOther });
+            await cleanupLeases.ExecuteNonQueryAsync();
+        }
+    }
+
+    [Fact]
     public async Task ExpiryPreservesHoldBlocksRetryAndAllowsLateSettlement()
     {
         var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
