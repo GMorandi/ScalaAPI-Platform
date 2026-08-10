@@ -143,6 +143,18 @@ public class CapnpResponseSerializationTests
     }
 
     [Fact]
+    public void ResponsesCompactResolvesToDedicatedProviderPath()
+    {
+        var request = new ScalaAPI.Host.Services.DispatchRequest(
+            "hash", "gpt-5.5-codex", "session", "127.0.0.1", "req", [], 0,
+            "openai", null, false, Operation: "responses_compact", HttpMethod: "POST",
+            RequestPath: "/v1/responses/compact", Capability: "responses", RequestQuery: "");
+
+        Assert.Equal("/v1/responses/compact",
+            ResolveUpstreamPath("openai", request, "gpt-5.5-codex"));
+    }
+
+    [Fact]
     public void GeminiStreamingQueryMergesWithRequiredSseFlag()
     {
         var request = new ScalaAPI.Host.Services.DispatchRequest(

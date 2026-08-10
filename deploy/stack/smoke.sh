@@ -190,6 +190,10 @@ responses_malformed_request_id="smoke-responses-malformed-${suffix}"
 responses_malformed_idempotency_key="smoke-responses-malformed-idem-${suffix}"
 responses_stream_request_id="smoke-responses-stream-${suffix}"
 responses_stream_idempotency_key="smoke-responses-stream-idem-${suffix}"
+responses_compact_request_id="smoke-responses-compact-${suffix}"
+responses_compact_idempotency_key="smoke-responses-compact-idem-${suffix}"
+responses_compact_stream_request_id="smoke-responses-compact-stream-${suffix}"
+responses_compact_stream_idempotency_key="smoke-responses-compact-stream-idem-${suffix}"
 concurrent_request_id="smoke-chat-concurrent-${suffix}"
 concurrent_idempotency_key="smoke-chat-concurrent-idem-${suffix}"
 expired_key_request_id="smoke-expired-key-${suffix}"
@@ -1790,25 +1794,50 @@ grep -q 'event: response.output_text.delta' <<<"$responses_stream_body"
 grep -q 'event: response.completed' <<<"$responses_stream_body"
 grep -q 'mock response' <<<"$responses_stream_body"
 
+responses_compact_response="$(curl -sS --max-time 30 --write-out $'\n%{http_code}' \
+    "$gateway_url/v1/responses/compact" \
+    -H "Authorization: Bearer $api_key" -H "Content-Type: application/json" \
+    -H "X-Request-ID: $responses_compact_request_id" \
+    -H "Idempotency-Key: $responses_compact_idempotency_key" \
+    --data '{"model":"gpt-4o","input":[{"role":"user","content":[{"type":"input_text","text":"compact json smoke"}]}],"stream":false}')"
+assert_equals "200" "${responses_compact_response##*$'\n'}" \
+    "OpenAI Responses compact JSON status"
+responses_compact_body="${responses_compact_response%$'\n'*}"
+jq -e '.object == "response" and .status == "completed" and .output[0].type == "compaction" and (.output[0].encrypted_content | startswith("mock-compaction:")) and (.usage.total_tokens == (.usage.input_tokens + .usage.output_tokens))' \
+    <<<"$responses_compact_body" >/dev/null
+
+responses_compact_stream_response="$(curl -sS --max-time 30 --write-out $'\n%{http_code}' \
+    "$gateway_url/v1/responses/compact" \
+    -H "Authorization: Bearer $api_key" -H "Content-Type: application/json" \
+    -H "X-Request-ID: $responses_compact_stream_request_id" \
+    -H "Idempotency-Key: $responses_compact_stream_idempotency_key" \
+    --data '{"model":"gpt-4o","input":[{"role":"user","content":[{"type":"input_text","text":"compact stream smoke"}]}],"stream":true}')"
+assert_equals "200" "${responses_compact_stream_response##*$'\n'}" \
+    "OpenAI Responses compact streaming status"
+responses_compact_stream_body="${responses_compact_stream_response%$'\n'*}"
+grep -q 'event: response.output_item.done' <<<"$responses_compact_stream_body"
+grep -q '"type":"compaction"' <<<"$responses_compact_stream_body"
+grep -q 'event: response.completed' <<<"$responses_compact_stream_body"
+
 responses_settled() {
     [[ "$(db_query "
 SELECT
   (SELECT count(*) FROM request_leases
-   WHERE request_id IN ('$responses_request_id', '$responses_stream_request_id')
+   WHERE request_id IN ('$responses_request_id', '$responses_stream_request_id', '$responses_compact_request_id', '$responses_compact_stream_request_id')
      AND status = 'completed' AND final_cost_usd > 0) || '|' ||
   (SELECT count(*) FROM usage_events
-   WHERE request_id IN ('$responses_request_id', '$responses_stream_request_id')) || '|' ||
+   WHERE request_id IN ('$responses_request_id', '$responses_stream_request_id', '$responses_compact_request_id', '$responses_compact_stream_request_id')) || '|' ||
   (SELECT count(*) FROM usage_logs
-   WHERE request_id IN ('$responses_request_id', '$responses_stream_request_id')) || '|' ||
+   WHERE request_id IN ('$responses_request_id', '$responses_stream_request_id', '$responses_compact_request_id', '$responses_compact_stream_request_id')) || '|' ||
   (SELECT count(*) FROM balance_holds h JOIN request_leases l USING (lease_token)
-   WHERE l.request_id IN ('$responses_request_id', '$responses_stream_request_id')
+   WHERE l.request_id IN ('$responses_request_id', '$responses_stream_request_id', '$responses_compact_request_id', '$responses_compact_stream_request_id')
      AND h.status = 'committed') || '|' ||
   (SELECT count(*) FROM balance_ledger b JOIN request_leases l USING (lease_token)
-   WHERE l.request_id IN ('$responses_request_id', '$responses_stream_request_id')
-     AND b.entry_type = 'usage_debit');")" == "2|2|2|2|2" ]]
+   WHERE l.request_id IN ('$responses_request_id', '$responses_stream_request_id', '$responses_compact_request_id', '$responses_compact_stream_request_id')
+     AND b.entry_type = 'usage_debit');")" == "4|4|4|4|4" ]]
 }
 wait_for "OpenAI Responses settlement" 30 responses_settled
-echo "PASS: OpenAI Responses JSON/SSE requests settled exactly once"
+echo "PASS: OpenAI Responses JSON/SSE/compact requests settled exactly once"
 
 responses_control_released() {
     [[ "$(db_query "

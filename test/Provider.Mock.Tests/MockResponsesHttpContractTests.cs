@@ -96,4 +96,84 @@ public sealed class MockResponsesHttpContractTests :
         using var deletedInputItems = await client.GetAsync($"/v1/responses/{responseId}/input_items");
         Assert.Equal(HttpStatusCode.NotFound, deletedInputItems.StatusCode);
     }
+
+    [Fact]
+    public async Task CompactReturnsCompactionItemForJsonAndSse()
+    {
+        using var client = factory.CreateClient();
+        var payload = new
+        {
+            model = "gpt-4o",
+            input = new[]
+            {
+                new { role = "user", content = new[] { new { type = "input_text", text = "compact smoke" } } },
+            },
+            stream = false,
+        };
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/v1/responses/compact")
+        {
+            Content = JsonContent.Create(payload),
+        };
+        request.Headers.Add("X-Provider-Request-Id", "compact-json-1");
+        using var response = await client.SendAsync(request);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var root = document.RootElement;
+        Assert.Equal("response", root.GetProperty("object").GetString());
+        Assert.Equal("completed", root.GetProperty("status").GetString());
+        Assert.Equal("compaction", root.GetProperty("output")[0].GetProperty("type").GetString());
+        Assert.Contains("compact smoke", root.GetProperty("output")[0].GetProperty("encrypted_content").GetString());
+        var usage = root.GetProperty("usage");
+        Assert.Equal(usage.GetProperty("input_tokens").GetInt32() + usage.GetProperty("output_tokens").GetInt32(),
+            usage.GetProperty("total_tokens").GetInt32());
+
+        var streamPayload = new
+        {
+            model = "gpt-4o",
+            input = new[]
+            {
+                new { role = "user", content = new[] { new { type = "input_text", text = "compact smoke" } } },
+            },
+            stream = true,
+        };
+        using var streamRequest = new HttpRequestMessage(HttpMethod.Post, "/v1/responses/compact")
+        {
+            Content = JsonContent.Create(streamPayload),
+        };
+        streamRequest.Headers.Add("X-Provider-Request-Id", "compact-stream-1");
+        using var streamResponse = await client.SendAsync(streamRequest, HttpCompletionOption.ResponseHeadersRead);
+        Assert.Equal(HttpStatusCode.OK, streamResponse.StatusCode);
+        Assert.StartsWith("text/event-stream", streamResponse.Content.Headers.ContentType?.MediaType);
+        var streamBody = await streamResponse.Content.ReadAsStringAsync();
+        Assert.Contains("event: response.output_item.done", streamBody);
+        Assert.Contains("\"type\":\"compaction\"", streamBody);
+        Assert.Contains("event: response.completed", streamBody);
+    }
+
+    [Fact]
+    public async Task CompactRejectsInvalidInputAndPropagatesProviderScenarios()
+    {
+        using var client = factory.CreateClient();
+        using var invalid = await client.PostAsJsonAsync("/v1/responses/compact", new
+        {
+            model = "gpt-4o",
+            input = "must be an array",
+        });
+        Assert.Equal(HttpStatusCode.BadRequest, invalid.StatusCode);
+
+        using var rateLimited = await client.PostAsJsonAsync("/v1/responses/compact?scenario=429", new
+        {
+            model = "gpt-4o",
+            input = Array.Empty<object>(),
+        });
+        Assert.Equal(HttpStatusCode.TooManyRequests, rateLimited.StatusCode);
+
+        using var malformed = await client.PostAsJsonAsync("/v1/responses/compact?scenario=malformed", new
+        {
+            model = "gpt-4o",
+            input = Array.Empty<object>(),
+        });
+        Assert.Equal(HttpStatusCode.OK, malformed.StatusCode);
+        Assert.Equal("{not-json", await malformed.Content.ReadAsStringAsync());
+    }
 }

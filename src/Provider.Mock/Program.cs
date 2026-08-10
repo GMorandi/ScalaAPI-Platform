@@ -566,6 +566,71 @@ app.MapPost("/v1/messages", async (HttpContext context, CancellationToken cancel
     });
 });
 
+app.MapPost("/v1/responses/compact", async (HttpContext context, CancellationToken cancellationToken) =>
+{
+    using var body = await MockProviderHelpers.ReadJsonAsync(context, cancellationToken);
+    var root = body.RootElement;
+    var scenario = MockProviderHelpers.Scenario(context, root).ToLowerInvariant();
+    if (root.ValueKind != JsonValueKind.Object
+        || !root.TryGetProperty("model", out var modelValue)
+        || modelValue.ValueKind != JsonValueKind.String
+        || string.IsNullOrWhiteSpace(modelValue.GetString())
+        || !root.TryGetProperty("input", out var input)
+        || input.ValueKind != JsonValueKind.Array)
+        return Results.BadRequest(new { error = new { code = "invalid_compact_request" } });
+
+    var model = modelValue.GetString()!;
+    var inputTokens = MockProviderHelpers.EstimateInputTokens(root);
+    var requestId = context.Request.Headers["X-Provider-Request-Id"].FirstOrDefault()
+        ?? MockProviderHelpers.Id("resp_compact");
+    var stream = root.TryGetProperty("stream", out var streamValue)
+        && streamValue.ValueKind == JsonValueKind.True;
+    if (root.TryGetProperty("stream", out streamValue)
+        && streamValue.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+        return Results.BadRequest(new { error = new { code = "invalid_compact_stream" } });
+    if (scenario == "429")
+        return Results.Json(new { error = new { code = "mock_rate_limited" } }, statusCode: 429);
+    if (scenario == "500")
+        return Results.Json(new { error = new { code = "mock_upstream_failure" } }, statusCode: 500);
+    if (!stream && scenario == "malformed")
+        return Results.Text("{not-json", "application/json", statusCode: 200);
+
+    var compactItem = new
+    {
+        id = $"{requestId}_item_0",
+        type = "compaction",
+        status = "completed",
+        encrypted_content = $"mock-compaction:{ResponseInputText(root)}",
+    };
+    var compactResponse = new
+    {
+        id = requestId,
+        @object = "response",
+        status = "completed",
+        model,
+        output = new[] { compactItem },
+        usage = new { input_tokens = inputTokens, output_tokens = 4, total_tokens = inputTokens + 4 },
+    };
+    if (stream)
+    {
+        context.Response.StatusCode = StatusCodes.Status200OK;
+        context.Response.ContentType = "text/event-stream";
+        context.Response.Headers.CacheControl = "no-cache";
+        var events = new (string Type, object Payload)[]
+        {
+            ("response.created", new { type = "response.created", response = new { id = requestId, status = "in_progress", model } }),
+            ("response.output_item.done", new { type = "response.output_item.done", item = compactItem }),
+            ("response.completed", new { type = "response.completed", response = compactResponse }),
+        };
+        foreach (var item in events)
+            await context.Response.WriteAsync(
+                $"event: {item.Type}\ndata: {JsonSerializer.Serialize(item.Payload)}\n\n",
+                cancellationToken);
+        return Results.Empty;
+    }
+    return Results.Json(compactResponse);
+});
+
 app.MapPost("/v1/responses", async (HttpContext context, CancellationToken cancellationToken) =>
 {
     using var body = await MockProviderHelpers.ReadJsonAsync(context, cancellationToken);
