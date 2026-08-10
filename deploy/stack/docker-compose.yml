@@ -94,6 +94,7 @@ services:
       Pricing__Providers__mock__Endpoint: ${PRICING_PROVIDER_MOCK_ENDPOINT:-http://provider-mock:8081/v1/pricing}
       Payments__AllowInsecureProviderEndpoints: ${PAYMENTS_ALLOW_INSECURE_PROVIDER_ENDPOINTS:-true}
       Payments__Providers__mock__Endpoint: ${PAYMENTS_PROVIDER_MOCK_ENDPOINT:-http://provider-mock:8081/v1/payments/checkout}
+      Payments__Providers__mock__RefundEndpoint: ${PAYMENTS_PROVIDER_MOCK_REFUND_ENDPOINT:-http://provider-mock:8081/v1/payments/refunds}
       Payments__Providers__mock__ApiKey: ${PAYMENTS_PROVIDER_MOCK_API_KEY:-mock-payment-key}
       Payments__Providers__stripe__Endpoint: ${PAYMENTS_STRIPE_ENDPOINT:-https://api.stripe.com/v1/checkout/sessions}
       Payments__Providers__stripe__SecretKey: ${PAYMENTS_STRIPE_SECRET_KEY:-}
@@ -148,7 +149,10 @@ services:
       Payments__StripeWebhookToleranceSeconds: ${PAYMENTS_STRIPE_WEBHOOK_TOLERANCE_SECONDS:-300}
       Payments__AllowInsecureProviderEndpoints: ${PAYMENTS_ALLOW_INSECURE_PROVIDER_ENDPOINTS:-true}
       Payments__Providers__mock__Endpoint: ${PAYMENTS_PROVIDER_MOCK_ENDPOINT:-http://provider-mock:8081/v1/payments/checkout}
+      Payments__Providers__mock__RefundEndpoint: ${PAYMENTS_PROVIDER_MOCK_REFUND_ENDPOINT:-http://provider-mock:8081/v1/payments/refunds}
       Payments__Providers__mock__ApiKey: ${PAYMENTS_PROVIDER_MOCK_API_KEY:-mock-payment-key}
+      Payments__Providers__stripe__RefundEndpoint: ${PAYMENTS_STRIPE_REFUND_ENDPOINT:-https://api.stripe.com/v1/refunds}
+      Payments__Providers__stripe__SecretKey: ${PAYMENTS_STRIPE_SECRET_KEY:-}
       PasswordReset__ExposeToken: ${PASSWORD_RESET_EXPOSE_TOKEN:-false}
       EmailVerification__ExposeToken: ${EMAIL_VERIFICATION_EXPOSE_TOKEN:-false}
       Email__Provider: ${EMAIL_PROVIDER:-smtp}

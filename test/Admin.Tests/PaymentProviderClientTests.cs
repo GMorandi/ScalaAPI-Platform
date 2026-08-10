@@ -102,6 +102,59 @@ public sealed class PaymentProviderClientTests
         Assert.Equal("payment_checkout_redirect_invalid", redirectError.Code);
     }
 
+    [Fact]
+    public async Task MockRefundUsesIdempotencyAndValidatesResponse()
+    {
+        HttpRequestMessage? captured = null;
+        string? capturedBody = null;
+        var client = CreateClient(new StubHandler(request =>
+        {
+            captured = request;
+            capturedBody = request.Content?.ReadAsStringAsync().GetAwaiter().GetResult();
+            return JsonResponse("""
+                {"provider_refund_id":"mock_rf_123","status":"succeeded","amount":12.34,"currency":"USD"}
+                """);
+        }), "https://pay.example/v1/checkout", false);
+
+        var result = await client.RefundAsync(new PaymentRefundRequest(
+            42, 12.34m, "USD", "mock_po_42", null, "duplicate charge", "refund-key-1"));
+
+        Assert.Equal("mock_rf_123", result.ProviderRefundId);
+        Assert.Equal("refund-key-1", captured!.Headers.GetValues("Idempotency-Key").Single());
+        Assert.Equal("Bearer mock-key", captured.Headers.Authorization?.ToString());
+        using var body = JsonDocument.Parse(capturedBody!);
+        Assert.Equal("scalaapi-order:42", body.RootElement.GetProperty("merchant_reference").GetString());
+        Assert.Equal(12.34m, body.RootElement.GetProperty("amount").GetDecimal());
+    }
+
+    [Fact]
+    public async Task StripeRefundUsesPaymentIntentAndMinorUnits()
+    {
+        HttpRequestMessage? captured = null;
+        string? body = null;
+        var client = CreateStripeClient(new StubHandler(request =>
+        {
+            captured = request;
+            body = request.Content?.ReadAsStringAsync().GetAwaiter().GetResult();
+            return JsonResponse("""
+                {"id":"re_123","status":"succeeded","amount":1234,"currency":"usd"}
+                """);
+        }), "https://api.stripe.test/v1/checkout/sessions");
+
+        var result = await client.RefundAsync(new PaymentRefundRequest(
+            42, 12.34m, "USD", "cs_123", "pi_123", "customer request", "refund-key-2"));
+
+        Assert.Equal("re_123", result.ProviderRefundId);
+        Assert.Equal("Basic " + Convert.ToBase64String(
+            Encoding.UTF8.GetBytes("sk_test_secret:")),
+            captured!.Headers.Authorization?.ToString());
+        Assert.Equal("refund-key-2", captured.Headers.GetValues("Idempotency-Key").Single());
+        var form = await new FormUrlEncodedContent(ParseForm(body!)).ReadAsStringAsync();
+        Assert.Contains("payment_intent=pi_123", form);
+        Assert.Contains("amount=1234", form);
+        Assert.Contains("metadata%5Border_id%5D=42", form);
+    }
+
     private static MockPaymentProviderClient CreateClient(
         HttpMessageHandler handler, string endpoint, bool allowInsecure)
     {
@@ -110,6 +163,7 @@ public sealed class PaymentProviderClientTests
             new Dictionary<string, string?>
             {
                 ["Payments:Providers:mock:Endpoint"] = endpoint,
+                ["Payments:Providers:mock:RefundEndpoint"] = endpoint,
                 ["Payments:Providers:mock:ApiKey"] = "mock-key",
                 ["Payments:AllowInsecureProviderEndpoints"] = allowInsecure.ToString(),
             }).Build();

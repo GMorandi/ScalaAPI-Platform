@@ -87,6 +87,10 @@ public sealed class MigrationSchemaTests
             ["payment_webhook_events"] = ["provider", "event_id", "event_type", "payload_hash", "status", "attempts", "next_attempt_at"],
             ["payment_orders"] = ["id", "user_id", "amount", "currency", "provider",
                 "provider_order_id", "provider_payment_id", "checkout_url", "status", "idempotency_key"],
+            ["payment_refunds"] = ["id", "payment_order_id", "user_id", "provider",
+                "provider_order_id", "provider_payment_id", "provider_refund_id",
+                "idempotency_key", "request_fingerprint", "amount", "currency", "reason",
+                "status", "provider_status", "error_code", "created_at", "updated_at"],
             ["subscription_events"] = ["subscription_id", "user_id", "event_type", "idempotency_key", "payload"],
             ["user_subscriptions"] = ["user_id", "plan_id", "status", "idempotency_key", "renewal_at",
                 "quota_granted_usd", "quota_used_usd", "quota_reserved_usd"]

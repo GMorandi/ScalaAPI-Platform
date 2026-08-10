@@ -11,12 +11,30 @@ public sealed record PaymentCheckoutRequest(
 public sealed record PaymentCheckoutResult(
     string ProviderOrderId, string CheckoutUrl, string? ProviderPaymentId = null);
 
+public sealed record PaymentRefundRequest(
+    long OrderId,
+    decimal Amount,
+    string Currency,
+    string? ProviderOrderId,
+    string? ProviderPaymentId,
+    string Reason,
+    string IdempotencyKey);
+
+public sealed record PaymentRefundResult(
+    string ProviderRefundId,
+    string Status,
+    decimal Amount,
+    string Currency);
+
 public interface IPaymentProviderClient
 {
     string Provider { get; }
 
     Task<PaymentCheckoutResult> CreateCheckoutAsync(
         PaymentCheckoutRequest request, CancellationToken ct = default);
+
+    Task<PaymentRefundResult> RefundAsync(
+        PaymentRefundRequest request, CancellationToken ct = default);
 }
 
 public sealed class PaymentProviderException(string code) : Exception(code)
@@ -32,6 +50,40 @@ public sealed class MockPaymentProviderClient(
     ILogger<MockPaymentProviderClient> logger) : IPaymentProviderClient
 {
     public string Provider => "mock";
+
+    public async Task<PaymentRefundResult> RefundAsync(
+        PaymentRefundRequest request, CancellationToken ct = default)
+    {
+        var endpointValue = configuration["Payments:Providers:mock:RefundEndpoint"]?.Trim();
+        if (string.IsNullOrWhiteSpace(endpointValue))
+            endpointValue = configuration["Payments:Providers:mock:Endpoint"]?.Trim();
+        if (!Uri.TryCreate(endpointValue, UriKind.Absolute, out var endpoint)
+            || endpoint.Scheme is not ("http" or "https"))
+            throw new PaymentProviderException("payment_provider_not_configured");
+        ValidateRefundRequest(request);
+        var allowInsecure = IsInsecureAllowed(configuration);
+        if (endpoint.Scheme == Uri.UriSchemeHttp && !allowInsecure)
+            throw new PaymentProviderException("payment_provider_https_required");
+
+        using var message = new HttpRequestMessage(HttpMethod.Post, endpoint)
+        {
+            Content = JsonContent.Create(new
+            {
+                merchant_reference = $"scalaapi-order:{request.OrderId}",
+                provider_order_id = request.ProviderOrderId,
+                provider_payment_id = request.ProviderPaymentId,
+                amount = request.Amount,
+                currency = request.Currency,
+                reason = request.Reason,
+            }),
+        };
+        message.Headers.Add("Idempotency-Key", request.IdempotencyKey);
+        var apiKey = configuration["Payments:Providers:mock:ApiKey"]?.Trim();
+        if (!string.IsNullOrWhiteSpace(apiKey))
+            message.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
+        using var response = await SendAsync(message, ct);
+        return await ParseRefundResponseAsync(response, request, ct);
+    }
 
     public async Task<PaymentCheckoutResult> CreateCheckoutAsync(
         PaymentCheckoutRequest request, CancellationToken ct = default)
@@ -121,6 +173,77 @@ public sealed class MockPaymentProviderClient(
             throw new PaymentProviderException("payment_provider_response_invalid");
         return text;
     }
+
+    private async Task<HttpResponseMessage> SendAsync(HttpRequestMessage message, CancellationToken ct)
+    {
+        try
+        {
+            var response = await http.SendAsync(message, HttpCompletionOption.ResponseHeadersRead, ct);
+            if (!response.IsSuccessStatusCode)
+            {
+                response.Dispose();
+                throw new PaymentProviderException("payment_provider_rejected");
+            }
+            return response;
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            throw new PaymentProviderException("payment_provider_timeout");
+        }
+        catch (HttpRequestException ex)
+        {
+            logger.LogWarning(ex, "Payment provider refund request failed");
+            throw new PaymentProviderException("payment_provider_unavailable");
+        }
+    }
+
+    private static async Task<PaymentRefundResult> ParseRefundResponseAsync(
+        HttpResponseMessage response, PaymentRefundRequest request, CancellationToken ct)
+    {
+        if (response.Content.Headers.ContentLength is > 32 * 1024)
+            throw new PaymentProviderException("payment_provider_response_too_large");
+        var body = await response.Content.ReadAsStringAsync(ct);
+        if (body.Length > 32 * 1024)
+            throw new PaymentProviderException("payment_provider_response_too_large");
+        try
+        {
+            using var document = JsonDocument.Parse(body);
+            var root = document.RootElement;
+            var id = ReadRequiredString(root, "provider_refund_id", 128);
+            var status = ReadRequiredString(root, "status", 32).ToLowerInvariant();
+            if (status is not ("succeeded" or "pending" or "failed"))
+                throw new PaymentProviderException("payment_provider_response_invalid");
+            var amount = root.TryGetProperty("amount", out var amountValue)
+                && amountValue.TryGetDecimal(out var parsedAmount) ? parsedAmount : request.Amount;
+            var currency = root.TryGetProperty("currency", out var currencyValue)
+                && currencyValue.ValueKind == JsonValueKind.String
+                ? currencyValue.GetString()?.Trim().ToUpperInvariant() ?? ""
+                : request.Currency;
+            if (amount != request.Amount || currency != request.Currency)
+                throw new PaymentProviderException("payment_provider_response_invalid");
+            return new PaymentRefundResult(id, status, amount, currency);
+        }
+        catch (JsonException)
+        {
+            throw new PaymentProviderException("payment_provider_response_invalid");
+        }
+    }
+
+    private static void ValidateRefundRequest(PaymentRefundRequest request)
+    {
+        if (request.OrderId <= 0 || request.Amount <= 0m || request.Amount > 1_000_000m
+            || decimal.Round(request.Amount, 2) != request.Amount
+            || request.Currency.Length != 3
+            || request.Currency.Any(ch => ch is < 'A' or > 'Z')
+            || string.IsNullOrWhiteSpace(request.ProviderOrderId)
+            || request.Reason.Length > 500
+            || request.IdempotencyKey.Length is < 1 or > 200)
+            throw new PaymentProviderException("payment_refund_request_invalid");
+    }
+
+    private static bool IsInsecureAllowed(IConfiguration configuration) =>
+        bool.TryParse(configuration["Payments:AllowInsecureProviderEndpoints"], out var allowed)
+        && allowed;
 }
 
 public sealed class StripePaymentProviderClient(
@@ -129,6 +252,100 @@ public sealed class StripePaymentProviderClient(
     ILogger<StripePaymentProviderClient> logger) : IPaymentProviderClient
 {
     public string Provider => "stripe";
+
+    public async Task<PaymentRefundResult> RefundAsync(
+        PaymentRefundRequest request, CancellationToken ct = default)
+    {
+        var endpointValue = configuration["Payments:Providers:stripe:RefundEndpoint"]?.Trim()
+            ?? "https://api.stripe.com/v1/refunds";
+        if (!Uri.TryCreate(endpointValue, UriKind.Absolute, out var endpoint)
+            || endpoint.Scheme is not ("http" or "https"))
+            throw new PaymentProviderException("payment_provider_not_configured");
+        var allowInsecure = bool.TryParse(
+            configuration["Payments:AllowInsecureProviderEndpoints"], out var configured)
+            && configured;
+        if (endpoint.Scheme == Uri.UriSchemeHttp && !allowInsecure)
+            throw new PaymentProviderException("payment_provider_https_required");
+        var secret = configuration["Payments:Providers:stripe:SecretKey"]?.Trim();
+        if (string.IsNullOrWhiteSpace(secret) || secret.Length > 512)
+            throw new PaymentProviderException("payment_provider_not_configured");
+        if (request.OrderId <= 0 || request.Amount <= 0m || decimal.Round(request.Amount, 2) != request.Amount
+            || request.Currency.Length != 3 || request.Currency.Any(ch => ch is < 'A' or > 'Z')
+            || string.IsNullOrWhiteSpace(request.ProviderPaymentId)
+            || request.Reason.Length > 500 || request.IdempotencyKey.Length is < 1 or > 200)
+            throw new PaymentProviderException("payment_refund_request_invalid");
+
+        var minorAmount = checked((long)(request.Amount * 100m));
+        var fields = new Dictionary<string, string>
+        {
+            ["payment_intent"] = request.ProviderPaymentId!,
+            ["amount"] = minorAmount.ToString(CultureInfo.InvariantCulture),
+            ["metadata[order_id]"] = request.OrderId.ToString(CultureInfo.InvariantCulture),
+        };
+        fields["reason"] = request.Reason.ToLowerInvariant() switch
+        {
+            "duplicate" => "duplicate",
+            "fraudulent" => "fraudulent",
+            "requested_by_customer" => "requested_by_customer",
+            _ => "requested_by_customer",
+        };
+        if (!string.IsNullOrWhiteSpace(request.Reason))
+            fields["metadata[refund_reason]"] = request.Reason.Length > 500
+                ? request.Reason[..500] : request.Reason;
+        using var message = new HttpRequestMessage(HttpMethod.Post, endpoint)
+        {
+            Content = new FormUrlEncodedContent(fields),
+        };
+        message.Headers.Authorization = new AuthenticationHeaderValue(
+            "Basic", Convert.ToBase64String(Encoding.UTF8.GetBytes(secret + ":")));
+        message.Headers.Add("Idempotency-Key", request.IdempotencyKey);
+        HttpResponseMessage response;
+        try
+        {
+            response = await http.SendAsync(message, HttpCompletionOption.ResponseHeadersRead, ct);
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            throw new PaymentProviderException("payment_provider_timeout");
+        }
+        catch (HttpRequestException ex)
+        {
+            logger.LogWarning(ex, "Stripe refund request failed");
+            throw new PaymentProviderException("payment_provider_unavailable");
+        }
+        using (response)
+        {
+            if (!response.IsSuccessStatusCode)
+                throw new PaymentProviderException("payment_provider_rejected");
+            if (response.Content.Headers.ContentLength is > 32 * 1024)
+                throw new PaymentProviderException("payment_provider_response_too_large");
+            var body = await response.Content.ReadAsStringAsync(ct);
+            if (body.Length > 32 * 1024)
+                throw new PaymentProviderException("payment_provider_response_too_large");
+            try
+            {
+                using var document = JsonDocument.Parse(body);
+                var root = document.RootElement;
+                var id = ReadRequiredString(root, "id", 128);
+                var status = ReadRequiredString(root, "status", 32).ToLowerInvariant();
+                if (status is not ("succeeded" or "pending" or "failed"))
+                    throw new PaymentProviderException("payment_provider_response_invalid");
+                var parsedMinor = root.TryGetProperty("amount", out var amountValue)
+                    && amountValue.TryGetInt64(out var integerAmount) ? integerAmount : minorAmount;
+                var currency = root.TryGetProperty("currency", out var currencyValue)
+                    && currencyValue.ValueKind == JsonValueKind.String
+                    ? currencyValue.GetString()?.Trim().ToUpperInvariant() ?? ""
+                    : request.Currency;
+                if (parsedMinor != minorAmount || currency != request.Currency)
+                    throw new PaymentProviderException("payment_provider_response_invalid");
+                return new PaymentRefundResult(id, status, request.Amount, currency);
+            }
+            catch (JsonException)
+            {
+                throw new PaymentProviderException("payment_provider_response_invalid");
+            }
+        }
+    }
 
     public async Task<PaymentCheckoutResult> CreateCheckoutAsync(
         PaymentCheckoutRequest request, CancellationToken ct = default)
@@ -279,6 +496,15 @@ public sealed class PaymentProviderRouter(
         {
             "mock" => mock.CreateCheckoutAsync(request, ct),
             "stripe" => stripe.CreateCheckoutAsync(request, ct),
+            _ => throw new PaymentProviderException("payment_provider_not_supported"),
+        };
+
+    public Task<PaymentRefundResult> RefundAsync(
+        string provider, PaymentRefundRequest request, CancellationToken ct = default) =>
+        provider switch
+        {
+            "mock" => mock.RefundAsync(request, ct),
+            "stripe" => stripe.RefundAsync(request, ct),
             _ => throw new PaymentProviderException("payment_provider_not_supported"),
         };
 }

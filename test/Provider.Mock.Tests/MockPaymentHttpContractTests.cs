@@ -53,7 +53,40 @@ public sealed class MockPaymentHttpContractTests :
         Assert.StartsWith("http://localhost:8081/checkout/", firstBody?.CheckoutUrl);
     }
 
+    [Fact]
+    public async Task RefundIsBearerAndIdempotencyProtected()
+    {
+        using var client = factory.CreateClient();
+        var payload = new
+        {
+            merchant_reference = "scalaapi-order:2",
+            provider_order_id = "mock_po_2",
+            amount = 12.34m,
+            currency = "USD",
+            reason = "customer request",
+        };
+        using var unauthorized = await client.PostAsJsonAsync("/v1/payments/refunds", payload);
+        Assert.Equal(HttpStatusCode.Unauthorized, unauthorized.StatusCode);
+
+        client.DefaultRequestHeaders.Authorization =
+            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", "mock-payment-key");
+        client.DefaultRequestHeaders.Add("Idempotency-Key", "refund-contract-1");
+        var first = await client.PostAsJsonAsync("/v1/payments/refunds", payload);
+        var second = await client.PostAsJsonAsync("/v1/payments/refunds", payload);
+        Assert.Equal(HttpStatusCode.OK, first.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, second.StatusCode);
+        var firstBody = await first.Content.ReadFromJsonAsync<RefundResponse>();
+        var secondBody = await second.Content.ReadFromJsonAsync<RefundResponse>();
+        Assert.Equal(firstBody?.ProviderRefundId, secondBody?.ProviderRefundId);
+        Assert.StartsWith("mock_rf_", firstBody?.ProviderRefundId);
+        Assert.Equal("succeeded", firstBody?.Status);
+    }
+
     private sealed record CheckoutResponse(
         [property: JsonPropertyName("provider_order_id")] string ProviderOrderId,
         [property: JsonPropertyName("checkout_url")] string CheckoutUrl);
+
+    private sealed record RefundResponse(
+        [property: JsonPropertyName("provider_refund_id")] string ProviderRefundId,
+        [property: JsonPropertyName("status")] string Status);
 }

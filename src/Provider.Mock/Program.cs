@@ -45,6 +45,36 @@ app.MapPost("/v1/payments/checkout", async (HttpRequest request,
         });
 });
 
+app.MapPost("/v1/payments/refunds", async (HttpRequest request,
+    CancellationToken ct) =>
+{
+    if (!string.Equals(request.Headers.Authorization.ToString(),
+        "Bearer mock-payment-key", StringComparison.Ordinal))
+        return Results.Unauthorized();
+    MockPaymentRefundRequest? payload;
+    try
+    {
+        payload = await request.ReadFromJsonAsync<MockPaymentRefundRequest>(ct);
+    }
+    catch (JsonException)
+    {
+        return Results.BadRequest(new { error = "invalid_json" });
+    }
+    if (payload is null)
+        return Results.BadRequest(new { error = "invalid_json" });
+    var result = MockPaymentRefund.Create(payload.MerchantReference,
+        payload.Amount, payload.Currency, request.Headers["Idempotency-Key"].ToString());
+    return result is null
+        ? Results.BadRequest(new { error = "invalid_refund_request" })
+        : Results.Ok(new
+        {
+            provider_refund_id = result.ProviderRefundId,
+            status = result.Status,
+            amount = result.Amount,
+            currency = result.Currency,
+        });
+});
+
 app.MapGet("/v1/pricing", () => Results.Ok(new
 {
     provider = "scalaapi-mock",
@@ -851,3 +881,11 @@ public sealed record MockPaymentCheckoutRequest(
     [property: JsonPropertyName("amount")] decimal Amount,
     [property: JsonPropertyName("currency")] string Currency,
     [property: JsonPropertyName("description")] string? Description);
+
+public sealed record MockPaymentRefundRequest(
+    [property: JsonPropertyName("merchant_reference")] string MerchantReference,
+    [property: JsonPropertyName("amount")] decimal Amount,
+    [property: JsonPropertyName("currency")] string Currency,
+    [property: JsonPropertyName("provider_order_id")] string? ProviderOrderId,
+    [property: JsonPropertyName("provider_payment_id")] string? ProviderPaymentId,
+    [property: JsonPropertyName("reason")] string? Reason);
