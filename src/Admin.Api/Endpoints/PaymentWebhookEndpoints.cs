@@ -1,7 +1,5 @@
 using System.Security.Cryptography;
-using System.Text;
 using System.Text.Json;
-using System.Text.Json.Serialization;
 using Npgsql;
 using ScalaAPI.Admin.Data;
 using ScalaAPI.Admin.Payments;
@@ -9,16 +7,10 @@ using ScalaAPI.Data.Accounting;
 
 namespace ScalaAPI.Admin.Endpoints;
 
-public sealed record PaymentWebhookPayload(
-    [property: JsonPropertyName("event_id")] string EventId,
-    [property: JsonPropertyName("event_type")] string EventType,
-    [property: JsonPropertyName("order_id")] long? OrderId,
-    [property: JsonPropertyName("provider_order_id")] string? ProviderOrderId,
-    [property: JsonPropertyName("amount")] decimal Amount,
-    [property: JsonPropertyName("currency")] string Currency);
-
 public static class PaymentWebhookEndpoints
 {
+    private const int MaxBodyBytes = 256 * 1024;
+
     public static void MapPaymentWebhookEndpoints(this WebApplication app)
     {
         app.MapPost("/payments/webhooks/{provider}", HandleAsync).AllowAnonymous();
@@ -41,29 +33,44 @@ public static class PaymentWebhookEndpoints
         if (string.IsNullOrWhiteSpace(secret))
             return Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
 
-        using var bodyReader = new StreamReader(request.Body, Encoding.UTF8);
-        var bodyText = await bodyReader.ReadToEndAsync(ct);
-        var body = Encoding.UTF8.GetBytes(bodyText);
-        if (!PaymentWebhookVerifier.Verify(secret, body,
-                request.Headers["X-Provider-Signature"].FirstOrDefault()))
-            return Results.Unauthorized();
+        var body = await ReadBodyAsync(request.Body, ct);
+        if (body is null)
+            return Results.StatusCode(StatusCodes.Status413PayloadTooLarge);
 
         PaymentWebhookPayload? payload;
-        try
+        if (provider == "stripe")
         {
-            payload = JsonSerializer.Deserialize<PaymentWebhookPayload>(body,
-                new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            var tolerance = ParseStripeTolerance(configuration);
+            if (!PaymentWebhookVerifier.VerifyStripe(secret, body,
+                    request.Headers["Stripe-Signature"].FirstOrDefault(),
+                    DateTimeOffset.UtcNow, tolerance))
+                return Results.Unauthorized();
+            if (!StripePaymentWebhookParser.TryParse(body, out payload, out var parseError))
+                return Results.BadRequest(new { error = parseError });
         }
-        catch (JsonException)
+        else
         {
-            return Results.BadRequest(new { error = "Invalid webhook JSON" });
+            if (!PaymentWebhookVerifier.Verify(secret, body,
+                    request.Headers["X-Provider-Signature"].FirstOrDefault()))
+                return Results.Unauthorized();
+            try
+            {
+                payload = JsonSerializer.Deserialize<PaymentWebhookPayload>(body,
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            }
+            catch (JsonException)
+            {
+                return Results.BadRequest(new { error = "Invalid webhook JSON" });
+            }
         }
 
         if (payload is null || string.IsNullOrWhiteSpace(payload.EventId)
             || string.IsNullOrWhiteSpace(payload.EventType)
             || payload.Amount <= 0
             || string.IsNullOrWhiteSpace(payload.Currency)
-            || (!payload.OrderId.HasValue && string.IsNullOrWhiteSpace(payload.ProviderOrderId)))
+            || (!payload.OrderId.HasValue
+                && string.IsNullOrWhiteSpace(payload.ProviderOrderId)
+                && string.IsNullOrWhiteSpace(payload.ProviderPaymentId)))
             return Results.BadRequest(new { error = "Incomplete webhook payload" });
 
         var headerEventId = request.Headers["X-Provider-Event-Id"].FirstOrDefault();
@@ -257,9 +264,14 @@ public static class PaymentWebhookEndpoints
         command.Transaction = transaction;
         command.CommandText = payload.OrderId.HasValue
             ? "SELECT id, user_id, amount, currency, status FROM payment_orders WHERE id = $1 AND provider = $2 FOR UPDATE"
-            : "SELECT id, user_id, amount, currency, status FROM payment_orders WHERE provider_order_id = $1 AND provider = $2 FOR UPDATE";
+            : !string.IsNullOrWhiteSpace(payload.ProviderOrderId)
+                ? "SELECT id, user_id, amount, currency, status FROM payment_orders WHERE provider_order_id = $1 AND provider = $2 FOR UPDATE"
+                : "SELECT id, user_id, amount, currency, status FROM payment_orders WHERE provider_payment_id = $1 AND provider = $2 FOR UPDATE";
         command.Parameters.AddWithValue(payload.OrderId.HasValue
-            ? payload.OrderId.Value : payload.ProviderOrderId ?? string.Empty);
+            ? payload.OrderId.Value
+            : !string.IsNullOrWhiteSpace(payload.ProviderOrderId)
+                ? payload.ProviderOrderId!
+                : payload.ProviderPaymentId ?? string.Empty);
         command.Parameters.AddWithValue(provider);
         await using var reader = await command.ExecuteReaderAsync(ct);
         if (!await reader.ReadAsync(ct)) return null;
@@ -281,4 +293,27 @@ public static class PaymentWebhookEndpoints
     private readonly record struct EventRow(string PayloadHash, string Status, long? PaymentId);
     private readonly record struct PaymentRow(long Id, long UserId, decimal Amount,
         string Currency, string Status);
+
+    private static TimeSpan ParseStripeTolerance(IConfiguration configuration)
+    {
+        var configured = int.TryParse(configuration["Payments:StripeWebhookToleranceSeconds"],
+            out var seconds) ? seconds : 300;
+        return TimeSpan.FromSeconds(Math.Clamp(configured, 30, 900));
+    }
+
+    private static async Task<byte[]?> ReadBodyAsync(Stream stream, CancellationToken ct)
+    {
+        await using var buffer = new MemoryStream();
+        var chunk = new byte[8192];
+        var total = 0;
+        while (true)
+        {
+            var read = await stream.ReadAsync(chunk, ct);
+            if (read == 0) break;
+            total += read;
+            if (total > MaxBodyBytes) return null;
+            await buffer.WriteAsync(chunk.AsMemory(0, read), ct);
+        }
+        return buffer.ToArray();
+    }
 }

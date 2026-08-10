@@ -9,7 +9,7 @@ public sealed record PaymentCheckoutRequest(
     long OrderId, decimal Amount, string Currency, string? Description);
 
 public sealed record PaymentCheckoutResult(
-    string ProviderOrderId, string CheckoutUrl);
+    string ProviderOrderId, string CheckoutUrl, string? ProviderPaymentId = null);
 
 public interface IPaymentProviderClient
 {
@@ -209,12 +209,13 @@ public sealed class StripePaymentProviderClient(
                 var root = document.RootElement;
                 var providerOrderId = ReadRequiredString(root, "id", 128);
                 var checkoutUrl = ReadRequiredString(root, "url", 2048);
+                var providerPaymentId = ReadOptionalString(root, "payment_intent", 128);
                 if (!Uri.TryCreate(checkoutUrl, UriKind.Absolute, out var checkout)
                     || checkout.Scheme is not ("http" or "https"))
                     throw new PaymentProviderException("payment_provider_response_invalid");
                 if (checkout.Scheme == Uri.UriSchemeHttp && !allowInsecure)
                     throw new PaymentProviderException("payment_provider_response_https_required");
-                return new PaymentCheckoutResult(providerOrderId, checkoutUrl);
+                return new PaymentCheckoutResult(providerOrderId, checkoutUrl, providerPaymentId);
             }
             catch (JsonException)
             {
@@ -247,6 +248,19 @@ public sealed class StripePaymentProviderClient(
     {
         if (!root.TryGetProperty(name, out var value)
             || value.ValueKind != JsonValueKind.String)
+            throw new PaymentProviderException("payment_provider_response_invalid");
+        var text = value.GetString()?.Trim() ?? "";
+        if (text.Length < 1 || text.Length > maxLength)
+            throw new PaymentProviderException("payment_provider_response_invalid");
+        return text;
+    }
+
+    private static string? ReadOptionalString(JsonElement root, string name, int maxLength)
+    {
+        if (!root.TryGetProperty(name, out var value)
+            || value.ValueKind == JsonValueKind.Null)
+            return null;
+        if (value.ValueKind != JsonValueKind.String)
             throw new PaymentProviderException("payment_provider_response_invalid");
         var text = value.GetString()?.Trim() ?? "";
         if (text.Length < 1 || text.Length > maxLength)

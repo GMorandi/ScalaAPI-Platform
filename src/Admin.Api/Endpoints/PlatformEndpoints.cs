@@ -391,6 +391,7 @@ public static class PlatformEndpoints
                 {
                     id = existing.Id, status = existing.Status, duplicate = true,
                     provider_order_id = existing.ProviderOrderId,
+                    provider_payment_id = existing.ProviderPaymentId,
                     checkout_url = existing.CheckoutUrl,
                 });
 
@@ -425,6 +426,7 @@ public static class PlatformEndpoints
                 .SetColumns(x => new PaymentOrderEntity
                 {
                     ProviderOrderId = checkout.ProviderOrderId,
+                    ProviderPaymentId = checkout.ProviderPaymentId,
                     CheckoutUrl = checkout.CheckoutUrl,
                     Provider = req.Provider,
                 })
@@ -434,6 +436,7 @@ public static class PlatformEndpoints
             {
                 id = req.Id, status = req.Status, duplicate = existing is not null,
                 provider_order_id = checkout.ProviderOrderId,
+                provider_payment_id = checkout.ProviderPaymentId,
                 checkout_url = checkout.CheckoutUrl,
             });
         });

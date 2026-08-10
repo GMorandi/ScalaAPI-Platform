@@ -63,7 +63,7 @@ public sealed class PaymentProviderClientTests
             captured = request;
             capturedBody = request.Content?.ReadAsStringAsync().GetAwaiter().GetResult();
             return JsonResponse("""
-                {"id":"cs_test_123","url":"https://checkout.stripe.com/c/pay/cs_test_123"}
+                {"id":"cs_test_123","url":"https://checkout.stripe.com/c/pay/cs_test_123","payment_intent":"pi_test_123"}
                 """);
         });
         var client = CreateStripeClient(handler, "https://api.stripe.test/v1/checkout/sessions");
@@ -72,6 +72,7 @@ public sealed class PaymentProviderClientTests
             new PaymentCheckoutRequest(42, 12.34m, "USD", "Credit"));
 
         Assert.Equal("cs_test_123", result.ProviderOrderId);
+        Assert.Equal("pi_test_123", result.ProviderPaymentId);
         Assert.Equal("https://checkout.stripe.com/c/pay/cs_test_123", result.CheckoutUrl);
         Assert.Equal("Basic " + Convert.ToBase64String(
             Encoding.UTF8.GetBytes("sk_test_secret:")),

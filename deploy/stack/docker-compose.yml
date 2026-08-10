@@ -144,6 +144,8 @@ services:
       Platform__InternalUrl: http://platform-silo:5000
       Internal__ReconciliationToken: ${INTERNAL_RECONCILIATION_TOKEN:?INTERNAL_RECONCILIATION_TOKEN is required}
       Payments__WebhookSecrets__mock: ${PAYMENTS_WEBHOOK_SECRET_MOCK:-}
+      Payments__WebhookSecrets__stripe: ${PAYMENTS_WEBHOOK_SECRET_STRIPE:-}
+      Payments__StripeWebhookToleranceSeconds: ${PAYMENTS_STRIPE_WEBHOOK_TOLERANCE_SECONDS:-300}
       Payments__AllowInsecureProviderEndpoints: ${PAYMENTS_ALLOW_INSECURE_PROVIDER_ENDPOINTS:-true}
       Payments__Providers__mock__Endpoint: ${PAYMENTS_PROVIDER_MOCK_ENDPOINT:-http://provider-mock:8081/v1/payments/checkout}
       Payments__Providers__mock__ApiKey: ${PAYMENTS_PROVIDER_MOCK_API_KEY:-mock-payment-key}
