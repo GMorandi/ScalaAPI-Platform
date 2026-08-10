@@ -11,7 +11,7 @@ read-only requirements reference and is excluded from builds and runtime.
 | Repository | Commit | Worktree | Active role |
 | --- | --- | --- | --- |
 | `gateway` | `418da3a` | clean | C++ Gateway edge, protocol routing/conversion, Provider transport, and Garnet client |
-| `platform` | `1cc4538` | clean | C# Orleans control plane, PostgreSQL authority, Provider mock, Admin Web, and User Web |
+| `platform` | `1d7ec4f` | clean | C# Orleans control plane, PostgreSQL authority, Provider mock, Admin Web, and User Web |
 | `sub2api` | `43ec48d` | read-only clean | Requirements reference only; no runtime or compatibility dependency |
 
 ## Historical role descriptions
@@ -23,7 +23,7 @@ read-only requirements reference and is excluded from builds and runtime.
 | `sub2api` | `43ec48d` | read-only clean | Requirements catalogue only; never a runtime or compatibility dependency |
 
 The active source snapshot for this document is Platform/Admin Web/User Web
-`1cc4538` and Gateway `418da3a`; both worktrees are clean. The table's longer
+`1d7ec4f` and Gateway `418da3a`; both worktrees are clean. The table's longer
 capability descriptions are retained as inventory context, while this override
 and the evidence below define the current commits.
 
@@ -31,7 +31,7 @@ The current tracked inventory is:
 
 - Gateway: 52 production C++ source/header files, 11 test source files, and 126
   CTest cases.
-- Platform: 121 hand-written production C# files, 5 generated Cap'n Proto/global C# files, 67 test/benchmark C# files, and 259 passing tests: 69 Grain, 83 Host, 46 Admin, and 61 Provider mock tests.
+- Platform: 123 hand-written production C# files, 5 generated Cap'n Proto/global C# files, 68 test/benchmark C# files, and 260 passing tests: 69 Grain, 85 Host, 46 Admin, and 61 Provider mock tests.
   The Admin Web source now has 29 TypeScript/TSX files and 16 page views.
 - Product surface: 129 direct Admin API route declarations, 50 product tables,
   22 SQLSugar entity types, 29 Admin Web TypeScript/TSX files and 16 page views,
@@ -365,8 +365,11 @@ current-source runtime evidence.
   `7d0abc6` now calls the Provider image task/batch cancellation endpoint before
   marking a durable operation cancelled; repeated cancellation is terminally
   idempotent and retains the unknown-charge hold for reconciliation. Object
-  listing/orphan cleanup, restore, retention, and full cancellation/restart
-  coverage remain open.
+  listing is now signed and paginated, and the hosted reconciler compares the
+  `media/` object prefix with PostgreSQL references. Unreferenced objects are
+  deleted only after a configurable 60-minute grace period; referenced and young
+  objects are protected. Restart restore, retention, and full
+  cancellation/restart coverage remain open.
 - Signed payment webhooks, order paid/refunded transitions, stable ledger effects,
   pending-event recovery, subscription purchase/cancel/renew/expiry, and
   transactional redeem-code effects exist as partial commercial foundations.
@@ -527,7 +530,12 @@ normalized items, MinIO object persistence, and the existing full restart/fault/
 reconciliation/Web matrix. Platform `7d0abc6` adds Provider-backed image task/
 batch cancellation, and `scalaapi-media-cancel-0810c` proves the cancel request,
 durable cancelled read, and conservative reconciliation accounting. Object
-listing/orphan cleanup, restart restore, retention, and full batch
+Platform `1d7ec4f` adds signed S3 ListObjectsV2 pagination, a PostgreSQL
+reference-key query, and an orphan pass in the hosted reconciliation worker.
+Only aged, unreferenced `media/` keys are deleted; missing timestamps and newly
+written keys are retained for the configured grace period. Database tests cover
+owner references and young-object protection, while the HTTP contract covers
+continuation signing. Restart restore, retention, and full batch
 download/reconciliation remain follow-on work.
 
 The preceding completed vertical slice is the source-built protocol gate
@@ -592,7 +600,7 @@ mutation semantics beyond read/input_items/cancel/delete, provider-group fault c
 open.
 
 The following detailed bullets are retained as the preceding-slice record; the
-current totals for Platform `1cc4538` and Gateway `418da3a` are 259/259 and
+current totals for Platform `1d7ec4f` and Gateway `418da3a` are 260/260 and
 126/126 respectively:
 
 - Gateway built locally and passed 126/126 CTest cases, including deterministic
@@ -723,8 +731,10 @@ current totals for Platform `1cc4538` and Gateway `418da3a` are 259/259 and
   object-check batch, signed S3-compatible HEAD verification, and a real database
   recovery test. A missing object leaves the business operation `succeeded` and
   marks only metadata `failed`; after the object is restored, the next check clears
-  the error and returns metadata to `stored`. Object listing/orphan cleanup, restore,
-  and full MinIO restart/cancellation evidence remain open.
+  the error and returns metadata to `stored`. Platform `1d7ec4f` adds signed,
+  paginated object listing and a grace-period orphan pass that protects all
+  referenced and young `media/` objects. Restore, retention, and full MinIO
+  restart/cancellation evidence remain open.
 - SEC-01 now has executable request, non-stream response, and SSE event-boundary
   evidence: the canonical Cap'n Proto contract carries bounded request/response
   policy content, Platform evaluates active scoped rules before lease creation or
