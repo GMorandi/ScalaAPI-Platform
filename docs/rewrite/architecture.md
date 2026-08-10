@@ -50,7 +50,10 @@ logging credentials, and normalizes each snapshot to a deterministic checksum. T
 Platform persists source/provider/model metadata and immutable NUMERIC versions in
 PostgreSQL, closes only the prior open version for the same source/model, and leaves
 identical snapshots as idempotent replays. Provider-specific adapters and tokenizers
-must publish into this boundary rather than changing lease settlement logic.
+must publish into this boundary rather than changing lease settlement logic. When
+multiple sources quote the same model, an effective administrative price is
+authoritative over later provider refreshes; lease settlement uses the selected
+immutable NUMERIC version and never reprices an active lease.
 
 Passkey authentication is a native Fido2/WebAuthn boundary. PostgreSQL stores only
 short-lived flow-scoped challenge options and credential public material; private keys

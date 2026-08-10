@@ -11,7 +11,7 @@ read-only requirements reference and is excluded from builds and runtime.
 | Repository | Commit | Worktree | Role |
 | --- | --- | --- | --- |
 | `gateway` | `3da0d33` | clean | C++ HTTP/WebSocket edge, protocol parsing/conversion, versioned OpenAI Chat/Responses, Anthropic Messages, and Gemini request/response/SSE golden contracts, full pairwise provider request/response/error matrix assertions, fail-closed model catalog and token-count validation, bounded Embeddings and Responses validation, streaming, strict Provider media contracts, bounded transport timers, normalized Provider availability errors, shared retryable Platform transport policy, durable usage delivery, authenticated Garnet projections, bounded request/response content-policy RPC evaluation, event-boundary streaming response moderation, and fail-closed response delivery including retryable classifier outages |
-| `platform` | `27c4b74` backend + Admin Web + User Web | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, Provider mock contracts, bounded provider pricing catalog refresh with immutable source/checksum history, media object HEAD reconciliation with retryable missing/mismatch state, native mock and Stripe Checkout Session payment adapters with HTTPS/auth/amount bounds and idempotent pending-order retry, Stripe raw-body webhook verification and event normalization with provider payment-id association, native partial-refund Provider commands with pending/retryable state, cumulative order refund state, independent Provider/ledger refund effects, SKIP LOCKED refund recovery with expiring claims, and one NUMERIC ledger effect per refund, User Web provider selection and checkout links, rotating identity/session/TOTP/OAuth state, native Passkey/WebAuthn ceremonies, encrypted email notification outbox and retry worker, API-key policy and audit, versioned runtime configuration, persistent scheduling and lease/hold/ledger state, atomic subscription quota reservation and settlement, idempotent subscription expiry/renewal worker, audited operator reconciliation, Admin Web incident filtering/run/evidence-backed settle-release workflow with replay-key preservation, content-policy rule CRUD/change/alert operations with an API-intercepted Playwright smoke, atomic audited referral rewards, authenticated and audited operational metrics, bounded redacted audit queries/exports, encrypted proxy and validated TLS profile administration, audited bounded channel monitor checks, auditable user data export, bounded authentication/ceremony cleanup, user announcement read tracking, media/object lifecycle, staged request/response content-policy evaluation with versioned Unicode normalization, explicitly selectable source-owned/OpenAI Moderation classifiers, durable no-TTL policy revision propagation and PostgreSQL-backed Garnet rebuild, operational alert evidence, and redacted audits |
+| `platform` | `3da2e29` backend + Admin Web + User Web | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, Provider mock contracts, bounded provider pricing catalog refresh with immutable source/checksum history and admin-source precedence, media object HEAD reconciliation with retryable missing/mismatch state, native mock and Stripe Checkout Session payment adapters with HTTPS/auth/amount bounds and idempotent pending-order retry, Stripe raw-body webhook verification and event normalization with provider payment-id association, native partial-refund Provider commands with pending/retryable state, cumulative order refund state, independent Provider/ledger refund effects, SKIP LOCKED refund recovery with expiring claims, and one NUMERIC ledger effect per refund, User Web provider selection and checkout links, rotating identity/session/TOTP/OAuth state, native Passkey/WebAuthn ceremonies, encrypted email notification outbox and retry worker, API-key policy and audit, versioned runtime configuration, persistent scheduling and lease/hold/ledger state, atomic subscription quota reservation and settlement, idempotent subscription expiry/renewal worker, audited operator reconciliation, Admin Web incident filtering/run/evidence-backed settle-release workflow with replay-key preservation, content-policy rule CRUD/change/alert operations with an API-intercepted Playwright smoke, source-built OpenAI Moderation empty-stack smoke coverage, atomic audited referral rewards, authenticated and audited operational metrics, bounded redacted audit queries/exports, encrypted proxy and validated TLS profile administration, audited bounded channel monitor checks, auditable user data export, bounded authentication/ceremony cleanup, user announcement read tracking, media/object lifecycle, staged request/response content-policy evaluation with versioned Unicode normalization, explicitly selectable source-owned/OpenAI Moderation classifiers, durable no-TTL policy revision propagation and PostgreSQL-backed Garnet rebuild, operational alert evidence, and redacted audits |
 | `sub2api` | `43ec48d` | read-only clean | Requirements catalogue only; never a runtime or compatibility dependency |
 
 The current tracked inventory is:
@@ -19,7 +19,7 @@ The current tracked inventory is:
 - Gateway: 52 production C++ source/header files, 11 test source files, and 125
   CTest cases.
 - Platform: 119 hand-written production C# files, 3 generated Cap'n Proto C#
-  files, 63 test/benchmark C# files, and 233 tests: 69 Grain, 71 Host, 45 Admin,
+  files, 63 test/benchmark C# files, and 234 tests: 69 Grain, 72 Host, 45 Admin,
   and 48 Provider mock tests.
 - Product surface: 125 direct Admin API route declarations, 50 product tables,
   22 SQLSugar entity types, 25 Admin Web TypeScript/TSX files and 13 page views,
@@ -412,15 +412,13 @@ current-source runtime evidence.
 
 ### Bootstrap and deployment
 
-- The direct source migrator applied product migrations 001-043 to a temporary
-  empty PostgreSQL 17 database and skipped all 43 on replay. Migration 043 makes
-  `openai` an explicit allowed classifier for policy rules and audit rows. The migrator image
-  copies the complete migration directory, so new forward migrations cannot be
-  silently omitted. The prior targeted empty-schema gate applies and replays 43
-  records through migration 042 including Orleans support; the current full Compose
-  image must add migration 043 for 44 records. No source database, snapshot, old key, CDC
-  table, or compatibility mapping is required; the full Compose image gate still
-  needs to be rebuilt against this commit.
+- The direct source migrator applies product migrations 001-043 plus the Orleans
+  baseline to an empty PostgreSQL 17 database and skips all 44 records on replay.
+  Migration 043 makes `openai` an explicit allowed classifier for policy rules and
+  audit rows. The source smoke derives this count from the checked-in migration
+  directory plus the image-owned Orleans schema, so a new forward migration cannot
+  leave the gate stale. No source database, snapshot, old key, CDC table, or
+  compatibility mapping is required.
 - `deploy/stack` independently starts PostgreSQL, authenticated Garnet, MinIO,
   Provider mock, Platform, Gateway, Admin API, Admin Web, and User Web. Image digests pin the
   infrastructure services.
@@ -436,7 +434,7 @@ current-source runtime evidence.
 
 ## Current verification evidence
 
-At Platform/Admin Web/User Web `27c4b74` and Gateway `3da0d33`:
+At Platform/Admin Web/User Web `3da2e29` and Gateway `3da0d33`:
 
 - Gateway built locally and passed 125/125 CTest cases, including deterministic
   fault-hook claim/repeat behavior, terminal SSE detection, provider EOF
@@ -448,7 +446,7 @@ At Platform/Admin Web/User Web `27c4b74` and Gateway `3da0d33`:
   sixteen request pairs, all sixteen response pairs, cross-protocol response
   envelope validation, and cross-protocol error normalization with standard
   status precedence.
-- Platform Release test/build passed with 0 warnings and 0 errors: 233/233 tests,
+- Platform Release test/build passed with 0 warnings and 0 errors: 234/234 tests,
   including 71 Host tests, 69 Grain tests, 45 Admin tests, and 48 Provider mock
   tests. Admin coverage
   includes PostgreSQL-backed TOTP replay, backup-code consumption, lockout,
@@ -762,7 +760,17 @@ At Platform/Admin Web/User Web `27c4b74` and Gateway `3da0d33`:
   public 503/provider_unavailable responses and released every no-charge hold.
 - Garnet authentication returned `PONG`; asynchronous media bootstrapped the empty
   MinIO bucket and a signed URL downloaded the expected 67-byte object.
-- The latest `scalaapi-classifier-20260809d` smoke command exited zero. It
+The current source-built `scalaapi-openai-moderation-0810e` smoke command exited
+zero. It applied and replay-skipped all 44 empty-volume migration records,
+authenticated Garnet routing, exercised OpenAI Moderation response match and
+upstream-unavailable cases as HTTP 400/503, and verified redacted audits,
+warning/critical alerts, one normal lease/usage/debit settlement, and exact
+idempotency replay. Chat, Embeddings, Realtime, Provider faults, restart/recovery,
+reconciliation/operator resolution, and S3 persistence also passed. The cleanup
+trap removed all project containers and volumes; `podman ps -a` was empty.
+
+The following older checkpoint is retained for historical comparison only:
+the `scalaapi-classifier-20260809d` smoke command exited zero. It
   applied 31 empty-volume migration records and skipped all 31 on replay, proved
   request and response content-policy paths, the source-owned external classifier
   and configurable OpenAI Moderation adapter contracts, the complete Provider

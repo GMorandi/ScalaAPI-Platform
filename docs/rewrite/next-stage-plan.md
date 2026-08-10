@@ -2,7 +2,7 @@
 
 ## Checkpoint
 
-The next stage starts from Platform/Admin Web/User Web `27c4b74`, Gateway `3da0d33`, and read-only
+The next stage starts from Platform/Admin Web/User Web `3da2e29`, Gateway `3da0d33`, and read-only
 reference `sub2api@43ec48d`.
 
 The greenfield baseline now starts from empty volumes, uses PostgreSQL as authority,
@@ -60,24 +60,19 @@ through the clean Gateway runtime image, including exactly-once
 lease/usage/hold/ledger settlement; long-connection/backpressure soak, remaining
 boundaries, the worker/multi-silo matrix, and multi-instance scenarios are still
 open.
-The prior source-built `scalaapi-classifier-20260809d` gate applies and
-replays 31 migration records from empty volumes, proves Garnet-authenticated
+The current source-built `scalaapi-openai-moderation-0810e` gate applies and
+replays 44 migration records from empty volumes, proves Garnet-authenticated
 request routing, staged request/response policy, the versioned Unicode evaluator,
-external-classifier match/outage handling, the full Provider fault matrix, media
-persistence, audited reconciliation, and exactly-once restart billing. The
-Unicode request probe matches fullwidth/decomposed/confusable content, redacts its
-audit, and creates no lease. The source-owned external classifier match probe
-returns HTTP 400 and its outage fixture returns HTTP 503; both redact their audit
-and still commit one normal Provider usage debit with exact response replay. A
-response block withholds Provider output but still commits the
-normal Provider usage debit and stores an exact client-facing 400 replay. Content
-rule creation returns its persisted identity, and the Provider mock forces headers
-before the zero-byte disconnect fixture so the intended 503 classification is
-deterministic. Gateway `8f33790` additionally withholds each bounded SSE event
-until response policy approval, emits an OpenAI/Anthropic/Gemini-shaped terminal
-policy error on block or fail-closed evaluation, and preserves the unknown-charge
-hold and idempotency evidence. The same empty-stack run proves the first event is
-not leaked and the retained hold is reconciled later.
+OpenAI Moderation match/unavailable handling, the full Provider fault matrix, media
+persistence, audited reconciliation, and exactly-once restart billing. The OpenAI
+response match returns HTTP 400 and the upstream-unavailable fixture returns HTTP
+503; both redact their audit and retain normal lease/usage/idempotency evidence.
+The same run verifies warning/critical alerts, Chat/Embeddings/Realtime, S3 object
+persistence, and complete cleanup. Production OpenAI remains HTTPS-only; the smoke
+uses an explicit development-only HTTP switch. Gateway `8f33790` additionally
+withholds each bounded SSE event until response policy approval, emits an
+OpenAI/Anthropic/Gemini-shaped terminal policy error on block or fail-closed
+evaluation, and preserves the unknown-charge hold and idempotency evidence.
 
 The completed policy-operations slice is committed as Platform `9fb449c`, with
 worker-order serialization finalized in `caa719e` and the bounded external
@@ -88,16 +83,18 @@ outbox with expiry/retry state, publishes the revision and invalidation counter 
 Garnet, and exposes protected change history. Runtime block, classifier-unavailable,
 and unsupported-evaluator outcomes persist deterministic redacted alert evidence;
 Admin exposes filtered alert queries. Host tests cover Garnet success and retry,
-and `scalaapi-classifier-20260809d` proves empty-stack propagation, classifier
+and the earlier classifier checkpoint proves empty-stack propagation, classifier
 match/outage semantics, and alert queries. Platform `dcdca5e` adds the optional
 OpenAI Moderation adapter and an official-shaped `/v1/moderations` fixture;
 Platform `2992964` adds migration 043 and the tested Admin rule normalizer so the
 adapter is explicitly selectable and persists redacted audit evidence. Platform
 `94e0db8` removes the policy revision TTL and restores the authoritative revision
-plus invalidation version through authenticated cache rebuild after Garnet loss. This
-closes the single-instance operations and both source-owned/OpenAI adapter
-contracts, not cross-process ordering/failure, browser, or collector/dashboard
-gates.
+plus invalidation version through authenticated cache rebuild after Garnet loss. The
+latest source smoke at Platform `3da2e29` closes single-instance runtime execution
+for both source-owned and OpenAI adapter match/unavailable paths; pricing selection
+also prefers an effective administrative quote over a later provider refresh and has
+PostgreSQL test evidence. Cross-process ordering/failure, browser,
+collector/dashboard, measured latency, and long-stream metrics remain release gates.
 
 Provider OAuth credentials now use encrypted versioned state with a single-account
 refresh lease, compare-and-set completion, bounded error evidence, and scheduler
@@ -269,13 +266,7 @@ automated.
 
 ## Next implementation slice
 
-1. Complete the classifier release boundary. Keep the source-owned adapter and mock
-   contract plus the `8f33790` protocol goldens as deterministic CI paths. Exercise
-   the configured OpenAI Moderation adapter in an empty-stack deployment, measure
-   latency/error budgets, prove credential rotation and secret redaction, and cover
-   bounded-buffer overflow, cancellation, and late usage settlement under every
-   stream terminal event.
-2. Extend policy revision propagation and operations to multiple Platform/Gateway
+1. Extend policy revision propagation and operations to multiple Platform/Gateway
    instances. The `15cdfc0` Host test already verifies two concurrent workers do
    not duplicate claims or revision publication, and `94e0db8` proves no-TTL
    revision rebuild after dedicated Garnet key loss. Add separate-process ordered
@@ -283,7 +274,12 @@ automated.
    concurrent rule changes, and alert correlation after worker failure or Garnet
    outage. The single-instance outbox, retry, and alert evidence is complete in
    `15cdfc0`.
-3. Extend operator and browser evidence. Platform `27c4b74` now provides Admin Web
+2. Harden the production OpenAI classifier boundary. Keep the `3da2e29` empty-stack
+   match/unavailable proof and HTTPS-only default. Add measured p95/error budgets,
+   credential rotation and redaction checks, malformed/oversized/timeout/cancellation
+   scenarios through real deployment configuration, and long-stream buffer/late-usage
+   soak.
+3. Extend operator and browser evidence. Platform `3da2e29` provides Admin Web
    rule CRUD, propagation-change history, alert filters, bilingual navigation, and a
    passing Chromium smoke with intercepted `/admin/content-audit/{rules,changes,alerts}`
    contracts. Add live authenticated authorization/audit/replay coverage, User Web
