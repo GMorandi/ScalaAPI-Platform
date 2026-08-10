@@ -6,6 +6,15 @@ Current checkpoint override: Platform/Admin Web/User Web `18daa64`, Gateway
 exactly-once billing on empty volumes. The remaining plan below is unchanged in
 scope but starts after this completed compact slice.
 
+The next bounded implementation slice is the Embeddings provider-profile
+contract. Investigation found that Sub2API resolves mapped model names and
+extracts provider usage in `openai_embeddings.go`, while ScalaAPI currently
+offers only a generic validator and one Provider mock model. Exit requires
+source-owned OpenAI-compatible, Jina-compatible, and Gemini-compatible model
+profiles with deterministic dimensions/token accounting, catalog and golden
+fixtures, and empty-stack exactly-once settlement. Keep GW-07 `partial` until
+this slice and live-adapter evidence are complete.
+
 ## Checkpoint
 
 The next stage starts from Platform/Admin Web/User Web `18daa64`, Gateway
@@ -641,15 +650,15 @@ an expired encrypted credential rotates before dispatch, while the
 binding, account creation, and replay rejection. The remaining work below is
 provider fidelity and release evidence, not a compatibility layer.
 
-The OpenAI Embeddings contract slice is also closed for this checkpoint. Gateway
+The generic OpenAI Embeddings contract slice is also closed for this checkpoint. Gateway
 `6243b2d` bounds input cardinality and dimensions, validates successful float and
 base64 response shape and usage, and retains an unknown-charge lease for a
 malformed Provider payload. Platform `c029b3c` provides deterministic dimension,
 encoding, usage, and fault profiles with HTTP tests; the
 `scalaapi-embeddings-20260809b` empty-stack gate proves two float vectors, one
 base64 vector, NUMERIC settlement, and `502/provider_protocol_error` reconciliation.
-Provider-specific dimensions, tokenizers, and versioned golden fixtures remain
-before GW-07 can become `implemented`.
+Provider-specific dimensions, tokenizers, and versioned golden fixtures are the
+next slice before GW-07 can become `implemented`.
 
 The model catalog/token-count contract slice is closed for this checkpoint at
 Gateway `b27965f` and Platform `c029b3c`: OpenAI entries are unique and complete,

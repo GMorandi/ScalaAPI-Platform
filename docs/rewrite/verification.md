@@ -9,6 +9,14 @@ as historical checkpoints and do not define the current bootstrap or release gat
 The latest source snapshot is Platform/Admin Web/User Web `18daa64` and Gateway
 `992f3fc`.
 
+The next verification gate is the Embeddings provider-profile slice. The
+reference implementation in Sub2API's `openai_embeddings.go` maps model names
+before forwarding and extracts provider usage; the current ScalaAPI gate has
+only one mock model and generic token estimation. The planned gate must prove
+the three source-owned profiles, catalog metadata, deterministic token counts,
+float/base64 dimensions, provider-shaped errors, and one financial effect per
+request on empty volumes.
+
 The latest source-built project `scalaapi-responses-compact-0810b` exited zero.
 It routed exact `POST /v1/responses/compact` JSON and SSE requests through the
 current Gateway, Cap'n Proto, Platform, and Provider mock stack. Both envelopes

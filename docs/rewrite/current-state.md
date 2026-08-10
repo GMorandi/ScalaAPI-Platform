@@ -474,6 +474,30 @@ current-source runtime evidence.
 
 ## Current verification evidence
 
+## Next-module investigation: Embeddings provider profiles
+
+The read-only Sub2API reference implements the OpenAI-compatible Embeddings
+surface in `backend/internal/service/openai_embeddings.go`: it resolves the
+requested model against an account mapping, forwards the normalized
+`/v1/embeddings` request, preserves the upstream response, and extracts input,
+output, cache, and image-token usage for billing. Its tests also exercise a
+Jina-style mapped model and provider-specific upstream URL construction.
+
+ScalaAPI currently has the correct greenfield boundary and generic safety
+checks: Gateway validates input count, requested dimensions, float/base64
+shape, finite values, ordered indexes, and positive usage; Platform forwards
+the capability to `/v1/embeddings`; and the Provider mock exposes only the
+`text-embedding-3-small` profile with a generic character-based token estimate.
+The current empty-stack gate proves float/base64 shape and settlement, but not
+provider-specific dimensions, tokenizer behavior, or model catalog authority.
+
+The next implementation slice therefore adds source-owned provider profiles
+for the seeded OpenAI-compatible, Jina-compatible, and Gemini-compatible
+embedding models, deterministic per-profile token accounting and dimensions,
+catalog entries, Gateway/Provider golden fixtures, and empty-stack settlement
+evidence. This is a new product contract; no Sub2API data, key, URL, or legacy
+mapping is imported at runtime.
+
 The latest completed vertical slice is the source-built protocol gate
 `scalaapi-responses-compact-0810b` (Platform `18daa64`, Gateway `992f3fc`).
 It adds exact, reserved `POST /v1/responses/compact` routing and forwards the
