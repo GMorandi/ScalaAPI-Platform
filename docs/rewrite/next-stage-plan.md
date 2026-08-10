@@ -2,7 +2,7 @@
 
 ## Checkpoint
 
-The next stage starts from Platform/Admin Web `6bc411b`, User Web `44d2096`, Gateway `3da0d33`, and read-only
+The next stage starts from Platform/Admin Web `5ab5b25`, User Web `44d2096`, Gateway `3da0d33`, and read-only
 reference `sub2api@43ec48d`.
 
 The greenfield baseline now starts from empty volumes, uses PostgreSQL as authority,
@@ -170,6 +170,11 @@ evidence-backed settle/release submission with a stable idempotency key per sele
 command, so network retries replay the same decision.
 Browser authorization, operator audit visibility, and the wider monitor/backup
 surface remain separate release gates.
+Platform `5ab5b25` adds the COM-01 native mock checkout boundary: migration 038,
+pending local order persistence before the provider call, deterministic merchant
+references, a bounded HTTPS/bearer adapter, checkout URL persistence, pending-order
+retry, and idempotency conflict semantics. Production payment adapters, webhook and
+refund reconciliation, exact-boundary crash injection, and browser checkout remain.
 Migration `023-auth-oauth-states.sql` now adds one-time OAuth state with S256 PKCE:
 the Admin start flow returns provider-bound state/verifier/challenge material,
 PostgreSQL stores only hashes, and callback consumption binds the exact redirect URI
@@ -712,7 +717,7 @@ Then expand the remaining 58-domain work in this order:
    delivery, anti-enumeration,
    and browser tests for the new User Web/API-key/usage/order/
    subscription flows.
-4. Complete payment adapters/reconciliation/refunds, subscription payment confirmation
+4. Complete production payment adapters/reconciliation/refunds, subscription payment confirmation
    and quota reconciliation, redeem, signup referral
    attribution/anti-abuse, notification, and commercial audit flows.
 5. Complete policy/security, observability, multi-region/HA, load and long-connection
