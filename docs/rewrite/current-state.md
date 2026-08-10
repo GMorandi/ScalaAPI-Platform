@@ -11,7 +11,7 @@ read-only requirements reference and is excluded from builds and runtime.
 | Repository | Commit | Worktree | Role |
 | --- | --- | --- | --- |
 | `gateway` | `3da0d33` | clean | C++ HTTP/WebSocket edge, protocol parsing/conversion, versioned OpenAI Chat/Responses, Anthropic Messages, and Gemini request/response/SSE golden contracts, full pairwise provider request/response/error matrix assertions, fail-closed model catalog and token-count validation, bounded Embeddings and Responses validation, streaming, strict Provider media contracts, bounded transport timers, normalized Provider availability errors, shared retryable Platform transport policy, durable usage delivery, authenticated Garnet projections, bounded request/response content-policy RPC evaluation, event-boundary streaming response moderation, and fail-closed response delivery including retryable classifier outages |
-| `platform` | `d8788dd` backend + Admin Web + User Web | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, Provider mock contracts, bounded provider pricing catalog refresh with immutable source/checksum history, media object HEAD reconciliation with retryable missing/mismatch state, native mock and Stripe Checkout Session payment adapters with HTTPS/auth/amount bounds and idempotent pending-order retry, Stripe raw-body webhook verification and event normalization with provider payment-id association, native partial-refund Provider commands with pending/retryable state, cumulative order refund state, independent Provider/ledger refund effects, SKIP LOCKED refund recovery with expiring claims, and one NUMERIC ledger effect per refund, User Web provider selection and checkout links, rotating identity/session/TOTP/OAuth state, native Passkey/WebAuthn ceremonies, encrypted email notification outbox and retry worker, API-key policy and audit, versioned runtime configuration, persistent scheduling and lease/hold/ledger state, atomic subscription quota reservation and settlement, idempotent subscription expiry/renewal worker, audited operator reconciliation, Admin Web incident filtering/run/evidence-backed settle-release workflow with replay-key preservation, atomic audited referral rewards, authenticated and audited operational metrics, bounded redacted audit queries/exports, encrypted proxy and validated TLS profile administration, audited bounded channel monitor checks, auditable user data export, bounded authentication/ceremony cleanup, user announcement read tracking, media/object lifecycle, staged request/response content-policy evaluation with versioned Unicode normalization, bounded source-owned external classifier adapter, durable policy revision propagation through Garnet, operational alert evidence, and redacted audits |
+| `platform` | `dcdca5e` backend + Admin Web + User Web | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, Provider mock contracts, bounded provider pricing catalog refresh with immutable source/checksum history, media object HEAD reconciliation with retryable missing/mismatch state, native mock and Stripe Checkout Session payment adapters with HTTPS/auth/amount bounds and idempotent pending-order retry, Stripe raw-body webhook verification and event normalization with provider payment-id association, native partial-refund Provider commands with pending/retryable state, cumulative order refund state, independent Provider/ledger refund effects, SKIP LOCKED refund recovery with expiring claims, and one NUMERIC ledger effect per refund, User Web provider selection and checkout links, rotating identity/session/TOTP/OAuth state, native Passkey/WebAuthn ceremonies, encrypted email notification outbox and retry worker, API-key policy and audit, versioned runtime configuration, persistent scheduling and lease/hold/ledger state, atomic subscription quota reservation and settlement, idempotent subscription expiry/renewal worker, audited operator reconciliation, Admin Web incident filtering/run/evidence-backed settle-release workflow with replay-key preservation, atomic audited referral rewards, authenticated and audited operational metrics, bounded redacted audit queries/exports, encrypted proxy and validated TLS profile administration, audited bounded channel monitor checks, auditable user data export, bounded authentication/ceremony cleanup, user announcement read tracking, media/object lifecycle, staged request/response content-policy evaluation with versioned Unicode normalization, bounded source-owned classifier plus configurable HTTPS OpenAI Moderation adapter, durable policy revision propagation through Garnet, operational alert evidence, and redacted audits |
 | `sub2api` | `43ec48d` | read-only clean | Requirements catalogue only; never a runtime or compatibility dependency |
 
 The current tracked inventory is:
@@ -19,8 +19,8 @@ The current tracked inventory is:
 - Gateway: 52 production C++ source/header files, 11 test source files, and 125
   CTest cases.
 - Platform: 116 hand-written production C# files, 3 generated Cap'n Proto C#
-  files, 58 test/benchmark C# files, and 213 tests: 69 Grain, 57 Host, 43 Admin,
-  and 44 Provider mock tests.
+  files, 58 test/benchmark C# files, and 226 tests: 69 Grain, 66 Host, 43 Admin,
+  and 48 Provider mock tests.
 - Product surface: 125 direct Admin API route declarations, 50 product tables,
   22 SQLSugar entity types, 24 Admin Web TypeScript/TSX files and 12 page views,
   plus 17 User Web TypeScript/TSX files and 11 user views.
@@ -68,8 +68,13 @@ current-source runtime evidence.
   NFKC, case folding, format-character removal, and a bounded confusable map. Local
   matching is deterministic; the configured external classifier uses the bounded
   source-owned HTTP adapter contract and fails closed with retryable 503 semantics
-  on transport, timeout, or 429/5xx outcomes. Malformed or unknown classifier
-  responses fail closed as protocol errors.
+  on transport, timeout, or 429/5xx outcomes. The optional `openai` classifier
+  uses the official HTTPS Moderations endpoint with a bounded Bearer credential,
+  configured moderation model, 129 KiB input and 16 KiB response limits, and a
+  single `results[].flagged` decision; malformed, unauthorized, oversized, or
+  unknown responses fail closed as protocol errors. The OpenAI adapter does not
+  send policy patterns upstream: an `openai` rule is a global flagged-content
+  decision, while local/source-owned rules retain pattern matching.
   Policy mutations are recorded in a PostgreSQL outbox, propagated to Garnet with
   expiring claims and retry evidence, and policy blocks/classifier outages create
   deterministic alert rows queryable by Admin. A Host test now runs two concurrent
@@ -426,7 +431,7 @@ current-source runtime evidence.
 
 ## Current verification evidence
 
-At Platform/Admin Web `d8788dd`, User Web `d8788dd`, and Gateway `3da0d33`:
+At Platform/Admin Web/User Web `dcdca5e` and Gateway `3da0d33`:
 
 - Gateway built locally and passed 125/125 CTest cases, including deterministic
   fault-hook claim/repeat behavior, terminal SSE detection, provider EOF
@@ -438,8 +443,8 @@ At Platform/Admin Web `d8788dd`, User Web `d8788dd`, and Gateway `3da0d33`:
   sixteen request pairs, all sixteen response pairs, cross-protocol response
   envelope validation, and cross-protocol error normalization with standard
   status precedence.
-- Platform Release test/build passed with 0 warnings and 0 errors: 213/213 tests,
-  including 57 Host tests, 69 Grain tests, 43 Admin tests, and 44 Provider mock
+- Platform Release test/build passed with 0 warnings and 0 errors: 226/226 tests,
+  including 66 Host tests, 69 Grain tests, 43 Admin tests, and 48 Provider mock
   tests. Admin coverage
   includes PostgreSQL-backed TOTP replay, backup-code consumption, lockout,
   recovery, OAuth provider/redirect/verifier binding, one-time state consumption,
@@ -502,12 +507,15 @@ At Platform/Admin Web `d8788dd`, User Web `d8788dd`, and Gateway `3da0d33`:
   HTTP adapter with explicit `content`, `pattern`, and `evaluator_version` JSON,
   bounded request/response bytes, a configurable 100-5000ms timeout, and stable
   fail-closed mappings for transport, status, timeout, and malformed outcomes.
-  The Provider mock implements the same contract with deterministic match,
-  outage, malformed, oversized, and timeout fixtures; Host and Provider HTTP
-  contract tests cover it and the empty-stack gate proves match/block 400 and
-  outage 503 with redacted audit plus one normal settlement/replay. Multi-instance
-  ordering, runtime browser evidence, a production provider, and long-stream
-  classifier metrics remain open, so the domain is still `partial`.
+  Platform `dcdca5e` adds the configurable HTTPS OpenAI Moderation adapter:
+  Bearer authentication, `omni-moderation-latest` default model, 129 KiB input /
+  16 KiB response bounds, single-result `flagged` validation, and the same stable
+  fail-closed mappings. The Provider mock exposes an official-shaped
+  `/v1/moderations` fixture with deterministic flag, no-match, unavailable,
+  malformed, oversized, and timeout scenarios; Host and Provider HTTP tests cover
+  authentication, parsing, bounds, and failure behavior. Multi-instance ordering,
+  runtime browser evidence, and long-stream classifier metrics remain open, so the
+  domain is still `partial`.
 - AUTH-01 coverage includes email/password boundary tests, PostgreSQL-backed login
   identity/IP lockout and success reset tests, independent-IP accounting,
   registration-IP lockout, migration schema assertions, and duplicate insert
@@ -744,7 +752,8 @@ At Platform/Admin Web `d8788dd`, User Web `d8788dd`, and Gateway `3da0d33`:
 - The latest `scalaapi-classifier-20260809d` smoke command exited zero. It
   applied 31 empty-volume migration records and skipped all 31 on replay, proved
   request and response content-policy paths, the source-owned external classifier
-  match/outage contract, the complete Provider fault matrix,
+  and configurable OpenAI Moderation adapter contracts, the complete Provider
+  fault matrix,
   Garnet-authenticated routing, media persistence, reconciliation, operator
   settlement/replay, and post-restart billing. The Unicode request scenario matched
   fullwidth/decomposed/confusable content, redacted its audit snippet, and created

@@ -2,7 +2,7 @@
 
 ## Checkpoint
 
-The next stage starts from Platform/Admin Web `d8788dd`, User Web `d8788dd`, Gateway `3da0d33`, and read-only
+The next stage starts from Platform/Admin Web/User Web `dcdca5e`, Gateway `3da0d33`, and read-only
 reference `sub2api@43ec48d`.
 
 The greenfield baseline now starts from empty volumes, uses PostgreSQL as authority,
@@ -89,9 +89,11 @@ Garnet, and exposes protected change history. Runtime block, classifier-unavaila
 and unsupported-evaluator outcomes persist deterministic redacted alert evidence;
 Admin exposes filtered alert queries. Host tests cover Garnet success and retry,
 and `scalaapi-classifier-20260809d` proves empty-stack propagation, classifier
-match/outage semantics, and alert queries. This closes the single-instance
-operations and source-owned adapter package, not the production classifier,
-cross-process ordering/failure, browser, or collector/dashboard gates.
+match/outage semantics, and alert queries. Platform `dcdca5e` adds the optional
+OpenAI Moderation adapter and an official-shaped `/v1/moderations` fixture. This
+closes the single-instance operations and both source-owned/OpenAI adapter
+contracts, not cross-process ordering/failure, browser, or collector/dashboard
+gates.
 
 Provider OAuth credentials now use encrypted versioned state with a single-account
 refresh lease, compare-and-set completion, bounded error evidence, and scheduler
@@ -237,7 +239,7 @@ concurrency, and idempotent group spend remain covered by the Grain suite; HTTP
 group CRUD validation, distributed rate-window contention, and multi-Silo fallback
 fault evidence remain release work.
 
-The `SEC-01` runtime slice is active at Gateway `8f33790` and Platform `15cdfc0`.
+The `SEC-01` runtime slice is active at Gateway `8f33790` and Platform `dcdca5e`.
 The canonical dispatch contract carries bounded request and response content.
 Platform applies request `log`/`block` rules before scheduler/lease activity and
 response rules after Provider validation but before non-stream delivery. Both stages
@@ -246,19 +248,22 @@ the Provider body, preserve one normal usage debit, and replay the client-facing
 400. Migration 029 adds the versioned `unicode-confusable-v1` evaluator, classifier
 selection, policy revision state, and audit redaction metadata. Gateway
 event-boundary streaming enforcement is source-tested and empty-stack verified;
-the classifier boundary uses a source-owned HTTP contract with explicit JSON fields,
-bounded request/response bytes, timeout control, and deterministic fail-closed
+the classifier boundary uses a source-owned HTTP contract plus an optional OpenAI
+Moderation HTTPS adapter. The latter sends Bearer-authenticated `input` and
+configured `model`, validates one `results[].flagged` result, and applies bounded
+request/response bytes and timeout control with deterministic fail-closed
 status/schema/transport mappings. Migration 030 now provides durable single-instance
 change propagation and alert evidence; Platform `15cdfc0` adds a concurrent
 two-worker PostgreSQL claim/publication assertion. The domain remains `partial`
-until a production provider, cross-process ordering/failure, browser authorization,
-and long-stream metrics are automated.
+until cross-process ordering/failure, browser authorization, and long-stream
+metrics are automated.
 
 ## Next implementation slice
 
 1. Complete the classifier release boundary. Keep the source-owned adapter and mock
-   contract plus the `8f33790` protocol goldens as deterministic CI paths; add a
-   production provider adapter with measured latency budgets and prove
+   contract plus the `8f33790` protocol goldens as deterministic CI paths. Exercise
+   the configured OpenAI Moderation adapter in an empty-stack deployment, measure
+   latency/error budgets, prove credential rotation and secret redaction, and cover
    bounded-buffer overflow, cancellation, and late usage settlement under every
    stream terminal event.
 2. Extend policy revision propagation and operations to multiple Platform/Gateway
