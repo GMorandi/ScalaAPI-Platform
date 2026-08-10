@@ -2,7 +2,7 @@
 
 ## Checkpoint
 
-The next stage starts from Platform/Admin Web/User Web `dcdca5e`, Gateway `3da0d33`, and read-only
+The next stage starts from Platform/Admin Web/User Web `2992964`, Gateway `3da0d33`, and read-only
 reference `sub2api@43ec48d`.
 
 The greenfield baseline now starts from empty volumes, uses PostgreSQL as authority,
@@ -90,7 +90,9 @@ and unsupported-evaluator outcomes persist deterministic redacted alert evidence
 Admin exposes filtered alert queries. Host tests cover Garnet success and retry,
 and `scalaapi-classifier-20260809d` proves empty-stack propagation, classifier
 match/outage semantics, and alert queries. Platform `dcdca5e` adds the optional
-OpenAI Moderation adapter and an official-shaped `/v1/moderations` fixture. This
+OpenAI Moderation adapter and an official-shaped `/v1/moderations` fixture;
+Platform `2992964` adds migration 043 and the tested Admin rule normalizer so the
+adapter is explicitly selectable and persists redacted audit evidence. This
 closes the single-instance operations and both source-owned/OpenAI adapter
 contracts, not cross-process ordering/failure, browser, or collector/dashboard
 gates.
@@ -239,7 +241,7 @@ concurrency, and idempotent group spend remain covered by the Grain suite; HTTP
 group CRUD validation, distributed rate-window contention, and multi-Silo fallback
 fault evidence remain release work.
 
-The `SEC-01` runtime slice is active at Gateway `8f33790` and Platform `dcdca5e`.
+The `SEC-01` runtime slice is active at Gateway `8f33790` and Platform `2992964`.
 The canonical dispatch contract carries bounded request and response content.
 Platform applies request `log`/`block` rules before scheduler/lease activity and
 response rules after Provider validation but before non-stream delivery. Both stages
@@ -252,7 +254,9 @@ the classifier boundary uses a source-owned HTTP contract plus an optional OpenA
 Moderation HTTPS adapter. The latter sends Bearer-authenticated `input` and
 configured `model`, validates one `results[].flagged` result, and applies bounded
 request/response bytes and timeout control with deterministic fail-closed
-status/schema/transport mappings. Migration 030 now provides durable single-instance
+status/schema/transport mappings. Migration 043 and the Admin validator now accept
+only `local`, `external`, or `openai`; a real empty-schema test proves an `openai`
+rule can be persisted, evaluated, and audited. Migration 030 provides durable single-instance
 change propagation and alert evidence; Platform `15cdfc0` adds a concurrent
 two-worker PostgreSQL claim/publication assertion. The domain remains `partial`
 until cross-process ordering/failure, browser authorization, and long-stream
