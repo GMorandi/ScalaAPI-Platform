@@ -6,7 +6,18 @@ The source-built smoke above is the current release evidence. Rows later in this
 document that mention earlier classifier projects or migration counts are retained
 as historical checkpoints and do not define the current bootstrap or release gate.
 
-The latest source snapshot is Gateway `3da0d33`, Platform/Admin Web/User Web `49f68d5`.
+The latest source snapshot is Gateway `3da0d33`, Platform/Admin Web/User Web `a5cb552`.
+
+Platform `a5cb552` adds the first public User Web surface for UI-06. The
+unauthenticated `/models` route reads the Gateway public `/v1/models` contract,
+`/status` reads Gateway `/ready`, and `/terms` plus `/privacy` render versioned
+legal notices. The User Web nginx image proxies only those two Gateway paths;
+authenticated `/auth` and `/user` paths remain unchanged. `npm run typecheck`,
+`npm run build`, and the checked-in Playwright Chromium smoke passed (`2/2`),
+covering public navigation, table caption/scoped headers, status feedback, legal
+navigation, and access without a session. A source-built Compose probe of the
+proxy and a deployment-specific accessibility scan remain required before UI-06
+can be promoted to `implemented`.
 
 The latest source-built project `scalaapi-policy-reclaim-0810e` exited zero. It
 built the current source images, applied 44 empty-volume migration records and
@@ -368,7 +379,7 @@ supersedes them where commit, image, or late-usage results differ.
 | Realtime smoke client | `python3 deploy/stack/realtime_smoke.py` passed against Release `Provider.Mock`; `bash -n deploy/stack/smoke.sh` and `git diff --check` passed | Validates HTTP/1.1 upgrade, masked session input, deterministic session/usage frames, close handling, and full-stack exactly-once lease/usage/hold/ledger settlement using the clean Gateway image |
 | Platform Release build | Passed, 0 warnings and 0 errors | Includes Platform Host, Admin API, migrator, Provider mock, and benchmark assembly |
 | Admin Web | Platform `3da2e29`; typecheck, production build, and Playwright Chromium smoke passed | Provider account form supports static headers and OAuth refresh metadata/replacement while list/details expose health but not stored secrets; reconciliation filters incidents, runs manual checks, and submits evidence-backed settle/release commands with a stable key per selected command and replay-safe responses. Content Policy manages rules and exposes propagation changes and alert filters. The browser smoke intercepts the three content-policy GET contracts, verifies route navigation and tab rendering, and stores a full-page screenshot; live authorization/API and broader operations workflows remain |
-| User Web | Platform `94e0db8`; `npm run typecheck` and `npm run build` passed in `user-web` | Independent Solid client covers auth, OAuth callback, password recovery with action-link hydration, email verification with action-link hydration, dashboard announcements/read tracking, scoped usage, API keys, provider-selectable payment checkout links, active-plan subscription purchase/cancel/renew with reserved/remaining quota, redeem codes, referral summary, profile, TOTP setup/verify/disable, and Passkey registration/revocation/sign-in option conversion; browser tests, real authenticator ceremony, mail receipt, and backup-code sign-in remain |
+| User Web | Platform `a5cb552`; `npm run typecheck`, `npm run build`, and `npm run test:e2e` passed in `user-web` (`2/2`) | Independent Solid client covers auth, OAuth callback, password recovery with action-link hydration, email verification with action-link hydration, dashboard announcements/read tracking, scoped usage, API keys, provider-selectable payment checkout links, active-plan subscription purchase/cancel/renew with reserved/remaining quota, redeem codes, referral summary, profile, TOTP setup/verify/disable, Passkey registration/revocation/sign-in option conversion, plus public model/status/terms/privacy routes; authenticated browser workflows, real authenticator ceremony, mail receipt, backup-code sign-in, source-built public proxy, and deployment-specific accessibility scan remain |
 | Provider OAuth credential refresh | Grain, Host, and Provider Mock tests pass for a single-account refresh lease, concurrent exclusion, CAS completion, rotated token/header hydration, safe metadata updates, persisted bounded failure/backoff, HTTPS-only token endpoint, bounded form response, secret-free errors, and real HTTP rotation/revocation/malformed/oversized response contracts. The `scalaapi-oauth-refresh-20260809` empty-stack gate proves an expired seeded credential rotates to version 2 before a billable Chat dispatch and never appears in Admin details | Add provider-specific parameters, refresh audit history, multi-Silo contention, and real provider adapter fixtures |
 | Scheduler benchmark dry run | 4/4, exit 0; no-match negative probe exits 1 | Dependency injection and child-result propagation pass; not performance evidence |
 | Contract generation and digest | Canonical and Gateway vendor schemas match at the content-policy extension; fixed-scale pricing round-trip passed; official Cap'n Proto 1.0.2 commit `1a0e12c0` plus local `capnpc-csharp` 1.3.118 regenerated all three C# files byte-identically; an intentional drift probe exited 1 with a unified diff | Platform's single-repository generated-output gate is blocking; atomic cross-private-repository schema release coordination remains |
