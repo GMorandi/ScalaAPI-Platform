@@ -570,10 +570,13 @@ app.MapPost("/v1/responses", async (HttpContext context, CancellationToken cance
     var root = body.RootElement;
     var model = MockProviderHelpers.Model(root);
     var inputTokens = MockProviderHelpers.EstimateInputTokens(root);
+    var scenario = MockProviderHelpers.Scenario(context, root).ToLowerInvariant();
     var requestId = context.Request.Headers["X-Provider-Request-Id"].FirstOrDefault()
         ?? MockProviderHelpers.Id("resp");
     var stream = root.TryGetProperty("stream", out var streamValue)
         && streamValue.ValueKind == JsonValueKind.True;
+    if (!stream && scenario == "malformed")
+        return Results.Text("{not-json", "application/json", statusCode: 200);
     var usage = new { input_tokens = inputTokens, output_tokens = 5,
         total_tokens = inputTokens + 5 };
     var completedResponse = new

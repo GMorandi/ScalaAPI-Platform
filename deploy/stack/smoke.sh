@@ -184,6 +184,8 @@ responses_request_id="smoke-responses-${suffix}"
 responses_idempotency_key="smoke-responses-idem-${suffix}"
 responses_get_request_id="smoke-responses-get-${suffix}"
 responses_delete_request_id="smoke-responses-delete-${suffix}"
+responses_malformed_request_id="smoke-responses-malformed-${suffix}"
+responses_malformed_idempotency_key="smoke-responses-malformed-idem-${suffix}"
 responses_stream_request_id="smoke-responses-stream-${suffix}"
 responses_stream_idempotency_key="smoke-responses-stream-idem-${suffix}"
 concurrent_request_id="smoke-chat-concurrent-${suffix}"
@@ -1731,6 +1733,24 @@ jq -e --arg response_id "$responses_id" \
     '.id == $response_id and .object == "response.deleted" and .deleted == true' \
     <<<"$responses_delete_body" >/dev/null
 
+responses_malformed_response="$(curl -sS --max-time 30 --write-out $'\n%{http_code}' \
+    "$gateway_url/v1/responses?scenario=malformed" \
+    -H "Authorization: Bearer $api_key" -H "Content-Type: application/json" \
+    -H "X-Request-ID: $responses_malformed_request_id" \
+    -H "Idempotency-Key: $responses_malformed_idempotency_key" \
+    --data '{"model":"gpt-4o","input":"responses malformed smoke","stream":false}')"
+assert_equals "502" "${responses_malformed_response##*$'\n'}" \
+    "OpenAI Responses malformed provider status"
+jq -e '.error.type == "provider_error"' \
+    <<<"${responses_malformed_response%$'\n'*}" >/dev/null
+responses_malformed_reconciled() {
+    [[ "$(db_query "SELECT count(*) FROM request_leases WHERE request_id = '$responses_malformed_request_id' AND status = 'reconciliation_needed';")" == "1" ]] \
+        && [[ "$(db_query "SELECT count(*) FROM usage_events WHERE request_id = '$responses_malformed_request_id';")" == "0" ]] \
+        && [[ "$(db_query "SELECT count(*) FROM balance_ledger b JOIN request_leases l USING (lease_token) WHERE l.request_id = '$responses_malformed_request_id' AND b.entry_type = 'usage_debit';")" == "0" ]]
+}
+wait_for "OpenAI Responses malformed reconciliation hold" 30 responses_malformed_reconciled
+echo "PASS: Malformed OpenAI Responses provider payload retained an unknown-charge hold"
+
 responses_stream_response="$(curl -sS --max-time 30 --write-out $'\n%{http_code}' \
     "$gateway_url/v1/responses" \
     -H "Authorization: Bearer $api_key" -H "Content-Type: application/json" \
@@ -2215,7 +2235,7 @@ SELECT
   (SELECT count(*) FROM balance_ledger l JOIN request_leases r ON r.lease_token = l.lease_token WHERE r.request_id = '$chat_request_id' AND l.entry_type = 'usage_debit' AND l.amount = -r.final_cost_usd);")"
 # The streaming response-policy case intentionally retains one additional
 # unknown-charge lease so the first SSE event can be withheld before blocking.
-expected_unknown_incidents=$((11 + gateway_hook_unknown_incidents))
+expected_unknown_incidents=$((12 + gateway_hook_unknown_incidents))
 expected_open_after_resolution=$((expected_unknown_incidents - 1))
 assert_equals "0|${expected_unknown_incidents}|${expected_unknown_incidents}|0|0|1|1|1|1" \
     "$terminal_state" "Terminal billing invariants"
