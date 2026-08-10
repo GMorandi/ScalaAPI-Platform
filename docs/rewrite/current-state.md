@@ -10,8 +10,8 @@ read-only requirements reference and is excluded from builds and runtime.
 
 | Repository | Commit | Worktree | Active role |
 | --- | --- | --- | --- |
-| `gateway` | `22f65d4` | clean | C++ Gateway edge, protocol routing/conversion, Provider transport, and Garnet client |
-| `platform` | `5f04bfd` | clean | C# Orleans control plane, PostgreSQL authority, Provider mock, Admin Web, and User Web |
+| `gateway` | `418da3a` | clean | C++ Gateway edge, protocol routing/conversion, Provider transport, and Garnet client |
+| `platform` | `f75fbfb` | clean | C# Orleans control plane, PostgreSQL authority, Provider mock, Admin Web, and User Web |
 | `sub2api` | `43ec48d` | read-only clean | Requirements reference only; no runtime or compatibility dependency |
 
 ## Historical role descriptions
@@ -23,7 +23,7 @@ read-only requirements reference and is excluded from builds and runtime.
 | `sub2api` | `43ec48d` | read-only clean | Requirements catalogue only; never a runtime or compatibility dependency |
 
 The active source snapshot for this document is Platform/Admin Web/User Web
-`5f04bfd` and Gateway `22f65d4`; both worktrees are clean. The table's longer
+`f75fbfb` and Gateway `418da3a`; both worktrees are clean. The table's longer
 capability descriptions are retained as inventory context, while this override
 and the evidence below define the current commits.
 
@@ -31,7 +31,7 @@ The current tracked inventory is:
 
 - Gateway: 52 production C++ source/header files, 11 test source files, and 126
   CTest cases.
-- Platform: 120 hand-written production C# files, 5 generated Cap'n Proto/global C# files, 66 test/benchmark C# files, and 256 passing tests: 69 Grain, 82 Host, 46 Admin, and 59 Provider mock tests.
+- Platform: 120 hand-written production C# files, 5 generated Cap'n Proto/global C# files, 66 test/benchmark C# files, and 257 passing tests: 69 Grain, 83 Host, 46 Admin, and 59 Provider mock tests.
   The Admin Web source now has 29 TypeScript/TSX files and 16 page views.
 - Product surface: 129 direct Admin API route declarations, 50 product tables,
   22 SQLSugar entity types, 29 Admin Web TypeScript/TSX files and 16 page views,
@@ -503,7 +503,7 @@ Garnet-authenticated stack, fault/restart, reconciliation/operator, realtime
 soak, media/S3, and Web checks; the smoke exited zero and removed its Compose
 project, volumes, and containers.
 
-## Images/media lifecycle investigation
+## Images/media lifecycle implementation evidence
 
 The read-only Sub2API reference exposes a broader batch-image lifecycle than the
 current ScalaAPI edge: authenticated batch create/list/models/items/download,
@@ -511,16 +511,17 @@ cancel, record deletion, output deletion, and per-item content download. Its
 public service keeps owner identity on every read or mutation, uses bounded cursor
 queries, and treats cancellation/output cleanup as durable state transitions.
 
-ScalaAPI already persists asynchronous image/video operations in PostgreSQL and
-copies successful Provider bytes into S3-compatible storage. Gateway routes single
-task polling, batch create/get/items/download/cancel/delete/output deletion, but
-`GET /v1/images/batches` is not yet a durable Platform list command: it falls
-through to the Provider path. Batch `items` currently returns the Provider poll
-document rather than its `data` array, and cancellation marks the operation and
-lease ambiguous without an idempotent object-cleanup boundary. The next bounded
-slice therefore closes durable batch listing and normalized item projection first;
-provider cancellation, object listing/orphan cleanup, restart restore, and full
-batch download/reconciliation remain follow-on work.
+ScalaAPI now persists asynchronous image/video operations in PostgreSQL and copies
+successful Provider bytes into S3-compatible storage. Gateway `418da3a` routes
+`GET /v1/images/batches` to the internal media-operation RPC and projects batch
+`/items` reads to the public `data` array. Platform `f75fbfb` adds a bounded,
+newest-first `ListBatchesAsync` query isolated by API key and emits a stable
+`object: list` envelope without Provider contact. The real Host test proves that
+another API key cannot see the rows, and the source-built gate
+`scalaapi-media-batch-0810a` proves batch creation, durable list visibility,
+normalized items, MinIO object persistence, and the existing full restart/fault/
+reconciliation/Web matrix. Provider cancellation, object listing/orphan cleanup,
+restart restore, and full batch download/reconciliation remain follow-on work.
 
 The preceding completed vertical slice is the source-built protocol gate
 `scalaapi-responses-compact-0810b` (Platform `18daa64`, Gateway `992f3fc`).
@@ -584,7 +585,7 @@ mutation semantics beyond read/input_items/cancel/delete, provider-group fault c
 open.
 
 The following detailed bullets are retained as the preceding-slice record; the
-current totals for Platform `5f04bfd` and Gateway `22f65d4` are 256/256 and
+current totals for Platform `f75fbfb` and Gateway `418da3a` are 257/257 and
 126/126 respectively:
 
 - Gateway built locally and passed 125/125 CTest cases, including deterministic

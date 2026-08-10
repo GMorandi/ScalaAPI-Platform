@@ -1,10 +1,10 @@
 # ScalaAPI Next Stage Plan
 
-Current checkpoint override: Platform/Admin Web/User Web `5f04bfd`, Gateway
-`22f65d4`, and read-only `sub2api@43ec48d`. The latest gate is
-`scalaapi-embeddings-profiles-0810a`; it passed three source-owned Embeddings
-profiles and exactly-once billing on empty volumes. The remaining plan below is
-unchanged in scope but starts after this completed profile slice.
+Current checkpoint override: Platform/Admin Web/User Web `f75fbfb`, Gateway
+`418da3a`, and read-only `sub2api@43ec48d`. The latest gate is
+`scalaapi-media-batch-0810a`; it passed the durable image batch list/items slice
+and the full empty-volume matrix. The remaining plan below starts after this
+completed media boundary.
 
 The Embeddings provider-profile slice is complete for this checkpoint. Its
 source-owned OpenAI-compatible, Jina-compatible, and Gemini-compatible models
@@ -13,10 +13,17 @@ fixtures, Provider HTTP contracts, and four-request empty-stack settlement
 evidence. GW-07 remains `partial` until live adapter and provider-specific
 production fidelity evidence is added.
 
+The image batch list/items slice is also complete for this checkpoint. Gateway
+`418da3a` sends the collection read to Platform and normalizes item responses;
+Platform `f75fbfb` enforces API-key isolation and bounded newest-first reads. The
+source smoke proves the real batch create, list, item projection, and object
+storage path. Cancellation propagation, orphan cleanup, restart restore, and
+complete batch download/reconciliation remain partial.
+
 ## Checkpoint
 
-The next stage starts from Platform/Admin Web/User Web `5f04bfd`, Gateway
-`22f65d4`, and read-only reference `sub2api@43ec48d`.
+The next stage starts from Platform/Admin Web/User Web `f75fbfb`, Gateway
+`418da3a`, and read-only reference `sub2api@43ec48d`.
 
 The greenfield baseline now starts from empty volumes, uses PostgreSQL as authority,
 Garnet as the only distributed projection/cache, S3-compatible object storage for
@@ -246,11 +253,11 @@ stored media, retries missing/mismatched/transient metadata, and restores a row 
 lease. Object listing/orphan cleanup, restore, cancellation/restart, and full
 MinIO lifecycle evidence remain explicit follow-on gates.
 
-The next bounded media slice is batch listing and item projection. The read-only
+The completed bounded media slice was batch listing and item projection. The read-only
 Sub2API batch handlers define owner-scoped, cursor-bounded list/items reads that
 return public metadata rather than provider response envelopes or reference-image
-bytes. ScalaAPI must route `GET /v1/images/batches` to a PostgreSQL-backed
-Platform query, return a stable `object: list` envelope, and project a successful
+bytes. ScalaAPI now routes `GET /v1/images/batches` to a PostgreSQL-backed
+Platform query, returns a stable `object: list` envelope, and projects a successful
 batch's `data` array for `/items`. Repeated reads must be side-effect free and a
 wrong API key must return 404 without contacting the Provider. The implementation
 retains ScalaAPI's PostgreSQL operation identity and imports no Sub2API schema or
