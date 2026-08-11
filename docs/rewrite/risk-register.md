@@ -32,6 +32,15 @@ real Gateway/Cap'n Proto/Platform path. Live upstream adapters, provider-owned
 tokenizer/pricing authority, long-stream backpressure, and multi-Silo provider
 contention remain P0/P1 controls.
 
+Credential-boundary investigation after `024b215` found that encrypted account
+entries are currently copied verbatim into target auth headers. The mock accepts
+requests without native authentication, so existing green protocol/accounting
+evidence does not prove an Anthropic or Gemini production request would authenticate.
+This remains P0 until Platform deterministically compiles semantic keys,
+Gateway validates the target and prevents client-key override, the mock rejects
+missing/wrong native headers, and a fresh empty-stack gate proves both success and
+secret-free rejection without changing lease/hold/debit invariants.
+
 Current baseline note: Platform `eecaff6` and Gateway `d1e4a85` passed the
 source-built `scalaapi-responses-input-items-0810b` empty-volume gate. OpenAI Moderation
 response match and upstream-unavailable paths produced redacted audits, warning or

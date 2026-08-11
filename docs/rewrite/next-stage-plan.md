@@ -58,6 +58,50 @@ authority, Garnet projections, Provider mock, and the current incident/operator
 workflow remain fixed foundations. Any contract change updates both repositories
 and digest/generation gates in one release.
 
+### Provider-native credential slice investigated after `024b215`
+
+Repository evidence shows that Platform currently decrypts the account credential
+dictionary and copies it verbatim to Cap'n Proto `authHeaders`; Gateway then inserts
+every target pair into the upstream request. The seeded semantic key `api_key`
+therefore does not authenticate either native Provider. Existing mock endpoints do
+not validate authentication, so the passing runtime gate cannot close this gap.
+Sub2API was inspected only as a requirements catalogue; none of its header aliases,
+fallback keys, routes, or stored state are accepted as a compatibility contract.
+
+Implement this slice in the following order:
+
+1. Add one Platform credential compiler with case-insensitive platform
+   normalization, bounded material, CR/LF rejection, deterministic header names,
+   collision rejection, and secret-free error codes. Static `api_key` is required
+   for native Anthropic and Gemini accounts. Anthropic uses `x-api-key` plus
+   `anthropic-version` (default `2023-06-01`) and an optional bounded
+   `anthropic-beta`; Gemini uses `x-goog-api-key`. No key is placed in a query,
+   path, log, metric, or error.
+2. Use the same compiler for initial dispatch, active-lease recovery, media polling,
+   and Provider cancellation by compiling during credential hydration. Preserve
+   OAuth rotation as an explicit header-name/scheme contract, and reject collisions
+   between refreshed OAuth material and compiled static material.
+3. Validate Cap'n Proto target auth headers in Gateway before creating an HTTP
+   operation: bounded count/name/value, no hop-by-hop or routing headers, no
+   duplicates, and only Platform-produced authentication may reach upstream.
+   Inbound `Authorization` and `x-api-key` remain client authentication and must not
+   override the target.
+4. Make Provider mock Anthropic Messages/count-tokens and Gemini
+   models/generate/stream routes validate exact native headers. Add negative HTTP
+   contracts for absent/wrong key, version, and leaked generic `api_key`; keep
+   failures secret-free.
+5. Extend the empty-volume smoke with successful Anthropic JSON/SSE/count-tokens and
+   Gemini models/JSON/SSE through the new header checks, then assert the existing
+   exactly-once lease/hold/usage/debit outcomes and that Provider 401 rejection is
+   no-charge. Run the complete existing matrix before promotion.
+
+Exit requires source tests in Grains, Host serialization, Gateway forwarding, and
+Provider.Mock plus a current-source empty-stack run. The successful run must prove
+the native methods and escaped paths already selected by Platform, exact header
+delivery, no client-key override, bounded secret-free failures, and unchanged
+terminal accounting. This closes only the native credential transport slice;
+provider-owned pricing/tokenizers, live external credentials, and longer soak remain.
+
 Exit: provider-native fault/cancellation/refresh matrices pass for OpenAI,
 Anthropic, and Gemini; Responses and video lifecycles have API/state-machine,
 automated-test, and empty-stack evidence; the one-hour media and long-connection

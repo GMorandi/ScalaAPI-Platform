@@ -367,6 +367,27 @@ current-source runtime evidence.
   usage, ledger, and idempotency state. The final accounting gate now expects
   nineteen retained unknown-charge incidents before the audited operator settle
   (eighteen remain open after the one audited settle).
+- The provider-native credential boundary is not yet implemented at this
+  checkpoint. `AccountGrain.Hydrate` currently decrypts every static
+  `Credentials` entry and exposes the dictionary directly as `authHeaders` in the
+  Cap'n Proto target. Consequently the source-owned seed value `api_key` reaches
+  Gateway as a literal `api_key` HTTP header instead of Anthropic `x-api-key` or
+  Gemini `x-goog-api-key`, and no component adds the required Anthropic version
+  header. Gateway does keep inbound client authentication separate from the
+  Platform target, but it does not validate target header names. The current
+  successful mock runs therefore prove protocol shape and accounting, not native
+  upstream authentication fidelity.
+- The next source-owned contract treats stored static credentials as semantic
+  material rather than client-controlled headers. Platform must compile
+  `api_key` to `Authorization: Bearer` for OpenAI-compatible accounts,
+  `x-api-key` plus a bounded `anthropic-version` (default `2023-06-01`) for
+  Anthropic, and `x-goog-api-key` for Gemini. Optional Anthropic beta material is
+  bounded and emitted only as `anthropic-beta`. Provider-mock scenario selection
+  is test metadata, not a secret or a public pass-through convention. Gateway
+  must reject invalid/duplicate target auth headers and must not forward the
+  caller's API key to the Provider. Native mock endpoints must return a
+  secret-free 401/400 response when their own header contract is absent or
+  malformed so the empty-stack success path becomes direct transport evidence.
 - Media polling copies Provider bytes to S3-compatible storage and persists object
   ownership metadata. Signed downloads, output deletion, and terminal operation
   deletion work. Platform `44d2096` adds migration 037 and a metadata-only HEAD

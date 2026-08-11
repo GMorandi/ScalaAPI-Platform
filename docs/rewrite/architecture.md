@@ -222,6 +222,15 @@ available.
 
 Gateway owns the streaming Provider transport behind a common adapter contract.
 Platform owns account selection, credential protection, scheduling, and settlement.
+Stored Provider credentials are semantic encrypted fields, not an unbounded list of
+HTTP headers. Platform alone compiles those fields into the source-owned target:
+OpenAI-compatible API keys become Bearer authorization, Anthropic keys become
+`x-api-key` with an explicit `anthropic-version` and optional bounded
+`anthropic-beta`, and Gemini keys become `x-goog-api-key`. Gateway validates the
+target header set, never lets inbound client authentication replace it, and never
+includes credential values in errors, logs, metrics, or response headers. Provider
+base URLs remain account configuration while Platform owns the escaped native path
+and method; API keys are not appended to URLs.
 The source-owned Provider mock deterministically exercises JSON, SSE, 429, 500,
 delay, disconnect, and malformed usage. Normalized request fields select faults,
 while separate seeded accounts isolate scheduler cooldown and retry state. Gateway
