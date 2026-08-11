@@ -813,7 +813,12 @@ current totals for Platform `d7cad26` and Gateway `418da3a` are 271/271 and
   transport ambiguities: a signed PUT reset after 16 body bytes and a committed
   upstream PUT whose 200 response is lost. Both retry without duplicate objects,
   usage, or billing. The source smoke now covers single-Silo object-storage and
-  PostgreSQL network partitions; longer contention soak and HA/offsite storage
+  PostgreSQL network partitions; `7768132` adds a configurable source-owned
+  contention gate that repeatedly re-due cycles the same completed batch while
+  two Silos are live, checks deterministic keys and exactly-once billing, and
+  optionally restarts the secondary Silo at cycle boundaries. The 60-second
+  `scalaapi-media-contention-rejoin-0811f` run completed two cycles and two
+  secondary rejoin events. A full one-hour release run and HA/offsite storage
   evidence remain open.
 - SEC-01 now has executable request, non-stream response, and SSE event-boundary
   evidence: the canonical Cap'n Proto contract carries bounded request/response

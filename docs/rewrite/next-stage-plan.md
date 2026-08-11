@@ -437,10 +437,13 @@ automated.
 1. **Media worker contention soak (P0).** The source-owned fault proxy and
    `scalaapi-media-partition-0811d` gate now cover mid-body and post-commit
    response-loss PUT outcomes plus rootless object-storage and PostgreSQL
-   partitions of one secondary Silo. Preserve claim fencing, terminal lease/hold
-   state, owner isolation, and orphan grace periods under a one-hour run with
-   repeated due work and Silo rejoin. Exit when the soak records zero duplicate
-   billing effects, duplicate final objects, or premature deletion.
+   partitions of one secondary Silo. Platform `7768132` adds a configurable
+   repeated-due-work gate with deterministic parent/item key and accounting
+   invariants plus optional secondary restart/rejoin. The 60-second
+   `scalaapi-media-contention-rejoin-0811f` check passed two cycles and two
+   rejoins. Run the documented 3600-second gate before closing this slice; exit
+   only when it records zero duplicate billing effects, duplicate final objects,
+   or premature deletion.
 2. **Protocol and Provider fidelity (P0).** Add provider-specific malformed,
    timeout, disconnect-before-output, partial-output, cancellation, and retry
    fixtures for Anthropic Messages and Gemini generation, then complete the

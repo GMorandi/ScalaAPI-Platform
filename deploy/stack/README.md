@@ -96,6 +96,22 @@ debit. This uses a temporary private bridge with explicit dependency aliases,
 so it works with rootless Podman and Docker without host firewall privileges.
 The cleanup trap detaches every temporary endpoint before removing that bridge.
 
+For the longer worker-contention gate, keep the secondary Silo active after the
+partition checks and repeatedly force the same completed batch due. The gate
+expects one fenced parent/item claim per cycle, stable deterministic object keys,
+one usage event/debit, and no early metadata deletion:
+
+```sh
+MEDIA_CONTENTION_SOAK_SECONDS=3600 \
+MEDIA_CONTENTION_SOAK_RESTART_EVERY=30 \
+MEDIA_CONTENTION_SOAK_INTERVAL_SECONDS=1 \
+deploy/stack/smoke.sh
+```
+
+`MEDIA_CONTENTION_SOAK_SECONDS` defaults to `0` for the normal gate. When the
+restart interval is positive, the secondary Silo is restarted at that cycle
+boundary and must become ready and rejoin Orleans before the next cycle.
+
 Use `CONTAINER_CLI=podman` or `CONTAINER_CLI=docker` to select the runtime. Set
 `KEEP_STACK=1` to retain a failed or successful project for inspection, and set
 the `SMOKE_*_PORT` variables documented in `smoke.sh` when the default host ports

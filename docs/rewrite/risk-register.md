@@ -1,6 +1,6 @@
 # ScalaAPI Rewrite Risk Register
 
-Active source evidence is Platform `d7cad26`, Gateway `418da3a`, and the
+Active source evidence is Platform `7768132`, Gateway `418da3a`, and the
 `scalaapi-media-partition-0811d` empty-volume gate. Embeddings profiles, Responses
 compact, and the media batch list/items boundary pass their source-owned
 contracts and exactly-once settlement; broader provider and adapter fidelity
@@ -13,8 +13,11 @@ missing/mismatched recopy with retry, real two-Silo claim contention, object-sto
 outage/restart, force-replacement with volume preservation, deterministic-key
 partial-PUT convergence, retention DELETE outage/retry, real mid-body PUT reset,
 and committed-response-loss recovery now pass. Rootless single-Silo
-object-storage/PostgreSQL partition recovery also passes; one-hour
-worker-contention soak and HA/offsite storage remain open.
+object-storage/PostgreSQL partition recovery also passes. Platform `7768132`
+adds the source-owned repeated due-work/rejoin gate; the 60-second
+`scalaapi-media-contention-rejoin-0811f` check completed two cycles and two
+secondary rejoins without duplicate objects or billing. The full one-hour run
+and HA/offsite storage remain open.
 Cancel acknowledgement deliberately retains the unknown-charge hold for
 reconciliation; all object repair remains independent from settled billing and
 imports no Sub2API state semantics.
