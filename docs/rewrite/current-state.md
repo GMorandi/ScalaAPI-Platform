@@ -284,6 +284,11 @@ current-source runtime evidence.
   acquired refresh attempt appends a non-secret PostgreSQL audit row with source,
   version transition, bounded outcome code, endpoint host, and duration; Admin can
   page and filter that history by account, source, and outcome.
+  The current implementation still treats OAuth `invalid_grant` as a retryable
+  30-second refresh failure. It has no terminal credential-revoked state, cannot
+  reject a stale refresh completion after revocation, and has no runtime-native
+  Anthropic/Gemini revoked-token fixture. This is the active credential slice;
+  no Sub2API token state or refresh implementation will be reused.
 - Admin can publish/close effective price versions. New leases snapshot version
   identity and every NUMERIC unit rate, so mutable configuration cannot reprice an
   existing request.
@@ -598,6 +603,14 @@ hold, creates no usage/log/debit, and makes no retry. Credential refresh/revocat
 and actual downstream cancellation remain separate follow-on slices because their
 generic state machines exist but lack provider-specific configuration and runtime
 fixtures.
+
+The source investigation for that follow-on also confirmed that Gateway returns
+from `StreamPipe` on a failed client write and destroys the Photon HTTP operation,
+which closes the Provider connection. The generic OpenAI smoke proves caller-side
+disconnect accounting, but the native Anthropic/Gemini fixtures do not yet delay a
+second write or expose a Provider-side cancellation observation. The next runtime
+gate must prove both sides of that transport boundary and retain the existing
+unknown-charge lease/hold invariants.
 
 ## Embeddings profile implementation evidence
 

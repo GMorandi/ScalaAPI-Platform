@@ -51,6 +51,16 @@ four-attempt native 500 exhaustion remains the retry evidence. Provider-specific
 credential refresh/revocation, actual native downstream cancellation, live adapters,
 and long-stream backpressure remain open P0/P1 controls.
 
+The 2026-08-11 lifecycle investigation makes those two open controls concrete.
+OAuth `invalid_grant` is currently retried after a short scheduler backoff rather
+than clearing secrets and entering a terminal revoked state, so a withdrawn
+credential can generate repeated token-endpoint traffic. Gateway closes the
+Provider operation only after it observes a failed downstream write; native
+Anthropic/Gemini fixtures do not yet prove that the Provider request token is
+cancelled. Terminal revocation with stale-lease fencing, replacement recovery,
+and Provider-side native cancellation observations are blocking evidence for the
+next slice.
+
 Current baseline note: Platform `eecaff6` and Gateway `d1e4a85` passed the
 source-built `scalaapi-responses-input-items-0810b` empty-volume gate. OpenAI Moderation
 response match and upstream-unavailable paths produced redacted audits, warning or

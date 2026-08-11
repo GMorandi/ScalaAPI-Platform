@@ -44,6 +44,47 @@ next-stage work.
 5. Make the source-built Gateway + Platform empty-volume gate blocking in hosted
    CI after credentials for the private sibling checkout are available.
 
+### Credential revocation and native cancellation slice now in progress
+
+The 2026-08-11 source investigation found that the shared OAuth refresh path is
+already bounded, HTTPS-by-default, leased, compare-and-set, encrypted at rest,
+and audited without secrets. Its remaining lifecycle defect is narrower and
+more serious than a missing provider form field: an OAuth `invalid_grant`
+currently becomes a 30-second scheduler backoff and is retried indefinitely.
+The account aggregate has no revoked credential state, a stale refresh lease can
+still attempt completion, and Admin can only replace the entire OAuth document.
+
+This slice therefore uses one provider-neutral terminal state with native
+Anthropic/Gemini fixtures rather than importing Sub2API refresh code or aliases:
+
+1. A token endpoint `invalid_grant` is classified from a bounded JSON error body
+   without retaining or returning that body. Platform atomically clears access,
+   refresh, and client-secret material, invalidates the refresh lease, records a
+   bounded revocation code/time, and makes the account unschedulable.
+2. `BeginOAuthRefresh`, `Hydrate`, and a stale `CompleteOAuthRefresh` fail closed
+   after revocation. Admin projections expose only revocation metadata. Replacing
+   the OAuth document creates a new credential generation and restores normal
+   refresh; metadata-only edits do not silently clear the terminal state.
+3. Refresh audit outcome `revoked` is durable and secret-free. Native mock token
+   profiles cover rotated and revoked Anthropic/Gemini credentials; no provider
+   request, lease, hold, usage row, or debit may be created when refresh is
+   terminally rejected.
+4. The existing Gateway transport closes the Photon HTTP operation after a
+   client-write failure. Provider Mock adds a delayed native SSE profile and a
+   bounded request-id observation endpoint so the runtime gate can prove the
+   downstream Anthropic/Gemini request token is actually cancelled, not merely
+   that Gateway stopped writing to the caller.
+5. Each native client cancellation must retain exactly one
+   `reconciliation_needed` lease and active hold, record client-cancellation
+   evidence, create no usage/log/debit, and never fail over. A later operator or
+   provider settlement remains the only authority that can release or charge it.
+
+Exit: Grain and Host tests prove revoke/CAS/replacement and terminal error
+classification; Provider Mock HTTP tests prove native cancellation observation;
+all Platform and Gateway tests pass; the empty-volume source stack proves both
+native protocols, OAuth revocation without financial side effects, replacement
+recovery, migration replay, and the unchanged accounting/fault/restart matrix.
+
 Dependencies: the revision-3 Cap'n Proto contract, PostgreSQL accounting
 authority, Garnet projections, Provider mock, and the current incident/operator
 workflow remain fixed foundations. Any contract change updates both repositories
