@@ -136,7 +136,8 @@ public static class SeedEndpoints
     }
 
     private sealed record MockProviderProfile(string Name, string Platform,
-        string[] SupportedModels, string? Scenario = null, bool OAuth = false)
+        string[] SupportedModels, string? Scenario = null, bool OAuth = false,
+        string ApiKey = "scalaapi-mock-key")
     {
         public AccountUpsert Account() => new(
             Name, Platform, OAuth ? "oauth" : "api_key", "http://provider-mock:8081",
@@ -152,12 +153,11 @@ public static class SeedEndpoints
 
         private Dictionary<string, string> Credentials()
         {
-            var credentials = new Dictionary<string, string>
-            {
-                ["api_key"] = "scalaapi-mock-key",
-            };
+            var credentials = new Dictionary<string, string>();
+            if (!OAuth)
+                credentials["api_key"] = ApiKey;
             if (!string.IsNullOrWhiteSpace(Scenario))
-                credentials["X-Provider-Scenario"] = Scenario;
+                credentials["provider_scenario"] = Scenario;
             return credentials;
         }
 
@@ -203,5 +203,7 @@ public static class SeedEndpoints
         ("timeout", new("scalaapi-provider-mock-gemini-fault-timeout", "gemini", ["gemini-2.0-flash"], "timeout")),
         ("disconnect", new("scalaapi-provider-mock-gemini-fault-disconnect", "gemini", ["gemini-2.0-flash"], "disconnect")),
         ("disconnect_after_usage", new("scalaapi-provider-mock-gemini-fault-after-usage", "gemini", ["gemini-2.0-flash"], "disconnect_after_usage")),
+        ("auth_rejected", new("scalaapi-provider-mock-anthropic-auth-rejected", "anthropic", ["claude-3-5-sonnet"], ApiKey: "wrong-anthropic-key")),
+        ("auth_rejected", new("scalaapi-provider-mock-gemini-auth-rejected", "gemini", ["gemini-2.0-flash"], ApiKey: "wrong-gemini-key")),
     ];
 }

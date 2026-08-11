@@ -33,6 +33,7 @@ public sealed class MockProviderGroupFaultHttpContractTests :
                 messages = new[] { new { role = "user", content = "fault" } },
             }),
         };
+        AddAnthropicAuth(request);
         request.Headers.Add("X-Provider-Scenario", scenario);
 
         using var response = await client.SendAsync(request);
@@ -55,6 +56,7 @@ public sealed class MockProviderGroupFaultHttpContractTests :
                 messages = new[] { new { role = "user", content = "fault" } },
             }),
         };
+        AddAnthropicAuth(malformed);
         malformed.Headers.Add("X-Provider-Scenario", "malformed");
         using var malformedResponse = await client.SendAsync(
             malformed, HttpCompletionOption.ResponseHeadersRead);
@@ -73,6 +75,7 @@ public sealed class MockProviderGroupFaultHttpContractTests :
                 messages = new[] { new { role = "user", content = "fault" } },
             }),
         };
+        AddAnthropicAuth(usage);
         usage.Headers.Add("X-Provider-Scenario", "disconnect_after_usage");
         using var usageResponse = await client.SendAsync(
             usage, HttpCompletionOption.ResponseHeadersRead);
@@ -99,6 +102,7 @@ public sealed class MockProviderGroupFaultHttpContractTests :
                 contents = new[] { new { role = "user", parts = new[] { new { text = "fault" } } } },
             }),
         };
+        AddGeminiAuth(request);
         request.Headers.Add("X-Provider-Scenario", scenario);
 
         using var response = await client.SendAsync(request);
@@ -119,6 +123,7 @@ public sealed class MockProviderGroupFaultHttpContractTests :
                 contents = new[] { new { role = "user", parts = new[] { new { text = "fault" } } } },
             }),
         };
+        AddGeminiAuth(malformed);
         malformed.Headers.Add("X-Provider-Scenario", "malformed");
         using var malformedResponse = await client.SendAsync(
             malformed, HttpCompletionOption.ResponseHeadersRead);
@@ -135,6 +140,7 @@ public sealed class MockProviderGroupFaultHttpContractTests :
                 contents = new[] { new { role = "user", parts = new[] { new { text = "fault" } } } },
             }),
         };
+        AddGeminiAuth(usage);
         usage.Headers.Add("X-Provider-Scenario", "disconnect_after_usage");
         using var usageResponse = await client.SendAsync(
             usage, HttpCompletionOption.ResponseHeadersRead);
@@ -146,4 +152,13 @@ public sealed class MockProviderGroupFaultHttpContractTests :
         Assert.True(usageJson.RootElement.GetProperty("usageMetadata")
             .GetProperty("totalTokenCount").GetInt32() > 0);
     }
+
+    private static void AddAnthropicAuth(HttpRequestMessage request)
+    {
+        request.Headers.Add("x-api-key", "scalaapi-mock-key");
+        request.Headers.Add("anthropic-version", "2023-06-01");
+    }
+
+    private static void AddGeminiAuth(HttpRequestMessage request) =>
+        request.Headers.Add("x-goog-api-key", "scalaapi-mock-key");
 }

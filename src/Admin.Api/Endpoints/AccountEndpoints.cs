@@ -113,10 +113,23 @@ public static class AccountEndpoints
             || baseUri.Scheme is not ("http" or "https"))
             return "Base URL must be absolute HTTP or HTTPS";
         if (req.Credentials.Count > 32
-            || req.Credentials.Any(item => !IsHeaderName(item.Key)
+            || req.Credentials.Any(item => !IsCredentialKey(item.Key)
                 || item.Value.Length > 4096
                 || item.Value.IndexOfAny(['\r', '\n']) >= 0))
-            return "Static credential headers are invalid";
+            return "Static credential material is invalid";
+        if (req.Credentials.Count > 0
+            || !string.Equals(req.Type, "oauth", StringComparison.OrdinalIgnoreCase))
+        {
+            try
+            {
+                ProviderCredentialCompiler.CompileStatic(
+                    req.Platform, req.Type, req.Credentials);
+            }
+            catch (ProviderCredentialContractException ex)
+            {
+                return ex.Code;
+            }
+        }
         if (!string.Equals(req.Type, "oauth", StringComparison.OrdinalIgnoreCase))
             return null;
         if (req.OAuth is null)
@@ -139,6 +152,9 @@ public static class AccountEndpoints
 
     private static bool IsHeaderName(string value) => value.Length is > 0 and <= 64
         && value.All(ch => char.IsAsciiLetterOrDigit(ch) || ch == '-');
+
+    private static bool IsCredentialKey(string value) => value.Length is > 0 and <= 64
+        && value.All(ch => char.IsAsciiLetterOrDigit(ch) || ch is '-' or '_');
 
     private static bool IsTokenTypeCharacter(char value) =>
         char.IsAsciiLetterOrDigit(value) || value is '.' or '_' or '~' or '-';

@@ -234,31 +234,33 @@ app.MapGet("/v1/models", (HttpRequest request) =>
     });
 });
 
-app.MapGet("/v1beta/models", () => Results.Ok(new
-{
-    models = new[]
+app.MapGet("/v1beta/models", (HttpRequest request) =>
+    AuthenticateGemini(request) ?? Results.Ok(new
     {
-        new
+        models = new[]
         {
-            name = "models/gemini-2.0-flash",
-            displayName = "Gemini 2.0 Flash",
-            description = "Deterministic ScalaAPI provider fixture",
-            inputTokenLimit = 1_000_000,
-            outputTokenLimit = 8_192,
-            supportedGenerationMethods = new[] { "generateContent", "streamGenerateContent" }
+            new
+            {
+                name = "models/gemini-2.0-flash",
+                displayName = "Gemini 2.0 Flash",
+                description = "Deterministic ScalaAPI provider fixture",
+                inputTokenLimit = 1_000_000,
+                outputTokenLimit = 8_192,
+                supportedGenerationMethods = new[] { "generateContent", "streamGenerateContent" }
+            }
         }
-    }
-}));
+    }));
 
-app.MapGet("/v1beta/models/{model}", (string model) => Results.Ok(new
-{
-    name = $"models/{model}",
-    displayName = model,
-    description = "Deterministic ScalaAPI provider fixture",
-    inputTokenLimit = 1_000_000,
-    outputTokenLimit = 8_192,
-    supportedGenerationMethods = new[] { "generateContent", "streamGenerateContent" }
-}));
+app.MapGet("/v1beta/models/{model}", (string model, HttpRequest request) =>
+    AuthenticateGemini(request) ?? Results.Ok(new
+    {
+        name = $"models/{model}",
+        displayName = model,
+        description = "Deterministic ScalaAPI provider fixture",
+        inputTokenLimit = 1_000_000,
+        outputTokenLimit = 8_192,
+        supportedGenerationMethods = new[] { "generateContent", "streamGenerateContent" }
+    }));
 
 app.MapPost("/v1/classifier/evaluate", async (HttpContext context,
     CancellationToken cancellationToken) =>
@@ -478,6 +480,8 @@ app.MapPost("/v1/embeddings", async (HttpContext context, CancellationToken canc
 
 app.MapPost("/v1/messages/count_tokens", async (HttpContext context, CancellationToken cancellationToken) =>
 {
+    if (AuthenticateAnthropic(context.Request) is { } authError)
+        return authError;
     using var body = await MockProviderHelpers.ReadJsonAsync(context, cancellationToken);
     if (body.RootElement.TryGetProperty("mock_scenario", out var scenario)
         && scenario.ValueKind == JsonValueKind.String)
@@ -492,6 +496,8 @@ app.MapPost("/v1/messages/count_tokens", async (HttpContext context, Cancellatio
 
 app.MapPost("/v1/messages", async (HttpContext context, CancellationToken cancellationToken) =>
 {
+    if (AuthenticateAnthropic(context.Request) is { } authError)
+        return authError;
     using var body = await MockProviderHelpers.ReadJsonAsync(context, cancellationToken);
     var root = body.RootElement;
     var model = MockProviderHelpers.Model(root, "claude-3-5-sonnet");
@@ -808,6 +814,8 @@ app.MapDelete("/v1/responses/{responseId}", (string responseId) =>
 app.MapPost("/v1beta/models/{model}:generateContent", async (
     string model, HttpContext context, CancellationToken cancellationToken) =>
 {
+    if (AuthenticateGemini(context.Request) is { } authError)
+        return authError;
     using var body = await MockProviderHelpers.ReadJsonAsync(context, cancellationToken);
     var scenario = MockProviderHelpers.Scenario(context, body.RootElement).ToLowerInvariant();
     if (scenario == "429")
@@ -856,6 +864,8 @@ app.MapPost("/v1beta/models/{model}:generateContent", async (
 app.MapPost("/v1beta/models/{model}:streamGenerateContent", async (
     string model, HttpContext context, CancellationToken cancellationToken) =>
 {
+    if (AuthenticateGemini(context.Request) is { } authError)
+        return authError;
     using var body = await MockProviderHelpers.ReadJsonAsync(context, cancellationToken);
     var scenario = MockProviderHelpers.Scenario(context, body.RootElement).ToLowerInvariant();
     if (scenario == "429")
@@ -1265,6 +1275,48 @@ app.MapGet("/v1/requests/{requestId}", (string requestId) => Results.Ok(new
     request_id = requestId,
     usage = new { prompt_tokens = 7, completion_tokens = 5, total_tokens = 12 }
 }));
+
+static IResult? AuthenticateAnthropic(HttpRequest request)
+{
+    if (request.Headers.ContainsKey("api_key")
+        || !string.Equals(request.Headers["x-api-key"], "scalaapi-mock-key",
+            StringComparison.Ordinal))
+    {
+        return Results.Json(new
+        {
+            type = "error",
+            error = new { type = "authentication_error", message = "invalid provider credentials" }
+        }, statusCode: StatusCodes.Status401Unauthorized);
+    }
+    if (!string.Equals(request.Headers["anthropic-version"], "2023-06-01",
+            StringComparison.Ordinal)
+        || request.Headers["anthropic-beta"].ToString().Length > 256)
+    {
+        return Results.Json(new
+        {
+            type = "error",
+            error = new { type = "invalid_request_error", message = "invalid provider version" }
+        }, statusCode: StatusCodes.Status400BadRequest);
+    }
+    return null;
+}
+
+static IResult? AuthenticateGemini(HttpRequest request)
+{
+    if (!request.Headers.ContainsKey("api_key")
+        && string.Equals(request.Headers["x-goog-api-key"], "scalaapi-mock-key",
+            StringComparison.Ordinal))
+        return null;
+    return Results.Json(new
+    {
+        error = new
+        {
+            code = StatusCodes.Status401Unauthorized,
+            status = "UNAUTHENTICATED",
+            message = "invalid provider credentials"
+        }
+    }, statusCode: StatusCodes.Status401Unauthorized);
+}
 
 static string ResponseInputText(JsonElement root)
 {

@@ -22,7 +22,7 @@ public sealed class MockCatalogHttpContractTests :
     [Fact]
     public async Task ModelCatalogReturnsDeterministicOpenAiAndGeminiMetadata()
     {
-        using var client = factory.CreateClient();
+        using var client = CreateNativeClient();
         using var openAi = await client.GetAsync("/v1/models");
         using var openAiDocument = JsonDocument.Parse(await openAi.Content.ReadAsStringAsync());
         Assert.Equal(HttpStatusCode.OK, openAi.StatusCode);
@@ -63,7 +63,7 @@ public sealed class MockCatalogHttpContractTests :
     [Fact]
     public async Task CountTokensReturnsPositiveDeterministicUsage()
     {
-        using var client = factory.CreateClient();
+        using var client = CreateNativeClient();
         using var response = await client.PostAsJsonAsync("/v1/messages/count_tokens", new
         {
             model = "claude-3-5-sonnet",
@@ -95,7 +95,7 @@ public sealed class MockCatalogHttpContractTests :
     [InlineData("invalid")]
     public async Task CountTokenFaultProfilesRemainDeterministic(string scenario)
     {
-        using var client = factory.CreateClient();
+        using var client = CreateNativeClient();
         using var response = await client.PostAsJsonAsync("/v1/messages/count_tokens", new
         {
             model = "claude-3-5-sonnet",
@@ -109,5 +109,14 @@ public sealed class MockCatalogHttpContractTests :
             using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
             Assert.Equal(0, document.RootElement.GetProperty("input_tokens").GetInt32());
         }
+    }
+
+    private HttpClient CreateNativeClient()
+    {
+        var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Add("x-api-key", "scalaapi-mock-key");
+        client.DefaultRequestHeaders.Add("anthropic-version", "2023-06-01");
+        client.DefaultRequestHeaders.Add("x-goog-api-key", "scalaapi-mock-key");
+        return client;
     }
 }

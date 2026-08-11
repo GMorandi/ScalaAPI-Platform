@@ -97,4 +97,36 @@ public class AccountCredentialTests(ClusterFixture fixture)
         Assert.Equal("oauth_token_endpoint_status_401", projection.CredentialRefreshError);
         Assert.Equal(retryAt, projection.TempUnschedulableUntil);
     }
+
+    [Fact]
+    public async Task HydrateCompilesNativeAnthropicAndGeminiHeaders()
+    {
+        var anthropic = fixture.Cluster.GrainFactory.GetGrain<IAccountGrain>(9004);
+        await anthropic.Create(new AccountUpsert(
+            "anthropic-native", "anthropic", "api_key", "https://api.anthropic.com",
+            1, 2, 1, 1, true,
+            new()
+            {
+                ["api_key"] = "anthropic-secret",
+                ["anthropic_beta"] = "prompt-caching-2024-07-31",
+            },
+            new(), ["claude-3-5-sonnet"], null, false));
+
+        var gemini = fixture.Cluster.GrainFactory.GetGrain<IAccountGrain>(9005);
+        await gemini.Create(new AccountUpsert(
+            "gemini-native", "gemini", "api_key",
+            "https://generativelanguage.googleapis.com",
+            1, 2, 1, 1, true,
+            new() { ["api_key"] = "gemini-secret" },
+            new(), ["gemini-2.0-flash"], null, false));
+
+        var anthropicHeaders = (await anthropic.Hydrate()).AuthHeaders;
+        var geminiHeaders = (await gemini.Hydrate()).AuthHeaders;
+        Assert.Equal("anthropic-secret", anthropicHeaders["x-api-key"]);
+        Assert.Equal("2023-06-01", anthropicHeaders["anthropic-version"]);
+        Assert.Equal("prompt-caching-2024-07-31", anthropicHeaders["anthropic-beta"]);
+        Assert.Equal("gemini-secret", geminiHeaders["x-goog-api-key"]);
+        Assert.DoesNotContain("api_key", anthropicHeaders.Keys);
+        Assert.DoesNotContain("api_key", geminiHeaders.Keys);
+    }
 }

@@ -29,13 +29,17 @@ public class CapnpResponseSerializationTests
             ApiKeyId = 22,
             UserId = 33,
             GroupId = 44,
-            Platform = "openai",
+            Platform = "anthropic",
             BaseUrl = "https://upstream.example",
             UpstreamPath = "/v1/chat/completions",
             MappedModel = "model-b",
             LeaseToken = "lease-1",
             AuthVersion = 7,
-            AuthHeaders = new() { ["Authorization"] = "Bearer test" },
+            AuthHeaders = new()
+            {
+                ["x-api-key"] = "provider-key",
+                ["anthropic-version"] = "2023-06-01",
+            },
         }));
 
         var decoded = Deserialize(response);
@@ -44,6 +48,11 @@ public class CapnpResponseSerializationTests
         Assert.Equal(22, decoded.Auth.ApiKeyId);
         Assert.Equal(11, decoded.Upstream.AccountId);
         Assert.Equal("/v1/chat/completions", decoded.Upstream.UpstreamPath);
+        var headers = decoded.Upstream.AuthHeaders.ToDictionary(
+            header => header.Key.ToString(), header => header.Value.ToString(),
+            StringComparer.OrdinalIgnoreCase);
+        Assert.Equal("provider-key", headers["x-api-key"]);
+        Assert.Equal("2023-06-01", headers["anthropic-version"]);
     }
 
     [Fact]

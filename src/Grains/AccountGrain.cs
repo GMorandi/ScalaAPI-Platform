@@ -95,13 +95,19 @@ public class AccountGrain : Grain, IAccountGrain
     public Task<AccountCredentials> Hydrate()
     {
         var s = _state.State;
-        var headers = s.Credentials.ToDictionary(kv => kv.Key,
-            kv => _credentialProtector.Unprotect(kv.Value));
+        var staticCredentials = s.Credentials.ToDictionary(kv => kv.Key,
+            kv => _credentialProtector.Unprotect(kv.Value),
+            StringComparer.OrdinalIgnoreCase);
+        var headers = ProviderCredentialCompiler.CompileStatic(
+            s.Platform, s.Type, staticCredentials);
         if (s.OAuth is not null)
         {
             var accessToken = _credentialProtector.Unprotect(s.OAuth.AccessToken);
-            headers[s.OAuth.HeaderName] = string.IsNullOrWhiteSpace(s.OAuth.HeaderScheme)
+            var value = string.IsNullOrWhiteSpace(s.OAuth.HeaderScheme)
                 ? accessToken : $"{s.OAuth.HeaderScheme} {accessToken}";
+            if (!headers.TryAdd(s.OAuth.HeaderName, value))
+                throw new ProviderCredentialContractException(
+                    "provider_credential_header_collision");
         }
         return Task.FromResult(new AccountCredentials(
             s.Id, s.Platform, s.Type, s.BaseUrl,
