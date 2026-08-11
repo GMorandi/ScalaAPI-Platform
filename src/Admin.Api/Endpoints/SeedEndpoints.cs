@@ -60,6 +60,26 @@ public static class SeedEndpoints
             }
             return Results.Ok(new { scenarios = result });
         });
+
+        group.MapPost("/provider-mock-provider-fault-matrix", async (IClusterClient client,
+            ListingRepository registry) =>
+        {
+            var result = new List<object>();
+            foreach (var profile in ProviderFaultProfiles)
+            {
+                var accountId = await EnsureAccountAsync(client, registry, profile.Profile);
+                var groupId = await EnsureGroupAsync(client, registry, profile.Profile, accountId);
+                result.Add(new
+                {
+                    provider = profile.Profile.Platform,
+                    scenario = profile.Scenario,
+                    account_id = accountId,
+                    group_id = groupId,
+                    model = profile.Profile.SupportedModels[0],
+                });
+            }
+            return Results.Ok(new { scenarios = result });
+        });
     }
 
     private static async Task<long> EnsureAccountAsync(
@@ -167,5 +187,21 @@ public static class SeedEndpoints
         ("client_disconnect", new("scalaapi-provider-mock-fault-client-disconnect", "openai", ["gpt-4o"], "client_disconnect")),
         ("malformed_usage", new("scalaapi-provider-mock-fault-malformed-usage", "openai", ["gpt-4o"], "malformed_usage")),
         ("invalid_content_type", new("scalaapi-provider-mock-fault-invalid-content-type", "openai", ["gpt-4o"], "invalid_content_type")),
+    ];
+
+    private static readonly (string Scenario, MockProviderProfile Profile)[] ProviderFaultProfiles =
+    [
+        ("429", new("scalaapi-provider-mock-anthropic-fault-429", "anthropic", ["claude-3-5-sonnet"], "429")),
+        ("500", new("scalaapi-provider-mock-anthropic-fault-500", "anthropic", ["claude-3-5-sonnet"], "500")),
+        ("malformed", new("scalaapi-provider-mock-anthropic-fault-malformed", "anthropic", ["claude-3-5-sonnet"], "malformed")),
+        ("timeout", new("scalaapi-provider-mock-anthropic-fault-timeout", "anthropic", ["claude-3-5-sonnet"], "timeout")),
+        ("disconnect", new("scalaapi-provider-mock-anthropic-fault-disconnect", "anthropic", ["claude-3-5-sonnet"], "disconnect")),
+        ("disconnect_after_usage", new("scalaapi-provider-mock-anthropic-fault-after-usage", "anthropic", ["claude-3-5-sonnet"], "disconnect_after_usage")),
+        ("429", new("scalaapi-provider-mock-gemini-fault-429", "gemini", ["gemini-2.0-flash"], "429")),
+        ("500", new("scalaapi-provider-mock-gemini-fault-500", "gemini", ["gemini-2.0-flash"], "500")),
+        ("malformed", new("scalaapi-provider-mock-gemini-fault-malformed", "gemini", ["gemini-2.0-flash"], "malformed")),
+        ("timeout", new("scalaapi-provider-mock-gemini-fault-timeout", "gemini", ["gemini-2.0-flash"], "timeout")),
+        ("disconnect", new("scalaapi-provider-mock-gemini-fault-disconnect", "gemini", ["gemini-2.0-flash"], "disconnect")),
+        ("disconnect_after_usage", new("scalaapi-provider-mock-gemini-fault-after-usage", "gemini", ["gemini-2.0-flash"], "disconnect_after_usage")),
     ];
 }

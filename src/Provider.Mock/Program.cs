@@ -500,15 +500,66 @@ app.MapPost("/v1/messages", async (HttpContext context, CancellationToken cancel
         ?? MockProviderHelpers.Id("msg");
     var stream = root.TryGetProperty("stream", out var streamValue)
         && streamValue.ValueKind == JsonValueKind.True;
-    var scenario = root.TryGetProperty("mock_scenario", out var scenarioValue)
-        ? scenarioValue.GetString() ?? "success"
-        : "success";
+    var scenario = MockProviderHelpers.Scenario(context, root).ToLowerInvariant();
     if (scenario == "success"
         && root.TryGetProperty("metadata", out var metadata)
         && metadata.ValueKind == JsonValueKind.Object
         && metadata.TryGetProperty("user_id", out var userId)
         && userId.GetString() == "scalaapi-json-stream")
         scenario = "json_stream";
+
+    if (scenario == "429")
+        return Results.Json(new { error = new { type = "rate_limit_error", message = "mock rate limited" } },
+            statusCode: StatusCodes.Status429TooManyRequests);
+    if (scenario == "500")
+        return Results.Json(new { error = new { type = "api_error", message = "mock upstream failure" } },
+            statusCode: StatusCodes.Status500InternalServerError);
+    if (scenario == "timeout")
+    {
+        await Task.Delay(TimeSpan.FromMinutes(2), cancellationToken);
+        return Results.Empty;
+    }
+    if (scenario == "malformed")
+        return stream
+            ? Results.Text("event: message_start\ndata: {not-json\n\n", "text/event-stream")
+            : Results.Text("{not-json", "application/json", statusCode: StatusCodes.Status200OK);
+    if (scenario == "invalid_content_type")
+        return Results.Text("event: message_start\ndata: {not-json\n\n", "application/json",
+            statusCode: StatusCodes.Status200OK);
+    if (scenario is "disconnect" or "disconnect_before_output")
+    {
+        if (stream && scenario == "disconnect")
+        {
+            context.Response.StatusCode = StatusCodes.Status200OK;
+            context.Response.ContentType = "text/event-stream";
+            await context.Response.WriteAsync(
+                $"event: content_block_delta\ndata: {JsonSerializer.Serialize(new { type = "content_block_delta", index = 0, delta = new { type = "text_delta", text = "partial" } })}\n\n",
+                cancellationToken);
+            await context.Response.Body.FlushAsync(cancellationToken);
+        }
+        else if (stream)
+        {
+            context.Response.StatusCode = StatusCodes.Status200OK;
+            context.Response.ContentType = "text/event-stream";
+            context.Response.ContentLength = 0;
+            await context.Response.StartAsync(cancellationToken);
+        }
+        context.Abort();
+        return Results.Empty;
+    }
+    if (scenario == "disconnect_after_usage" && stream)
+    {
+        context.Response.StatusCode = StatusCodes.Status200OK;
+        context.Response.ContentType = "text/event-stream";
+        context.Response.Headers.CacheControl = "no-cache";
+        await context.Response.WriteAsync(
+            $"event: message_start\ndata: {JsonSerializer.Serialize(new { type = "message_start", message = new { id = requestId, type = "message", role = "assistant", model, content = Array.Empty<object>(), stop_reason = (string?)null, stop_sequence = (string?)null, usage = new { input_tokens = inputTokens, output_tokens = 0 } } })}\n\n",
+            cancellationToken);
+        await context.Response.WriteAsync(
+            $"event: message_delta\ndata: {JsonSerializer.Serialize(new { type = "message_delta", delta = new { stop_reason = "end_turn", stop_sequence = (string?)null }, usage = new { output_tokens = 5 } })}\n\n",
+            cancellationToken);
+        return Results.Empty;
+    }
     if (stream && !scenario.Equals("json_stream", StringComparison.OrdinalIgnoreCase))
     {
         context.Response.StatusCode = StatusCodes.Status200OK;
@@ -758,6 +809,28 @@ app.MapPost("/v1beta/models/{model}:generateContent", async (
     string model, HttpContext context, CancellationToken cancellationToken) =>
 {
     using var body = await MockProviderHelpers.ReadJsonAsync(context, cancellationToken);
+    var scenario = MockProviderHelpers.Scenario(context, body.RootElement).ToLowerInvariant();
+    if (scenario == "429")
+        return Results.Json(new { error = new { status = "RESOURCE_EXHAUSTED", message = "mock rate limited" } },
+            statusCode: StatusCodes.Status429TooManyRequests);
+    if (scenario == "500")
+        return Results.Json(new { error = new { status = "INTERNAL", message = "mock upstream failure" } },
+            statusCode: StatusCodes.Status500InternalServerError);
+    if (scenario == "timeout")
+    {
+        await Task.Delay(TimeSpan.FromMinutes(2), cancellationToken);
+        return Results.Empty;
+    }
+    if (scenario == "malformed")
+        return Results.Text("{not-json", "application/json", statusCode: StatusCodes.Status200OK);
+    if (scenario == "disconnect")
+    {
+        context.Response.StatusCode = StatusCodes.Status200OK;
+        await context.Response.WriteAsync("{\"candidates\":[", cancellationToken);
+        await context.Response.Body.FlushAsync(cancellationToken);
+        context.Abort();
+        return Results.Empty;
+    }
     var inputTokens = MockProviderHelpers.EstimateInputTokens(body.RootElement);
     return Results.Ok(new
     {
@@ -784,6 +857,46 @@ app.MapPost("/v1beta/models/{model}:streamGenerateContent", async (
     string model, HttpContext context, CancellationToken cancellationToken) =>
 {
     using var body = await MockProviderHelpers.ReadJsonAsync(context, cancellationToken);
+    var scenario = MockProviderHelpers.Scenario(context, body.RootElement).ToLowerInvariant();
+    if (scenario == "429")
+        return Results.Json(new { error = new { status = "RESOURCE_EXHAUSTED", message = "mock rate limited" } },
+            statusCode: StatusCodes.Status429TooManyRequests);
+    if (scenario == "500")
+        return Results.Json(new { error = new { status = "INTERNAL", message = "mock upstream failure" } },
+            statusCode: StatusCodes.Status500InternalServerError);
+    if (scenario == "timeout")
+    {
+        await Task.Delay(TimeSpan.FromMinutes(2), cancellationToken);
+        return Results.Empty;
+    }
+    if (scenario == "malformed")
+        return Results.Text("data: {not-json\n\n", "text/event-stream", statusCode: StatusCodes.Status200OK);
+    if (scenario == "invalid_content_type")
+        return Results.Text("data: {not-json\n\n", "application/json", statusCode: StatusCodes.Status200OK);
+    if (scenario is "disconnect" or "disconnect_before_output")
+    {
+        context.Response.StatusCode = StatusCodes.Status200OK;
+        context.Response.ContentType = "text/event-stream";
+        if (scenario == "disconnect")
+        {
+            await context.Response.WriteAsync("data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"partial\"}]}}]}\n\n", cancellationToken);
+            await context.Response.Body.FlushAsync(cancellationToken);
+        }
+        else
+        {
+            context.Response.ContentLength = 0;
+            await context.Response.StartAsync(cancellationToken);
+        }
+        context.Abort();
+        return Results.Empty;
+    }
+    if (scenario == "disconnect_after_usage")
+    {
+        context.Response.StatusCode = StatusCodes.Status200OK;
+        context.Response.ContentType = "text/event-stream";
+        await context.Response.WriteAsync($"data: {JsonSerializer.Serialize(new { candidates = Array.Empty<object>(), usageMetadata = new { promptTokenCount = MockProviderHelpers.EstimateInputTokens(body.RootElement), candidatesTokenCount = 5, totalTokenCount = MockProviderHelpers.EstimateInputTokens(body.RootElement) + 5 } })}\n\n", cancellationToken);
+        return Results.Empty;
+    }
     var inputTokens = MockProviderHelpers.EstimateInputTokens(body.RootElement);
     context.Response.ContentType = "text/event-stream";
     await context.Response.WriteAsync($"data: {JsonSerializer.Serialize(new
@@ -792,6 +905,7 @@ app.MapPost("/v1beta/models/{model}:streamGenerateContent", async (
         usageMetadata = new { promptTokenCount = inputTokens, candidatesTokenCount = 5, totalTokenCount = inputTokens + 5 },
         modelVersion = model
     })}\n\n", cancellationToken);
+    return Results.Empty;
 });
 
 app.MapPost("/v1/images/generations", (HttpContext context) =>

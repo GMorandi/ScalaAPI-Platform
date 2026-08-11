@@ -317,6 +317,16 @@ anthropic_stream_request_id="smoke-anthropic-stream-${suffix}"
 gemini_models_request_id="smoke-gemini-models-${suffix}"
 gemini_request_id="smoke-gemini-${suffix}"
 gemini_stream_request_id="smoke-gemini-stream-${suffix}"
+anthropic_fault_429_request_id="smoke-anthropic-fault-429-${suffix}"
+anthropic_fault_500_request_id="smoke-anthropic-fault-500-${suffix}"
+anthropic_fault_malformed_request_id="smoke-anthropic-fault-malformed-${suffix}"
+anthropic_fault_timeout_request_id="smoke-anthropic-fault-timeout-${suffix}"
+anthropic_fault_disconnect_request_id="smoke-anthropic-fault-disconnect-${suffix}"
+gemini_fault_429_request_id="smoke-gemini-fault-429-${suffix}"
+gemini_fault_500_request_id="smoke-gemini-fault-500-${suffix}"
+gemini_fault_malformed_request_id="smoke-gemini-fault-malformed-${suffix}"
+gemini_fault_timeout_request_id="smoke-gemini-fault-timeout-${suffix}"
+gemini_fault_disconnect_request_id="smoke-gemini-fault-disconnect-${suffix}"
 fault_request_prefix="smoke-fault-${suffix}"
 media_idempotency_key="smoke-media-idem-${suffix}"
 media_restart_idempotency_key="smoke-media-restart-idem-${suffix}"
@@ -332,6 +342,7 @@ embedding_gemini_price_version="smoke-embeddings-gemini-${suffix}-v1"
 media_price_version="smoke-media-${suffix}-v1"
 balance_idempotency_key="smoke-balance-${suffix}"
 gateway_hook_unknown_incidents=0
+provider_group_unknown_incidents=6
 gateway_hook_safe_expiry=0
 platform_dispatch_fault_safe_expiry=0
 platform_dispatch_retry=0
@@ -677,6 +688,93 @@ SELECT
     echo "PASS: Provider streaming $scenario -> HTTP $response_status ($lease_count rejected leases, holds released)"
 }
 
+run_provider_group_fault() {
+    local provider=$1
+    local scenario=$2
+    local scenario_api_key=$3
+    local request_id=$4
+    local expected_terminal=$5
+    local stream=${6:-0}
+    local request_path
+    local request_body
+    local response
+    local response_status
+    local response_body
+    local idempotency_key="${request_id}-idem"
+
+    if [[ "$provider" == "anthropic" ]]; then
+        request_path="/v1/messages"
+        request_body="$(jq -cn --argjson stream "$stream" \
+            '{model:"claude-3-5-sonnet",max_tokens:16,messages:[{role:"user",content:"provider fault matrix"}],stream:$stream}')"
+    else
+        request_path="/v1beta/models/gemini-2.0-flash:generateContent"
+        if (( stream )); then
+            request_path="/v1beta/models/gemini-2.0-flash:streamGenerateContent?alt=sse"
+        fi
+        request_body='{"contents":[{"role":"user","parts":[{"text":"provider fault matrix"}]}]}'
+    fi
+
+    set +e
+    response="$(curl -sS --max-time 45 --write-out $'\n%{http_code}' \
+        "$gateway_url$request_path" \
+        -H "Authorization: Bearer $scenario_api_key" \
+        -H "Content-Type: application/json" \
+        -H "X-Request-ID: $request_id" \
+        -H "Idempotency-Key: $idempotency_key" \
+        --data "$request_body")"
+    set -e
+    response_status="${response##*$'\n'}"
+    response_body="${response%$'\n'*}"
+    [[ -n "$response_status" ]] || response_status=000
+    if [[ "$expected_terminal" == "aborted" ]]; then
+        assert_one_of "502|503" "$response_status" \
+            "$provider $scenario no-charge response status"
+    elif (( stream )); then
+        assert_one_of "000|200|502|503" "$response_status" \
+            "$provider $scenario streaming response status"
+    else
+        assert_one_of "000|502|503" "$response_status" \
+            "$provider $scenario unknown-charge response status"
+    fi
+    : "$response_body"
+
+    provider_fault_recorded() {
+        local state
+        state="$(db_query "
+WITH target_leases AS (
+  SELECT lease_token, request_id, status
+  FROM request_leases
+  WHERE request_id = '$request_id' OR request_id LIKE '$request_id:retry:%'
+)
+SELECT
+  (SELECT count(*) FROM target_leases) || '|' ||
+  (SELECT count(*) FROM target_leases WHERE status = 'aborted') || '|' ||
+  (SELECT count(*) FROM target_leases WHERE status = 'reconciliation_needed') || '|' ||
+  (SELECT count(*) FROM balance_holds h JOIN target_leases l USING (lease_token)) || '|' ||
+  (SELECT count(*) FROM balance_holds h JOIN target_leases l USING (lease_token) WHERE h.status = 'released') || '|' ||
+  (SELECT count(*) FROM balance_holds h JOIN target_leases l USING (lease_token) WHERE h.status = 'active') || '|' ||
+  (SELECT count(*) FROM usage_events u JOIN target_leases l ON l.request_id = u.request_id) || '|' ||
+  (SELECT count(*) FROM usage_logs u JOIN target_leases l ON l.request_id = u.request_id) || '|' ||
+  (SELECT count(*) FROM balance_ledger b JOIN target_leases l USING (lease_token)) || '|' ||
+  (SELECT count(*) FROM request_idempotency WHERE idempotency_key = '$idempotency_key' AND status = '$expected_terminal');")"
+        local lease_count="${state%%|*}"
+        if (( lease_count < 1 )); then
+            return 1
+        fi
+        if [[ "$expected_terminal" == "aborted" ]]; then
+            [[ "$state" == "$lease_count|$lease_count|0|$lease_count|$lease_count|0|0|0|0|1" ]]
+        else
+            [[ "$state" == "$lease_count|0|$lease_count|$lease_count|0|$lease_count|0|0|0|1" ]]
+        fi
+    }
+    wait_for "$provider $scenario fault settlement" 60 provider_fault_recorded
+    if [[ "$expected_terminal" == "aborted" ]]; then
+        echo "PASS: $provider $scenario rejected with no charge"
+    else
+        echo "PASS: $provider $scenario retained one unknown-charge hold"
+    fi
+}
+
 echo "Starting isolated Compose project '$project'"
 up_arguments=(up -d)
 if [[ "${SMOKE_SKIP_BUILD:-0}" != "1" ]]; then
@@ -744,6 +842,21 @@ fault_invalid_content_type_group_id="$(jq -er '.scenarios[] | select(.scenario =
     <<<"$fault_seed_response")"
 assert_equals "10" "$(jq -er '.scenarios | length' <<<"$fault_seed_response")" \
     "Seeded fault scenario count"
+
+provider_fault_seed_response="$(admin_request POST /admin/seed/provider-mock-provider-fault-matrix '{}' \
+    "$admin_token")"
+assert_equals "12" "$(jq -er '.scenarios | length' <<<"$provider_fault_seed_response")" \
+    "Seeded Anthropic/Gemini Provider fault scenario count"
+anthropic_fault_429_group_id="$(jq -er '.scenarios[] | select(.provider == "anthropic" and .scenario == "429") | .group_id' <<<"$provider_fault_seed_response")"
+anthropic_fault_500_group_id="$(jq -er '.scenarios[] | select(.provider == "anthropic" and .scenario == "500") | .group_id' <<<"$provider_fault_seed_response")"
+anthropic_fault_malformed_group_id="$(jq -er '.scenarios[] | select(.provider == "anthropic" and .scenario == "malformed") | .group_id' <<<"$provider_fault_seed_response")"
+anthropic_fault_timeout_group_id="$(jq -er '.scenarios[] | select(.provider == "anthropic" and .scenario == "timeout") | .group_id' <<<"$provider_fault_seed_response")"
+anthropic_fault_disconnect_group_id="$(jq -er '.scenarios[] | select(.provider == "anthropic" and .scenario == "disconnect") | .group_id' <<<"$provider_fault_seed_response")"
+gemini_fault_429_group_id="$(jq -er '.scenarios[] | select(.provider == "gemini" and .scenario == "429") | .group_id' <<<"$provider_fault_seed_response")"
+gemini_fault_500_group_id="$(jq -er '.scenarios[] | select(.provider == "gemini" and .scenario == "500") | .group_id' <<<"$provider_fault_seed_response")"
+gemini_fault_malformed_group_id="$(jq -er '.scenarios[] | select(.provider == "gemini" and .scenario == "malformed") | .group_id' <<<"$provider_fault_seed_response")"
+gemini_fault_timeout_group_id="$(jq -er '.scenarios[] | select(.provider == "gemini" and .scenario == "timeout") | .group_id' <<<"$provider_fault_seed_response")"
+gemini_fault_disconnect_group_id="$(jq -er '.scenarios[] | select(.provider == "gemini" and .scenario == "disconnect") | .group_id' <<<"$provider_fault_seed_response")"
 
 invalid_register_status="$(compose exec -T admin-api curl -sS -o /dev/null -w '%{http_code}' \
     -X POST -H 'Content-Type: application/json' \
@@ -906,7 +1019,17 @@ allowed_groups="$(jq -cn \
     --argjson clientDisconnect "$fault_client_disconnect_group_id" \
     --argjson malformed "$fault_malformed_group_id" \
     --argjson invalidContentType "$fault_invalid_content_type_group_id" \
-    '[$openai,$anthropic,$gemini,$fault429,$fault500,$timeout,$disconnect,$disconnectStream,$disconnectBeforeOutput,$disconnectAfterUsage,$clientDisconnect,$malformed,$invalidContentType]')"
+    --argjson anthropicFault429 "$anthropic_fault_429_group_id" \
+    --argjson anthropicFault500 "$anthropic_fault_500_group_id" \
+    --argjson anthropicFaultMalformed "$anthropic_fault_malformed_group_id" \
+    --argjson anthropicFaultTimeout "$anthropic_fault_timeout_group_id" \
+    --argjson anthropicFaultDisconnect "$anthropic_fault_disconnect_group_id" \
+    --argjson geminiFault429 "$gemini_fault_429_group_id" \
+    --argjson geminiFault500 "$gemini_fault_500_group_id" \
+    --argjson geminiFaultMalformed "$gemini_fault_malformed_group_id" \
+    --argjson geminiFaultTimeout "$gemini_fault_timeout_group_id" \
+    --argjson geminiFaultDisconnect "$gemini_fault_disconnect_group_id" \
+    '[$openai,$anthropic,$gemini,$fault429,$fault500,$timeout,$disconnect,$disconnectStream,$disconnectBeforeOutput,$disconnectAfterUsage,$clientDisconnect,$malformed,$invalidContentType,$anthropicFault429,$anthropicFault500,$anthropicFaultMalformed,$anthropicFaultTimeout,$anthropicFaultDisconnect,$geminiFault429,$geminiFault500,$geminiFaultMalformed,$geminiFaultTimeout,$geminiFaultDisconnect]')"
 admin_request PUT "/admin/users/$user_id" \
     "$(jq -cn --argjson groups "$allowed_groups" \
         '{role:"user",concurrency:4,rpmLimit:0,allowedGroups:$groups}')" \
@@ -1113,6 +1236,16 @@ fault_disconnect_after_usage_api_key="$(create_api_key "$fault_disconnect_after_
 fault_client_disconnect_api_key="$(create_api_key "$fault_client_disconnect_group_id")"
 fault_malformed_api_key="$(create_api_key "$fault_malformed_group_id")"
 fault_invalid_content_type_api_key="$(create_api_key "$fault_invalid_content_type_group_id")"
+anthropic_fault_429_api_key="$(create_api_key "$anthropic_fault_429_group_id")"
+anthropic_fault_500_api_key="$(create_api_key "$anthropic_fault_500_group_id")"
+anthropic_fault_malformed_api_key="$(create_api_key "$anthropic_fault_malformed_group_id")"
+anthropic_fault_timeout_api_key="$(create_api_key "$anthropic_fault_timeout_group_id")"
+anthropic_fault_disconnect_api_key="$(create_api_key "$anthropic_fault_disconnect_group_id")"
+gemini_fault_429_api_key="$(create_api_key "$gemini_fault_429_group_id")"
+gemini_fault_500_api_key="$(create_api_key "$gemini_fault_500_group_id")"
+gemini_fault_malformed_api_key="$(create_api_key "$gemini_fault_malformed_group_id")"
+gemini_fault_timeout_api_key="$(create_api_key "$gemini_fault_timeout_group_id")"
+gemini_fault_disconnect_api_key="$(create_api_key "$gemini_fault_disconnect_group_id")"
 
 effective_from="1970-01-01T00:00:00Z"
 admin_request POST /admin/pricing/versions \
@@ -2132,6 +2265,27 @@ ORDER BY l.request_id;" >&2 || true
 fi
 echo "PASS: Anthropic and Gemini JSON/SSE provider-group requests settled exactly once"
 
+run_provider_group_fault "anthropic" "429" "$anthropic_fault_429_api_key" \
+    "$anthropic_fault_429_request_id" "aborted"
+run_provider_group_fault "anthropic" "500" "$anthropic_fault_500_api_key" \
+    "$anthropic_fault_500_request_id" "aborted"
+run_provider_group_fault "anthropic" "malformed" "$anthropic_fault_malformed_api_key" \
+    "$anthropic_fault_malformed_request_id" "reconciliation_needed"
+run_provider_group_fault "anthropic" "timeout" "$anthropic_fault_timeout_api_key" \
+    "$anthropic_fault_timeout_request_id" "reconciliation_needed"
+run_provider_group_fault "anthropic" "disconnect" "$anthropic_fault_disconnect_api_key" \
+    "$anthropic_fault_disconnect_request_id" "reconciliation_needed" 1
+run_provider_group_fault "gemini" "429" "$gemini_fault_429_api_key" \
+    "$gemini_fault_429_request_id" "aborted"
+run_provider_group_fault "gemini" "500" "$gemini_fault_500_api_key" \
+    "$gemini_fault_500_request_id" "aborted"
+run_provider_group_fault "gemini" "malformed" "$gemini_fault_malformed_api_key" \
+    "$gemini_fault_malformed_request_id" "reconciliation_needed"
+run_provider_group_fault "gemini" "timeout" "$gemini_fault_timeout_api_key" \
+    "$gemini_fault_timeout_request_id" "reconciliation_needed"
+run_provider_group_fault "gemini" "disconnect" "$gemini_fault_disconnect_api_key" \
+    "$gemini_fault_disconnect_request_id" "reconciliation_needed" 1
+
 provider_control_released() {
     [[ "$(db_query "
 SELECT
@@ -2379,7 +2533,7 @@ run_chat_fault "429" "$fault_429_api_key" "503" "provider_unavailable" "20" "abo
 run_chat_fault "malformed_usage" "$fault_malformed_api_key" "502" "provider_error" "20" "reconciliation_needed"
 # Provider connection resets use one public availability error whether they are
 # observed directly or after dispatch exhausts the account cooldown.
-run_chat_fault "disconnect" "$fault_disconnect_api_key" "503" "provider_unavailable" "40" "reconciliation_needed"
+run_chat_fault "disconnect" "$fault_disconnect_api_key" "502|503" "provider_unavailable" "40" "reconciliation_needed"
 run_chat_fault "timeout" "$fault_timeout_api_key" "502" "-" "40" "reconciliation_needed"
 run_chat_stream_rejection "500" "$fault_500_api_key"
 run_chat_stream_rejection "429" "$fault_429_api_key"
@@ -2954,7 +3108,7 @@ SELECT
   (SELECT count(*) FROM balance_ledger l JOIN request_leases r ON r.lease_token = l.lease_token WHERE r.request_id = '$chat_request_id' AND l.entry_type = 'usage_debit' AND l.amount = -r.final_cost_usd);")"
 # The streaming response-policy case intentionally retains one additional
 # unknown-charge lease so the first SSE event can be withheld before blocking.
-expected_unknown_incidents=$((12 + gateway_hook_unknown_incidents + 1))
+expected_unknown_incidents=$((12 + provider_group_unknown_incidents + gateway_hook_unknown_incidents + 1))
 expected_open_after_resolution=$((expected_unknown_incidents - 1))
 assert_equals "0|${expected_unknown_incidents}|${expected_unknown_incidents}|0|0|1|1|1|1" \
     "$terminal_state" "Terminal billing invariants"
