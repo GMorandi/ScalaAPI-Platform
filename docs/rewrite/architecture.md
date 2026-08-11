@@ -231,6 +231,13 @@ target header set, never lets inbound client authentication replace it, and neve
 includes credential values in errors, logs, metrics, or response headers. Provider
 base URLs remain account configuration while Platform owns the escaped native path
 and method; API keys are not appended to URLs.
+Native Provider 401/403 responses are account-health failures rather than caller
+authentication failures: Gateway applies the bounded account failover policy and,
+when no eligible account remains, exposes 503 `provider_unavailable`. Each explicit
+Provider rejection still terminates its lease through the no-charge path, releases
+the hold, and writes no usage or debit. The source-owned mock returns the native 401
+envelope directly, so mock-level authentication and product-level failover are
+tested as distinct contracts.
 The source-owned Provider mock deterministically exercises JSON, SSE, 429, 500,
 delay, disconnect, and malformed usage. Normalized request fields select faults,
 while separate seeded accounts isolate scheduler cooldown and retry state. Gateway

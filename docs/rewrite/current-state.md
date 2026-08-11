@@ -10,8 +10,8 @@ read-only requirements reference and is excluded from builds and runtime.
 
 | Repository | Commit | Worktree | Active role |
 | --- | --- | --- | --- |
-| `gateway` | `418da3a` | clean | C++ Gateway edge, protocol routing/conversion, Provider transport, and Garnet client |
-| `platform` | `024b215` | clean | C# Orleans control plane, PostgreSQL authority, Provider mock, Admin Web, User Web, and source-owned protocol fault tooling |
+| `gateway` | `4b3f19b` | clean | C++ Gateway edge, protocol routing/conversion, Provider transport, target-credential isolation, and Garnet client |
+| `platform` | `c30e237` | clean | C# Orleans control plane, PostgreSQL authority, native Provider credential compiler/mock, Admin Web, User Web, and source-owned protocol fault tooling |
 | `sub2api` | `43ec48d` | read-only clean | Requirements reference only; no runtime or compatibility dependency |
 
 ## Historical role descriptions
@@ -23,17 +23,17 @@ read-only requirements reference and is excluded from builds and runtime.
 | `sub2api` | `43ec48d` | read-only clean | Requirements catalogue only; never a runtime or compatibility dependency |
 
 The active source snapshot for this document is Platform/Admin Web/User Web
-`024b215` and Gateway `418da3a`; both worktrees are clean. The table's longer
+`c30e237` and Gateway `4b3f19b`; both worktrees are clean. The table's longer
 capability descriptions are retained as inventory context, while this override
 and the evidence below define the current commits.
 
 The current tracked inventory is:
 
-- Gateway: 52 production C++ source/header files, 11 test source files, and 126
+- Gateway: 52 production C++ source/header files, 11 test source files, and 127
   CTest cases.
-- Platform: 131 source C# files, including 4 smoke-only object-storage
-  fault-proxy files, 5 generated Cap'n Proto/global C# files, 70 test/benchmark C#
-  files, and 279 passing tests: 69 Grain, 95 Host, 46 Admin, and 69 Provider mock tests.
+- Platform: 132 source C# files, including 4 smoke-only object-storage
+  fault-proxy files, 5 generated Cap'n Proto/global C# files, 72 test/benchmark C#
+  files, and 288 passing tests: 75 Grain, 95 Host, 46 Admin, and 72 Provider mock tests.
   The Admin Web source now has 29 TypeScript/TSX files and 16 page views.
 - Product surface: 129 direct Admin API route declarations, 51 product tables,
   22 SQLSugar entity types, 29 Admin Web TypeScript/TSX files and 16 page views,
@@ -544,6 +544,36 @@ current-source runtime evidence.
   `docs/archive/migration`.
 
 ## Current verification evidence
+
+### Native Provider credential implementation evidence
+
+Platform `c30e237` treats encrypted account credentials as semantic product
+material and compiles them only during credential hydration. Static Anthropic
+accounts emit bounded `x-api-key`, `anthropic-version` (default
+`2023-06-01`), and optional `anthropic-beta`; Gemini emits
+`x-goog-api-key`; OpenAI-compatible `api_key` material becomes Bearer
+authorization. Duplicate, CR/LF-bearing, oversized, colliding, or expanded
+header sets fail with secret-free contract codes, and OAuth material is merged
+without overwriting a compiled static header. Gateway `4b3f19b` independently
+validates target count/name/value/aggregate bounds, rejects routing,
+hop-by-hop, semantic-alias, duplicate, and injected headers, and removes inbound
+client `x-api-key` from the Provider forwarding allowlist.
+
+The source-built empty-volume project `scalaapi-native-auth-0811b` exited zero.
+The Provider mock required exact native authentication on Anthropic Messages,
+count-tokens, Gemini catalog, generation, and streaming routes. Successful
+JSON/SSE/control requests passed through Gateway -> Cap'n Proto -> Platform ->
+Provider mock with the existing exactly-once billing or explicit no-charge
+release invariants. Dedicated wrong-credential accounts received native Provider
+401 responses; Gateway exhausted the configured account failover and returned
+public 503 `provider_unavailable`, while every attempted lease was `aborted`,
+every hold was `released`, idempotency was terminal `aborted`, and usage/log/
+ledger cardinality stayed zero. The same run applied and replay-skipped all 50
+empty-volume migrations and passed restart, two-Silo object-storage/PostgreSQL
+partition recovery, Garnet, S3, media, accounting, reconciliation, and operator
+checks. Cleanup left no project containers, volumes, or temporary networks.
+Release build is zero-warning/zero-error; Platform tests pass 288/288 and Gateway
+tests pass 127/127.
 
 ## Embeddings profile implementation evidence
 

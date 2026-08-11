@@ -6,8 +6,24 @@ The source-built smoke above is the current release evidence. Rows later in this
 document that mention earlier classifier projects or migration counts are retained
 as historical checkpoints and do not define the current bootstrap or release gate.
 
-The latest source snapshot is Platform/Admin Web/User Web `024b215` and Gateway
-`418da3a`.
+The latest source snapshot is Platform/Admin Web/User Web `c30e237` and Gateway
+`4b3f19b`.
+
+The complete source-built native-credential project
+`scalaapi-native-auth-0811b` exited zero. Platform compiled semantic account
+keys into Anthropic `x-api-key` + `anthropic-version` and Gemini
+`x-goog-api-key`; Gateway validated the target set and prevented the inbound
+client key from overriding it; Provider.Mock required the exact native headers.
+Successful Anthropic/Gemini JSON, SSE, catalog, and count-token routes passed.
+Wrong Provider credentials produced native upstream 401 responses, public 503
+after account failover exhaustion, aborted idempotency/leases, released holds,
+and zero usage/log/debit rows. The same empty-volume run applied and
+replay-skipped all 50 migrations and passed Platform/Gateway replacement,
+two-Silo object-storage/PostgreSQL partition recovery, Garnet, S3/media,
+accounting, reconciliation, and audited operator resolution. Its cleanup trap
+left no named containers, volumes, or temporary networks. The post-gate Release
+solution build succeeded with zero warnings/errors; 288/288 Platform tests and
+127/127 Gateway tests passed.
 
 The complete source-built Provider-fidelity project
 `scalaapi-provider-fidelity-0811j` exited zero. It applied and replay-skipped
@@ -665,7 +681,7 @@ supersedes them where commit, image, or late-usage results differ.
 | Multi-process classifier metric flush/restart | `scalaapi-metrics-process-0810f`, exit 0 | Source-built Compose started a second Platform silo and Gateway on an independent Cap'n Proto socket, sent an OpenAI Moderation response-policy request, restarted both secondary processes, then repeated the request. PostgreSQL contained two instance IDs, sequence 1 for each, two snapshots and two requests; usage_events and NUMERIC `usage_debit` ledger rows each counted two. The smoke cleanup removed the extra and baseline resources and `podman ps -a` was empty |
 | Cross-Gateway idempotency and Silo rejoin | `scalaapi-multi-gateway-0810b`, exit 0 | The source-owned empty-volume smoke started two Platform silos and two Gateways, restarted the secondary pair, then sent concurrent normal Chat requests through both Gateways with one API-key idempotency key. It stopped the secondary pair, proved the primary request still settled with one active Silo, restarted the original containers, verified two active Silos, and settled through the rejoined secondary Gateway. PostgreSQL proved one shared-idempotency lease/debit plus two outage/rejoin leases, usage events, and NUMERIC `usage_debit` rows. The trap removed the isolated project and `podman ps -a` was empty |
 | PostgreSQL backup and isolated restore | `scalaapi-backup-0810b`, exit 0 | The source-owned empty-volume gate applied and replay-skipped all 46 product migrations, registered a fresh user, created an Admin `postgres` backup through the new idempotent command, verified a non-empty artifact and 64-character SHA-256, replayed the same create key, restored into a separate `platform_restore` database with PostgreSQL 17 `pg_restore`, replayed the restore key, and verified the restored user row. The Admin API image now pins the PGDG PostgreSQL 17 client to match the Compose server. The trap removed the stack and `podman ps -a` was empty |
-| Current Platform tests | 271/271, exit 0; Release build 0 warnings/0 errors | 69 Grain, 95 Host, 46 Admin, and 61 Provider tests; four new Host tests pin one-shot fault arming, matching, bounded evidence, and clear semantics. Deterministic-key convergence, real transport failure recovery, partial parent/item retention deletion, migration 049 fencing, owner isolation, restart recovery, pricing, Garnet, classifier, and backup coverage remain passing |
+| Current Platform tests | 288/288, exit 0; Release build 0 warnings/0 errors | 75 Grain, 95 Host, 46 Admin, and 72 Provider tests. Native credential compilation, Grain hydration, Cap'n Proto serialization, exact mock authentication/version rejection, target-header bounds, deterministic-key convergence, transport failure recovery, media fencing, owner isolation, restart recovery, pricing, Garnet, classifier, and backup coverage remain passing |
 | Admin Web backup controls | Platform `840636e`, `npm run typecheck`, `npm run build`, Playwright backup route `1/1` | `/backups` lists status, artifact size, and SHA-256 prefix, shows whether an isolated restore target is configured, creates PostgreSQL backups with an idempotency key, and exposes restore only for completed artifacts with a configured target. Live browser authorization, restore-failure UX, and signed/offsite artifact management remain |
 | Gateway provider-completion crash recovery | `scalaapi-gateway-recovery-0907` source-built smoke passed; Gateway terminated after Provider completion, was explicitly restarted, and the same request retained one active hold in `reconciliation_needed` with no usage/debit | Durable lease evidence survives Gateway process loss; the one-shot marker prevents a restart loop, and the normal reconciliation/operator path remains authoritative |
 | Gateway before-provider-dispatch crash recovery | `scalaapi-gateway-dispatch-recovery-0911` source-built smoke passed; Gateway terminated before Provider contact, was explicitly restarted, and the same held lease became `expired` with released hold/idempotency and no usage/debit | Never-forwarded work remains safe to expire after Gateway loss and does not create an unknown-charge incident |

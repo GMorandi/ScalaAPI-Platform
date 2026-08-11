@@ -1,53 +1,43 @@
 # ScalaAPI Next Stage Plan
 
-Current checkpoint override: Platform/Admin Web/User Web `024b215`, Gateway
-`418da3a`, and read-only `sub2api@43ec48d`. The latest gate is
-`scalaapi-provider-fidelity-0811j`; it passed durable image batch list/items,
-Provider-backed cancellation, S3-backed ZIP download with manifest/error entries,
-owner-scoped per-item objects and signed downloads, retention cleanup, Platform
-restart recovery, fenced item integrity verification, one-fetch archive/item
-creation, exact claims across two live Silos, MinIO outage/restart recovery,
-force-replacement with volume preservation, and the full empty-volume matrix. The
-same run stopped MinIO during retention, persisted retry evidence without changing
-completed billing, restarted storage, and cleared parent/item metadata. Focused
-tests prove partial-PUT deterministic-key convergence and mid-sequence DELETE
-replay. A smoke-only private TCP proxy additionally reset a signed PUT after 16
-request-body bytes and discarded a 200 response after MinIO committed another
-PUT. Both retries preserved deterministic item/archive keys and exactly-once
-settlement. The latest gate also disconnected only the secondary Silo from
-object storage and PostgreSQL using a rootless private network. It proved one
-fenced object-storage failure and recovery, then due PostgreSQL work surviving
-the partition with `stored|completed|committed`, one usage event, and one debit
-after rejoin. The same run also passed the new Anthropic/Gemini Provider-specific
-fault matrix and final reconciliation/operator gate. The remaining plan below
-starts after this completed protocol-fidelity boundary.
+Current checkpoint override: Platform/Admin Web/User Web `c30e237`, Gateway
+`4b3f19b`, and read-only `sub2api@43ec48d`. The latest gate is
+`scalaapi-native-auth-0811b`. It passed the complete empty-volume matrix and adds
+exact native Anthropic/Gemini credential delivery, client/Provider credential
+isolation, direct mock authentication rejection, and public failover-exhausted
+no-charge accounting evidence. The existing 50-migration double run, provider
+fault matrix, Platform/Gateway replacement, two-Silo object-storage/PostgreSQL
+partitions, media/S3 recovery, Garnet, reconciliation, and operator gates stayed
+green. The remaining plan starts after this completed credential-transport slice.
 
-The Provider-specific fault slice is implemented at Platform `024b215`.
+The Provider-specific fault slice is implemented at Platform `024b215`, and the
+native credential slice is implemented at Platform `c30e237` plus Gateway
+`4b3f19b`.
 Independent groups cover Anthropic Messages and Gemini generation 429, 500,
 malformed JSON/SSE, timeout, disconnect, and usage-before-EOF profiles.
-Provider.Mock tests pass 69/69. The empty-stack gate routes ten new JSON/SSE
+Provider.Mock tests pass 72/72. The empty-stack gates route the JSON/SSE
 requests through Gateway -> Cap'n Proto -> Platform: explicit 429/500 responses
 release the hold without usage/debit, while malformed, timeout, and disconnect
 retain one unknown-charge lease/hold each. Live upstream adapters,
 provider-specific pricing/tokenizers, and longer load/backpressure remain
 next-stage work.
 
-## Immediate execution order after `024b215`
+## Immediate execution order after `c30e237`
 
-1. Complete provider-native adapter boundaries for Anthropic and Gemini:
-   version/auth/beta headers, base-URL and method selection, bounded response
-   bodies, retry/cancellation classification, and secret-free errors. Keep every
-   contract source-owned; do not add Sub2API headers, keys, routes, or fallback
-   mappings.
-2. Extend the current runtime matrix with provider-native cancellation,
+1. Extend the current runtime matrix with provider-native cancellation,
    usage-before-EOF settlement, invalid content type, retry exhaustion, and
    credential refresh/revocation for both protocols. Every case must assert
    request/idempotency identity, lease journal, hold state, usage/log cardinality,
    NUMERIC debit, and reconciliation outcome.
-3. Finish the remaining P0 protocol lifecycle gaps: OpenAI Responses mutation
+2. Finish the remaining P0 protocol lifecycle gaps: OpenAI Responses mutation
    subresources and the complete video create/poll/cancel/delete/object-retention
    state machine. Reuse the same lease/accounting and S3-compatible lifecycle;
    no compatibility storage or legacy status mapping is allowed.
+3. Bind live Provider adapter evidence to explicit configuration profiles: real
+   Anthropic/Gemini credentials in an isolated secret store, provider-owned
+   pricing/catalog/tokenizer snapshots, HTTPS/TLS fingerprint enforcement, and
+   revocation/rotation drills. No secret may enter fixtures, logs, query strings,
+   error bodies, or repository history.
 4. Run the documented 3600-second two-Silo media contention/rejoin gate, then add
    longer realtime/provider backpressure and process-replacement soak evidence.
 5. Make the source-built Gateway + Platform empty-volume gate blocking in hosted
@@ -58,49 +48,45 @@ authority, Garnet projections, Provider mock, and the current incident/operator
 workflow remain fixed foundations. Any contract change updates both repositories
 and digest/generation gates in one release.
 
-### Provider-native credential slice investigated after `024b215`
+### Provider-native credential slice completed at `c30e237` / `4b3f19b`
 
-Repository evidence shows that Platform currently decrypts the account credential
-dictionary and copies it verbatim to Cap'n Proto `authHeaders`; Gateway then inserts
-every target pair into the upstream request. The seeded semantic key `api_key`
-therefore does not authenticate either native Provider. Existing mock endpoints do
-not validate authentication, so the passing runtime gate cannot close this gap.
-Sub2API was inspected only as a requirements catalogue; none of its header aliases,
-fallback keys, routes, or stored state are accepted as a compatibility contract.
+The prior verbatim credential copy and permissive mock gap is closed. Sub2API was
+used only as a requirements catalogue; none of its header aliases, fallback keys,
+routes, or stored state became a compatibility contract.
 
-Implement this slice in the following order:
+Completed controls:
 
-1. Add one Platform credential compiler with case-insensitive platform
+1. Platform adds one credential compiler with case-insensitive platform
    normalization, bounded material, CR/LF rejection, deterministic header names,
    collision rejection, and secret-free error codes. Static `api_key` is required
    for native Anthropic and Gemini accounts. Anthropic uses `x-api-key` plus
    `anthropic-version` (default `2023-06-01`) and an optional bounded
    `anthropic-beta`; Gemini uses `x-goog-api-key`. No key is placed in a query,
    path, log, metric, or error.
-2. Use the same compiler for initial dispatch, active-lease recovery, media polling,
-   and Provider cancellation by compiling during credential hydration. Preserve
-   OAuth rotation as an explicit header-name/scheme contract, and reject collisions
+2. Credential hydration uses the same compiler for initial dispatch, active-lease
+   recovery, media polling, and Provider cancellation. OAuth rotation remains an
+   explicit header-name/scheme contract and rejects collisions
    between refreshed OAuth material and compiled static material.
-3. Validate Cap'n Proto target auth headers in Gateway before creating an HTTP
+3. Gateway validates Cap'n Proto target auth headers before creating an HTTP
    operation: bounded count/name/value, no hop-by-hop or routing headers, no
    duplicates, and only Platform-produced authentication may reach upstream.
    Inbound `Authorization` and `x-api-key` remain client authentication and must not
    override the target.
-4. Make Provider mock Anthropic Messages/count-tokens and Gemini
-   models/generate/stream routes validate exact native headers. Add negative HTTP
-   contracts for absent/wrong key, version, and leaked generic `api_key`; keep
-   failures secret-free.
-5. Extend the empty-volume smoke with successful Anthropic JSON/SSE/count-tokens and
-   Gemini models/JSON/SSE through the new header checks, then assert the existing
+4. Provider mock Anthropic Messages/count-tokens and Gemini
+   models/generate/stream routes validate exact native headers. Negative HTTP
+   contracts cover absent/wrong key, version, and leaked generic `api_key`; all
+   failures are secret-free.
+5. The empty-volume smoke sends Anthropic JSON/SSE/count-tokens and Gemini
+   models/JSON/SSE through the new header checks and asserts the existing
    exactly-once lease/hold/usage/debit outcomes and that Provider 401 rejection is
-   no-charge. Run the complete existing matrix before promotion.
+   no-charge. The complete existing matrix passes before promotion.
 
-Exit requires source tests in Grains, Host serialization, Gateway forwarding, and
-Provider.Mock plus a current-source empty-stack run. The successful run must prove
-the native methods and escaped paths already selected by Platform, exact header
-delivery, no client-key override, bounded secret-free failures, and unchanged
-terminal accounting. This closes only the native credential transport slice;
-provider-owned pricing/tokenizers, live external credentials, and longer soak remain.
+Exit evidence is Platform 288/288, Gateway 127/127, zero-warning Release build,
+and `scalaapi-native-auth-0811b` exit 0. It proves the native methods/paths, exact
+header delivery, no client-key override, secret-free rejection, and unchanged
+terminal accounting. This closes only credential transport; provider-owned
+pricing/tokenizers, live external credentials, revocation/cancellation runtime
+matrices, and longer soak remain.
 
 Exit: provider-native fault/cancellation/refresh matrices pass for OpenAI,
 Anthropic, and Gemini; Responses and video lifecycles have API/state-machine,
@@ -152,8 +138,8 @@ and deployment-scale HA/offsite lifecycle remain partial.
 
 ## Checkpoint
 
-The next stage starts from Platform/Admin Web/User Web `024b215`, Gateway
-`418da3a`, and read-only reference `sub2api@43ec48d`.
+The next stage starts from Platform/Admin Web/User Web `c30e237`, Gateway
+`4b3f19b`, and read-only reference `sub2api@43ec48d`.
 
 The greenfield baseline now starts from empty volumes, uses PostgreSQL as authority,
 Garnet as the only distributed projection/cache, S3-compatible object storage for
