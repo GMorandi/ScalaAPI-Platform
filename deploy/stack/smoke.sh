@@ -9,6 +9,9 @@ compose_files=("$compose_file" "$faults_compose_file")
 garnet_tls_enabled="${GARNET_TLS:-false}"
 garnet_tls_rotation_enabled="${GARNET_TLS_ROTATION:-false}"
 project="${SMOKE_PROJECT_NAME:-scalaapi-smoke-$$}"
+media_contention_soak_seconds="${MEDIA_CONTENTION_SOAK_SECONDS:-0}"
+media_contention_soak_restart_every="${MEDIA_CONTENTION_SOAK_RESTART_EVERY:-0}"
+media_contention_soak_interval_seconds="${MEDIA_CONTENTION_SOAK_INTERVAL_SECONDS:-1}"
 secondary_platform_container=""
 secondary_gateway_container=""
 partition_network=""
@@ -16,6 +19,19 @@ secondary_default_network=""
 
 if [[ ! "$project" =~ ^[a-z0-9][a-z0-9_-]*$ ]]; then
     echo "SMOKE_PROJECT_NAME must contain only lowercase letters, numbers, dashes, and underscores" >&2
+    exit 2
+fi
+for media_contention_setting in \
+    "$media_contention_soak_seconds" \
+    "$media_contention_soak_restart_every" \
+    "$media_contention_soak_interval_seconds"; do
+    if [[ ! "$media_contention_setting" =~ ^[0-9]+$ ]]; then
+        echo "MEDIA_CONTENTION_SOAK_SECONDS, MEDIA_CONTENTION_SOAK_RESTART_EVERY, and MEDIA_CONTENTION_SOAK_INTERVAL_SECONDS must be non-negative integers" >&2
+        exit 2
+    fi
+done
+if (( media_contention_soak_seconds > 0 && media_contention_soak_interval_seconds == 0 )); then
+    echo "MEDIA_CONTENTION_SOAK_INTERVAL_SECONDS must be positive when the media contention soak is enabled" >&2
     exit 2
 fi
 
@@ -2774,6 +2790,78 @@ wait_for "Gateway readiness after object storage replacement" 90 \
 media_batch_item_size_after_replacement="$(curl -fsSL "$media_batch_item_url" | wc -c | tr -d ' ')"
 assert_equals "$media_batch_item_size" "$media_batch_item_size_after_replacement" \
     "Signed item download after object storage replacement"
+
+if (( media_contention_soak_seconds > 0 )); then
+    if [[ -z "$secondary_platform_container" ]]; then
+        echo "Media contention soak requires the secondary Silo" >&2
+        exit 1
+    fi
+
+    media_contention_soak_started_at=$SECONDS
+    media_contention_soak_cycle=0
+    media_contention_soak_restarts=0
+    echo "Running media worker contention soak for ${media_contention_soak_seconds}s"
+    while (( SECONDS - media_contention_soak_started_at < media_contention_soak_seconds )); do
+        media_contention_soak_cycle=$((media_contention_soak_cycle + 1))
+        media_contention_item_attempts_before="$(db_query "
+            SELECT object_reconcile_attempts
+            FROM media_operation_items
+            WHERE operation_id = '$media_batch_id';")"
+        media_contention_parent_attempts_before="$(db_query "
+            SELECT object_reconcile_attempts
+            FROM media_operations
+            WHERE operation_id = '$media_batch_id';")"
+        db_query "
+            UPDATE media_operation_items
+            SET object_next_check_at = now() - interval '1 second'
+            WHERE operation_id = '$media_batch_id';
+            UPDATE media_operations
+            SET object_next_check_at = now() - interval '1 second'
+            WHERE operation_id = '$media_batch_id';" >/dev/null
+
+        media_contention_cycle_recovered() {
+            [[ "$(db_query "
+                SELECT
+                  item.object_status || '|' ||
+                  (item.object_verified_at IS NOT NULL)::text || '|' ||
+                  item.object_reconcile_attempts || '|' ||
+                  operation.object_status || '|' ||
+                  operation.object_reconcile_attempts || '|' ||
+                  (item.object_key = 'media/$media_batch_id/items/0001-mock-1.png')::text || '|' ||
+                  (operation.object_key = 'media/$media_batch_id.zip')::text || '|' ||
+                  (SELECT count(*) FROM media_operation_items
+                   WHERE operation_id = operation.operation_id) || '|' ||
+                  (SELECT count(*) FROM usage_events
+                   WHERE request_id = lease.request_id) || '|' ||
+                  ((SELECT count(*) FROM balance_ledger
+                    WHERE lease_token = lease.lease_token AND entry_type = 'usage_debit') =
+                   CASE WHEN lease.final_cost_usd > 0 THEN 1 ELSE 0 END)::text
+                FROM media_operation_items item
+                JOIN media_operations operation ON operation.operation_id = item.operation_id
+                JOIN request_leases lease ON lease.lease_token = operation.lease_token
+                WHERE item.operation_id = '$media_batch_id';")" == \
+               "stored|true|$((media_contention_item_attempts_before + 1))|stored|$((media_contention_parent_attempts_before + 1))|true|true|1|1|true" ]]
+        }
+        wait_for "media contention cycle ${media_contention_soak_cycle}" 30 \
+            media_contention_cycle_recovered
+
+        if (( media_contention_soak_restart_every > 0 &&
+              media_contention_soak_cycle % media_contention_soak_restart_every == 0 )); then
+            "$container_cli" restart "$secondary_platform_container" >/dev/null
+            wait_for "secondary Silo readiness after contention restart" 90 \
+                "$container_cli" exec "$secondary_platform_container" \
+                curl -fsS http://127.0.0.1:5002/ready >/dev/null
+            wait_for "two active Silos after contention restart" 60 media_secondary_silos_ready
+            media_contention_soak_restarts=$((media_contention_soak_restarts + 1))
+        fi
+
+        if (( SECONDS - media_contention_soak_started_at < media_contention_soak_seconds )); then
+            sleep "$media_contention_soak_interval_seconds"
+        fi
+    done
+    media_contention_elapsed=$((SECONDS - media_contention_soak_started_at))
+    echo "PASS: media worker contention soak ran ${media_contention_elapsed}s across ${media_contention_soak_cycle} cycles with ${media_contention_soak_restarts} secondary Silo rejoin(s), without duplicate objects or billing"
+fi
 
 "$container_cli" rm -f "$secondary_platform_container" >/dev/null
 secondary_platform_container=""
