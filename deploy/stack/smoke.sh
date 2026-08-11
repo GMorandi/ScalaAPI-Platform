@@ -322,11 +322,15 @@ anthropic_fault_500_request_id="smoke-anthropic-fault-500-${suffix}"
 anthropic_fault_malformed_request_id="smoke-anthropic-fault-malformed-${suffix}"
 anthropic_fault_timeout_request_id="smoke-anthropic-fault-timeout-${suffix}"
 anthropic_fault_disconnect_request_id="smoke-anthropic-fault-disconnect-${suffix}"
+anthropic_fault_after_usage_request_id="smoke-anthropic-fault-after-usage-${suffix}"
+anthropic_fault_invalid_content_type_request_id="smoke-anthropic-fault-invalid-content-type-${suffix}"
 gemini_fault_429_request_id="smoke-gemini-fault-429-${suffix}"
 gemini_fault_500_request_id="smoke-gemini-fault-500-${suffix}"
 gemini_fault_malformed_request_id="smoke-gemini-fault-malformed-${suffix}"
 gemini_fault_timeout_request_id="smoke-gemini-fault-timeout-${suffix}"
 gemini_fault_disconnect_request_id="smoke-gemini-fault-disconnect-${suffix}"
+gemini_fault_after_usage_request_id="smoke-gemini-fault-after-usage-${suffix}"
+gemini_fault_invalid_content_type_request_id="smoke-gemini-fault-invalid-content-type-${suffix}"
 anthropic_auth_rejected_request_id="smoke-anthropic-auth-rejected-${suffix}"
 gemini_auth_rejected_request_id="smoke-gemini-auth-rejected-${suffix}"
 fault_request_prefix="smoke-fault-${suffix}"
@@ -344,7 +348,7 @@ embedding_gemini_price_version="smoke-embeddings-gemini-${suffix}-v1"
 media_price_version="smoke-media-${suffix}-v1"
 balance_idempotency_key="smoke-balance-${suffix}"
 gateway_hook_unknown_incidents=0
-provider_group_unknown_incidents=6
+provider_group_unknown_incidents=8
 gateway_hook_safe_expiry=0
 platform_dispatch_fault_safe_expiry=0
 platform_dispatch_retry=0
@@ -636,6 +640,70 @@ SELECT
     echo "PASS: Provider $scenario -> HTTP $response_status (usage settled after stream truncation)"
 }
 
+run_native_stream_late_usage() {
+    local provider=$1
+    local scenario_api_key=$2
+    local request_id=$3
+    local idempotency_key="${request_id}-idem"
+    local request_path
+    local request_body
+    local response
+    local response_status
+    local settlement_state
+
+    if [[ "$provider" == "anthropic" ]]; then
+        request_path="/v1/messages"
+        request_body='{"model":"claude-3-5-sonnet","max_tokens":16,"messages":[{"role":"user","content":"native late usage matrix"}],"stream":true}'
+    else
+        request_path="/v1beta/models/gemini-2.0-flash:streamGenerateContent?alt=sse"
+        request_body='{"contents":[{"role":"user","parts":[{"text":"native late usage matrix"}]}]}'
+    fi
+
+    set +e
+    response="$(curl -sS --max-time 25 --write-out $'\n%{http_code}' \
+        "$gateway_url$request_path" \
+        -H "Authorization: Bearer $scenario_api_key" \
+        -H "Content-Type: application/json" \
+        -H "X-Request-ID: $request_id" \
+        -H "Idempotency-Key: $idempotency_key" \
+        --data "$request_body")"
+    set -e
+    response_status="${response##*$'\n'}"
+    [[ -n "$response_status" ]] || response_status=000
+    assert_one_of "000|200|502|503" "$response_status" \
+        "$provider usage-before-EOF response status"
+
+    native_late_usage_settled() {
+        [[ "$(db_query "SELECT count(*) FROM request_leases WHERE request_id = '$request_id' AND status = 'completed';")" == "1" ]]
+    }
+    wait_for "$provider usage-before-EOF settlement" 30 native_late_usage_settled
+
+    settlement_state="$(db_query "
+WITH target_leases AS (
+  SELECT lease_token, request_id, status
+  FROM request_leases
+  WHERE request_id = '$request_id'
+)
+SELECT
+  (SELECT count(*) FROM target_leases) || '|' ||
+  (SELECT count(*) FROM target_leases WHERE status = 'completed') || '|' ||
+  (SELECT count(*) FROM target_leases WHERE status = 'reconciliation_needed') || '|' ||
+  (SELECT count(*) FROM balance_holds h JOIN target_leases l USING (lease_token)) || '|' ||
+  (SELECT count(*) FROM balance_holds h JOIN target_leases l USING (lease_token) WHERE h.status = 'committed') || '|' ||
+  (SELECT count(*) FROM balance_holds h JOIN target_leases l USING (lease_token) WHERE h.status = 'active') || '|' ||
+  (SELECT count(*) FROM usage_events u JOIN target_leases l ON l.request_id = u.request_id) || '|' ||
+  (SELECT count(*) FROM usage_logs u JOIN target_leases l ON l.request_id = u.request_id) || '|' ||
+  (SELECT count(*) FROM balance_ledger b JOIN target_leases l USING (lease_token)) || '|' ||
+  (SELECT count(*) FROM request_idempotency WHERE idempotency_key = '$idempotency_key' AND status = 'completed') || '|' ||
+  (SELECT count(*) FROM request_lease_events e JOIN target_leases l USING (lease_token) WHERE e.event_type = 'reconciliation_needed') || '|' ||
+  (SELECT count(*) FROM request_lease_events e JOIN target_leases l USING (lease_token) WHERE e.event_type = 'completed') || '|' ||
+  (SELECT count(*) FROM usage_events u JOIN target_leases l ON l.request_id = u.request_id
+     WHERE u.stream AND u.input_tokens > 0 AND u.output_tokens = 5);")"
+    assert_equals "1|1|0|1|1|0|1|1|1|1|1|1|1" "$settlement_state" \
+        "$provider usage-before-EOF exactly-once invariants"
+    echo "PASS: $provider usage-before-EOF settled the original unknown lease exactly once"
+}
+
 run_chat_stream_rejection() {
     local scenario=$1
     local scenario_api_key=$2
@@ -790,6 +858,12 @@ SELECT 'idempotency' AS kind, idempotency_key, status, lease_token,
 WHERE idempotency_key = '$idempotency_key';" >&2 || true
         return 1
     fi
+    if [[ "$scenario" == "invalid_content_type" ]]; then
+        assert_equals "1" "$(db_query "
+SELECT count(*) FROM request_leases
+WHERE request_id = '$request_id' OR request_id LIKE '$request_id:retry:%';")" \
+            "$provider wrong-media-type no-retry lease count"
+    fi
     if [[ "$expected_terminal" == "aborted" ]]; then
         echo "PASS: $provider $scenario rejected/failover-exhausted with no charge"
     else
@@ -867,18 +941,22 @@ assert_equals "10" "$(jq -er '.scenarios | length' <<<"$fault_seed_response")" \
 
 provider_fault_seed_response="$(admin_request POST /admin/seed/provider-mock-provider-fault-matrix '{}' \
     "$admin_token")"
-assert_equals "14" "$(jq -er '.scenarios | length' <<<"$provider_fault_seed_response")" \
+assert_equals "16" "$(jq -er '.scenarios | length' <<<"$provider_fault_seed_response")" \
     "Seeded Anthropic/Gemini Provider fault scenario count"
 anthropic_fault_429_group_id="$(jq -er '.scenarios[] | select(.provider == "anthropic" and .scenario == "429") | .group_id' <<<"$provider_fault_seed_response")"
 anthropic_fault_500_group_id="$(jq -er '.scenarios[] | select(.provider == "anthropic" and .scenario == "500") | .group_id' <<<"$provider_fault_seed_response")"
 anthropic_fault_malformed_group_id="$(jq -er '.scenarios[] | select(.provider == "anthropic" and .scenario == "malformed") | .group_id' <<<"$provider_fault_seed_response")"
 anthropic_fault_timeout_group_id="$(jq -er '.scenarios[] | select(.provider == "anthropic" and .scenario == "timeout") | .group_id' <<<"$provider_fault_seed_response")"
 anthropic_fault_disconnect_group_id="$(jq -er '.scenarios[] | select(.provider == "anthropic" and .scenario == "disconnect") | .group_id' <<<"$provider_fault_seed_response")"
+anthropic_fault_after_usage_group_id="$(jq -er '.scenarios[] | select(.provider == "anthropic" and .scenario == "disconnect_after_usage") | .group_id' <<<"$provider_fault_seed_response")"
+anthropic_fault_invalid_content_type_group_id="$(jq -er '.scenarios[] | select(.provider == "anthropic" and .scenario == "invalid_content_type") | .group_id' <<<"$provider_fault_seed_response")"
 gemini_fault_429_group_id="$(jq -er '.scenarios[] | select(.provider == "gemini" and .scenario == "429") | .group_id' <<<"$provider_fault_seed_response")"
 gemini_fault_500_group_id="$(jq -er '.scenarios[] | select(.provider == "gemini" and .scenario == "500") | .group_id' <<<"$provider_fault_seed_response")"
 gemini_fault_malformed_group_id="$(jq -er '.scenarios[] | select(.provider == "gemini" and .scenario == "malformed") | .group_id' <<<"$provider_fault_seed_response")"
 gemini_fault_timeout_group_id="$(jq -er '.scenarios[] | select(.provider == "gemini" and .scenario == "timeout") | .group_id' <<<"$provider_fault_seed_response")"
 gemini_fault_disconnect_group_id="$(jq -er '.scenarios[] | select(.provider == "gemini" and .scenario == "disconnect") | .group_id' <<<"$provider_fault_seed_response")"
+gemini_fault_after_usage_group_id="$(jq -er '.scenarios[] | select(.provider == "gemini" and .scenario == "disconnect_after_usage") | .group_id' <<<"$provider_fault_seed_response")"
+gemini_fault_invalid_content_type_group_id="$(jq -er '.scenarios[] | select(.provider == "gemini" and .scenario == "invalid_content_type") | .group_id' <<<"$provider_fault_seed_response")"
 anthropic_auth_rejected_group_id="$(jq -er '.scenarios[] | select(.provider == "anthropic" and .scenario == "auth_rejected") | .group_id' <<<"$provider_fault_seed_response")"
 gemini_auth_rejected_group_id="$(jq -er '.scenarios[] | select(.provider == "gemini" and .scenario == "auth_rejected") | .group_id' <<<"$provider_fault_seed_response")"
 
@@ -1048,14 +1126,18 @@ allowed_groups="$(jq -cn \
     --argjson anthropicFaultMalformed "$anthropic_fault_malformed_group_id" \
     --argjson anthropicFaultTimeout "$anthropic_fault_timeout_group_id" \
     --argjson anthropicFaultDisconnect "$anthropic_fault_disconnect_group_id" \
+    --argjson anthropicFaultAfterUsage "$anthropic_fault_after_usage_group_id" \
+    --argjson anthropicFaultInvalidContentType "$anthropic_fault_invalid_content_type_group_id" \
     --argjson geminiFault429 "$gemini_fault_429_group_id" \
     --argjson geminiFault500 "$gemini_fault_500_group_id" \
     --argjson geminiFaultMalformed "$gemini_fault_malformed_group_id" \
     --argjson geminiFaultTimeout "$gemini_fault_timeout_group_id" \
     --argjson geminiFaultDisconnect "$gemini_fault_disconnect_group_id" \
+    --argjson geminiFaultAfterUsage "$gemini_fault_after_usage_group_id" \
+    --argjson geminiFaultInvalidContentType "$gemini_fault_invalid_content_type_group_id" \
     --argjson anthropicAuthRejected "$anthropic_auth_rejected_group_id" \
     --argjson geminiAuthRejected "$gemini_auth_rejected_group_id" \
-    '[$openai,$anthropic,$gemini,$fault429,$fault500,$timeout,$disconnect,$disconnectStream,$disconnectBeforeOutput,$disconnectAfterUsage,$clientDisconnect,$malformed,$invalidContentType,$anthropicFault429,$anthropicFault500,$anthropicFaultMalformed,$anthropicFaultTimeout,$anthropicFaultDisconnect,$geminiFault429,$geminiFault500,$geminiFaultMalformed,$geminiFaultTimeout,$geminiFaultDisconnect,$anthropicAuthRejected,$geminiAuthRejected]')"
+    '[$openai,$anthropic,$gemini,$fault429,$fault500,$timeout,$disconnect,$disconnectStream,$disconnectBeforeOutput,$disconnectAfterUsage,$clientDisconnect,$malformed,$invalidContentType,$anthropicFault429,$anthropicFault500,$anthropicFaultMalformed,$anthropicFaultTimeout,$anthropicFaultDisconnect,$anthropicFaultAfterUsage,$anthropicFaultInvalidContentType,$geminiFault429,$geminiFault500,$geminiFaultMalformed,$geminiFaultTimeout,$geminiFaultDisconnect,$geminiFaultAfterUsage,$geminiFaultInvalidContentType,$anthropicAuthRejected,$geminiAuthRejected]')"
 admin_request PUT "/admin/users/$user_id" \
     "$(jq -cn --argjson groups "$allowed_groups" \
         '{role:"user",concurrency:4,rpmLimit:0,allowedGroups:$groups}')" \
@@ -1267,11 +1349,15 @@ anthropic_fault_500_api_key="$(create_api_key "$anthropic_fault_500_group_id")"
 anthropic_fault_malformed_api_key="$(create_api_key "$anthropic_fault_malformed_group_id")"
 anthropic_fault_timeout_api_key="$(create_api_key "$anthropic_fault_timeout_group_id")"
 anthropic_fault_disconnect_api_key="$(create_api_key "$anthropic_fault_disconnect_group_id")"
+anthropic_fault_after_usage_api_key="$(create_api_key "$anthropic_fault_after_usage_group_id")"
+anthropic_fault_invalid_content_type_api_key="$(create_api_key "$anthropic_fault_invalid_content_type_group_id")"
 gemini_fault_429_api_key="$(create_api_key "$gemini_fault_429_group_id")"
 gemini_fault_500_api_key="$(create_api_key "$gemini_fault_500_group_id")"
 gemini_fault_malformed_api_key="$(create_api_key "$gemini_fault_malformed_group_id")"
 gemini_fault_timeout_api_key="$(create_api_key "$gemini_fault_timeout_group_id")"
 gemini_fault_disconnect_api_key="$(create_api_key "$gemini_fault_disconnect_group_id")"
+gemini_fault_after_usage_api_key="$(create_api_key "$gemini_fault_after_usage_group_id")"
+gemini_fault_invalid_content_type_api_key="$(create_api_key "$gemini_fault_invalid_content_type_group_id")"
 anthropic_auth_rejected_api_key="$(create_api_key "$anthropic_auth_rejected_group_id")"
 gemini_auth_rejected_api_key="$(create_api_key "$gemini_auth_rejected_group_id")"
 
@@ -2303,6 +2389,11 @@ run_provider_group_fault "anthropic" "timeout" "$anthropic_fault_timeout_api_key
     "$anthropic_fault_timeout_request_id" "reconciliation_needed"
 run_provider_group_fault "anthropic" "disconnect" "$anthropic_fault_disconnect_api_key" \
     "$anthropic_fault_disconnect_request_id" "reconciliation_needed" 1
+run_native_stream_late_usage "anthropic" "$anthropic_fault_after_usage_api_key" \
+    "$anthropic_fault_after_usage_request_id"
+run_provider_group_fault "anthropic" "invalid_content_type" \
+    "$anthropic_fault_invalid_content_type_api_key" \
+    "$anthropic_fault_invalid_content_type_request_id" "reconciliation_needed" 1
 run_provider_group_fault "gemini" "429" "$gemini_fault_429_api_key" \
     "$gemini_fault_429_request_id" "aborted"
 run_provider_group_fault "gemini" "500" "$gemini_fault_500_api_key" \
@@ -2313,6 +2404,11 @@ run_provider_group_fault "gemini" "timeout" "$gemini_fault_timeout_api_key" \
     "$gemini_fault_timeout_request_id" "reconciliation_needed"
 run_provider_group_fault "gemini" "disconnect" "$gemini_fault_disconnect_api_key" \
     "$gemini_fault_disconnect_request_id" "reconciliation_needed" 1
+run_native_stream_late_usage "gemini" "$gemini_fault_after_usage_api_key" \
+    "$gemini_fault_after_usage_request_id"
+run_provider_group_fault "gemini" "invalid_content_type" \
+    "$gemini_fault_invalid_content_type_api_key" \
+    "$gemini_fault_invalid_content_type_request_id" "reconciliation_needed" 1
 run_provider_group_fault "anthropic" "auth_rejected" "$anthropic_auth_rejected_api_key" \
     "$anthropic_auth_rejected_request_id" "aborted"
 run_provider_group_fault "gemini" "auth_rejected" "$gemini_auth_rejected_api_key" \

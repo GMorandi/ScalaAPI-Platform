@@ -65,6 +65,24 @@ public sealed class MockProviderGroupFaultHttpContractTests :
             malformedResponse.Content.Headers.ContentType?.MediaType);
         Assert.Contains("{not-json", await malformedResponse.Content.ReadAsStringAsync());
 
+        using var wrongMediaType = new HttpRequestMessage(HttpMethod.Post, "/v1/messages")
+        {
+            Content = JsonContent.Create(new
+            {
+                model = "claude-3-5-sonnet",
+                max_tokens = 16,
+                stream = true,
+                messages = new[] { new { role = "user", content = "fault" } },
+            }),
+        };
+        AddAnthropicAuth(wrongMediaType);
+        wrongMediaType.Headers.Add("X-Provider-Scenario", "invalid_content_type");
+        using var wrongMediaTypeResponse = await client.SendAsync(
+            wrongMediaType, HttpCompletionOption.ResponseHeadersRead);
+        Assert.Equal(HttpStatusCode.OK, wrongMediaTypeResponse.StatusCode);
+        Assert.Equal("application/json",
+            wrongMediaTypeResponse.Content.Headers.ContentType?.MediaType);
+
         using var usage = new HttpRequestMessage(HttpMethod.Post, "/v1/messages")
         {
             Content = JsonContent.Create(new
@@ -131,6 +149,22 @@ public sealed class MockProviderGroupFaultHttpContractTests :
         Assert.Equal("text/event-stream",
             malformedResponse.Content.Headers.ContentType?.MediaType);
         Assert.Contains("data: {not-json", await malformedResponse.Content.ReadAsStringAsync());
+
+        using var wrongMediaType = new HttpRequestMessage(
+            HttpMethod.Post, "/v1beta/models/gemini-2.0-flash:streamGenerateContent?alt=sse")
+        {
+            Content = JsonContent.Create(new
+            {
+                contents = new[] { new { role = "user", parts = new[] { new { text = "fault" } } } },
+            }),
+        };
+        AddGeminiAuth(wrongMediaType);
+        wrongMediaType.Headers.Add("X-Provider-Scenario", "invalid_content_type");
+        using var wrongMediaTypeResponse = await client.SendAsync(
+            wrongMediaType, HttpCompletionOption.ResponseHeadersRead);
+        Assert.Equal(HttpStatusCode.OK, wrongMediaTypeResponse.StatusCode);
+        Assert.Equal("application/json",
+            wrongMediaTypeResponse.Content.Headers.ContentType?.MediaType);
 
         using var usage = new HttpRequestMessage(
             HttpMethod.Post, "/v1beta/models/gemini-2.0-flash:streamGenerateContent?alt=sse")
