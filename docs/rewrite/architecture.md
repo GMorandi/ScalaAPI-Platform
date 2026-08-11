@@ -244,7 +244,10 @@ exact `text/event-stream` media type. EOF before the protocol terminal event kee
 the lease unknown unless a bounded, valid Provider usage object was already
 observed. That usage is durably reported against the same lease and may settle the
 unknown state exactly once. Missing/invalid usage or wrong media type never triggers
-a debit and keeps the hold for reconciliation.
+a debit and keeps the hold for reconciliation. Platform `f99db88` and the
+`scalaapi-native-stream-0811b` empty-volume gate prove this same contract for native
+Anthropic and Gemini streams: late usage completes the original unknown lease once,
+while wrong media type creates no retry or financial effect.
 The source-owned Provider mock deterministically exercises JSON, SSE, 429, 500,
 delay, disconnect, and malformed usage. Normalized request fields select faults,
 while separate seeded accounts isolate scheduler cooldown and retry state. Gateway

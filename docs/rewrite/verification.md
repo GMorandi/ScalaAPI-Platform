@@ -6,8 +6,21 @@ The source-built smoke above is the current release evidence. Rows later in this
 document that mention earlier classifier projects or migration counts are retained
 as historical checkpoints and do not define the current bootstrap or release gate.
 
-The latest source snapshot is Platform/Admin Web/User Web `c30e237` and Gateway
+The latest source snapshot is Platform/Admin Web/User Web `f99db88` and Gateway
 `4b3f19b`.
+
+The complete source-built native stream-terminal project
+`scalaapi-native-stream-0811b` exited zero. Anthropic and Gemini
+usage-before-EOF streams each settled the original unknown lease exactly once,
+with one committed hold, usage event/log, NUMERIC debit, completed idempotency,
+and immutable unknown-then-completed journal evidence. Their wrong-media-type
+streams each retained exactly one `reconciliation_needed` lease and active hold,
+created no retry lease, and wrote no usage/log/debit. The same run applied and
+replay-skipped all 50 migrations and passed native credential rejection,
+429/500, Platform/Gateway replacement, two-Silo object-storage/PostgreSQL
+partition recovery, Garnet, S3/media, accounting, reconciliation, and audited
+operator resolution. Release build remained zero-warning/zero-error and Platform
+tests passed 288/288; the preceding Gateway checkpoint remains 127/127.
 
 The complete source-built native-credential project
 `scalaapi-native-auth-0811b` exited zero. Platform compiled semantic account
@@ -25,13 +38,11 @@ left no named containers, volumes, or temporary networks. The post-gate Release
 solution build succeeded with zero warnings/errors; 288/288 Platform tests and
 127/127 Gateway tests passed.
 
-The next native stream-terminal gate is not yet release evidence. Current source
-tests parse Anthropic nested start/final usage and Gemini `usageMetadata`, while the
-mock exposes `disconnect_after_usage` and `invalid_content_type` handlers. The
-empty-stack matrix does not currently invoke those scenarios through native groups.
-Promotion requires two late-usage requests to finish exactly once and two
-wrong-media-type requests to remain unknown with zero usage/debit, plus the complete
-existing source-built matrix.
+The first `scalaapi-native-stream-0811a` full run passed all four new native cases
+but later hit a non-deterministic timeout in the pre-existing OpenAI disconnect
+probe. Its normal cleanup removed the failed project. The independent
+`scalaapi-native-stream-0811b` retained-stack rerun passed that probe and the entire
+gate; only the successful complete run is promotion evidence.
 
 The complete source-built Provider-fidelity project
 `scalaapi-provider-fidelity-0811j` exited zero. It applied and replay-skipped
@@ -690,6 +701,7 @@ supersedes them where commit, image, or late-usage results differ.
 | Cross-Gateway idempotency and Silo rejoin | `scalaapi-multi-gateway-0810b`, exit 0 | The source-owned empty-volume smoke started two Platform silos and two Gateways, restarted the secondary pair, then sent concurrent normal Chat requests through both Gateways with one API-key idempotency key. It stopped the secondary pair, proved the primary request still settled with one active Silo, restarted the original containers, verified two active Silos, and settled through the rejoined secondary Gateway. PostgreSQL proved one shared-idempotency lease/debit plus two outage/rejoin leases, usage events, and NUMERIC `usage_debit` rows. The trap removed the isolated project and `podman ps -a` was empty |
 | PostgreSQL backup and isolated restore | `scalaapi-backup-0810b`, exit 0 | The source-owned empty-volume gate applied and replay-skipped all 46 product migrations, registered a fresh user, created an Admin `postgres` backup through the new idempotent command, verified a non-empty artifact and 64-character SHA-256, replayed the same create key, restored into a separate `platform_restore` database with PostgreSQL 17 `pg_restore`, replayed the restore key, and verified the restored user row. The Admin API image now pins the PGDG PostgreSQL 17 client to match the Compose server. The trap removed the stack and `podman ps -a` was empty |
 | Current Platform tests | 288/288, exit 0; Release build 0 warnings/0 errors | 75 Grain, 95 Host, 46 Admin, and 72 Provider tests. Native credential compilation, Grain hydration, Cap'n Proto serialization, exact mock authentication/version rejection, target-header bounds, deterministic-key convergence, transport failure recovery, media fencing, owner isolation, restart recovery, pricing, Garnet, classifier, and backup coverage remain passing |
+| Native stream-terminal runtime gate | `scalaapi-native-stream-0811b`, exit 0 | Platform `f99db88` seeded and authorized Anthropic/Gemini `disconnect_after_usage` and `invalid_content_type`. Both usage-before-EOF streams settled the original unknown lease once with one committed hold, usage event/log, NUMERIC debit, completed idempotency, and unknown/completed journal events. Both wrong-media-type streams retained one active reconciliation hold with no retry lease, usage, log, or debit. The complete empty-volume matrix passed, including 50 migration apply/replay, Garnet, accounting, restart, two-Silo partition/rejoin, media, reconciliation, and operator resolution; the temporary project was kept only for final evidence inspection and then removed |
 | Admin Web backup controls | Platform `840636e`, `npm run typecheck`, `npm run build`, Playwright backup route `1/1` | `/backups` lists status, artifact size, and SHA-256 prefix, shows whether an isolated restore target is configured, creates PostgreSQL backups with an idempotency key, and exposes restore only for completed artifacts with a configured target. Live browser authorization, restore-failure UX, and signed/offsite artifact management remain |
 | Gateway provider-completion crash recovery | `scalaapi-gateway-recovery-0907` source-built smoke passed; Gateway terminated after Provider completion, was explicitly restarted, and the same request retained one active hold in `reconciliation_needed` with no usage/debit | Durable lease evidence survives Gateway process loss; the one-shot marker prevents a restart loop, and the normal reconciliation/operator path remains authoritative |
 | Gateway before-provider-dispatch crash recovery | `scalaapi-gateway-dispatch-recovery-0911` source-built smoke passed; Gateway terminated before Provider contact, was explicitly restarted, and the same held lease became `expired` with released hold/idempotency and no usage/debit | Never-forwarded work remains safe to expire after Gateway loss and does not create an unknown-charge incident |

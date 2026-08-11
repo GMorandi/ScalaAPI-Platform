@@ -11,7 +11,7 @@ read-only requirements reference and is excluded from builds and runtime.
 | Repository | Commit | Worktree | Active role |
 | --- | --- | --- | --- |
 | `gateway` | `4b3f19b` | clean | C++ Gateway edge, protocol routing/conversion, Provider transport, target-credential isolation, and Garnet client |
-| `platform` | `c30e237` | clean | C# Orleans control plane, PostgreSQL authority, native Provider credential compiler/mock, Admin Web, User Web, and source-owned protocol fault tooling |
+| `platform` | `f99db88` | clean | C# Orleans control plane, PostgreSQL authority, native Provider credential compiler/mock, Admin Web, User Web, and source-owned protocol fault/runtime tooling |
 | `sub2api` | `43ec48d` | read-only clean | Requirements reference only; no runtime or compatibility dependency |
 
 ## Historical role descriptions
@@ -23,7 +23,7 @@ read-only requirements reference and is excluded from builds and runtime.
 | `sub2api` | `43ec48d` | read-only clean | Requirements catalogue only; never a runtime or compatibility dependency |
 
 The active source snapshot for this document is Platform/Admin Web/User Web
-`c30e237` and Gateway `4b3f19b`; both worktrees are clean. The table's longer
+`f99db88` and Gateway `4b3f19b`; both worktrees are clean. The table's longer
 capability descriptions are retained as inventory context, while this override
 and the evidence below define the current commits.
 
@@ -360,34 +360,25 @@ current-source runtime evidence.
   conversion.
 - Commit `024b215` adds independent Anthropic Messages and Gemini generation
   fault groups for 429, 500, malformed JSON/SSE, timeout, disconnect, and
-  usage-before-EOF truncation. Provider.Mock HTTP tests cover the native JSON/SSE
-  shape and scenario header. The empty-stack smoke authorizes all twelve new
-  groups, drives ten JSON/SSE fault requests through Gateway -> Cap'n Proto ->
-  Platform, and asserts exact no-charge versus unknown-charge lease, hold,
-  usage, ledger, and idempotency state. The final accounting gate now expects
-  nineteen retained unknown-charge incidents before the audited operator settle
-  (eighteen remain open after the one audited settle).
-- The provider-native credential boundary is not yet implemented at this
-  checkpoint. `AccountGrain.Hydrate` currently decrypts every static
-  `Credentials` entry and exposes the dictionary directly as `authHeaders` in the
-  Cap'n Proto target. Consequently the source-owned seed value `api_key` reaches
-  Gateway as a literal `api_key` HTTP header instead of Anthropic `x-api-key` or
-  Gemini `x-goog-api-key`, and no component adds the required Anthropic version
-  header. Gateway does keep inbound client authentication separate from the
-  Platform target, but it does not validate target header names. The current
-  successful mock runs therefore prove protocol shape and accounting, not native
-  upstream authentication fidelity.
-- The next source-owned contract treats stored static credentials as semantic
-  material rather than client-controlled headers. Platform must compile
-  `api_key` to `Authorization: Bearer` for OpenAI-compatible accounts,
-  `x-api-key` plus a bounded `anthropic-version` (default `2023-06-01`) for
-  Anthropic, and `x-goog-api-key` for Gemini. Optional Anthropic beta material is
-  bounded and emitted only as `anthropic-beta`. Provider-mock scenario selection
-  is test metadata, not a secret or a public pass-through convention. Gateway
-  must reject invalid/duplicate target auth headers and must not forward the
-  caller's API key to the Provider. Native mock endpoints must return a
-  secret-free 401/400 response when their own header contract is absent or
-  malformed so the empty-stack success path becomes direct transport evidence.
+  usage-before-EOF truncation. Platform `f99db88` adds the two native wrong-media-
+  type groups. Provider.Mock HTTP tests cover native authentication, JSON/SSE
+  shape, scenario headers, late usage, and media type. The current empty-stack
+  smoke authorizes sixteen native profiles, drives the full fault/auth matrix
+  through Gateway -> Cap'n Proto -> Platform, and asserts exact no-charge,
+  unknown-charge, and late-settlement lease/hold/usage/ledger/idempotency state.
+  The final accounting gate expects twenty-one retained unknown-charge incidents
+  before the audited operator settle (twenty remain open afterward).
+- The provider-native credential boundary is implemented at Platform `c30e237`
+  and Gateway `4b3f19b`. Platform decrypts semantic credential material only at
+  hydration and compiles `api_key` to Bearer authorization for OpenAI-compatible
+  accounts, `x-api-key` plus bounded `anthropic-version` and optional
+  `anthropic-beta` for Anthropic, and `x-goog-api-key` for Gemini. It rejects
+  invalid, colliding, oversized, or CR/LF-bearing material with secret-free error
+  codes. Gateway independently bounds and validates target headers, rejects
+  routing/hop-by-hop/semantic aliases and duplicates, strips the caller's
+  `x-api-key`, and never lets client authentication replace Provider credentials.
+  Exact native mock authentication and wrong-credential no-charge failover pass in
+  `scalaapi-native-auth-0811b`; no Sub2API key/header compatibility is present.
 - Media polling copies Provider bytes to S3-compatible storage and persists object
   ownership metadata. Signed downloads, output deletion, and terminal operation
   deletion work. Platform `44d2096` adds migration 037 and a metadata-only HEAD
@@ -575,29 +566,38 @@ checks. Cleanup left no project containers, volumes, or temporary networks.
 Release build is zero-warning/zero-error; Platform tests pass 288/288 and Gateway
 tests pass 127/127.
 
-### Native stream-terminal investigation
+### Native stream-terminal implementation evidence
 
-The next missing evidence is narrower than the generic Provider-fault plan. The
-current Gateway already requires protocol terminal events, parses nested
-Anthropic/Gemini usage, treats an incomplete stream as unknown charge, and lets a
-durable late usage report complete a `reconciliation_needed` lease. Provider.Mock
-already implements `disconnect_after_usage` for both native protocols and source
-HTTP tests read those frames, but the seeded accounts are not selected by the
-empty-stack smoke. Native `invalid_content_type` handlers also exist, but they have
-no dedicated seed profiles, no direct Provider HTTP assertions, and no runtime
-lease/hold evidence. By contrast, native 500 retry exhaustion is already proven by
-the current smoke (four aborted/released attempts), so it is not reimplemented.
+Platform `f99db88` closes the native runtime boundary without adding a second
+billing path. Dedicated Anthropic and Gemini seed profiles now expose
+`disconnect_after_usage` and `invalid_content_type`; Provider.Mock HTTP contracts
+require native authentication and assert the emitted usage frame or wrong media
+type. The source-built empty-volume project `scalaapi-native-stream-0811b` drove all
+four profiles through Gateway -> Cap'n Proto -> Platform -> Provider.Mock and exited
+zero.
 
-This slice will seed and authorize the four missing protocol/scenario pairs. A
-valid usage frame followed by EOF before `message_stop` or Gemini terminal
-candidate must first take the conservative unknown path, then converge through the
-normal durable usage transaction to one completed lease, committed hold, usage
-event/log, NUMERIC debit, and completed idempotency row. A 200 response with the
-wrong streaming media type must return a bounded protocol failure, retain exactly
-one `reconciliation_needed` lease/active hold, create no usage/log/debit, and make
-no retry. Credential refresh/revocation and actual downstream cancellation remain
-separate follow-on slices because their generic state machines exist but lack
-provider-specific configuration and runtime fixtures.
+For both protocols, valid usage before EOF first produced conservative unknown
+evidence and then completed the original lease exactly once: one committed hold,
+one usage event/log, one NUMERIC debit, completed idempotency, and both
+`reconciliation_needed` and `completed` lease journal events. Wrong media type
+created exactly one `reconciliation_needed` lease and active hold, with no retry,
+usage, log, or debit. The same run applied and replay-skipped all 50 migrations and
+passed the existing native auth, 429/500, restart, Garnet, media, two-Silo partition,
+accounting, reconciliation, and operator gates. The first full run encountered a
+non-deterministic timeout in the pre-existing OpenAI disconnect probe after all four
+new cases passed; the independent retained-stack rerun passed that probe and the
+complete gate. Provider-specific credential refresh/revocation, live credentials,
+actual native downstream cancellation, and longer soak remain open.
+
+The completed slice seeds and authorizes all four protocol/scenario pairs. A valid
+usage frame followed by EOF before `message_stop` or the Gemini terminal candidate
+takes the conservative unknown path, then converges through the normal durable
+usage transaction. A 200 response with the wrong streaming media type returns a
+bounded protocol failure, retains exactly one `reconciliation_needed` lease/active
+hold, creates no usage/log/debit, and makes no retry. Credential refresh/revocation
+and actual downstream cancellation remain separate follow-on slices because their
+generic state machines exist but lack provider-specific configuration and runtime
+fixtures.
 
 ## Embeddings profile implementation evidence
 

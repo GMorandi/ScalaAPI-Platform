@@ -1,7 +1,7 @@
 # ScalaAPI Rewrite Risk Register
 
-Active source evidence is Platform `c30e237`, Gateway `4b3f19b`, and the
-`scalaapi-native-auth-0811b` empty-volume gate. Embeddings profiles, Responses
+Active source evidence is Platform `f99db88`, Gateway `4b3f19b`, and the
+`scalaapi-native-stream-0811b` empty-volume gate. Embeddings profiles, Responses
 compact, and the media batch list/items boundary pass their source-owned
 contracts and exactly-once settlement; broader provider and adapter fidelity
 remains a partial-domain risk.
@@ -43,13 +43,13 @@ released holds, and zero usage/debit. Live external credentials, master-key
 rotation, provider revocation, TLS fingerprint application, and long/multi-instance
 soak remain P0/P1 risks; native header transport itself is no longer the blocker.
 
-Native stream-terminal investigation: source parsers and mock handlers already
-cover Anthropic/Gemini usage before EOF, but only the OpenAI-shaped route currently
-proves late settlement in an empty stack. Native wrong-media-type handlers are not
-seeded or runtime-tested. The next gate must prove each protocol converges valid
-late usage to one normal financial effect while invalid content type retains one
-unknown hold and zero effects. The already-green four-attempt native 500 exhaustion
-is sufficient and will not be duplicated as a new implementation.
+The native stream-terminal runtime gap is closed at Platform `f99db88`.
+`scalaapi-native-stream-0811b` proves Anthropic and Gemini valid usage before EOF
+converges on the original unknown lease with one financial effect, while wrong media
+type retains one unknown hold with zero effects and no retry lease. The already-green
+four-attempt native 500 exhaustion remains the retry evidence. Provider-specific
+credential refresh/revocation, actual native downstream cancellation, live adapters,
+and long-stream backpressure remain open P0/P1 controls.
 
 Current baseline note: Platform `eecaff6` and Gateway `d1e4a85` passed the
 source-built `scalaapi-responses-input-items-0810b` empty-volume gate. OpenAI Moderation

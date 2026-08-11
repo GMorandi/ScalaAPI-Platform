@@ -1,14 +1,14 @@
 # ScalaAPI Next Stage Plan
 
-Current checkpoint override: Platform/Admin Web/User Web `c30e237`, Gateway
+Current checkpoint override: Platform/Admin Web/User Web `f99db88`, Gateway
 `4b3f19b`, and read-only `sub2api@43ec48d`. The latest gate is
-`scalaapi-native-auth-0811b`. It passed the complete empty-volume matrix and adds
-exact native Anthropic/Gemini credential delivery, client/Provider credential
-isolation, direct mock authentication rejection, and public failover-exhausted
-no-charge accounting evidence. The existing 50-migration double run, provider
-fault matrix, Platform/Gateway replacement, two-Silo object-storage/PostgreSQL
-partitions, media/S3 recovery, Garnet, reconciliation, and operator gates stayed
-green. The remaining plan starts after this completed credential-transport slice.
+`scalaapi-native-stream-0811b`. It passed the complete empty-volume matrix and adds
+native Anthropic/Gemini usage-before-EOF exactly-once settlement plus wrong-media-
+type no-retry/unknown-charge evidence. Exact credential delivery, client/Provider
+credential isolation, direct mock authentication rejection, and public failover-
+exhausted no-charge accounting remain green. The existing 50-migration double run,
+Platform/Gateway replacement, two-Silo object-storage/PostgreSQL partitions,
+media/S3 recovery, Garnet, reconciliation, and operator gates stayed green.
 
 The Provider-specific fault slice is implemented at Platform `024b215`, and the
 native credential slice is implemented at Platform `c30e237` plus Gateway
@@ -22,11 +22,12 @@ retain one unknown-charge lease/hold each. Live upstream adapters,
 provider-specific pricing/tokenizers, and longer load/backpressure remain
 next-stage work.
 
-## Immediate execution order after `c30e237`
+## Immediate execution order after `f99db88`
 
-1. Extend the current runtime matrix with provider-native cancellation,
-   usage-before-EOF settlement, invalid content type, retry exhaustion, and
-   credential refresh/revocation for both protocols. Every case must assert
+1. Extend the current runtime matrix with provider-specific credential refresh/
+   revocation and actual downstream cancellation for Anthropic and Gemini.
+   Usage-before-EOF, invalid content type, and retry exhaustion are now closed.
+   Every new case must assert
    request/idempotency identity, lease journal, hold state, usage/log cardinality,
    NUMERIC debit, and reconciliation outcome.
 2. Finish the remaining P0 protocol lifecycle gaps: OpenAI Responses mutation
@@ -88,33 +89,35 @@ terminal accounting. This closes only credential transport; provider-owned
 pricing/tokenizers, live external credentials, revocation/cancellation runtime
 matrices, and longer soak remain.
 
-### Native stream-terminal slice after `c30e237` / `4b3f19b`
+### Native stream-terminal slice completed at `f99db88` / `4b3f19b`
 
-Investigation found the production state machine already supports the required
-conservative transition and late completion. The missing work is a source-owned
-native fixture/runtime boundary, not a second billing implementation.
+The production state machine already supported the required conservative
+transition and late completion. This slice added the source-owned native
+fixture/runtime boundary and deliberately did not add a second billing
+implementation.
 
-Implementation order:
+Completed controls:
 
-1. Add Anthropic and Gemini `invalid_content_type` profiles beside the existing
-   `disconnect_after_usage` profiles. Direct Provider.Mock tests must require native
-   authentication and assert the wrong media type versus valid usage frames.
-2. Extend seed parsing, user group authorization, API-key creation, and deterministic
-   request IDs for all four protocol/scenario pairs.
-3. Drive the two usage-before-EOF streams through Gateway. Assert the same original
+1. Added Anthropic and Gemini `invalid_content_type` profiles beside the existing
+   `disconnect_after_usage` profiles. Direct Provider.Mock tests require native
+   authentication and assert wrong media type versus valid usage frames.
+2. Extended seed parsing, user group authorization, API-key creation, and
+   deterministic request IDs for all four protocol/scenario pairs.
+3. Drove both usage-before-EOF streams through Gateway and proved the same original
    lease moves from unknown evidence to `completed`, with one committed hold,
    usage event/log, NUMERIC usage debit, and completed idempotency row.
-4. Drive the two wrong-media-type streams through Gateway. Assert bounded
-   502/transport behavior, one `reconciliation_needed` lease and active hold per
+4. Drove both wrong-media-type streams through Gateway and proved bounded protocol/
+   transport behavior, one `reconciliation_needed` lease and active hold per
    request, no usage/log/debit, and no retry lease.
-5. Update reconciliation incident expectations, run all source tests and the full
-   empty-volume matrix, then record the committed gate. Do not import Sub2API URL,
-   retry, credential, or status compatibility.
+5. Updated reconciliation incident expectations and passed all source tests plus
+   the full empty-volume matrix. No Sub2API URL, retry, credential, or status
+   compatibility was imported.
 
-Exit: Platform and Gateway tests/builds pass; an empty-volume run proves both native
-late settlements and both native unknown-charge failures without changing the
+Exit evidence is Platform 288/288, zero-warning Release build, the unchanged Gateway
+127/127 checkpoint, and `scalaapi-native-stream-0811b` exit 0. Both native late
+settlements and both native unknown-charge failures passed without changing the
 existing 429/500/auth/restart/Garnet/media/accounting outcomes. Provider-specific
-OAuth refresh/revocation and actual downstream cancellation remain the next slices.
+OAuth refresh/revocation and actual downstream cancellation are the next slices.
 
 Exit: provider-native fault/cancellation/refresh matrices pass for OpenAI,
 Anthropic, and Gemini; Responses and video lifecycles have API/state-machine,
@@ -166,7 +169,7 @@ and deployment-scale HA/offsite lifecycle remain partial.
 
 ## Checkpoint
 
-The next stage starts from Platform/Admin Web/User Web `c30e237`, Gateway
+The next stage starts from Platform/Admin Web/User Web `f99db88`, Gateway
 `4b3f19b`, and read-only reference `sub2api@43ec48d`.
 
 The greenfield baseline now starts from empty volumes, uses PostgreSQL as authority,
