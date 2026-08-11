@@ -2,12 +2,27 @@
 
 ## Current evidence
 
-The source-built smoke above is the current release evidence. Rows later in this
-document that mention earlier classifier projects or migration counts are retained
-as historical checkpoints and do not define the current bootstrap or release gate.
+The 2026-08-11 re-investigation started from Platform documentation HEAD `e7bcf09`
+with production code through `651a786`, Gateway `04ec18c`, and read-only
+`sub2api@43ec48d`. Rows later in this document retain historical runtime checkpoints;
+they do not override the fresh result below.
 
-The latest source snapshot is Platform/Admin Web/User Web `651a786` and Gateway
-`04ec18c`.
+Current non-database gates pass: Platform Release build has zero warnings/errors,
+the ordinary suite reports 294/294, Gateway builds and passes 127/127, both Web
+projects typecheck/build, contract digests and Cap'n Proto 1.0.2 generated C# match,
+the retired-dependency scan passes, and every Scheduler Dry child exits zero. The
+ordinary Platform count is incomplete evidence because 33 test files return early
+without `GREENFIELD_SCHEMA_CONNECTION`.
+
+A fresh isolated PostgreSQL 17 run applied and replay-skipped all 51 schema records.
+With database tests enabled, the solution is red at 292 passed / 2 failed:
+`ConcurrentWorkersSerializeClaimsAndPublishEachRevisionOnce` requires an invalid
+one-row-per-worker distribution even though one worker legally claims both rows,
+and `BatchListIsOwnerScopedAndReturnsDurableOperations` deletes IDs that were not
+the generated media rows before removing their referenced leases. Each failure
+reproduces alone on a clean schema. The current release gate therefore does not
+pass, even though the prior complete source-built runtime matrix below remains valid
+evidence for the production paths it exercised.
 
 The complete source-built credential/cancellation project
 `scalaapi-credential-cancel-0811d` exited zero. Anthropic and Gemini OAuth
@@ -732,7 +747,8 @@ supersedes them where commit, image, or late-usage results differ.
 | Platform dispatch retry and active-lease recovery | `scalaapi-platform-dispatch-retry-0914` source-built smoke passed; Platform died after the lease/hold commit, Gateway retried with the same request/idempotency identity, and replacement Platform recovered and settled the existing lease with exactly one lease, usage event, usage log, and debit | A lost dispatch response is retryable without allocating a second lease or billing twice |
 | Embeddings contract smoke | `scalaapi-embeddings-20260809b`, exit 0 | Gateway `40cb02f` and Platform `ef1e474` returned two three-dimensional float vectors and one two-dimensional base64 vector, settled both against the active NUMERIC Embeddings price, and mapped a shape-invalid Provider response to `502/provider_protocol_error` with one retained `reconciliation_needed` hold; the same run applied and re-ran all 27 migrations and passed the full Garnet, OAuth, restart, Provider, reconciliation, and MinIO matrix |
 | Gateway build and CTest | Gateway `04ec18c`; clean local build; 127/127, exit 0 | Includes protocol goldens/conversion, response validation, SSE terminal/usage handling, Garnet/retry/routing, no Photon transport retry, non-consuming ingress hangup detection, Provider socket shutdown, and prompt cancellation-woken read termination |
-| Platform tests | Platform `651a786`; 294/294, exit 0; Release build 0 warnings/0 errors | 76 Grain, 96 Host, 46 Admin, and 76 Provider Mock tests. This checkpoint adds terminal OAuth CAS/revocation/replacement, bounded `invalid_grant` classification, secret-free revoked audit constraints, OAuth-native Provider authentication, and Provider-side Anthropic/Gemini cancellation observations while retaining all accounting, media, identity, commercial, and operations coverage |
+| Platform build and ordinary tests | Platform code `651a786`; Release build 0 warnings/0 errors; no-database run 294/294 | 76 Grain, 96 Host, 46 Admin, and 76 Provider Mock tests are discovered, but 33 files return early when `GREENFIELD_SCHEMA_CONNECTION` is absent; this row is a fast source gate, not integration proof |
+| Fresh PostgreSQL integration audit | 51/51 migration apply plus 51/51 replay skip; database-enabled solution 292 passed / 2 failed | `ContentPolicyPropagationTests.ConcurrentWorkersSerializeClaimsAndPublishEachRevisionOnce` has an invalid worker-distribution assertion; `MediaOperationStoreTests.BatchListIsOwnerScopedAndReturnsDurableOperations` leaks generated media rows and fails FK cleanup. Both reproduce independently on a clean PostgreSQL 17 schema, so the current release gate is red |
 | Maintenance export and cleanup | Platform `80ab783`; temporary PostgreSQL, product migrations 001-032 applied then skipped, targeted Admin and schema tests 1/1 each passed | `/user/export` returns bounded account/API-key metadata, usage, sessions, and Passkey metadata without password, refresh-token, or API-key hashes; `/admin/maintenance/cleanup` supports dry-run, retention/row limits, actor-scoped idempotency replay/conflict, and removes expired session/token/challenge/counter records transactionally with audit evidence |
 | Announcement read tracking | Platform `acb1c66`; temporary PostgreSQL, product migrations 001-033 applied then skipped, targeted Admin and schema tests 1/1 each passed; User Web typecheck/build passed | Authenticated users list published, unexpired announcements with read state; the first read inserts one state row and one audit event, duplicate reads return the same timestamp without a second audit; Dashboard exposes unread items and the read action. Targeting, scheduling, and browser authorization remain open |
 | Email notification delivery | Platform `857ef3b`; temporary PostgreSQL, product migrations 001-034 applied then skipped, targeted Admin tests 3/3 and schema test 1/1 passed | Password-reset and email-verification requests enqueue encrypted token material only; the worker delivers one signed action email, marks it sent, retries a simulated SMTP outage, and cancels stale pending mail after a newer token; User Web consumes `?token=` links. Live SMTP/provider delivery, browser receipt, metrics, and public abuse limits remain open |
@@ -796,19 +812,23 @@ supersedes them where commit, image, or late-usage results differ.
 
 ## Remaining release gates
 
-1. Coordinate canonical Platform schema changes, generated C# artifacts, Gateway
+1. Repair the two deterministic database-enabled Host test failures. Remove
+   silent early-return success for missing integration prerequisites, isolate shared
+   database state across projects, and require the 294-test solution to pass with
+   `GREENFIELD_SCHEMA_CONNECTION` before any feature promotion.
+2. Coordinate canonical Platform schema changes, generated C# artifacts, Gateway
    vendor schemas, and both digest gates as one cross-repository release change.
-2. Run the checked-in empty-volume Compose gate in hosted CI and record current image
+3. Run the checked-in empty-volume Compose gate in hosted CI and record current image
    IDs and checksums. The two private repositories require a dedicated read token or
    an independent release repository; the default per-repository `GITHUB_TOKEN`
    cannot check out its sibling.
-3. Extend the now-passing Garnet TLS deployment gate with cache flush and
+4. Extend the now-passing Garnet TLS deployment gate with cache flush and
    stale-version recovery while TLS is enabled, and concurrent Gateway/Platform
    clients across outage/restart and partition scenarios. Certificate rotation,
    wrong-name/expiry rejection, and post-recovery billing are source-smoke proven.
    No Redis process, package, image, CLI, or embedded fallback may appear in the
    stack.
-4. Extend the now-normalized `503/provider_unavailable` Provider reset contract to
+5. Extend the now-normalized `503/provider_unavailable` Provider reset contract to
    replay after process failure across adapters. The distinct inter-chunk/total timer
    contract, actual downstream client socket cancellation, and usage-before-EOF
    settlement are covered by the latest empty-stack gate.
@@ -823,14 +843,14 @@ supersedes them where commit, image, or late-usage results differ.
    release, or remain a durable reconciliation incident without redispatch. The
    current audited operator settle/release path must be exercised at those boundaries
    rather than bypassed.
-5. Preserve the complete Anthropic/Gemini error/disconnect/cancellation matrix while
+6. Preserve the complete Anthropic/Gemini error/disconnect/cancellation matrix while
    finishing remaining Responses mutations and video lifecycle semantics. The
    one-Silo object-storage/PostgreSQL partitions and two-Silo recovery path pass;
    run the documented one-hour metadata/object worker-contention soak and add
    deployment-scale HA/offsite recovery.
-6. Run auth-session integration scenarios: refresh-token replay, concurrent rotation,
+7. Run auth-session integration scenarios: refresh-token replay, concurrent rotation,
    logout revocation, expired-session rejection, and multi-device session listing.
-7. Run unit, integration, UI, load/soak, failure-recovery, backup/restore, and
+8. Run unit, integration, UI, load/soak, failure-recovery, backup/restore, and
    security checks. Any failed child scenario or benchmark makes CI non-zero.
 
 ## Evidence rules

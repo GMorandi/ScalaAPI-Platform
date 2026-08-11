@@ -1,12 +1,19 @@
 # ScalaAPI Rewrite Risk Register
 
-Active source evidence is Platform `651a786`, Gateway `04ec18c`, and the
+The re-investigation baseline is Platform docs `e7bcf09` with production code
+through `651a786`, Gateway `04ec18c`, and the prior
 `scalaapi-credential-cancel-0811d` empty-volume gate. Embeddings profiles, Responses
 compact, and the media batch list/items boundary pass their source-owned
 contracts and exactly-once settlement; broader provider and adapter fidelity
 remains a partial-domain risk.
 
-The next active investigation is deployment-scale Images/media object lifecycle.
+The fresh 2026-08-11 isolated PostgreSQL audit applied and replay-skipped all 51
+migration records but exposed two deterministic Host test defects hidden by the
+ordinary no-database 294/294 run. Until those are corrected, the release gate is
+red even though the prior runtime smoke and current non-database build gates pass.
+
+After the verification gate is repaired, the next product investigation is
+deployment-scale Images/media object lifecycle.
 Orphan cleanup, terminal retention, running-operation restart restore, dedicated
 per-item ownership, fresh signed reads, fenced item `HEAD` verification,
 missing/mismatched recopy with retry, real two-Silo claim contention, object-store
@@ -94,8 +101,8 @@ measured production latency/error budgets, credential rotation, separate-process
 Garnet propagation, live browser authorization, long-stream soak, and provider/
 tokenizer-specific pricing.
 
-| Risk | Severity | Current state | Required control |
-| --- | --- | --- | --- |
+| Risk | Severity | Status | Current evidence | Required control |
+| --- | --- | --- | --- | --- |
 | Lease, hold, or ledger double settlement | P0 | Partial | Lease creation reserves against the SQL account under the same per-user lock; completion/abort, operator settle/release, and versioned NUMERIC debit are transactionally idempotent. Immutable held/forwarded/output-started evidence lets TTL release only never-forwarded work; forwarded ambiguity retains its hold, blocks redispatch, and accepts one late settlement or one audited operator decision. Deterministic one-shot hooks, Platform dispatch-retry active-lease recovery, before-provider-dispatch, after-outbox-claim reclaim, pre-, post-, pre-ack plus Gateway before-provider-dispatch safe-expiry and after-provider-completion crash replays pass with one debit or one released/retained lease; complete realtime/other Gateway and multi-instance boundary matrix |
 | Account, ledger, hold, or Orleans projection drift | P0 | Partial | PostgreSQL `accounting_accounts` is the sole money authority. A globally serialized periodic reconciler checks ledger contiguity, account totals/versions, usage/debits, holds/leases, and Grain projections; it safely repairs terminal holds/stale projections and persists every other mismatch as an incident. Operator decisions are durable and preserved by later scans. Platform `6344f88` routes referral rewards through the same NUMERIC effect and projection boundary with deterministic dual-user locks and one-attribution enforcement. Platform `ad6ac20` adds a row-locked subscription quota reservation consumed/released in the same lease transaction. Add concurrent multi-Silo evidence, alerts, signup attribution/anti-abuse, payment/renewal reconciliation, and subscription quota drift repair |
 | Redis or embedded cache reintroduced | P0 | Controlled | Official Garnet digest, external TCP probe, dependency scan, no fallback implementation |
@@ -119,7 +126,7 @@ tokenizer-specific pricing.
 | User portal data exposure or action drift | P0 | Partial | User Web routes use active-session identity and the `/user/usage` contract filters by authenticated user; API-key, payment, subscription, redeem, referral, profile, password, recovery, verification, and TOTP actions reuse the new auth contracts; Platform `6344f88` adds audited/idempotent Admin referral reward settlement and `becf189` bounds/redacts Admin audit exports, while user signup attribution is still absent; add browser authorization matrix, refresh/replay tests, immutable retention, real checkout, and referral workflow evidence |
 | Announcement targeting or acknowledgement leakage | P1 | Partial | Platform `acb1c66` lists only published, unexpired announcements under the active user identity; `announcement_reads` is keyed by user and announcement, and the first read plus audit event commit atomically while duplicate reads replay; add targeting/scheduling policy, browser authorization, delivery/expiry tests, and commercial audit evidence |
 | User data export or retention overreach | P1 | Partial | Platform `80ab783` exports a repeatable-read, bounded snapshot of safe account/API-key metadata, usage, sessions, and Passkeys without password, refresh-token, or API-key hashes; maintenance cleanup is explicit dry-run/retention/row bounded, actor-scoped idempotent, and audits the deletion transaction; add scheduled execution, immutable retention/object cleanup, browser download authorization, and maintenance metrics |
-| Benchmark or test false positive | P1 | Controlled | Child-report validation and non-zero propagation are implemented; retain CI failure tests |
+| Benchmark or test false positive | P0 | Open | Benchmark child-report validation and non-zero propagation work, but the fresh 2026-08-11 PostgreSQL audit proves the ordinary 294/294 solution run is misleading when `GREENFIELD_SCHEMA_CONNECTION` is absent: 33 files return early. With the real schema enabled, `ConcurrentWorkersSerializeClaimsAndPublishEachRevisionOnce` asserts an invalid 1+1 claim distribution although one legal worker claims both rows, and `BatchListIsOwnerScopedAndReturnsDurableOperations` leaks generated media rows then violates `media_operations_lease_token_fkey` in cleanup. Both fail independently on a clean database | Fix both tests, isolate database state across projects, make unavailable prerequisites fail or report explicit skips, and require the database-enabled solution run before any domain promotion |
 | Contract source or generated artifact drift | P1 | Controlled | Schema digests match; CI pins the official Cap'n Proto 1.0.2 commit and local `capnpc-csharp` 1.3.118, byte-compares all generated C# output, and an intentional drift probe exits non-zero |
 | Cross-repository release gate silently skipped | P1 | Open | The source-owned empty-volume Docker/Podman gate passes locally with process replacement, one Platform crash/recovery, and five isolated billing failures; provision a read-only private Gateway checkout token or a dedicated release repository, then make the exact script blocking in hosted CI |
 | Gateway clean image dependency drift | P1 | Controlled | Gateway `9c7171f` builds a clean runtime image from the immutable Photon commit `4dd457013c48d17c571fd6d2aa87199ae4c25d4f` when shallow FetchContent checkout is disabled; the upstream does not advertise that commit on a discoverable ref. Keep the full-history fetch and record the image digest in hosted CI; fail the build if the pinned source or headers drift |

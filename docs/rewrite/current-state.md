@@ -11,7 +11,7 @@ read-only requirements reference and is excluded from builds and runtime.
 | Repository | Commit | Worktree | Active role |
 | --- | --- | --- | --- |
 | `gateway` | `04ec18c` | clean | C++ Gateway edge, protocol routing/conversion, Provider transport, client-hangup cancellation, target-credential isolation, and Garnet client |
-| `platform` | `651a786` | clean | C# Orleans control plane, PostgreSQL authority, terminal OAuth credential lifecycle, native Provider mock, Admin Web, User Web, and source-owned runtime evidence |
+| `platform` | `e7bcf09` (`651a786` implementation) | clean | C# Orleans control plane, PostgreSQL authority, terminal OAuth credential lifecycle, native Provider mock, Admin Web, User Web, and source-owned runtime evidence |
 | `sub2api` | `43ec48d` | read-only clean | Requirements reference only; no runtime or compatibility dependency |
 
 ## Historical role descriptions
@@ -22,10 +22,11 @@ read-only requirements reference and is excluded from builds and runtime.
 | `platform` | `eecaff6` backend + Admin Web + User Web | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, Provider mock contracts including source-owned malformed, cancellation, and input-item OpenAI Responses fixtures, OpenAI Responses JSON/SSE plus idempotent read/input_items/cancel/delete subresource runtime smoke coverage, four non-billable control leases with no usage/debit evidence, malformed-success 502/unknown-charge retention smoke coverage, seeded Anthropic/Gemini provider-group smoke coverage, Claude price aliasing, control-operation concurrency accounting, terminal lease-slot release, bounded provider pricing catalog refresh with immutable source/checksum history and admin-source precedence, media object HEAD reconciliation with retryable missing/mismatch state, native mock and Stripe Checkout Session payment adapters with HTTPS/auth/amount bounds and idempotent pending-order retry, Stripe raw-body webhook verification and event normalization with provider payment-id association, native partial-refund Provider commands with pending/retryable state, cumulative order refund state, independent Provider/ledger refund effects, SKIP LOCKED refund recovery with expiring claims, and one NUMERIC ledger effect per refund, User Web provider selection and checkout links, public model catalog/status/legal routes with source-built Compose browser evidence, authenticated portal browser evidence for login/dashboard/usage/API keys/profile, rotating identity/session/TOTP/OAuth state, native Passkey/WebAuthn ceremonies, encrypted email notification outbox and retry worker, API-key policy and audit, versioned runtime configuration, persistent scheduling and lease/hold/ledger state, atomic subscription quota reservation and settlement, idempotent subscription expiry/renewal worker, audited operator reconciliation, Admin Web incident filtering/run/evidence-backed settle-release workflow with replay-key preservation, content-policy rule CRUD/change/alert operations with an API-intercepted Playwright smoke, authenticated Operations metric/alert dashboard, bounded Channel Monitor history and health-check submission with browser evidence, source-built OpenAI Moderation empty-stack smoke coverage, atomic audited referral rewards, authenticated and audited operational metrics, bounded redacted audit queries/exports, encrypted proxy and validated TLS profile administration, audited bounded channel monitor checks, auditable user data export, bounded authentication/ceremony cleanup, user announcement read tracking, media/object lifecycle, staged request/response content-policy evaluation with versioned Unicode normalization, explicitly selectable source-owned/OpenAI Moderation classifiers, fixed-label OpenAI moderation counters, persisted cross-process snapshots, configuration-backed p95/unavailable-ratio budget gauges, durable budget alerts with rolling-window recovery, deterministic hosted-worker and multi-process/restart evidence, cross-Gateway shared-idempotency exactly-once settlement evidence, controlled secondary Silo/Gateway outage and rejoin settlement evidence, idempotent PostgreSQL backup artifacts with SHA-256 and isolated restore target, bilingual Admin backup/restore controls, isolated Provider fault fixtures with deterministic empty-stream EOF, durable no-TTL policy revision propagation and PostgreSQL-backed Garnet rebuild, Garnet TLS CA trust-anchor and server-name validation, source-built Garnet TLS server override, rotation/expiry rejection and recovery, four-session realtime WebSocket soak with bounded connection hold and exactly-once billing assertions, operational alert evidence, redacted audits, and crash-reclaimable content-policy outbox propagation |
 | `sub2api` | `43ec48d` | read-only clean | Requirements catalogue only; never a runtime or compatibility dependency |
 
-The active source snapshot for this document is Platform/Admin Web/User Web
-`651a786` and Gateway `04ec18c`; both worktrees are clean. The table's longer
-capability descriptions are retained as inventory context, while this override
-and the evidence below define the current commits.
+The 2026-08-11 re-investigation started from clean Platform documentation HEAD
+`e7bcf09`, whose latest production implementation commit is `651a786`, and clean
+Gateway `04ec18c`. The table's longer capability descriptions are retained as
+inventory context, while this override and the evidence below define the current
+code under review.
 
 The current tracked inventory is:
 
@@ -33,19 +34,27 @@ The current tracked inventory is:
   CTest cases.
 - Platform: 132 source C# files, including 4 smoke-only object-storage
   fault-proxy files, 5 generated Cap'n Proto/global C# files, 72 test/benchmark C#
-  files, and 294 passing tests: 76 Grain, 96 Host, 46 Admin, and 76 Provider mock tests.
-  The Admin Web source now has 29 TypeScript/TSX files and 16 page views.
-- Product surface: 142 direct Admin API route declarations, 51 product tables,
-  22 SQLSugar entity types, 29 Admin Web TypeScript/TSX files and 16 page views,
+  files, and 294 discovered tests: 76 Grain, 96 Host, 46 Admin, and 76 Provider mock
+  tests. The ordinary no-database run passes all 294; the fresh database-enabled
+  run passes 292 and fails 2 as detailed below.
+  The Admin Web source has 28 TypeScript/TSX files and 16 page views.
+- Product surface: 142 direct Admin API route declarations, 62 product tables,
+  22 SQLSugar entity types, 28 Admin Web TypeScript/TSX files and 16 page views,
   plus 21 User Web TypeScript/TSX files and 14 user views.
-- Reference scope: approximately 612 Sub2API route registrations, 39 concrete
-  Ent schemas, 82 Vue view/component files, and 240 migrations. These are scope
-  signals, not parity percentages or migration targets.
+- Reference scope at read-only `sub2api@43ec48d`: 647 production Gin route
+  registrations in its primary route/handler surface, 39 concrete Ent schemas,
+  289 Vue files including 59 lazy router imports, and 240 SQL migrations. These
+  are scope signals, not parity percentages or migration targets.
 
 The 58-domain inventory is 2 `implemented`, 55 `partial`, 1 `skeleton`,
 and 0 `missing`. A route, table, mock response, or manual probe does not promote a
 domain; promotion requires a defined contract/state machine, automated tests, and
 current-source runtime evidence.
+
+The concise per-domain result is maintained in
+[`feature-gap-report.md`](feature-gap-report.md). It is the active
+implementation-gap summary; `feature-inventory.csv` retains the detailed evidence
+catalogue.
 
 ## Architecture now implemented
 
@@ -515,9 +524,10 @@ current-source runtime evidence.
 
 ### Bootstrap and deployment
 
-- The direct source migrator applies product migrations 001-049 plus the Orleans
+- The direct source migrator applies product migrations 001-050 plus the Orleans
   baseline to an empty PostgreSQL 17 database; the Compose gate therefore expects
-  50 records (49 product migrations plus the image-owned Orleans baseline).
+  51 records (50 product migrations plus the image-owned Orleans baseline). The
+  fresh 2026-08-11 audit applied and replay-skipped all 51 records.
   Migration 043 makes `openai` an explicit allowed classifier for policy rules and
   migration 044 adds cross-process classifier metric snapshots; migration 045 adds
   budget alert state; migration 046 adds idempotent PostgreSQL backup jobs and
@@ -545,6 +555,28 @@ current-source runtime evidence.
   `docs/archive/migration`.
 
 ## Current verification evidence
+
+### Fresh 2026-08-11 re-investigation
+
+Release build, the ordinary no-database Platform run (294/294), Gateway CTest
+(127/127), both Web typecheck/build commands, contract digests, pinned Cap'n Proto
+1.0.2 generated-output comparison, retired-dependency scan, and all four Scheduler
+Dry child processes pass. The no-database count is not sufficient release evidence:
+33 test files return early when `GREENFIELD_SCHEMA_CONNECTION` is absent.
+
+An isolated PostgreSQL 17 audit applied and replay-skipped all 51 migration records,
+then ran the solution with that variable present. It exposed two deterministic Host
+test failures: `ConcurrentWorkersSerializeClaimsAndPublishEachRevisionOnce` assumes
+each of two workers must claim one row even though the production batch claim may
+legally let one worker claim both; `BatchListIsOwnerScopedAndReturnsDurableOperations`
+deletes synthetic operation IDs rather than the generated rows and then violates the
+`media_operations_lease_token_fkey` during cleanup. Both fail independently on a
+fresh schema. This is a verification-harness defect rather than evidence of a
+production state-machine failure, but the current release gate is red until the
+tests and database isolation contract are corrected. The prior complete source
+smoke remains runtime evidence; it no longer justifies describing every current
+verification gate as green. The audit trap removed its PostgreSQL container and
+temporary migration directory; `podman ps -a` is empty.
 
 ### Native Provider credential implementation evidence
 
@@ -1277,6 +1309,12 @@ Detailed gate results and residual coverage are maintained in `verification.md`.
 
 ## Known gaps
 
+- The database-enabled solution gate is currently red: two Host tests fail on a
+  fresh PostgreSQL schema, while the ordinary 294/294 run hides those paths through
+  early returns. Fix the invalid concurrent-claim distribution assertion and the
+  media cleanup foreign-key leak, then make missing integration prerequisites fail
+  or explicitly skip instead of reporting a pass. No feature should be promoted on
+  the ordinary count alone.
 - PostgreSQL is the only monetary authority and periodic reconciliation now uses
   persisted held/forwarded/output-started evidence to classify expiry and aborts.
   Admin operators can resolve an open unknown-charge incident exactly once through

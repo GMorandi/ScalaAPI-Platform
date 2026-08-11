@@ -1,16 +1,20 @@
 # ScalaAPI Next Stage Plan
 
-Current checkpoint override: Platform/Admin Web/User Web `651a786`, Gateway
-`04ec18c`, and read-only `sub2api@43ec48d`. The latest authoritative gate is
-`scalaapi-credential-cancel-0811d`. It passed the complete empty-volume matrix and
-adds terminal OAuth `invalid_grant` revocation, secret clearing, monotonic
-replacement recovery, and real Anthropic/Gemini client-hangup -> Provider-socket
-cancellation evidence. The 51-migration double run, Platform/Gateway replacement,
-two-Silo object-storage/PostgreSQL partitions, media/S3 recovery, Garnet,
-reconciliation, operator resolution, and all prior protocol/accounting gates stayed
-green. Platform is 294/294, Gateway is 127/127, Release builds with zero Platform
-warnings/errors, both Web builds pass, and all four Scheduler Dry benchmarks exit
-successfully.
+Current re-investigation baseline: Platform documentation HEAD `e7bcf09` with
+production code through `651a786`, Gateway `04ec18c`, and read-only
+`sub2api@43ec48d`. The latest complete runtime gate remains
+`scalaapi-credential-cancel-0811d`: it passed the empty-volume matrix and proves
+terminal OAuth `invalid_grant` revocation, secret clearing, monotonic replacement
+recovery, and real Anthropic/Gemini client-hangup -> Provider-socket cancellation.
+
+The fresh source audit changes the next action. Release build, Gateway 127/127, both
+Web builds, contract checks, retired-dependency scan, and all Scheduler Dry children
+pass. All 51 migration records apply and replay idempotently. However, the ordinary
+Platform 294/294 run hides database paths through early returns; enabling the real
+PostgreSQL schema produces 292 passed / 2 failed Host tests. The release gate is red
+until the invalid concurrent-claim distribution assertion and media cleanup FK leak
+are fixed. [`feature-gap-report.md`](feature-gap-report.md) is the concise
+58-domain planning authority.
 
 The Provider-specific fault slice is implemented at Platform `024b215`, and the
 native credential slice is implemented at Platform `c30e237` plus Gateway
@@ -24,23 +28,27 @@ retain one unknown-charge lease/hold each. Live upstream adapters,
 provider-specific pricing/tokenizers, and longer load/backpressure remain
 next-stage work.
 
-## Immediate execution order after `651a786` / `04ec18c`
+## Immediate execution order after the 2026-08-11 re-investigation
 
-1. Run the documented 3600-second two-Silo media contention/rejoin gate. Preserve
+1. Restore trustworthy integration evidence. Fix the two clean-schema Host test
+   failures, make absent database/Garnet prerequisites explicit failures or skips,
+   isolate shared database state, and pass all 294 tests against migrations 001-050
+   plus Orleans. This is a release-gate repair, not a product compatibility change.
+2. Run the documented 3600-second two-Silo media contention/rejoin gate. Preserve
    deterministic parent/item keys, claim fencing, one terminal usage effect, and
    recoverability across repeated secondary restart/rejoin cycles.
-2. Finish the remaining P0 protocol lifecycle gaps: OpenAI Responses mutation
+3. Finish the remaining P0 protocol lifecycle gaps: OpenAI Responses mutation
    subresources and the complete video create/poll/cancel/delete/object-retention
    state machine. Reuse the same lease/accounting and S3-compatible lifecycle;
    no compatibility storage or legacy status mapping is allowed.
-3. Bind live Provider adapter evidence to explicit configuration profiles: real
+4. Bind live Provider adapter evidence to explicit configuration profiles: real
    Anthropic/Gemini credentials in an isolated secret store, provider-owned
    pricing/catalog/tokenizer snapshots, HTTPS/TLS fingerprint enforcement, and
    revocation/rotation drills. No secret may enter fixtures, logs, query strings,
    error bodies, or repository history.
-4. Add longer realtime/provider backpressure, refresh-contention, Garnet-outage,
+5. Add longer realtime/provider backpressure, refresh-contention, Garnet-outage,
    and rolling process-replacement soak evidence.
-5. Make the source-built Gateway + Platform empty-volume gate blocking in hosted
+6. Make the source-built Gateway + Platform empty-volume gate blocking in hosted
    CI after credentials for the private sibling checkout are available.
 
 ### Credential revocation and native cancellation slice completed at `651a786` / `04ec18c`

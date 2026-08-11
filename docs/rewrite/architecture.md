@@ -231,6 +231,15 @@ target header set, never lets inbound client authentication replace it, and neve
 includes credential values in errors, logs, metrics, or response headers. Provider
 base URLs remain account configuration while Platform owns the escaped native path
 and method; API keys are not appended to URLs.
+
+OAuth refresh is a leased, generation-fenced account transition. A bounded token
+endpoint `invalid_grant` is terminal: the lease winner clears encrypted access,
+refresh, and client-secret material, advances the credential generation, records
+only bounded revocation metadata, and makes the account unschedulable. Hydration
+and stale refresh completion fail closed. An explicit complete OAuth replacement
+advances the generation again and is the only recovery path; metadata-only edits do
+not revive a revoked credential. Refresh audit rows never contain token material.
+
 Native Provider 401/403 responses are account-health failures rather than caller
 authentication failures: Gateway applies the bounded account failover policy and,
 when no eligible account remains, exposes 503 `provider_unavailable`. Each explicit
@@ -248,6 +257,15 @@ a debit and keeps the hold for reconciliation. Platform `f99db88` and the
 `scalaapi-native-stream-0811b` empty-volume gate prove this same contract for native
 Anthropic and Gemini streams: late usage completes the original unknown lease once,
 while wrong media type creates no retry or financial effect.
+
+Client cancellation is independent of Provider stream completion. Gateway observes
+ingress hangup without consuming request bytes, shuts down the one owned Provider
+socket, and terminates the corresponding header/body read without Photon retry or
+account failover. Because transport cancellation cannot prove that the Provider did
+not charge, a forwarded request retains one `reconciliation_needed` lease and
+active hold unless valid final usage is durably settled later. The transport never
+manufactures a zero-usage completion or terminal SSE event.
+
 The source-owned Provider mock deterministically exercises JSON, SSE, 429, 500,
 delay, disconnect, and malformed usage. Normalized request fields select faults,
 while separate seeded accounts isolate scheduler cooldown and retry state. Gateway
