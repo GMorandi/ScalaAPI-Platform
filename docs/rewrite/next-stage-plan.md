@@ -1,8 +1,8 @@
 # ScalaAPI Next Stage Plan
 
-Current checkpoint override: Platform/Admin Web/User Web `d7cad26`, Gateway
+Current checkpoint override: Platform/Admin Web/User Web `024b215`, Gateway
 `418da3a`, and read-only `sub2api@43ec48d`. The latest gate is
-`scalaapi-media-partition-0811d`; it passed durable image batch list/items,
+`scalaapi-provider-fidelity-0811j`; it passed durable image batch list/items,
 Provider-backed cancellation, S3-backed ZIP download with manifest/error entries,
 owner-scoped per-item objects and signed downloads, retention cleanup, Platform
 restart recovery, fenced item integrity verification, one-fetch archive/item
@@ -18,8 +18,51 @@ settlement. The latest gate also disconnected only the secondary Silo from
 object storage and PostgreSQL using a rootless private network. It proved one
 fenced object-storage failure and recovery, then due PostgreSQL work surviving
 the partition with `stored|completed|committed`, one usage event, and one debit
-after rejoin. The remaining plan below starts after this completed partition
-boundary.
+after rejoin. The same run also passed the new Anthropic/Gemini Provider-specific
+fault matrix and final reconciliation/operator gate. The remaining plan below
+starts after this completed protocol-fidelity boundary.
+
+The Provider-specific fault slice is implemented at Platform `024b215`.
+Independent groups cover Anthropic Messages and Gemini generation 429, 500,
+malformed JSON/SSE, timeout, disconnect, and usage-before-EOF profiles.
+Provider.Mock tests pass 69/69. The empty-stack gate routes ten new JSON/SSE
+requests through Gateway -> Cap'n Proto -> Platform: explicit 429/500 responses
+release the hold without usage/debit, while malformed, timeout, and disconnect
+retain one unknown-charge lease/hold each. Live upstream adapters,
+provider-specific pricing/tokenizers, and longer load/backpressure remain
+next-stage work.
+
+## Immediate execution order after `024b215`
+
+1. Complete provider-native adapter boundaries for Anthropic and Gemini:
+   version/auth/beta headers, base-URL and method selection, bounded response
+   bodies, retry/cancellation classification, and secret-free errors. Keep every
+   contract source-owned; do not add Sub2API headers, keys, routes, or fallback
+   mappings.
+2. Extend the current runtime matrix with provider-native cancellation,
+   usage-before-EOF settlement, invalid content type, retry exhaustion, and
+   credential refresh/revocation for both protocols. Every case must assert
+   request/idempotency identity, lease journal, hold state, usage/log cardinality,
+   NUMERIC debit, and reconciliation outcome.
+3. Finish the remaining P0 protocol lifecycle gaps: OpenAI Responses mutation
+   subresources and the complete video create/poll/cancel/delete/object-retention
+   state machine. Reuse the same lease/accounting and S3-compatible lifecycle;
+   no compatibility storage or legacy status mapping is allowed.
+4. Run the documented 3600-second two-Silo media contention/rejoin gate, then add
+   longer realtime/provider backpressure and process-replacement soak evidence.
+5. Make the source-built Gateway + Platform empty-volume gate blocking in hosted
+   CI after credentials for the private sibling checkout are available.
+
+Dependencies: the revision-3 Cap'n Proto contract, PostgreSQL accounting
+authority, Garnet projections, Provider mock, and the current incident/operator
+workflow remain fixed foundations. Any contract change updates both repositories
+and digest/generation gates in one release.
+
+Exit: provider-native fault/cancellation/refresh matrices pass for OpenAI,
+Anthropic, and Gemini; Responses and video lifecycles have API/state-machine,
+automated-test, and empty-stack evidence; the one-hour media and long-connection
+soaks finish without duplicate effects or leaked holds; hosted CI fails on any
+fixture, benchmark, migration, or smoke subscenario failure.
 
 The Embeddings provider-profile slice is complete for this checkpoint. Its
 source-owned OpenAI-compatible, Jina-compatible, and Gemini-compatible models
@@ -65,7 +108,7 @@ and deployment-scale HA/offsite lifecycle remain partial.
 
 ## Checkpoint
 
-The next stage starts from Platform/Admin Web/User Web `d7cad26`, Gateway
+The next stage starts from Platform/Admin Web/User Web `024b215`, Gateway
 `418da3a`, and read-only reference `sub2api@43ec48d`.
 
 The greenfield baseline now starts from empty volumes, uses PostgreSQL as authority,
@@ -101,7 +144,7 @@ has source-level terminal-event-gated SSE completion, incomplete chunked-body
 classification, and client-cancellation classification. The empty stack proves
 Provider disconnect, disconnect-before-output, malformed-usage, timeout before
 response headers, and actual downstream client-cancellation and invalid-content-type
-SSE retention with twelve total unknown-charge incidents, including a malformed
+SSE retention with nineteen total unknown-charge incidents, including a malformed
 non-stream OpenAI Responses 2xx payload mapped to public `502/provider_error` with
 one retained reconciliation hold and no usage/debit. The pre-header timeout now
 returns a bounded 502/provider_protocol_error and retains its hold; direct and
@@ -780,8 +823,11 @@ Deliverables:
   and inbound translation of Gateway-generated failures. The
   `scalaapi-provider-groups-0810l` gate now proves Anthropic JSON/SSE/count-token
   and Gemini catalog/JSON/SSE runtime routing, exactly-once billable settlement,
-  and no-charge control release. Add provider-specific catalog/tokenizer fixtures,
-  malformed/disconnect runtime cases, and live adapter evidence.
+  and no-charge control release. Commit `024b215` adds independent Anthropic and
+  Gemini 429/500/malformed/timeout/disconnect profiles, HTTP/SSE contract tests,
+  and the full empty-stack billing matrix. Add provider-specific
+  catalog/tokenizer fixtures, live adapter evidence, and multi-Silo/load
+  contention before promotion to `implemented`.
 - Use the completed pairwise request/response/error goldens as the deterministic
   baseline for the remaining provider-specific header/error matrix, then extend
   the passing runtime provider-group gate without external compatibility

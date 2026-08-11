@@ -1,7 +1,7 @@
 # ScalaAPI Rewrite Risk Register
 
-Active source evidence is Platform `7768132`, Gateway `418da3a`, and the
-`scalaapi-media-partition-0811d` empty-volume gate. Embeddings profiles, Responses
+Active source evidence is Platform `024b215`, Gateway `418da3a`, and the
+`scalaapi-provider-fidelity-0811j` empty-volume gate. Embeddings profiles, Responses
 compact, and the media batch list/items boundary pass their source-owned
 contracts and exactly-once settlement; broader provider and adapter fidelity
 remains a partial-domain risk.
@@ -22,6 +22,15 @@ Cancel acknowledgement deliberately retains the unknown-charge hold for
 reconciliation; all object repair remains independent from settled billing and
 imports no Sub2API state semantics.
 These remain explicit release risks.
+
+Provider-fidelity update: Platform `024b215` adds independent Anthropic and
+Gemini fault groups and source HTTP/SSE tests for 429, 500, malformed payloads,
+timeouts, disconnects, and usage-before-EOF truncation. The
+`scalaapi-provider-fidelity-0811j` empty-stack run drove ten JSON/SSE faults and
+proved explicit no-charge release versus unknown-charge retention through the
+real Gateway/Cap'n Proto/Platform path. Live upstream adapters, provider-owned
+tokenizer/pricing authority, long-stream backpressure, and multi-Silo provider
+contention remain P0/P1 controls.
 
 Current baseline note: Platform `eecaff6` and Gateway `d1e4a85` passed the
 source-built `scalaapi-responses-input-items-0810b` empty-volume gate. OpenAI Moderation

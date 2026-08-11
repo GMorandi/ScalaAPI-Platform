@@ -11,7 +11,7 @@ read-only requirements reference and is excluded from builds and runtime.
 | Repository | Commit | Worktree | Active role |
 | --- | --- | --- | --- |
 | `gateway` | `418da3a` | clean | C++ Gateway edge, protocol routing/conversion, Provider transport, and Garnet client |
-| `platform` | `d7cad26` | clean | C# Orleans control plane, PostgreSQL authority, Provider mock, Admin Web, User Web, and source-owned smoke fault tooling |
+| `platform` | `024b215` | clean | C# Orleans control plane, PostgreSQL authority, Provider mock, Admin Web, User Web, and source-owned protocol fault tooling |
 | `sub2api` | `43ec48d` | read-only clean | Requirements reference only; no runtime or compatibility dependency |
 
 ## Historical role descriptions
@@ -23,7 +23,7 @@ read-only requirements reference and is excluded from builds and runtime.
 | `sub2api` | `43ec48d` | read-only clean | Requirements catalogue only; never a runtime or compatibility dependency |
 
 The active source snapshot for this document is Platform/Admin Web/User Web
-`d7cad26` and Gateway `418da3a`; both worktrees are clean. The table's longer
+`024b215` and Gateway `418da3a`; both worktrees are clean. The table's longer
 capability descriptions are retained as inventory context, while this override
 and the evidence below define the current commits.
 
@@ -31,9 +31,9 @@ The current tracked inventory is:
 
 - Gateway: 52 production C++ source/header files, 11 test source files, and 126
   CTest cases.
-- Platform: 128 hand-written source C# files, including 4 smoke-only object-storage
-  fault-proxy files, 5 generated Cap'n Proto/global C# files, 69 test/benchmark C#
-  files, and 271 passing tests: 69 Grain, 95 Host, 46 Admin, and 61 Provider mock tests.
+- Platform: 131 source C# files, including 4 smoke-only object-storage
+  fault-proxy files, 5 generated Cap'n Proto/global C# files, 70 test/benchmark C#
+  files, and 279 passing tests: 69 Grain, 95 Host, 46 Admin, and 69 Provider mock tests.
   The Admin Web source now has 29 TypeScript/TSX files and 16 page views.
 - Product surface: 129 direct Admin API route declarations, 51 product tables,
   22 SQLSugar entity types, 29 Admin Web TypeScript/TSX files and 16 page views,
@@ -358,6 +358,15 @@ current-source runtime evidence.
   scheduler cooldown cannot mask another scenario; account credentials also pin
   the mock scenario header so the fault matrix is independent of request-body
   conversion.
+- Commit `024b215` adds independent Anthropic Messages and Gemini generation
+  fault groups for 429, 500, malformed JSON/SSE, timeout, disconnect, and
+  usage-before-EOF truncation. Provider.Mock HTTP tests cover the native JSON/SSE
+  shape and scenario header. The empty-stack smoke authorizes all twelve new
+  groups, drives ten JSON/SSE fault requests through Gateway -> Cap'n Proto ->
+  Platform, and asserts exact no-charge versus unknown-charge lease, hold,
+  usage, ledger, and idempotency state. The final accounting gate now expects
+  nineteen retained unknown-charge incidents before the audited operator settle
+  (eighteen remain open after the one audited settle).
 - Media polling copies Provider bytes to S3-compatible storage and persists object
   ownership metadata. Signed downloads, output deletion, and terminal operation
   deletion work. Platform `44d2096` adds migration 037 and a metadata-only HEAD

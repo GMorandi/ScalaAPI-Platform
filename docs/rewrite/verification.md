@@ -6,8 +6,25 @@ The source-built smoke above is the current release evidence. Rows later in this
 document that mention earlier classifier projects or migration counts are retained
 as historical checkpoints and do not define the current bootstrap or release gate.
 
-The latest source snapshot is Platform/Admin Web/User Web `7768132` and Gateway
+The latest source snapshot is Platform/Admin Web/User Web `024b215` and Gateway
 `418da3a`.
+
+The complete source-built Provider-fidelity project
+`scalaapi-provider-fidelity-0811j` exited zero. It applied and replay-skipped
+all 50 empty-volume migrations, seeded twelve independent Anthropic/Gemini
+fault groups, and routed ten provider-specific JSON/SSE fault requests through
+Gateway -> Cap'n Proto -> Platform -> Provider mock. Anthropic and Gemini 429/500
+requests aborted with released holds and no usage/debit rows; malformed,
+timeout, and disconnect requests retained exactly one
+`reconciliation_needed` lease and active hold each. The same run passed the
+existing OpenAI fault/retry matrix, four-session realtime soak, Platform/Gateway
+restart recovery, two-Silo object-storage/PostgreSQL partition and rejoin
+checks, S3 partial-write/response-loss recovery, terminal accounting invariants,
+reconciliation, and audited operator resolution. It exited with status 0 and
+the cleanup trap left no project containers, volumes, or temporary networks;
+only the development `apitf_default` and system `podman` networks remained.
+Provider.Mock source tests passed 69/69 and the Release solution build remained
+zero-warning/zero-error.
 
 The source-owned media contention gate was exercised in the empty-volume project
 `scalaapi-media-contention-rejoin-0811f` with

@@ -86,6 +86,15 @@ no usage log, no ledger entry, no request log, and one aborted idempotency recor
 Independent accounts prevent one scenario's scheduler cooldown from masking the
 next scenario.
 
+The source-owned Provider matrix also seeds six Anthropic Messages and six
+Gemini generation groups. The full smoke sends provider-native JSON/SSE requests
+for 429, 500, malformed payload, timeout, and disconnect profiles. Explicit
+429/500 responses must release the hold without usage or debit; malformed,
+timeout, and disconnect outcomes must retain one `reconciliation_needed` lease
+and active hold. The Provider.Mock contract suite additionally covers the
+usage-before-EOF truncation profile. These are new ScalaAPI contracts and do not
+import or emulate Sub2API keys, data, or internal compatibility behavior.
+
 The media section also starts a second Platform Silo and injects two isolated
 partitions with runtime-neutral `network disconnect/connect` operations. The
 first removes only the secondary Silo's object-storage path and requires one
