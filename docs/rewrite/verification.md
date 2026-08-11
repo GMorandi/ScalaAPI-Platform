@@ -25,6 +25,14 @@ left no named containers, volumes, or temporary networks. The post-gate Release
 solution build succeeded with zero warnings/errors; 288/288 Platform tests and
 127/127 Gateway tests passed.
 
+The next native stream-terminal gate is not yet release evidence. Current source
+tests parse Anthropic nested start/final usage and Gemini `usageMetadata`, while the
+mock exposes `disconnect_after_usage` and `invalid_content_type` handlers. The
+empty-stack matrix does not currently invoke those scenarios through native groups.
+Promotion requires two late-usage requests to finish exactly once and two
+wrong-media-type requests to remain unknown with zero usage/debit, plus the complete
+existing source-built matrix.
+
 The complete source-built Provider-fidelity project
 `scalaapi-provider-fidelity-0811j` exited zero. It applied and replay-skipped
 all 50 empty-volume migrations, seeded twelve independent Anthropic/Gemini

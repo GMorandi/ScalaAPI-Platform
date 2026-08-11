@@ -238,6 +238,13 @@ Provider rejection still terminates its lease through the no-charge path, releas
 the hold, and writes no usage or debit. The source-owned mock returns the native 401
 envelope directly, so mock-level authentication and product-level failover are
 tested as distinct contracts.
+For native SSE, successful HTTP status is not settlement evidence. Anthropic
+requires `message_stop`; Gemini requires a terminal candidate, and both require the
+exact `text/event-stream` media type. EOF before the protocol terminal event keeps
+the lease unknown unless a bounded, valid Provider usage object was already
+observed. That usage is durably reported against the same lease and may settle the
+unknown state exactly once. Missing/invalid usage or wrong media type never triggers
+a debit and keeps the hold for reconciliation.
 The source-owned Provider mock deterministically exercises JSON, SSE, 429, 500,
 delay, disconnect, and malformed usage. Normalized request fields select faults,
 while separate seeded accounts isolate scheduler cooldown and retry state. Gateway

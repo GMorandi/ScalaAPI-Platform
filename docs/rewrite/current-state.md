@@ -575,6 +575,30 @@ checks. Cleanup left no project containers, volumes, or temporary networks.
 Release build is zero-warning/zero-error; Platform tests pass 288/288 and Gateway
 tests pass 127/127.
 
+### Native stream-terminal investigation
+
+The next missing evidence is narrower than the generic Provider-fault plan. The
+current Gateway already requires protocol terminal events, parses nested
+Anthropic/Gemini usage, treats an incomplete stream as unknown charge, and lets a
+durable late usage report complete a `reconciliation_needed` lease. Provider.Mock
+already implements `disconnect_after_usage` for both native protocols and source
+HTTP tests read those frames, but the seeded accounts are not selected by the
+empty-stack smoke. Native `invalid_content_type` handlers also exist, but they have
+no dedicated seed profiles, no direct Provider HTTP assertions, and no runtime
+lease/hold evidence. By contrast, native 500 retry exhaustion is already proven by
+the current smoke (four aborted/released attempts), so it is not reimplemented.
+
+This slice will seed and authorize the four missing protocol/scenario pairs. A
+valid usage frame followed by EOF before `message_stop` or Gemini terminal
+candidate must first take the conservative unknown path, then converge through the
+normal durable usage transaction to one completed lease, committed hold, usage
+event/log, NUMERIC debit, and completed idempotency row. A 200 response with the
+wrong streaming media type must return a bounded protocol failure, retain exactly
+one `reconciliation_needed` lease/active hold, create no usage/log/debit, and make
+no retry. Credential refresh/revocation and actual downstream cancellation remain
+separate follow-on slices because their generic state machines exist but lack
+provider-specific configuration and runtime fixtures.
+
 ## Embeddings profile implementation evidence
 
 The read-only Sub2API reference implements the OpenAI-compatible Embeddings

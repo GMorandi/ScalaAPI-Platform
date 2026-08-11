@@ -43,6 +43,14 @@ released holds, and zero usage/debit. Live external credentials, master-key
 rotation, provider revocation, TLS fingerprint application, and long/multi-instance
 soak remain P0/P1 risks; native header transport itself is no longer the blocker.
 
+Native stream-terminal investigation: source parsers and mock handlers already
+cover Anthropic/Gemini usage before EOF, but only the OpenAI-shaped route currently
+proves late settlement in an empty stack. Native wrong-media-type handlers are not
+seeded or runtime-tested. The next gate must prove each protocol converges valid
+late usage to one normal financial effect while invalid content type retains one
+unknown hold and zero effects. The already-green four-attempt native 500 exhaustion
+is sufficient and will not be duplicated as a new implementation.
+
 Current baseline note: Platform `eecaff6` and Gateway `d1e4a85` passed the
 source-built `scalaapi-responses-input-items-0810b` empty-volume gate. OpenAI Moderation
 response match and upstream-unavailable paths produced redacted audits, warning or

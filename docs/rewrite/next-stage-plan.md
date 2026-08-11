@@ -88,6 +88,34 @@ terminal accounting. This closes only credential transport; provider-owned
 pricing/tokenizers, live external credentials, revocation/cancellation runtime
 matrices, and longer soak remain.
 
+### Native stream-terminal slice after `c30e237` / `4b3f19b`
+
+Investigation found the production state machine already supports the required
+conservative transition and late completion. The missing work is a source-owned
+native fixture/runtime boundary, not a second billing implementation.
+
+Implementation order:
+
+1. Add Anthropic and Gemini `invalid_content_type` profiles beside the existing
+   `disconnect_after_usage` profiles. Direct Provider.Mock tests must require native
+   authentication and assert the wrong media type versus valid usage frames.
+2. Extend seed parsing, user group authorization, API-key creation, and deterministic
+   request IDs for all four protocol/scenario pairs.
+3. Drive the two usage-before-EOF streams through Gateway. Assert the same original
+   lease moves from unknown evidence to `completed`, with one committed hold,
+   usage event/log, NUMERIC usage debit, and completed idempotency row.
+4. Drive the two wrong-media-type streams through Gateway. Assert bounded
+   502/transport behavior, one `reconciliation_needed` lease and active hold per
+   request, no usage/log/debit, and no retry lease.
+5. Update reconciliation incident expectations, run all source tests and the full
+   empty-volume matrix, then record the committed gate. Do not import Sub2API URL,
+   retry, credential, or status compatibility.
+
+Exit: Platform and Gateway tests/builds pass; an empty-volume run proves both native
+late settlements and both native unknown-charge failures without changing the
+existing 429/500/auth/restart/Garnet/media/accounting outcomes. Provider-specific
+OAuth refresh/revocation and actual downstream cancellation remain the next slices.
+
 Exit: provider-native fault/cancellation/refresh matrices pass for OpenAI,
 Anthropic, and Gemini; Responses and video lifecycles have API/state-machine,
 automated-test, and empty-stack evidence; the one-hour media and long-connection
