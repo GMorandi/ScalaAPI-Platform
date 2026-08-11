@@ -74,6 +74,63 @@ public class AccountCredentialTests(ClusterFixture fixture)
             1, 2, 1, 1, true, new(), new(), ["model-a"], null, false));
         Assert.Equal("Bearer access-new",
             (await grain.Hydrate()).AuthHeaders["Authorization"]);
+
+        await grain.Update(new AccountUpsert(
+            "oauth-account-replaced", "openai", "oauth", "https://upstream.example",
+            1, 2, 1, 1, true, new(), new(), ["model-a"], null, false,
+            new ProviderOAuthCredential(
+                "https://identity.example/token", "client-next", "secret-next",
+                "refresh-next", "access-next", now + 7200)));
+        var replaced = await grain.GetDetails();
+        Assert.Equal(3, replaced.OAuth!.Version);
+        Assert.Equal("Bearer access-next",
+            (await grain.Hydrate()).AuthHeaders["Authorization"]);
+    }
+
+    [Fact]
+    public async Task OAuthRevocationClearsUsableMaterialAndFencesStaleLease()
+    {
+        var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        var grain = fixture.Cluster.GrainFactory.GetGrain<IAccountGrain>(9006);
+        await grain.Create(new AccountUpsert(
+            "revoked-oauth-account", "anthropic", "oauth", "https://upstream.example",
+            1, 2, 1, 1, true, new(), new(), ["claude-3-5-sonnet"], null, false,
+            new ProviderOAuthCredential(
+                "https://identity.example/token", "client-id", "client-secret",
+                "refresh-token", "access-token", now - 1)));
+
+        var acquired = await grain.BeginOAuthRefresh(now, 120, 30);
+        Assert.True(await grain.RevokeOAuthCredential(
+            acquired.LeaseId!, "oauth_refresh_token_revoked"));
+        Assert.False(await grain.CompleteOAuthRefresh(acquired.LeaseId!, "stale-access",
+            "stale-refresh", now + 3600, "Bearer"));
+
+        var projection = await grain.GetProjection();
+        var details = await grain.GetDetails();
+        var refresh = await grain.BeginOAuthRefresh(now, 120, 30);
+        var hydrateError = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => grain.Hydrate());
+
+        Assert.False(projection.Schedulable);
+        Assert.Equal("revoked", projection.CredentialStatus);
+        Assert.Equal(2, projection.CredentialVersion);
+        Assert.Equal("revoked", refresh.Status);
+        Assert.NotNull(details.OAuth!.RevokedAtUnixSeconds);
+        Assert.Equal("oauth_refresh_token_revoked", details.OAuth.RevocationReason);
+        Assert.Equal("provider_credential_revoked", hydrateError.Message);
+
+        await grain.Update(new AccountUpsert(
+            "recovered-oauth-account", "anthropic", "oauth", "https://upstream.example",
+            1, 2, 1, 1, true, new(), new(), ["claude-3-5-sonnet"], null, false,
+            new ProviderOAuthCredential(
+                "https://identity.example/token", "client-new", "secret-new",
+                "refresh-new", "access-new", now + 3600)));
+        var recovered = await grain.GetProjection();
+        Assert.True(recovered.Schedulable);
+        Assert.Equal("oauth", recovered.CredentialStatus);
+        Assert.Equal(3, recovered.CredentialVersion);
+        Assert.Equal("Bearer access-new",
+            (await grain.Hydrate()).AuthHeaders["Authorization"]);
     }
 
     [Fact]

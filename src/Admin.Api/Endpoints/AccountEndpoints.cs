@@ -37,8 +37,8 @@ public static class AccountEndpoints
             string? source, int page = 1, int size = 50, CancellationToken ct = default) =>
         {
             if (!string.IsNullOrWhiteSpace(outcome)
-                && outcome.Trim() is not ("succeeded" or "failed"))
-                return Results.BadRequest(new { error = "outcome must be succeeded or failed" });
+                && outcome.Trim() is not ("succeeded" or "failed" or "revoked"))
+                return Results.BadRequest(new { error = "outcome must be succeeded, failed, or revoked" });
             if (!string.IsNullOrWhiteSpace(source)
                 && source.Trim() is not ("dispatch" or "media"))
                 return Results.BadRequest(new { error = "source must be dispatch or media" });

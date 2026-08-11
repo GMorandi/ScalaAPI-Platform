@@ -13,6 +13,7 @@ var app = builder.Build();
 var responses = new ConcurrentDictionary<string, string>(StringComparer.Ordinal);
 var responseInputItems = new ConcurrentDictionary<string, string>(StringComparer.Ordinal);
 var mediaStatuses = new ConcurrentDictionary<string, string>(StringComparer.Ordinal);
+var cancellationObservations = new ConcurrentDictionary<string, int>(StringComparer.Ordinal);
 var mediaPollDelayMs = Math.Clamp(
     builder.Configuration.GetValue<int>("MediaPollDelayMs"), 0, 30000);
 app.UseWebSockets(new WebSocketOptions
@@ -21,6 +22,18 @@ app.UseWebSockets(new WebSocketOptions
 });
 
 app.MapGet("/health", () => Results.Ok(new { status = "ok", provider = "scalaapi-mock" }));
+app.MapGet("/__test/cancellations/{requestId}", (string requestId) =>
+{
+    cancellationObservations.TryGetValue($"anthropic:{requestId}", out var anthropic);
+    cancellationObservations.TryGetValue($"gemini:{requestId}", out var gemini);
+    return Results.Ok(new
+    {
+        request_id = requestId,
+        anthropic,
+        gemini,
+        total = anthropic + gemini,
+    });
+});
 
 app.MapPost("/v1/payments/checkout", async (HttpRequest request,
     CancellationToken ct) =>
@@ -503,6 +516,7 @@ app.MapPost("/v1/messages", async (HttpContext context, CancellationToken cancel
     var model = MockProviderHelpers.Model(root, "claude-3-5-sonnet");
     var inputTokens = MockProviderHelpers.EstimateInputTokens(root);
     var requestId = context.Request.Headers["X-Provider-Request-Id"].FirstOrDefault()
+        ?? context.Request.Headers["X-Request-ID"].FirstOrDefault()
         ?? MockProviderHelpers.Id("msg");
     var stream = root.TryGetProperty("stream", out var streamValue)
         && streamValue.ValueKind == JsonValueKind.True;
@@ -564,6 +578,34 @@ app.MapPost("/v1/messages", async (HttpContext context, CancellationToken cancel
         await context.Response.WriteAsync(
             $"event: message_delta\ndata: {JsonSerializer.Serialize(new { type = "message_delta", delta = new { stop_reason = "end_turn", stop_sequence = (string?)null }, usage = new { output_tokens = 5 } })}\n\n",
             cancellationToken);
+        return Results.Empty;
+    }
+    if (scenario == "client_disconnect" && stream)
+    {
+        context.Response.StatusCode = StatusCodes.Status200OK;
+        context.Response.ContentType = "text/event-stream";
+        context.Response.Headers.CacheControl = "no-cache";
+        try
+        {
+            await context.Response.StartAsync(cancellationToken);
+            await context.Response.WriteAsync(
+                $"event: content_block_delta\ndata: {JsonSerializer.Serialize(new { type = "content_block_delta", index = 0, delta = new { type = "text_delta", text = "first" } })}\n\n",
+                cancellationToken);
+            await context.Response.Body.FlushAsync(cancellationToken);
+            while (true)
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(250), cancellationToken);
+                await context.Response.WriteAsync(
+                    $"event: content_block_delta\ndata: {JsonSerializer.Serialize(new { type = "content_block_delta", index = 0, delta = new { type = "text_delta", text = "continued" } })}\n\n",
+                    cancellationToken);
+                await context.Response.Body.FlushAsync(cancellationToken);
+            }
+        }
+        catch (Exception ex) when (ex is OperationCanceledException or IOException)
+        {
+            cancellationObservations.AddOrUpdate(
+                $"anthropic:{requestId}", 1, static (_, count) => count + 1);
+        }
         return Results.Empty;
     }
     if (stream && !scenario.Equals("json_stream", StringComparison.OrdinalIgnoreCase))
@@ -868,6 +910,9 @@ app.MapPost("/v1beta/models/{model}:streamGenerateContent", async (
         return authError;
     using var body = await MockProviderHelpers.ReadJsonAsync(context, cancellationToken);
     var scenario = MockProviderHelpers.Scenario(context, body.RootElement).ToLowerInvariant();
+    var requestId = context.Request.Headers["X-Provider-Request-Id"].FirstOrDefault()
+        ?? context.Request.Headers["X-Request-ID"].FirstOrDefault()
+        ?? MockProviderHelpers.Id("gemini");
     if (scenario == "429")
         return Results.Json(new { error = new { status = "RESOURCE_EXHAUSTED", message = "mock rate limited" } },
             statusCode: StatusCodes.Status429TooManyRequests);
@@ -905,6 +950,33 @@ app.MapPost("/v1beta/models/{model}:streamGenerateContent", async (
         context.Response.StatusCode = StatusCodes.Status200OK;
         context.Response.ContentType = "text/event-stream";
         await context.Response.WriteAsync($"data: {JsonSerializer.Serialize(new { candidates = Array.Empty<object>(), usageMetadata = new { promptTokenCount = MockProviderHelpers.EstimateInputTokens(body.RootElement), candidatesTokenCount = 5, totalTokenCount = MockProviderHelpers.EstimateInputTokens(body.RootElement) + 5 } })}\n\n", cancellationToken);
+        return Results.Empty;
+    }
+    if (scenario == "client_disconnect")
+    {
+        context.Response.StatusCode = StatusCodes.Status200OK;
+        context.Response.ContentType = "text/event-stream";
+        try
+        {
+            await context.Response.StartAsync(cancellationToken);
+            await context.Response.WriteAsync(
+                "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"first\"}]},\"finishReason\":null}]}\n\n",
+                cancellationToken);
+            await context.Response.Body.FlushAsync(cancellationToken);
+            while (true)
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(250), cancellationToken);
+                await context.Response.WriteAsync(
+                    "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"continued\"}]},\"finishReason\":null}]}\n\n",
+                    cancellationToken);
+                await context.Response.Body.FlushAsync(cancellationToken);
+            }
+        }
+        catch (Exception ex) when (ex is OperationCanceledException or IOException)
+        {
+            cancellationObservations.AddOrUpdate(
+                $"gemini:{requestId}", 1, static (_, count) => count + 1);
+        }
         return Results.Empty;
     }
     var inputTokens = MockProviderHelpers.EstimateInputTokens(body.RootElement);
@@ -1278,9 +1350,11 @@ app.MapGet("/v1/requests/{requestId}", (string requestId) => Results.Ok(new
 
 static IResult? AuthenticateAnthropic(HttpRequest request)
 {
-    if (request.Headers.ContainsKey("api_key")
-        || !string.Equals(request.Headers["x-api-key"], "scalaapi-mock-key",
-            StringComparison.Ordinal))
+    var nativeKey = string.Equals(request.Headers["x-api-key"],
+        "scalaapi-mock-key", StringComparison.Ordinal);
+    var oauth = MockOAuthTokenEndpoint.IsAcceptedAccessHeader(
+        request.Headers.Authorization.ToString());
+    if (request.Headers.ContainsKey("api_key") || (!nativeKey && !oauth))
     {
         return Results.Json(new
         {
@@ -1303,9 +1377,11 @@ static IResult? AuthenticateAnthropic(HttpRequest request)
 
 static IResult? AuthenticateGemini(HttpRequest request)
 {
-    if (!request.Headers.ContainsKey("api_key")
-        && string.Equals(request.Headers["x-goog-api-key"], "scalaapi-mock-key",
-            StringComparison.Ordinal))
+    var nativeKey = string.Equals(request.Headers["x-goog-api-key"],
+        "scalaapi-mock-key", StringComparison.Ordinal);
+    var oauth = MockOAuthTokenEndpoint.IsAcceptedAccessHeader(
+        request.Headers.Authorization.ToString());
+    if (!request.Headers.ContainsKey("api_key") && (nativeKey || oauth))
         return null;
     return Results.Json(new
     {

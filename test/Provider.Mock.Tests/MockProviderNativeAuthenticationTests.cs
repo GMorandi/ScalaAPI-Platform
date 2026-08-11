@@ -62,4 +62,32 @@ public sealed class MockProviderNativeAuthenticationTests :
         Assert.Contains("UNAUTHENTICATED", body, StringComparison.Ordinal);
         Assert.DoesNotContain("leaked-semantic-secret", body, StringComparison.Ordinal);
     }
+
+    [Theory]
+    [InlineData("anthropic", "/v1/messages")]
+    [InlineData("gemini", "/v1beta/models/gemini-2.0-flash:generateContent")]
+    public async Task NativeProvidersAcceptRotatedOAuthBearer(string provider, string path)
+    {
+        using var client = factory.CreateClient();
+        using var request = new HttpRequestMessage(HttpMethod.Post, path)
+        {
+            Content = provider == "anthropic"
+                ? JsonContent.Create(new
+                {
+                    model = "claude-3-5-sonnet",
+                    max_tokens = 8,
+                    messages = new[] { new { role = "user", content = "oauth" } },
+                })
+                : JsonContent.Create(new
+                {
+                    contents = new[] { new { parts = new[] { new { text = "oauth" } } } },
+                }),
+        };
+        request.Headers.Authorization = new("Bearer", "mock-access-v2");
+        if (provider == "anthropic")
+            request.Headers.Add("anthropic-version", "2023-06-01");
+
+        using var response = await client.SendAsync(request);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
 }

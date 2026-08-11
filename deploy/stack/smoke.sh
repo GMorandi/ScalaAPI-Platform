@@ -322,6 +322,7 @@ anthropic_fault_500_request_id="smoke-anthropic-fault-500-${suffix}"
 anthropic_fault_malformed_request_id="smoke-anthropic-fault-malformed-${suffix}"
 anthropic_fault_timeout_request_id="smoke-anthropic-fault-timeout-${suffix}"
 anthropic_fault_disconnect_request_id="smoke-anthropic-fault-disconnect-${suffix}"
+anthropic_fault_client_disconnect_request_id="smoke-anthropic-fault-client-disconnect-${suffix}"
 anthropic_fault_after_usage_request_id="smoke-anthropic-fault-after-usage-${suffix}"
 anthropic_fault_invalid_content_type_request_id="smoke-anthropic-fault-invalid-content-type-${suffix}"
 gemini_fault_429_request_id="smoke-gemini-fault-429-${suffix}"
@@ -329,10 +330,13 @@ gemini_fault_500_request_id="smoke-gemini-fault-500-${suffix}"
 gemini_fault_malformed_request_id="smoke-gemini-fault-malformed-${suffix}"
 gemini_fault_timeout_request_id="smoke-gemini-fault-timeout-${suffix}"
 gemini_fault_disconnect_request_id="smoke-gemini-fault-disconnect-${suffix}"
+gemini_fault_client_disconnect_request_id="smoke-gemini-fault-client-disconnect-${suffix}"
 gemini_fault_after_usage_request_id="smoke-gemini-fault-after-usage-${suffix}"
 gemini_fault_invalid_content_type_request_id="smoke-gemini-fault-invalid-content-type-${suffix}"
 anthropic_auth_rejected_request_id="smoke-anthropic-auth-rejected-${suffix}"
 gemini_auth_rejected_request_id="smoke-gemini-auth-rejected-${suffix}"
+anthropic_oauth_revoked_request_id="smoke-anthropic-oauth-revoked-${suffix}"
+gemini_oauth_revoked_request_id="smoke-gemini-oauth-revoked-${suffix}"
 fault_request_prefix="smoke-fault-${suffix}"
 media_idempotency_key="smoke-media-idem-${suffix}"
 media_restart_idempotency_key="smoke-media-restart-idem-${suffix}"
@@ -348,7 +352,7 @@ embedding_gemini_price_version="smoke-embeddings-gemini-${suffix}-v1"
 media_price_version="smoke-media-${suffix}-v1"
 balance_idempotency_key="smoke-balance-${suffix}"
 gateway_hook_unknown_incidents=0
-provider_group_unknown_incidents=8
+provider_group_unknown_incidents=10
 gateway_hook_safe_expiry=0
 platform_dispatch_fault_safe_expiry=0
 platform_dispatch_retry=0
@@ -704,6 +708,151 @@ SELECT
     echo "PASS: $provider usage-before-EOF settled the original unknown lease exactly once"
 }
 
+run_native_stream_client_disconnect() {
+    local provider=$1
+    local scenario_api_key=$2
+    local request_id=$3
+    local idempotency_key="${request_id}-idem"
+    local request_path
+    local request_body
+    local response
+    local response_status
+    local cancellation_state
+
+    if [[ "$provider" == "anthropic" ]]; then
+        request_path="/v1/messages"
+        request_body='{"model":"claude-3-5-sonnet","max_tokens":16,"messages":[{"role":"user","content":"native client cancellation"}],"stream":true}'
+    else
+        request_path="/v1beta/models/gemini-2.0-flash:streamGenerateContent?alt=sse"
+        request_body='{"contents":[{"role":"user","parts":[{"text":"native client cancellation"}]}]}'
+    fi
+
+    set +e
+    response="$(curl -sS --max-time 1 --write-out $'\n%{http_code}' \
+        "$gateway_url$request_path" \
+        -H "Authorization: Bearer $scenario_api_key" \
+        -H "Content-Type: application/json" \
+        -H "X-Request-ID: $request_id" \
+        -H "Idempotency-Key: $idempotency_key" \
+        --data "$request_body")"
+    set -e
+    response_status="${response##*$'\n'}"
+    [[ -n "$response_status" ]] || response_status=000
+    assert_one_of "000|200" "$response_status" \
+        "$provider native client cancellation response status"
+
+    native_provider_cancelled() {
+        local observed
+        observed="$(compose exec -T provider-mock curl -fsS \
+            "http://127.0.0.1:8081/__test/cancellations/$request_id" \
+            | jq -r --arg provider "$provider" '.[$provider]')"
+        [[ "$observed" == "1" ]]
+    }
+    wait_for "$provider Provider-side request cancellation" 30 native_provider_cancelled
+
+    native_client_cancel_recorded() {
+        [[ "$(db_query "SELECT count(*) FROM request_leases WHERE request_id = '$request_id' AND status = 'reconciliation_needed';")" == "1" ]]
+    }
+    wait_for "$provider client cancellation lease evidence" 30 native_client_cancel_recorded
+    cancellation_state="$(db_query "
+WITH target_lease AS (
+  SELECT lease_token, request_id FROM request_leases WHERE request_id = '$request_id'
+)
+SELECT
+  (SELECT count(*) FROM target_lease) || '|' ||
+  (SELECT count(*) FROM balance_holds h JOIN target_lease l USING (lease_token) WHERE h.status = 'active') || '|' ||
+  (SELECT count(*) FROM usage_events u JOIN target_lease l ON l.request_id = u.request_id) || '|' ||
+  (SELECT count(*) FROM usage_logs u JOIN target_lease l ON l.request_id = u.request_id) || '|' ||
+  (SELECT count(*) FROM balance_ledger b JOIN target_lease l USING (lease_token)) || '|' ||
+  (SELECT count(*) FROM request_idempotency WHERE idempotency_key = '$idempotency_key' AND status = 'reconciliation_needed') || '|' ||
+  (SELECT count(*) FROM request_lease_events e JOIN target_lease l USING (lease_token) WHERE e.event_type = 'forwarded') || '|' ||
+  (SELECT count(*) FROM request_lease_events e JOIN target_lease l USING (lease_token) WHERE e.event_type = 'output_started') || '|' ||
+  (SELECT count(*) FROM request_lease_events e JOIN target_lease l USING (lease_token) WHERE e.event_type = 'reconciliation_needed');")"
+    assert_equals "1|1|0|0|0|1|1|0|1" "$cancellation_state" \
+        "$provider native client cancellation lifecycle"
+    echo "PASS: $provider pre-output client disconnect closed the Provider request and retained one unknown-charge hold"
+}
+
+run_native_oauth_revocation() {
+    local provider=$1
+    local scenario_api_key=$2
+    local account_id=$3
+    local request_id=$4
+    local request_path
+    local request_body
+    local response
+    local response_status
+    local account
+    local recovery_request_id="${request_id}-recovered"
+    local expired_at
+
+    if [[ "$provider" == "anthropic" ]]; then
+        request_path="/v1/messages"
+        request_body='{"model":"claude-3-5-sonnet","max_tokens":16,"messages":[{"role":"user","content":"native OAuth revocation"}]}'
+    else
+        request_path="/v1beta/models/gemini-2.0-flash:generateContent"
+        request_body='{"contents":[{"role":"user","parts":[{"text":"native OAuth revocation"}]}]}'
+    fi
+
+    response="$(curl -sS --max-time 30 --write-out $'\n%{http_code}' \
+        "$gateway_url$request_path" \
+        -H "Authorization: Bearer $scenario_api_key" \
+        -H "Content-Type: application/json" \
+        -H "X-Request-ID: $request_id" \
+        -H "Idempotency-Key: ${request_id}-idem" \
+        --data "$request_body")"
+    response_status="${response##*$'\n'}"
+    assert_equals "503" "$response_status" "$provider revoked OAuth dispatch status"
+    account="$(admin_request GET "/admin/accounts/$account_id" '' "$admin_token")"
+    assert_equals "2|oauth_refresh_token_revoked|true" \
+        "$(jq -r '[.oAuth.version, .oAuth.revocationReason, (.oAuth.revokedAtUnixSeconds != null)] | @tsv' <<<"$account" | tr '\t' '|')" \
+        "$provider terminal OAuth revocation projection"
+    if grep -Eq 'mock-(access|refresh)|mock-secret' <<<"$account"; then
+        echo "$provider revoked account projection exposed credential material" >&2
+        return 1
+    fi
+    assert_equals "0" \
+        "$(db_query "SELECT count(*) FROM request_leases WHERE request_id = '$request_id' OR request_id LIKE '$request_id:retry:%';")" \
+        "$provider revoked credential creates no request lease"
+    assert_equals "1|2|oauth_refresh_token_revoked" \
+        "$(jq -r '[.total, .items[0].versionAfter, .items[0].errorCode] | @tsv' \
+            <<<"$(admin_request GET "/admin/accounts/$account_id/credential-refresh-attempts?outcome=revoked&source=dispatch" '' "$admin_token")" | tr '\t' '|')" \
+        "$provider revoked credential audit"
+
+    expired_at="$(( $(date +%s) - 60 ))"
+    admin_request PUT "/admin/accounts/$account_id" \
+        "$(jq -cn --arg provider "$provider" --argjson expired "$expired_at" \
+            '{name:("scalaapi-provider-mock-" + $provider + "-oauth-recovered"),platform:$provider,type:"oauth",baseUrl:"http://provider-mock:8081",priority:1,concurrency:8,loadFactor:1,rateMultiplier:1,schedulable:true,credentials:{},modelMapping:{},supportedModels:(if $provider == "anthropic" then ["claude-3-5-sonnet"] else ["gemini-2.0-flash"] end),proxyUrl:null,tlsFingerprint:false,oAuth:{tokenEndpoint:"http://provider-mock:8081/oauth/token",clientId:"mock-client",clientSecret:"mock-secret",refreshToken:"mock-refresh-v1",accessToken:"mock-access-v1",expiresAtUnixSeconds:$expired,headerName:"Authorization",headerScheme:"Bearer",scope:null}}')" \
+        "$admin_token" >/dev/null
+
+    response="$(curl -sS --max-time 30 --write-out $'\n%{http_code}' \
+        "$gateway_url$request_path" \
+        -H "Authorization: Bearer $scenario_api_key" \
+        -H "Content-Type: application/json" \
+        -H "X-Request-ID: $recovery_request_id" \
+        -H "Idempotency-Key: ${recovery_request_id}-idem" \
+        --data "$request_body")"
+    assert_equals "200" "${response##*$'\n'}" "$provider replacement credential recovery status"
+    native_oauth_recovery_settled() {
+        [[ "$(db_query "SELECT count(*) FROM request_leases WHERE request_id = '$recovery_request_id' AND status = 'completed';")" == "1" ]]
+    }
+    wait_for "$provider replacement credential settlement" 30 native_oauth_recovery_settled
+    assert_equals "1|1|1|1|1" "$(db_query "
+WITH target_lease AS (SELECT lease_token, request_id FROM request_leases WHERE request_id = '$recovery_request_id')
+SELECT
+  (SELECT count(*) FROM target_lease) || '|' ||
+  (SELECT count(*) FROM usage_events u JOIN target_lease l ON l.request_id = u.request_id) || '|' ||
+  (SELECT count(*) FROM usage_logs u JOIN target_lease l ON l.request_id = u.request_id) || '|' ||
+  (SELECT count(*) FROM balance_holds h JOIN target_lease l USING (lease_token) WHERE h.status = 'committed') || '|' ||
+  (SELECT count(*) FROM balance_ledger b JOIN target_lease l USING (lease_token) WHERE b.entry_type = 'usage_debit');")" \
+        "$provider replacement credential exactly-once settlement"
+    account="$(admin_request GET "/admin/accounts/$account_id" '' "$admin_token")"
+    assert_equals "4|true|true" \
+        "$(jq -r '[.oAuth.version, (.oAuth.expiresAtUnixSeconds > now), (.oAuth.revokedAtUnixSeconds == null)] | @tsv' <<<"$account" | tr '\t' '|')" \
+        "$provider replacement credential generation"
+    echo "PASS: $provider invalid_grant revoked and cleared the credential; replacement recovered at a monotonic generation"
+}
+
 run_chat_stream_rejection() {
     local scenario=$1
     local scenario_api_key=$2
@@ -941,13 +1090,14 @@ assert_equals "10" "$(jq -er '.scenarios | length' <<<"$fault_seed_response")" \
 
 provider_fault_seed_response="$(admin_request POST /admin/seed/provider-mock-provider-fault-matrix '{}' \
     "$admin_token")"
-assert_equals "16" "$(jq -er '.scenarios | length' <<<"$provider_fault_seed_response")" \
+assert_equals "18" "$(jq -er '.scenarios | length' <<<"$provider_fault_seed_response")" \
     "Seeded Anthropic/Gemini Provider fault scenario count"
 anthropic_fault_429_group_id="$(jq -er '.scenarios[] | select(.provider == "anthropic" and .scenario == "429") | .group_id' <<<"$provider_fault_seed_response")"
 anthropic_fault_500_group_id="$(jq -er '.scenarios[] | select(.provider == "anthropic" and .scenario == "500") | .group_id' <<<"$provider_fault_seed_response")"
 anthropic_fault_malformed_group_id="$(jq -er '.scenarios[] | select(.provider == "anthropic" and .scenario == "malformed") | .group_id' <<<"$provider_fault_seed_response")"
 anthropic_fault_timeout_group_id="$(jq -er '.scenarios[] | select(.provider == "anthropic" and .scenario == "timeout") | .group_id' <<<"$provider_fault_seed_response")"
 anthropic_fault_disconnect_group_id="$(jq -er '.scenarios[] | select(.provider == "anthropic" and .scenario == "disconnect") | .group_id' <<<"$provider_fault_seed_response")"
+anthropic_fault_client_disconnect_group_id="$(jq -er '.scenarios[] | select(.provider == "anthropic" and .scenario == "client_disconnect") | .group_id' <<<"$provider_fault_seed_response")"
 anthropic_fault_after_usage_group_id="$(jq -er '.scenarios[] | select(.provider == "anthropic" and .scenario == "disconnect_after_usage") | .group_id' <<<"$provider_fault_seed_response")"
 anthropic_fault_invalid_content_type_group_id="$(jq -er '.scenarios[] | select(.provider == "anthropic" and .scenario == "invalid_content_type") | .group_id' <<<"$provider_fault_seed_response")"
 gemini_fault_429_group_id="$(jq -er '.scenarios[] | select(.provider == "gemini" and .scenario == "429") | .group_id' <<<"$provider_fault_seed_response")"
@@ -955,10 +1105,20 @@ gemini_fault_500_group_id="$(jq -er '.scenarios[] | select(.provider == "gemini"
 gemini_fault_malformed_group_id="$(jq -er '.scenarios[] | select(.provider == "gemini" and .scenario == "malformed") | .group_id' <<<"$provider_fault_seed_response")"
 gemini_fault_timeout_group_id="$(jq -er '.scenarios[] | select(.provider == "gemini" and .scenario == "timeout") | .group_id' <<<"$provider_fault_seed_response")"
 gemini_fault_disconnect_group_id="$(jq -er '.scenarios[] | select(.provider == "gemini" and .scenario == "disconnect") | .group_id' <<<"$provider_fault_seed_response")"
+gemini_fault_client_disconnect_group_id="$(jq -er '.scenarios[] | select(.provider == "gemini" and .scenario == "client_disconnect") | .group_id' <<<"$provider_fault_seed_response")"
 gemini_fault_after_usage_group_id="$(jq -er '.scenarios[] | select(.provider == "gemini" and .scenario == "disconnect_after_usage") | .group_id' <<<"$provider_fault_seed_response")"
 gemini_fault_invalid_content_type_group_id="$(jq -er '.scenarios[] | select(.provider == "gemini" and .scenario == "invalid_content_type") | .group_id' <<<"$provider_fault_seed_response")"
 anthropic_auth_rejected_group_id="$(jq -er '.scenarios[] | select(.provider == "anthropic" and .scenario == "auth_rejected") | .group_id' <<<"$provider_fault_seed_response")"
 gemini_auth_rejected_group_id="$(jq -er '.scenarios[] | select(.provider == "gemini" and .scenario == "auth_rejected") | .group_id' <<<"$provider_fault_seed_response")"
+
+credential_seed_response="$(admin_request POST /admin/seed/provider-mock-credential-matrix '{}' \
+    "$admin_token")"
+assert_equals "2" "$(jq -er '.providers | length' <<<"$credential_seed_response")" \
+    "Seeded native OAuth credential profile count"
+anthropic_oauth_revoked_account_id="$(jq -er '.providers[] | select(.provider == "anthropic") | .account_id' <<<"$credential_seed_response")"
+anthropic_oauth_revoked_group_id="$(jq -er '.providers[] | select(.provider == "anthropic") | .group_id' <<<"$credential_seed_response")"
+gemini_oauth_revoked_account_id="$(jq -er '.providers[] | select(.provider == "gemini") | .account_id' <<<"$credential_seed_response")"
+gemini_oauth_revoked_group_id="$(jq -er '.providers[] | select(.provider == "gemini") | .group_id' <<<"$credential_seed_response")"
 
 invalid_register_status="$(compose exec -T admin-api curl -sS -o /dev/null -w '%{http_code}' \
     -X POST -H 'Content-Type: application/json' \
@@ -1126,6 +1286,7 @@ allowed_groups="$(jq -cn \
     --argjson anthropicFaultMalformed "$anthropic_fault_malformed_group_id" \
     --argjson anthropicFaultTimeout "$anthropic_fault_timeout_group_id" \
     --argjson anthropicFaultDisconnect "$anthropic_fault_disconnect_group_id" \
+    --argjson anthropicFaultClientDisconnect "$anthropic_fault_client_disconnect_group_id" \
     --argjson anthropicFaultAfterUsage "$anthropic_fault_after_usage_group_id" \
     --argjson anthropicFaultInvalidContentType "$anthropic_fault_invalid_content_type_group_id" \
     --argjson geminiFault429 "$gemini_fault_429_group_id" \
@@ -1133,11 +1294,14 @@ allowed_groups="$(jq -cn \
     --argjson geminiFaultMalformed "$gemini_fault_malformed_group_id" \
     --argjson geminiFaultTimeout "$gemini_fault_timeout_group_id" \
     --argjson geminiFaultDisconnect "$gemini_fault_disconnect_group_id" \
+    --argjson geminiFaultClientDisconnect "$gemini_fault_client_disconnect_group_id" \
     --argjson geminiFaultAfterUsage "$gemini_fault_after_usage_group_id" \
     --argjson geminiFaultInvalidContentType "$gemini_fault_invalid_content_type_group_id" \
     --argjson anthropicAuthRejected "$anthropic_auth_rejected_group_id" \
     --argjson geminiAuthRejected "$gemini_auth_rejected_group_id" \
-    '[$openai,$anthropic,$gemini,$fault429,$fault500,$timeout,$disconnect,$disconnectStream,$disconnectBeforeOutput,$disconnectAfterUsage,$clientDisconnect,$malformed,$invalidContentType,$anthropicFault429,$anthropicFault500,$anthropicFaultMalformed,$anthropicFaultTimeout,$anthropicFaultDisconnect,$anthropicFaultAfterUsage,$anthropicFaultInvalidContentType,$geminiFault429,$geminiFault500,$geminiFaultMalformed,$geminiFaultTimeout,$geminiFaultDisconnect,$geminiFaultAfterUsage,$geminiFaultInvalidContentType,$anthropicAuthRejected,$geminiAuthRejected]')"
+    --argjson anthropicOauthRevoked "$anthropic_oauth_revoked_group_id" \
+    --argjson geminiOauthRevoked "$gemini_oauth_revoked_group_id" \
+    '[$openai,$anthropic,$gemini,$fault429,$fault500,$timeout,$disconnect,$disconnectStream,$disconnectBeforeOutput,$disconnectAfterUsage,$clientDisconnect,$malformed,$invalidContentType,$anthropicFault429,$anthropicFault500,$anthropicFaultMalformed,$anthropicFaultTimeout,$anthropicFaultDisconnect,$anthropicFaultClientDisconnect,$anthropicFaultAfterUsage,$anthropicFaultInvalidContentType,$geminiFault429,$geminiFault500,$geminiFaultMalformed,$geminiFaultTimeout,$geminiFaultDisconnect,$geminiFaultClientDisconnect,$geminiFaultAfterUsage,$geminiFaultInvalidContentType,$anthropicAuthRejected,$geminiAuthRejected,$anthropicOauthRevoked,$geminiOauthRevoked]')"
 admin_request PUT "/admin/users/$user_id" \
     "$(jq -cn --argjson groups "$allowed_groups" \
         '{role:"user",concurrency:4,rpmLimit:0,allowedGroups:$groups}')" \
@@ -1349,6 +1513,7 @@ anthropic_fault_500_api_key="$(create_api_key "$anthropic_fault_500_group_id")"
 anthropic_fault_malformed_api_key="$(create_api_key "$anthropic_fault_malformed_group_id")"
 anthropic_fault_timeout_api_key="$(create_api_key "$anthropic_fault_timeout_group_id")"
 anthropic_fault_disconnect_api_key="$(create_api_key "$anthropic_fault_disconnect_group_id")"
+anthropic_fault_client_disconnect_api_key="$(create_api_key "$anthropic_fault_client_disconnect_group_id")"
 anthropic_fault_after_usage_api_key="$(create_api_key "$anthropic_fault_after_usage_group_id")"
 anthropic_fault_invalid_content_type_api_key="$(create_api_key "$anthropic_fault_invalid_content_type_group_id")"
 gemini_fault_429_api_key="$(create_api_key "$gemini_fault_429_group_id")"
@@ -1356,10 +1521,13 @@ gemini_fault_500_api_key="$(create_api_key "$gemini_fault_500_group_id")"
 gemini_fault_malformed_api_key="$(create_api_key "$gemini_fault_malformed_group_id")"
 gemini_fault_timeout_api_key="$(create_api_key "$gemini_fault_timeout_group_id")"
 gemini_fault_disconnect_api_key="$(create_api_key "$gemini_fault_disconnect_group_id")"
+gemini_fault_client_disconnect_api_key="$(create_api_key "$gemini_fault_client_disconnect_group_id")"
 gemini_fault_after_usage_api_key="$(create_api_key "$gemini_fault_after_usage_group_id")"
 gemini_fault_invalid_content_type_api_key="$(create_api_key "$gemini_fault_invalid_content_type_group_id")"
 anthropic_auth_rejected_api_key="$(create_api_key "$anthropic_auth_rejected_group_id")"
 gemini_auth_rejected_api_key="$(create_api_key "$gemini_auth_rejected_group_id")"
+anthropic_oauth_revoked_api_key="$(create_api_key "$anthropic_oauth_revoked_group_id")"
+gemini_oauth_revoked_api_key="$(create_api_key "$gemini_oauth_revoked_group_id")"
 
 effective_from="1970-01-01T00:00:00Z"
 admin_request POST /admin/pricing/versions \
@@ -2389,6 +2557,9 @@ run_provider_group_fault "anthropic" "timeout" "$anthropic_fault_timeout_api_key
     "$anthropic_fault_timeout_request_id" "reconciliation_needed"
 run_provider_group_fault "anthropic" "disconnect" "$anthropic_fault_disconnect_api_key" \
     "$anthropic_fault_disconnect_request_id" "reconciliation_needed" 1
+run_native_stream_client_disconnect "anthropic" \
+    "$anthropic_fault_client_disconnect_api_key" \
+    "$anthropic_fault_client_disconnect_request_id"
 run_native_stream_late_usage "anthropic" "$anthropic_fault_after_usage_api_key" \
     "$anthropic_fault_after_usage_request_id"
 run_provider_group_fault "anthropic" "invalid_content_type" \
@@ -2404,6 +2575,9 @@ run_provider_group_fault "gemini" "timeout" "$gemini_fault_timeout_api_key" \
     "$gemini_fault_timeout_request_id" "reconciliation_needed"
 run_provider_group_fault "gemini" "disconnect" "$gemini_fault_disconnect_api_key" \
     "$gemini_fault_disconnect_request_id" "reconciliation_needed" 1
+run_native_stream_client_disconnect "gemini" \
+    "$gemini_fault_client_disconnect_api_key" \
+    "$gemini_fault_client_disconnect_request_id"
 run_native_stream_late_usage "gemini" "$gemini_fault_after_usage_api_key" \
     "$gemini_fault_after_usage_request_id"
 run_provider_group_fault "gemini" "invalid_content_type" \
@@ -2413,6 +2587,10 @@ run_provider_group_fault "anthropic" "auth_rejected" "$anthropic_auth_rejected_a
     "$anthropic_auth_rejected_request_id" "aborted"
 run_provider_group_fault "gemini" "auth_rejected" "$gemini_auth_rejected_api_key" \
     "$gemini_auth_rejected_request_id" "aborted"
+run_native_oauth_revocation "anthropic" "$anthropic_oauth_revoked_api_key" \
+    "$anthropic_oauth_revoked_account_id" "$anthropic_oauth_revoked_request_id"
+run_native_oauth_revocation "gemini" "$gemini_oauth_revoked_api_key" \
+    "$gemini_oauth_revoked_account_id" "$gemini_oauth_revoked_request_id"
 
 provider_control_released() {
     [[ "$(db_query "

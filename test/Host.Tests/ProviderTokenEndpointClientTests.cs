@@ -78,6 +78,27 @@ public sealed class ProviderTokenEndpointClientTests
         Assert.DoesNotContain("secret-value", error.ToString());
     }
 
+    [Fact]
+    public async Task ClassifiesInvalidGrantAsTerminalWithoutReturningProviderBody()
+    {
+        var client = CreateClient(new StubHandler(_ => Task.FromResult(
+            new HttpResponseMessage(HttpStatusCode.BadRequest)
+            {
+                Content = new StringContent(
+                    "{\"error\":\"invalid_grant\",\"refresh_token\":\"secret-value\"}",
+                    Encoding.UTF8, "application/json"),
+            })));
+
+        var error = await Assert.ThrowsAsync<ProviderCredentialsUnavailableException>(() =>
+            client.RefreshAsync(new ProviderOAuthRefreshLease(
+                "acquired", "lease", 1, "https://identity.example/token", "client-id",
+                "client-secret", "refresh-old", null, null)));
+
+        Assert.True(error.CredentialRevoked);
+        Assert.Equal("oauth_refresh_token_revoked", error.Message);
+        Assert.DoesNotContain("secret-value", error.ToString());
+    }
+
     private static ProviderTokenEndpointClient CreateClient(HttpMessageHandler handler)
     {
         var configuration = new ConfigurationBuilder().AddInMemoryCollection().Build();

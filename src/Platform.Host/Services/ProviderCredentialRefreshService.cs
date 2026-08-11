@@ -8,7 +8,11 @@ namespace ScalaAPI.Host.Services;
 public sealed record ProviderTokenRefreshResult(
     string AccessToken, string? RefreshToken, string TokenType, long ExpiresAtUnixSeconds);
 
-public sealed class ProviderCredentialsUnavailableException(string message) : Exception(message);
+public sealed class ProviderCredentialsUnavailableException(
+    string message, bool credentialRevoked = false) : Exception(message)
+{
+    public bool CredentialRevoked { get; } = credentialRevoked;
+}
 
 public sealed class ProviderTokenEndpointClient(HttpClient client, IConfiguration configuration)
 {
@@ -77,8 +81,13 @@ public sealed class ProviderTokenEndpointClient(HttpClient client, IConfiguratio
                 "oauth_token_endpoint_unavailable");
         }
         if (!response.IsSuccessStatusCode)
+        {
+            if (IsInvalidGrant(response, body))
+                throw new ProviderCredentialsUnavailableException(
+                    "oauth_refresh_token_revoked", credentialRevoked: true);
             throw new ProviderCredentialsUnavailableException(
                 $"oauth_token_endpoint_status_{(int)response.StatusCode}");
+        }
 
         try
         {
@@ -104,6 +113,23 @@ public sealed class ProviderTokenEndpointClient(HttpClient client, IConfiguratio
         catch (Exception ex) when (ex is JsonException or InvalidOperationException)
         {
             throw new ProviderCredentialsUnavailableException("oauth_token_response_invalid");
+        }
+    }
+
+    private static bool IsInvalidGrant(HttpResponseMessage response, byte[] body)
+    {
+        if ((int)response.StatusCode is not (400 or 401)) return false;
+        try
+        {
+            using var document = JsonDocument.Parse(body);
+            return document.RootElement.TryGetProperty("error", out var error)
+                && error.ValueKind == JsonValueKind.String
+                && string.Equals(error.GetString(), "invalid_grant",
+                    StringComparison.Ordinal);
+        }
+        catch (JsonException)
+        {
+            return false;
         }
     }
 
@@ -170,6 +196,9 @@ public sealed class ProviderCredentialRefreshService(
             if (lease.Status == "invalid")
                 throw new ProviderCredentialsUnavailableException(
                     lease.Error ?? "oauth_refresh_configuration_invalid");
+            if (lease.Status == "revoked")
+                throw new ProviderCredentialsUnavailableException(
+                    lease.Error ?? "oauth_refresh_token_revoked", credentialRevoked: true);
             if (lease.Status == "in_progress")
             {
                 if (DateTime.UtcNow >= deadline)
@@ -205,6 +234,18 @@ public sealed class ProviderCredentialRefreshService(
             {
                 var code = ex is ProviderCredentialsUnavailableException
                     ? ex.Message : "oauth_token_endpoint_unavailable";
+                if (ex is ProviderCredentialsUnavailableException { CredentialRevoked: true })
+                {
+                    if (!await grain.RevokeOAuthCredential(lease.LeaseId, code))
+                        continue;
+                    await RecordAuditAsync(attemptId, accountId, source, lease.Version,
+                        lease.Version + 1, "revoked", code, endpointHost, startedAt);
+                    logger.LogWarning(
+                        "OAuth credential revoked for account {AccountId}: {Code}",
+                        accountId, code);
+                    throw new ProviderCredentialsUnavailableException(
+                        code, credentialRevoked: true);
+                }
                 await grain.FailOAuthRefresh(lease.LeaseId, code,
                     DateTimeOffset.UtcNow.AddSeconds(30).ToUnixTimeMilliseconds());
                 await RecordAuditAsync(attemptId, accountId, source, lease.Version,

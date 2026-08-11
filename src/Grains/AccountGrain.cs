@@ -47,6 +47,8 @@ public class ProviderOAuthState
     [Id(11)] public long RefreshLeaseUntilUnixSeconds { get; set; }
     [Id(12)] public long? LastRefreshedAtUnixSeconds { get; set; }
     [Id(13)] public string? LastRefreshError { get; set; }
+    [Id(14)] public long? RevokedAtUnixSeconds { get; set; }
+    [Id(15)] public string? RevocationReason { get; set; }
 }
 
 public class AccountGrain : Grain, IAccountGrain
@@ -77,6 +79,7 @@ public class AccountGrain : Grain, IAccountGrain
         var s = _state.State;
         var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         var schedulable = s.Schedulable && s.Status == "active"
+            && s.OAuth?.RevokedAtUnixSeconds is null
             && (s.RateLimitResetAt is null || s.RateLimitResetAt < now)
             && (s.OverloadUntil is null || s.OverloadUntil < now)
             && (s.TempUnschedulableUntil is null || s.TempUnschedulableUntil < now);
@@ -88,6 +91,7 @@ public class AccountGrain : Grain, IAccountGrain
             s.OverloadUntil, s.TempUnschedulableUntil, s.SupportedModels,
             s.OAuth?.ExpiresAtUnixSeconds,
             s.OAuth is null ? "static"
+                : s.OAuth.RevokedAtUnixSeconds is not null ? "revoked"
                 : s.OAuth.LastRefreshError is null ? "oauth" : "refresh_error",
             s.OAuth?.Version ?? 0, s.OAuth?.LastRefreshError));
     }
@@ -95,6 +99,8 @@ public class AccountGrain : Grain, IAccountGrain
     public Task<AccountCredentials> Hydrate()
     {
         var s = _state.State;
+        if (s.OAuth?.RevokedAtUnixSeconds is not null)
+            throw new InvalidOperationException("provider_credential_revoked");
         var staticCredentials = s.Credentials.ToDictionary(kv => kv.Key,
             kv => _credentialProtector.Unprotect(kv.Value),
             StringComparer.OrdinalIgnoreCase);
@@ -122,7 +128,8 @@ public class AccountGrain : Grain, IAccountGrain
             s.OAuth.TokenEndpoint, s.OAuth.ClientId, s.OAuth.ExpiresAtUnixSeconds,
             s.OAuth.HeaderName, s.OAuth.HeaderScheme, s.OAuth.Scope,
             s.OAuth.Version, s.OAuth.LastRefreshedAtUnixSeconds,
-            s.OAuth.LastRefreshError);
+            s.OAuth.LastRefreshError, s.OAuth.RevokedAtUnixSeconds,
+            s.OAuth.RevocationReason);
         return Task.FromResult(new AccountDetails(
             s.Id, s.Name, s.Platform, s.Type, s.BaseUrl, s.Priority,
             s.Concurrency, s.LoadFactor, s.RateMultiplier, s.Schedulable,
@@ -136,6 +143,9 @@ public class AccountGrain : Grain, IAccountGrain
         var oauth = _state.State.OAuth;
         if (oauth is null)
             return new("static", null, 0, null, null, null, null, null, null);
+        if (oauth.RevokedAtUnixSeconds is not null)
+            return new("revoked", null, oauth.Version, null, null, null, null, null,
+                oauth.RevocationReason ?? "oauth_refresh_token_revoked");
         if (oauth.ExpiresAtUnixSeconds > nowUnixSeconds + Math.Max(0, refreshSkewSeconds))
             return new("fresh", null, oauth.Version, null, null, null, null, null, null);
         if (!string.IsNullOrWhiteSpace(oauth.RefreshLeaseId)
@@ -164,6 +174,7 @@ public class AccountGrain : Grain, IAccountGrain
     {
         var oauth = _state.State.OAuth;
         if (oauth is null || string.IsNullOrWhiteSpace(accessToken)
+            || oauth.RevokedAtUnixSeconds is not null
             || accessToken.IndexOfAny(['\r', '\n']) >= 0
             || expiresAtUnixSeconds <= DateTimeOffset.UtcNow.AddSeconds(30).ToUnixTimeSeconds()
             || !string.Equals(oauth.RefreshLeaseId, leaseId, StringComparison.Ordinal))
@@ -185,6 +196,30 @@ public class AccountGrain : Grain, IAccountGrain
         return true;
     }
 
+    public async Task<bool> RevokeOAuthCredential(string leaseId, string reason)
+    {
+        var oauth = _state.State.OAuth;
+        if (oauth is null || oauth.RevokedAtUnixSeconds is not null
+            || !string.Equals(oauth.RefreshLeaseId, leaseId, StringComparison.Ordinal))
+            return false;
+
+        oauth.AccessToken = "";
+        oauth.RefreshToken = "";
+        oauth.ClientSecret = "";
+        oauth.ExpiresAtUnixSeconds = 0;
+        oauth.Version++;
+        oauth.LastRefreshError = null;
+        oauth.RefreshLeaseId = null;
+        oauth.RefreshLeaseUntilUnixSeconds = 0;
+        oauth.RevokedAtUnixSeconds = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        oauth.RevocationReason = NormalizeCredentialError(reason,
+            "oauth_refresh_token_revoked");
+        _state.State.TempUnschedulableUntil = null;
+        await _state.WriteStateAsync();
+        _invalidation.NotifyChange("account", _state.State.Id.ToString());
+        return true;
+    }
+
     public async Task FailOAuthRefresh(string leaseId, string error,
         long retryAfterUnixMilliseconds)
     {
@@ -193,8 +228,8 @@ public class AccountGrain : Grain, IAccountGrain
             return;
         oauth.RefreshLeaseId = null;
         oauth.RefreshLeaseUntilUnixSeconds = 0;
-        oauth.LastRefreshError = string.IsNullOrWhiteSpace(error)
-            ? "credential_refresh_failed" : error[..Math.Min(error.Length, 200)];
+        oauth.LastRefreshError = NormalizeCredentialError(error,
+            "credential_refresh_failed");
         _state.State.TempUnschedulableUntil = retryAfterUnixMilliseconds;
         await _state.WriteStateAsync();
         _invalidation.NotifyChange("account", _state.State.Id.ToString());
@@ -308,7 +343,7 @@ public class AccountGrain : Grain, IAccountGrain
         s.ProxyUrl = input.ProxyUrl;
         s.TlsFingerprint = input.TlsFingerprint;
         if (input.OAuth is not null)
-            s.OAuth = ProtectOAuth(input.OAuth);
+            s.OAuth = ProtectOAuth(input.OAuth, (s.OAuth?.Version ?? 0) + 1);
         else if (!string.Equals(input.Type, "oauth", StringComparison.OrdinalIgnoreCase))
             s.OAuth = null;
         await _state.WriteStateAsync();
@@ -334,7 +369,8 @@ public class AccountGrain : Grain, IAccountGrain
         credentials.ToDictionary(kv => kv.Key,
             kv => _credentialProtector.Protect(kv.Value));
 
-    private ProviderOAuthState? ProtectOAuth(ProviderOAuthCredential? input) => input is null
+    private ProviderOAuthState? ProtectOAuth(ProviderOAuthCredential? input,
+        int version = 1) => input is null
         ? null
         : new ProviderOAuthState
         {
@@ -348,7 +384,13 @@ public class AccountGrain : Grain, IAccountGrain
                 ? "Authorization" : input.HeaderName,
             HeaderScheme = input.HeaderScheme,
             Scope = input.Scope,
+            Version = Math.Max(1, version),
         };
+
+    private static string NormalizeCredentialError(string? value, string fallback) =>
+        string.IsNullOrWhiteSpace(value)
+            ? fallback
+            : value.Trim()[..Math.Min(value.Trim().Length, 120)];
 
     private string ProtectOptional(string value) => string.IsNullOrEmpty(value)
         ? "" : _credentialProtector.Protect(value);

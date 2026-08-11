@@ -26,7 +26,8 @@ public record AccountCredentials(
 public record ProviderOAuthCredentialProjection(
     string TokenEndpoint, string ClientId, long ExpiresAtUnixSeconds,
     string HeaderName, string HeaderScheme, string? Scope,
-    int Version, long? LastRefreshedAtUnixSeconds, string? LastRefreshError);
+    int Version, long? LastRefreshedAtUnixSeconds, string? LastRefreshError,
+    long? RevokedAtUnixSeconds = null, string? RevocationReason = null);
 
 [GenerateSerializer]
 public record AccountDetails(
@@ -74,6 +75,7 @@ public interface IAccountGrain : IGrainWithIntegerKey
         long nowUnixSeconds, int refreshSkewSeconds, int leaseSeconds);
     Task<bool> CompleteOAuthRefresh(string leaseId, string accessToken,
         string? refreshToken, long expiresAtUnixSeconds, string tokenType);
+    Task<bool> RevokeOAuthCredential(string leaseId, string reason);
     Task FailOAuthRefresh(string leaseId, string error, long retryAfterUnixMilliseconds);
     Task<SlotResult> TryAcquireSlot(string requestId, int maxConcurrency);
     Task<SlotResult> TryAcquireSlot(string leaseToken, DateTime expiresAt, int maxConcurrency);

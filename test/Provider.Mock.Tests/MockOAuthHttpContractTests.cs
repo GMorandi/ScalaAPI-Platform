@@ -31,7 +31,7 @@ public sealed class MockOAuthHttpContractTests :
     }
 
     [Theory]
-    [InlineData("mock-refresh-revoked", "oauth_token_endpoint_status_400")]
+    [InlineData("mock-refresh-revoked", "oauth_refresh_token_revoked")]
     [InlineData("mock-refresh-malformed", "oauth_token_response_invalid")]
     [InlineData("mock-refresh-oversized", "oauth_token_response_too_large")]
     public async Task PlatformClientClassifiesMockFailuresWithoutProviderPayload(

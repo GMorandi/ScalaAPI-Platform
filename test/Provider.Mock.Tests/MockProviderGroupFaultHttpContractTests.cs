@@ -187,6 +187,62 @@ public sealed class MockProviderGroupFaultHttpContractTests :
             .GetProperty("totalTokenCount").GetInt32() > 0);
     }
 
+    [Theory]
+    [InlineData("anthropic")]
+    [InlineData("gemini")]
+    public async Task NativeStreamingClientDisconnectCancelsProviderRequest(string provider)
+    {
+        using var client = factory.CreateClient();
+        client.Timeout = Timeout.InfiniteTimeSpan;
+        var requestId = $"native-cancel-{provider}-{Guid.NewGuid():N}";
+        var path = provider == "anthropic"
+            ? "/v1/messages"
+            : "/v1beta/models/gemini-2.0-flash:streamGenerateContent?alt=sse";
+        using var request = new HttpRequestMessage(HttpMethod.Post, path)
+        {
+            Content = provider == "anthropic"
+                ? JsonContent.Create(new
+                {
+                    model = "claude-3-5-sonnet",
+                    max_tokens = 16,
+                    stream = true,
+                    messages = new[] { new { role = "user", content = "cancel" } },
+                })
+                : JsonContent.Create(new
+                {
+                    contents = new[]
+                    {
+                        new { role = "user", parts = new[] { new { text = "cancel" } } }
+                    },
+                }),
+        };
+        if (provider == "anthropic") AddAnthropicAuth(request);
+        else AddGeminiAuth(request);
+        request.Headers.Add("X-Provider-Scenario", "client_disconnect");
+        request.Headers.Add("X-Provider-Request-Id", requestId);
+
+        var response = await client.SendAsync(request,
+            HttpCompletionOption.ResponseHeadersRead);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        await using (var stream = await response.Content.ReadAsStreamAsync())
+        {
+            var buffer = new byte[512];
+            Assert.True(await stream.ReadAsync(buffer) > 0);
+        }
+        response.Dispose();
+
+        var observed = false;
+        for (var attempt = 0; attempt < 40; attempt++)
+        {
+            var state = await client.GetFromJsonAsync<JsonElement>(
+                $"/__test/cancellations/{requestId}");
+            observed = state.GetProperty(provider).GetInt32() == 1;
+            if (observed) break;
+            await Task.Delay(50);
+        }
+        Assert.True(observed, $"{provider} request cancellation was not observed");
+    }
+
     private static void AddAnthropicAuth(HttpRequestMessage request)
     {
         request.Headers.Add("x-api-key", "scalaapi-mock-key");

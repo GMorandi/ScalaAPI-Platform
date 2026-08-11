@@ -80,6 +80,25 @@ public static class SeedEndpoints
             }
             return Results.Ok(new { scenarios = result });
         });
+
+        group.MapPost("/provider-mock-credential-matrix", async (IClusterClient client,
+            ListingRepository registry) =>
+        {
+            var result = new List<object>();
+            foreach (var profile in CredentialProfiles)
+            {
+                var accountId = await EnsureAccountAsync(client, registry, profile);
+                var groupId = await EnsureGroupAsync(client, registry, profile, accountId);
+                result.Add(new
+                {
+                    provider = profile.Platform,
+                    account_id = accountId,
+                    group_id = groupId,
+                    model = profile.SupportedModels[0],
+                });
+            }
+            return Results.Ok(new { providers = result });
+        });
     }
 
     private static async Task<long> EnsureAccountAsync(
@@ -137,7 +156,8 @@ public static class SeedEndpoints
 
     private sealed record MockProviderProfile(string Name, string Platform,
         string[] SupportedModels, string? Scenario = null, bool OAuth = false,
-        string ApiKey = "scalaapi-mock-key")
+        string ApiKey = "scalaapi-mock-key",
+        string OAuthRefreshToken = "mock-refresh-v1")
     {
         public AccountUpsert Account() => new(
             Name, Platform, OAuth ? "oauth" : "api_key", "http://provider-mock:8081",
@@ -148,7 +168,7 @@ public static class SeedEndpoints
             ProxyUrl: null, TlsFingerprint: false,
             OAuth: OAuth ? new ProviderOAuthCredential(
                 "http://provider-mock:8081/oauth/token", "mock-client", "mock-secret",
-                "mock-refresh-v1", "mock-access-v1",
+                OAuthRefreshToken, "mock-access-v1",
                 DateTimeOffset.UtcNow.AddMinutes(-1).ToUnixTimeSeconds()) : null);
 
         private Dictionary<string, string> Credentials()
@@ -196,6 +216,7 @@ public static class SeedEndpoints
         ("malformed", new("scalaapi-provider-mock-anthropic-fault-malformed", "anthropic", ["claude-3-5-sonnet"], "malformed")),
         ("timeout", new("scalaapi-provider-mock-anthropic-fault-timeout", "anthropic", ["claude-3-5-sonnet"], "timeout")),
         ("disconnect", new("scalaapi-provider-mock-anthropic-fault-disconnect", "anthropic", ["claude-3-5-sonnet"], "disconnect")),
+        ("client_disconnect", new("scalaapi-provider-mock-anthropic-fault-client-disconnect", "anthropic", ["claude-3-5-sonnet"], "client_disconnect")),
         ("disconnect_after_usage", new("scalaapi-provider-mock-anthropic-fault-after-usage", "anthropic", ["claude-3-5-sonnet"], "disconnect_after_usage")),
         ("invalid_content_type", new("scalaapi-provider-mock-anthropic-fault-invalid-content-type", "anthropic", ["claude-3-5-sonnet"], "invalid_content_type")),
         ("429", new("scalaapi-provider-mock-gemini-fault-429", "gemini", ["gemini-2.0-flash"], "429")),
@@ -203,9 +224,20 @@ public static class SeedEndpoints
         ("malformed", new("scalaapi-provider-mock-gemini-fault-malformed", "gemini", ["gemini-2.0-flash"], "malformed")),
         ("timeout", new("scalaapi-provider-mock-gemini-fault-timeout", "gemini", ["gemini-2.0-flash"], "timeout")),
         ("disconnect", new("scalaapi-provider-mock-gemini-fault-disconnect", "gemini", ["gemini-2.0-flash"], "disconnect")),
+        ("client_disconnect", new("scalaapi-provider-mock-gemini-fault-client-disconnect", "gemini", ["gemini-2.0-flash"], "client_disconnect")),
         ("disconnect_after_usage", new("scalaapi-provider-mock-gemini-fault-after-usage", "gemini", ["gemini-2.0-flash"], "disconnect_after_usage")),
         ("invalid_content_type", new("scalaapi-provider-mock-gemini-fault-invalid-content-type", "gemini", ["gemini-2.0-flash"], "invalid_content_type")),
         ("auth_rejected", new("scalaapi-provider-mock-anthropic-auth-rejected", "anthropic", ["claude-3-5-sonnet"], ApiKey: "wrong-anthropic-key")),
         ("auth_rejected", new("scalaapi-provider-mock-gemini-auth-rejected", "gemini", ["gemini-2.0-flash"], ApiKey: "wrong-gemini-key")),
+    ];
+
+    private static readonly MockProviderProfile[] CredentialProfiles =
+    [
+        new("scalaapi-provider-mock-anthropic-oauth-revoked", "anthropic",
+            ["claude-3-5-sonnet"], OAuth: true,
+            OAuthRefreshToken: "mock-refresh-revoked"),
+        new("scalaapi-provider-mock-gemini-oauth-revoked", "gemini",
+            ["gemini-2.0-flash"], OAuth: true,
+            OAuthRefreshToken: "mock-refresh-revoked"),
     ];
 }
