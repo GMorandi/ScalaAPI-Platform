@@ -1,35 +1,34 @@
 # ScalaAPI Next Stage Plan
 
-Current checkpoint override: Platform/Admin Web/User Web `f99db88`, Gateway
-`4b3f19b`, and read-only `sub2api@43ec48d`. The latest gate is
-`scalaapi-native-stream-0811b`. It passed the complete empty-volume matrix and adds
-native Anthropic/Gemini usage-before-EOF exactly-once settlement plus wrong-media-
-type no-retry/unknown-charge evidence. Exact credential delivery, client/Provider
-credential isolation, direct mock authentication rejection, and public failover-
-exhausted no-charge accounting remain green. The existing 50-migration double run,
-Platform/Gateway replacement, two-Silo object-storage/PostgreSQL partitions,
-media/S3 recovery, Garnet, reconciliation, and operator gates stayed green.
+Current checkpoint override: Platform/Admin Web/User Web `651a786`, Gateway
+`04ec18c`, and read-only `sub2api@43ec48d`. The latest authoritative gate is
+`scalaapi-credential-cancel-0811d`. It passed the complete empty-volume matrix and
+adds terminal OAuth `invalid_grant` revocation, secret clearing, monotonic
+replacement recovery, and real Anthropic/Gemini client-hangup -> Provider-socket
+cancellation evidence. The 51-migration double run, Platform/Gateway replacement,
+two-Silo object-storage/PostgreSQL partitions, media/S3 recovery, Garnet,
+reconciliation, operator resolution, and all prior protocol/accounting gates stayed
+green. Platform is 294/294, Gateway is 127/127, Release builds with zero Platform
+warnings/errors, both Web builds pass, and all four Scheduler Dry benchmarks exit
+successfully.
 
 The Provider-specific fault slice is implemented at Platform `024b215`, and the
 native credential slice is implemented at Platform `c30e237` plus Gateway
 `4b3f19b`.
 Independent groups cover Anthropic Messages and Gemini generation 429, 500,
 malformed JSON/SSE, timeout, disconnect, and usage-before-EOF profiles.
-Provider.Mock tests pass 72/72. The empty-stack gates route the JSON/SSE
+Provider.Mock tests pass 76/76. The empty-stack gates route the JSON/SSE
 requests through Gateway -> Cap'n Proto -> Platform: explicit 429/500 responses
 release the hold without usage/debit, while malformed, timeout, and disconnect
 retain one unknown-charge lease/hold each. Live upstream adapters,
 provider-specific pricing/tokenizers, and longer load/backpressure remain
 next-stage work.
 
-## Immediate execution order after `f99db88`
+## Immediate execution order after `651a786` / `04ec18c`
 
-1. Extend the current runtime matrix with provider-specific credential refresh/
-   revocation and actual downstream cancellation for Anthropic and Gemini.
-   Usage-before-EOF, invalid content type, and retry exhaustion are now closed.
-   Every new case must assert
-   request/idempotency identity, lease journal, hold state, usage/log cardinality,
-   NUMERIC debit, and reconciliation outcome.
+1. Run the documented 3600-second two-Silo media contention/rejoin gate. Preserve
+   deterministic parent/item keys, claim fencing, one terminal usage effect, and
+   recoverability across repeated secondary restart/rejoin cycles.
 2. Finish the remaining P0 protocol lifecycle gaps: OpenAI Responses mutation
    subresources and the complete video create/poll/cancel/delete/object-retention
    state machine. Reuse the same lease/accounting and S3-compatible lifecycle;
@@ -39,22 +38,22 @@ next-stage work.
    pricing/catalog/tokenizer snapshots, HTTPS/TLS fingerprint enforcement, and
    revocation/rotation drills. No secret may enter fixtures, logs, query strings,
    error bodies, or repository history.
-4. Run the documented 3600-second two-Silo media contention/rejoin gate, then add
-   longer realtime/provider backpressure and process-replacement soak evidence.
+4. Add longer realtime/provider backpressure, refresh-contention, Garnet-outage,
+   and rolling process-replacement soak evidence.
 5. Make the source-built Gateway + Platform empty-volume gate blocking in hosted
    CI after credentials for the private sibling checkout are available.
 
-### Credential revocation and native cancellation slice now in progress
+### Credential revocation and native cancellation slice completed at `651a786` / `04ec18c`
 
-The 2026-08-11 source investigation found that the shared OAuth refresh path is
+The 2026-08-11 source investigation found that the shared OAuth refresh path was
 already bounded, HTTPS-by-default, leased, compare-and-set, encrypted at rest,
-and audited without secrets. Its remaining lifecycle defect is narrower and
+and audited without secrets. Its lifecycle defect was narrower and
 more serious than a missing provider form field: an OAuth `invalid_grant`
-currently becomes a 30-second scheduler backoff and is retried indefinitely.
-The account aggregate has no revoked credential state, a stale refresh lease can
-still attempt completion, and Admin can only replace the entire OAuth document.
+became a 30-second scheduler backoff and was retried indefinitely. The account
+aggregate had no revoked credential state, a stale refresh lease could still
+attempt completion, and Admin could only replace the entire OAuth document.
 
-This slice therefore uses one provider-neutral terminal state with native
+The completed slice uses one provider-neutral terminal state with native
 Anthropic/Gemini fixtures rather than importing Sub2API refresh code or aliases:
 
 1. A token endpoint `invalid_grant` is classified from a bounded JSON error body
@@ -84,6 +83,15 @@ classification; Provider Mock HTTP tests prove native cancellation observation;
 all Platform and Gateway tests pass; the empty-volume source stack proves both
 native protocols, OAuth revocation without financial side effects, replacement
 recovery, migration replay, and the unchanged accounting/fault/restart matrix.
+
+Exit evidence: `scalaapi-credential-cancel-0811d` exited zero after applying and
+replay-skipping 51 migration records. Both native cancellation cases observed one
+Provider-side cancellation and retained one `reconciliation_needed` lease/active
+hold with no retry, usage, log, or debit. Both terminal credential cases created no
+Provider request or financial state, then recovered through explicit replacement
+and one normal settlement. Platform 294/294, Gateway 127/127, contract scans, both
+Web builds, and all four Scheduler Dry child processes passed. This module is
+closed; execution pauses here before the next ordered slice.
 
 Dependencies: the revision-3 Cap'n Proto contract, PostgreSQL accounting
 authority, Garnet projections, Provider mock, and the current incident/operator
@@ -158,7 +166,8 @@ Exit evidence is Platform 288/288, zero-warning Release build, the unchanged Gat
 127/127 checkpoint, and `scalaapi-native-stream-0811b` exit 0. Both native late
 settlements and both native unknown-charge failures passed without changing the
 existing 429/500/auth/restart/Garnet/media/accounting outcomes. Provider-specific
-OAuth refresh/revocation and actual downstream cancellation are the next slices.
+OAuth revocation and actual downstream cancellation were completed by the
+`651a786` / `04ec18c` follow-on above.
 
 Exit: provider-native fault/cancellation/refresh matrices pass for OpenAI,
 Anthropic, and Gemini; Responses and video lifecycles have API/state-machine,
@@ -210,8 +219,8 @@ and deployment-scale HA/offsite lifecycle remain partial.
 
 ## Checkpoint
 
-The next stage starts from Platform/Admin Web/User Web `f99db88`, Gateway
-`4b3f19b`, and read-only reference `sub2api@43ec48d`.
+The next stage starts from Platform/Admin Web/User Web `651a786`, Gateway
+`04ec18c`, and read-only reference `sub2api@43ec48d`.
 
 The greenfield baseline now starts from empty volumes, uses PostgreSQL as authority,
 Garnet as the only distributed projection/cache, S3-compatible object storage for
@@ -589,11 +598,12 @@ automated.
    rejoins. Run the documented 3600-second gate before closing this slice; exit
    only when it records zero duplicate billing effects, duplicate final objects,
    or premature deletion.
-2. **Protocol and Provider fidelity (P0).** Add provider-specific malformed,
-   timeout, disconnect-before-output, partial-output, cancellation, and retry
-   fixtures for Anthropic Messages and Gemini generation, then complete the
-   remaining OpenAI Responses mutation subresources and video cancellation/
-   retention settlement. Keep each external protocol independent at Gateway and
+2. **Protocol and Provider fidelity (P0).** Preserve the now-passing Anthropic and
+   Gemini malformed, timeout, disconnect, cancellation, wrong-media-type, late-
+   usage, rejection, and retry-exhaustion matrix while completing the remaining
+   OpenAI Responses mutation subresources and video cancellation/retention
+   settlement. Add live cross-protocol E2E only through explicit new Provider
+   profiles. Keep each external protocol independent at Gateway and
    normalize only the internal revision-3 contract. Exit when JSON/SSE goldens,
    Provider mock HTTP tests, empty-stack settlement/reconciliation, and error
    envelopes pass for every added operation without importing a Sub2API route or

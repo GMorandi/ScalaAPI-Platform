@@ -10,8 +10,8 @@ read-only requirements reference and is excluded from builds and runtime.
 
 | Repository | Commit | Worktree | Active role |
 | --- | --- | --- | --- |
-| `gateway` | `4b3f19b` | clean | C++ Gateway edge, protocol routing/conversion, Provider transport, target-credential isolation, and Garnet client |
-| `platform` | `f99db88` | clean | C# Orleans control plane, PostgreSQL authority, native Provider credential compiler/mock, Admin Web, User Web, and source-owned protocol fault/runtime tooling |
+| `gateway` | `04ec18c` | clean | C++ Gateway edge, protocol routing/conversion, Provider transport, client-hangup cancellation, target-credential isolation, and Garnet client |
+| `platform` | `651a786` | clean | C# Orleans control plane, PostgreSQL authority, terminal OAuth credential lifecycle, native Provider mock, Admin Web, User Web, and source-owned runtime evidence |
 | `sub2api` | `43ec48d` | read-only clean | Requirements reference only; no runtime or compatibility dependency |
 
 ## Historical role descriptions
@@ -23,7 +23,7 @@ read-only requirements reference and is excluded from builds and runtime.
 | `sub2api` | `43ec48d` | read-only clean | Requirements catalogue only; never a runtime or compatibility dependency |
 
 The active source snapshot for this document is Platform/Admin Web/User Web
-`f99db88` and Gateway `4b3f19b`; both worktrees are clean. The table's longer
+`651a786` and Gateway `04ec18c`; both worktrees are clean. The table's longer
 capability descriptions are retained as inventory context, while this override
 and the evidence below define the current commits.
 
@@ -33,9 +33,9 @@ The current tracked inventory is:
   CTest cases.
 - Platform: 132 source C# files, including 4 smoke-only object-storage
   fault-proxy files, 5 generated Cap'n Proto/global C# files, 72 test/benchmark C#
-  files, and 288 passing tests: 75 Grain, 95 Host, 46 Admin, and 72 Provider mock tests.
+  files, and 294 passing tests: 76 Grain, 96 Host, 46 Admin, and 76 Provider mock tests.
   The Admin Web source now has 29 TypeScript/TSX files and 16 page views.
-- Product surface: 129 direct Admin API route declarations, 51 product tables,
+- Product surface: 142 direct Admin API route declarations, 51 product tables,
   22 SQLSugar entity types, 29 Admin Web TypeScript/TSX files and 16 page views,
   plus 21 User Web TypeScript/TSX files and 14 user views.
 - Reference scope: approximately 612 Sub2API route registrations, 39 concrete
@@ -284,11 +284,15 @@ current-source runtime evidence.
   acquired refresh attempt appends a non-secret PostgreSQL audit row with source,
   version transition, bounded outcome code, endpoint host, and duration; Admin can
   page and filter that history by account, source, and outcome.
-  The current implementation still treats OAuth `invalid_grant` as a retryable
-  30-second refresh failure. It has no terminal credential-revoked state, cannot
-  reject a stale refresh completion after revocation, and has no runtime-native
-  Anthropic/Gemini revoked-token fixture. This is the active credential slice;
-  no Sub2API token state or refresh implementation will be reused.
+  A bounded token-endpoint `invalid_grant` is now terminal. The winning refresh
+  lease atomically clears encrypted access, refresh, and client-secret material,
+  advances the credential generation, records a bounded revocation reason/time,
+  invalidates scheduling, and rejects stale completion or hydration. The audit
+  outcome is `revoked` and remains metadata-only. Replacing the OAuth document
+  advances the generation again and restores normal scheduling. Native Anthropic
+  and Gemini fixtures prove terminal rejection and replacement recovery without
+  importing any Sub2API token state or refresh behavior. Master-key rotation,
+  multi-Silo refresh contention, and live Provider credentials remain open.
 - Admin can publish/close effective price versions. New leases snapshot version
   identity and every NUMERIC unit rate, so mutable configuration cannot reprice an
   existing request.
@@ -368,11 +372,12 @@ current-source runtime evidence.
   usage-before-EOF truncation. Platform `f99db88` adds the two native wrong-media-
   type groups. Provider.Mock HTTP tests cover native authentication, JSON/SSE
   shape, scenario headers, late usage, and media type. The current empty-stack
-  smoke authorizes sixteen native profiles, drives the full fault/auth matrix
+  smoke authorizes eighteen native fault profiles plus two terminal-credential
+  profiles, drives the full fault/auth/credential matrix
   through Gateway -> Cap'n Proto -> Platform, and asserts exact no-charge,
   unknown-charge, and late-settlement lease/hold/usage/ledger/idempotency state.
-  The final accounting gate expects twenty-one retained unknown-charge incidents
-  before the audited operator settle (twenty remain open afterward).
+  The final accounting gate expects twenty-three retained unknown-charge incidents
+  before the audited operator settle (twenty-two remain open afterward).
 - The provider-native credential boundary is implemented at Platform `c30e237`
   and Gateway `4b3f19b`. Platform decrypts semantic credential material only at
   hydration and compiles `api_key` to Bearer authorization for OpenAI-compatible
@@ -592,25 +597,44 @@ accounting, reconciliation, and operator gates. The first full run encountered a
 non-deterministic timeout in the pre-existing OpenAI disconnect probe after all four
 new cases passed; the independent retained-stack rerun passed that probe and the
 complete gate. Provider-specific credential refresh/revocation, live credentials,
-actual native downstream cancellation, and longer soak remain open.
+actual native downstream cancellation, and longer soak were the follow-on gaps at
+that checkpoint.
 
 The completed slice seeds and authorizes all four protocol/scenario pairs. A valid
 usage frame followed by EOF before `message_stop` or the Gemini terminal candidate
 takes the conservative unknown path, then converges through the normal durable
 usage transaction. A 200 response with the wrong streaming media type returns a
 bounded protocol failure, retains exactly one `reconciliation_needed` lease/active
-hold, creates no usage/log/debit, and makes no retry. Credential refresh/revocation
-and actual downstream cancellation remain separate follow-on slices because their
-generic state machines exist but lack provider-specific configuration and runtime
-fixtures.
+hold, creates no usage/log/debit, and makes no retry.
 
-The source investigation for that follow-on also confirmed that Gateway returns
-from `StreamPipe` on a failed client write and destroys the Photon HTTP operation,
-which closes the Provider connection. The generic OpenAI smoke proves caller-side
-disconnect accounting, but the native Anthropic/Gemini fixtures do not yet delay a
-second write or expose a Provider-side cancellation observation. The next runtime
-gate must prove both sides of that transport boundary and retain the existing
-unknown-charge lease/hold invariants.
+### Terminal OAuth credential and native cancellation evidence
+
+Platform `651a786` and Gateway `04ec18c` close that follow-on slice. Platform
+classifies bounded OAuth `invalid_grant` responses as terminal, atomically clears
+all usable OAuth secret material behind the refresh-lease CAS, advances the
+credential generation, records secret-free `revoked` audit evidence, and rejects
+stale completion and hydration. Native Anthropic and Gemini OAuth profiles prove
+that terminal refresh failure creates no Provider request, lease, hold, usage, or
+debit; replacing the credential advances the generation again and the next request
+settles exactly once.
+
+Gateway independently watches the ingress socket without consuming request bytes.
+A confirmed client hangup shuts down the owned Provider socket and wakes both
+response-header and response-body reads; Photon transport retries stay disabled.
+The read boundary normalizes local cancellation to a terminal error so OpenAI,
+Anthropic, and Gemini cannot spin on a closed chunked body or start failover. The
+Provider mock exposes a per-request cancellation observation. For both native
+protocols the source-built gate observes exactly one Provider-side cancellation,
+one `reconciliation_needed` lease, one active hold, forwarded plus unknown-charge
+journal evidence, and no retry lease, output-start event, usage row, log, or debit.
+
+The authoritative empty-volume project `scalaapi-credential-cancel-0811d` applied
+and replay-skipped 51 migration records, passed the full existing protocol,
+realtime, restart, Garnet, S3/media, two-Silo partition, reconciliation, and
+operator matrix, and exited zero. Release build is zero-warning/zero-error;
+Platform tests pass 294/294 and Gateway tests pass 127/127. Live external
+credentials, master-key rotation, multi-Silo refresh contention, and longer
+backpressure/load soak remain release work.
 
 ## Embeddings profile implementation evidence
 
@@ -1277,12 +1301,14 @@ Detailed gate results and residual coverage are maintained in `verification.md`.
   security evidence remain before SEC-03 is implemented.
 - Gateway now classifies client cancellation and incomplete SSE as unknown-charge
   outcomes, records disconnect/cancellation reasons, and prevents failover after
-  output or partial Provider output. The source-level behavior is covered by 125
+  output or partial Provider output. The source-level behavior is covered by 127
   CTest cases; the empty-stack gate now proves Provider partial-SSE disconnect,
   disconnect-before-output, malformed-usage retention, and bounded pre-header
   timeout handling with no usage/debit.
   The empty-stack gate now proves actual downstream socket cancellation as well;
-  Gateway commit `9c7171f` preserves valid Provider usage observed before
+  Gateway commits `f353760` and `04ec18c` observe the ingress hangup, terminate the
+  Provider socket/read promptly, and preserve the unknown-charge boundary without
+  retry. Gateway commit `9c7171f` preserves valid Provider usage observed before
   truncated SSE EOF, settles it through the existing durable outbox path, and
   retries transient Platform dispatch loss under the same request identity.
   The same source line normalizes Provider
