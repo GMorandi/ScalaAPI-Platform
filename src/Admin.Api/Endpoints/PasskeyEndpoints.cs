@@ -11,7 +11,7 @@ using ScalaAPI.Data.Entities;
 
 namespace ScalaAPI.Admin.Endpoints;
 
-public sealed record PasskeyLoginOptionsRequest(string Email);
+public sealed record PasskeyLoginOptionsRequest(string Email, string? CaptchaNonce = null, string? CaptchaToken = null);
 
 public static class PasskeyEndpoints
 {
@@ -124,8 +124,15 @@ public static class PasskeyEndpoints
             ISqlSugarClient db,
             Fido2 fido2,
             PasskeyStore passkeys,
+            CaptchaVerificationService captcha,
+            HttpContext http,
             CancellationToken ct) =>
         {
+            var ipAddress = http.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+            var captchaResult = await captcha.VerifyAsync(request.CaptchaNonce, request.CaptchaToken, "passkey-auth", ipAddress, ct);
+            if (!captchaResult.Accepted)
+                return Results.BadRequest(new { error = "captcha_failed" });
+
             if (!AuthInputValidation.TryNormalizeEmail(request.Email, out var email))
                 return Results.Unauthorized();
             var account = await db.Queryable<UserAccountEntity>()

@@ -218,7 +218,7 @@
 
 ### P1-03 实现 captcha 与邮箱域注册额度
 
-- **状态**：`TODO`；**优先级**：P1；**依赖**：P0-08；**范围**：`AuthAbuseService`、UserAuthEndpoints、migration、Admin/User Web、Provider.Mock。
+- **状态**：`DONE`；**优先级**：P1；**依赖**：P0-08；**范围**：`AuthAbuseService`、UserAuthEndpoints、migration、Admin/User Web、Provider.Mock。
 - **实现步骤**：定义 Turnstile/Tencent/Aliyun-like provider interface、challenge TTL/nonce、
   score/error policy；注册、OAuth、Passkey 等入口统一校验；按规范化 email domain 做原子
   日/窗口计数；配置 CSP、Admin 规则、audit/metrics、accessible failure UX。

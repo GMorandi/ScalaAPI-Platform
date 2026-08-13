@@ -14,7 +14,7 @@ using ScalaAPI.Grains.Interfaces;
 
 namespace ScalaAPI.Admin.Endpoints;
 
-public record RegisterRequest(string Email, string Password, string? DisplayName);
+public record RegisterRequest(string Email, string Password, string? DisplayName, string? CaptchaNonce = null, string? CaptchaToken = null);
 public record UserLoginRequest(string Email, string Password, string? TotpCode);
 public record RefreshRequest(string RefreshToken);
 public record OAuthCallbackRequest(string Provider, string Code, string RedirectUri,
@@ -23,7 +23,7 @@ public record OAuthStartResponse(string Provider, string RedirectUri, string Sta
     string CodeVerifier, string CodeChallenge, string AuthorizationUrl, DateTime ExpiresAt);
 public record TotpSetupResponse(string Secret, string QrUri);
 public record TotpVerifyRequest(string Code);
-public record PasswordResetRequest(string Email);
+public record PasswordResetRequest(string Email, string? CaptchaNonce = null, string? CaptchaToken = null);
 public record PasswordResetConfirmRequest(string Token, string NewPassword);
 public record EmailVerificationRequest(string Email);
 public record EmailVerificationConfirmRequest(string Token);
@@ -157,7 +157,8 @@ public static class UserAuthEndpoints
 
         auth.MapPost("/register", async (RegisterRequest req, ISqlSugarClient db,
             IClusterClient client, ListingRepository registry, AccountingStore accounting,
-            AuthAbuseService abuse, HttpContext http) =>
+            AuthAbuseService abuse, CaptchaVerificationService captcha,
+            EmailDomainQuotaService domainQuota, HttpContext http) =>
         {
             var ipAddress = http.Connection.RemoteIpAddress?.ToString() ?? "unknown";
             var gate = await abuse.CheckRegistrationAsync(ipAddress, http.RequestAborted);
@@ -167,6 +168,10 @@ public static class UserAuthEndpoints
                     System.Globalization.CultureInfo.InvariantCulture);
                 return Results.Json(new { error = "auth_rate_limited" }, statusCode: 429);
             }
+
+            var captchaResult = await captcha.VerifyAsync(req.CaptchaNonce, req.CaptchaToken, "register", ipAddress, http.RequestAborted);
+            if (!captchaResult.Accepted)
+                return Results.BadRequest(new { error = "captcha_failed" });
 
             if (!AuthInputValidation.TryNormalizeEmail(req.Email, out var email))
             {
@@ -184,6 +189,10 @@ public static class UserAuthEndpoints
                 await abuse.RecordRegistrationFailureAsync(ipAddress, http.RequestAborted);
                 return Results.BadRequest(new { error = "Display name is too long" });
             }
+
+            var quotaResult = await domainQuota.TryIncrementAsync(email, ct: http.RequestAborted);
+            if (!quotaResult.Allowed)
+                return Results.Json(new { error = "registration_quota_exceeded" }, statusCode: 429);
 
             var existing = await db.Queryable<UserAccountEntity>()
                 .Where(x => x.Email == email).FirstAsync();
@@ -310,8 +319,14 @@ public static class UserAuthEndpoints
         });
 
         auth.MapPost("/password-reset/request", async (PasswordResetRequest req,
-            PasswordResetService resets, IConfiguration config, IWebHostEnvironment environment) =>
+            PasswordResetService resets, CaptchaVerificationService captcha,
+            IConfiguration config, IWebHostEnvironment environment, HttpContext http) =>
         {
+            var ipAddress = http.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+            var captchaResult = await captcha.VerifyAsync(req.CaptchaNonce, req.CaptchaToken, "password-reset", ipAddress, http.RequestAborted);
+            if (!captchaResult.Accepted)
+                return Results.BadRequest(new { error = "captcha_failed" });
+
             var issued = await resets.IssueAsync(req.Email);
             // Keep the public response identical for unknown and known addresses.
             if (issued is not null

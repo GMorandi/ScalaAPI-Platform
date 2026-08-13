@@ -103,6 +103,9 @@ builder.Services.AddSingleton<TotpVerificationService>();
 builder.Services.AddSingleton<OAuthStateService>();
 builder.Services.AddSingleton<PasswordResetService>();
 builder.Services.AddSingleton<EmailVerificationService>();
+builder.Services.AddSingleton<ICaptchaProvider, MockCaptchaProvider>();
+builder.Services.AddSingleton<CaptchaVerificationService>();
+builder.Services.AddSingleton<EmailDomainQuotaService>();
 builder.Services.AddSingleton<IEmailSender, SmtpEmailSender>();
 builder.Services.AddHostedService<EmailDeliveryWorker>();
 builder.Services.AddHostedService<PaymentWebhookRecoveryService>();
@@ -164,6 +167,7 @@ app.MapMaintenanceEndpoints();
 app.MapAnnouncementEndpoints();
 app.MapPlatformEndpoints();
 app.MapSearchAuditEndpoints();
+app.MapCaptchaConfigEndpoints();
 
 app.MapGet("/live", () => Results.Ok(new { status = "live" })).AllowAnonymous();
 app.MapGet("/ready", async (ISqlSugarClient db) =>

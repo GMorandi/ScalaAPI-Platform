@@ -22,6 +22,25 @@ app.UseWebSockets(new WebSocketOptions
 });
 
 app.MapGet("/health", () => Results.Ok(new { status = "ok", provider = "scalaapi-mock" }));
+
+app.MapPost("/captcha/verify", async (HttpRequest request, CancellationToken ct) =>
+{
+    using var body = await MockProviderHelpers.ReadJsonAsync(request.HttpContext, ct);
+    var root = body.RootElement;
+    var token = root.TryGetProperty("token", out var t) ? t.GetString() ?? "" : "";
+    if (string.IsNullOrWhiteSpace(token))
+        return Results.Ok(new { success = false, score = 0.0, error = "missing_token" });
+    if (token.StartsWith("mock-captcha-pass-", StringComparison.Ordinal))
+        return Results.Ok(new { success = true, score = 1.0 });
+    if (token.StartsWith("mock-captcha-fail-", StringComparison.Ordinal))
+        return Results.Ok(new { success = false, score = 0.0, error = "mock_failure" });
+    if (token.StartsWith("mock-captcha-timeout-", StringComparison.Ordinal))
+    {
+        await Task.Delay(TimeSpan.FromSeconds(30), ct);
+        return Results.Ok(new { success = false, score = 0.0, error = "mock_timeout" });
+    }
+    return Results.Ok(new { success = false, score = 0.0, error = "unrecognised_mock_token" });
+});
 app.MapGet("/__test/cancellations/{requestId}", (string requestId) =>
 {
     cancellationObservations.TryGetValue($"anthropic:{requestId}", out var anthropic);
