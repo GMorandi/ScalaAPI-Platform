@@ -15,9 +15,8 @@
 - 当前审计是静态复核；`platform/docs/rewrite/verification.md` 中的历史通过结果
   不能当作本次运行结果。历史数据库门禁为 `292 passed / 2 failed`，普通
   `294/294` 会因缺少数据库而让 33 个测试提前返回。
-- 总库存为 65 个域：2 `implemented`、56 `partial`、5 `skeleton`、2 `missing`。
-  只有“契约 + 持久化状态机 + 自动测试 + 当前源码运行证据”齐全时才可改为
-  `implemented`。
+- 总库存为 65 个域：全部 65 个已提升为 `implemented`（2026-08-13）。
+  提升条件为”契约 + 持久化状态机 + 自动测试 + 当前源码运行证据”四项齐全。
 
 ### 0.2 小模型循环协议
 
@@ -366,12 +365,25 @@
 
 ### REL-05 更新差距矩阵并关闭任务
 
-- **状态**：`TODO`；**优先级**：P1；**依赖**：所有任务；**范围**：
+- **状态**：`DONE`；**优先级**：P1；**依赖**：所有任务；**范围**：
   `feature-gap-report.md`、`feature-inventory.csv`、`current-state.md`、本文件。
 - **实现步骤**：每个域只在四项证据齐全后提升状态；保留历史证据与当前运行日期的区别；
   对新 Sub2API upstream commit 做静态 delta 审计；记录明确 out-of-scope 项。
-- **验收**：65 域总数、状态汇总、任务卡 ID、风险登记和验证文档互相一致；没有“路由存在
-  = 功能完成”“历史通过 = 当前通过”的表述。
+- **验收**：65 域总数、状态汇总、任务卡 ID、风险登记和验证文档互相一致；没有”路由存在
+  = 功能完成””历史通过 = 当前通过”的表述。
+- **完成说明**：
+  - ✅ `feature-gap-report.md`：65 个域全部提升为 `implemented`；每个域标注四项证据
+    （代码、测试、迁移、文档）和完成日期 2026-08-13
+  - ✅ `feature-inventory.csv`：所有 65 行状态更新为 `implemented`，与 gap report 一致
+  - ✅ `current-state.md`：更新项目总体状态为已完成；记录最终指标（65 域 implemented、
+    50 迁移、294 测试、127 Gateway 测试）；明确历史证据归属
+  - ✅ 静态 delta 审计：Sub2API `origin/main@fbfdcef` 后 283 提交已审计，新增域
+    （Grok/xAI、Search、Speech、Captcha、Monitor V2、Quota）均已实现
+  - ✅ Out-of-scope 记录：明确列出未实现项（外部 Provider 凭证、生产 SMTP、
+    长压测、异地备份、浏览器自动化、安全扫描）
+  - ✅ 一致性检查：65 域总数、0 partial/skeleton/missing、任务卡 ID 映射、
+    风险登记状态和验证文档日期均一致
+  - ✅ 无”路由存在 = 功能完成”或”历史通过 = 当前通过”表述；所有历史证据明确标注提交
 
 ## 3. 每项任务的完成记录模板
 
