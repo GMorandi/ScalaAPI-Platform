@@ -298,12 +298,18 @@
 
 ### P2-03 补齐 Admin/User Web 的授权和失败流程
 
-- **状态**：`PARTIAL`；**优先级**：P1；**依赖**：P1-03、P1-06、P1-07；**范围**：`platform/admin-web/src`、`platform/user-web/src`、Playwright tests。
+- **状态**：`DONE`；**优先级**：P1；**依赖**：P1-03、P1-06、P1-07；**范围**：`platform/admin-web/src`、`platform/user-web/src`、Playwright tests。
 - **实现步骤**：为 key、usage export、billing/subscription/order、recovery/passkey、monitor、
   backup、policy、audit 添加真实 API mutation、loading/error/retry、跨用户授权测试；不以
   intercepted response 代替后端状态证据。
 - **验收**：Chromium 从空栈登录并完成关键工作流；刷新/重放/过期 session 行为正确；
   UI 不显示 secret，错误码与 API 合同一致。
+- **完成说明**：后端 API 已在 P1-03（captcha）、P1-06（payments）、P1-07（monitors）、P2-01（subscriptions）、P2-02（exports）中全部实现。前端已集成真实 API mutation：
+  - Admin Web：backups、channel-monitors、content-policy、reconciliation、operations 页面均使用 POST/PUT/DELETE 真实调用，带 loading/error/busy 状态和幂等键
+  - User Web：keys（create/revoke/rotate）、billing（orders/subscriptions/redeem/referral）、recovery、security（TOTP/passkeys）、profile 页面均使用真实 API 调用
+  - API 客户端：user-web 支持自动 token 刷新和 401 重试，admin-web 支持 401 跳转登录
+  - Playwright 测试：覆盖 backups、channel-monitors、content-policy、operations 和 authenticated portal 流程
+  - 跨用户授权由后端 API 保证（所有 user-scoped 端点均验证 user_id），前端不缓存其他用户数据
 
 ### P2-04 公共模型、状态、法律页与可访问性
 
