@@ -87,10 +87,10 @@
 
 ### P0-01 将调度并发与账户健康变成持久、分布式状态
 
-- **状态**：`DONE`（步骤 1-3）；`PARTIAL`（步骤 4 quota/tier 归入 P1-04）；**优先级**：P0；**依赖**：GATE-01；**范围**：
+- **状态**：`DONE`（步骤 1-3）；`DONE`（步骤 4 quota/tier 归入 P1-04）；**优先级**：P0；**依赖**：GATE-01；**范围**：
   `platform/src/Grains/{AccountGrain,UserGrain,SchedulerGrain}.cs`、Grains.Interfaces、SQL migration、Host/Grains tests。
 - **当前缺口**：~~`AccountGrain`/`UserGrain` 的 `_activeSlots` 是 activation-memory 字典~~（已迁移到 PostgreSQL）；
-  ~~`AccountGrain.ReportSuccess()` 是 no-op~~（已实现健康更新）。Scheduler 仍无 provider tier/quota/freshness/cooldown（P1-04）。
+  ~~`AccountGrain.ReportSuccess()` 是 no-op~~（已实现健康更新）。Scheduler provider tier/quota/freshness/cooldown 已实现（P1-04）。
 - **实现步骤**：
   1. ✅ 定义可序列化 account/user concurrency window、lease owner、expires_at、generation、
      success/failure/cooldown 状态；SQL 是跨 Silo 争用权威，Grain 只缓存带版本投影。
@@ -227,12 +227,12 @@
 
 ### P1-04 实现 Provider tier/quota-aware scheduling
 
-- **状态**：`TODO`；**优先级**：P1；**依赖**：P0-01、P0-09；**范围**：SchedulerGrain、quota store/migrations、refresh worker、Admin UI。
+- **状态**：`DONE`；**优先级**：P1；**依赖**：P0-01、P0-09；**范围**：SchedulerGrain、quota store/migrations、refresh worker、Admin UI。
 - **实现步骤**：持久化 tier、剩余配额、窗口、来源、fetched_at、expires_at、generation；
   用 lease/CAS/advisory lock 刷新；定义 stale/unknown/free-tier/cooldown 策略；调度前原子
   预留，完成/拒绝/未知结果分别结算或保留。
-- **验收**：两 Silo 同时刷新只产生一个有效 generation；过期快照不会放行高价请求；429
-  会退避并影响健康；重启恢复不重复消耗 quota。
+- **验收**：两 Silo 同时刷新只产生一个有效 generation ✅；过期快照不会放行高价请求 ✅；429
+  会退避并影响健康 ✅；重启恢复不重复消耗 quota ✅。
 
 ### P1-05 让运行时配置真正传播并可回滚
 

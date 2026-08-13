@@ -1,5 +1,6 @@
 using Orleans;
 using ScalaAPI.Data.Provider;
+using ScalaAPI.Data.ProviderQuota;
 using ScalaAPI.Admin.Data;
 using ScalaAPI.Admin.Models;
 using ScalaAPI.Grains.Interfaces;
@@ -54,6 +55,31 @@ public static class AccountEndpoints
             var total = await audit.CountAsync(id, normalizedOutcome,
                 normalizedSource, ct);
             return Results.Ok(new { items, total, page, size });
+        });
+
+        group.MapGet("/{id:long}/quota", async (
+            long id, IProviderQuotaStore quotaStore, CancellationToken ct) =>
+        {
+            var snapshot = await quotaStore.GetAsync(id, ct);
+            if (snapshot is null)
+                return Results.NotFound(new { error = "No quota snapshot for account" });
+            return Results.Ok(new
+            {
+                account_id = snapshot.AccountId,
+                tier = snapshot.Tier,
+                remaining_quota = snapshot.RemainingQuota,
+                window_start = snapshot.WindowStart,
+                window_end = snapshot.WindowEnd,
+                source = snapshot.Source,
+                fetched_at = snapshot.FetchedAt,
+                expires_at = snapshot.ExpiresAt,
+                generation = snapshot.Generation,
+                cooldown_until = snapshot.CooldownUntil,
+                is_expired = snapshot.ExpiresAt.HasValue
+                    && snapshot.ExpiresAt.Value <= DateTime.UtcNow,
+                is_in_cooldown = snapshot.CooldownUntil.HasValue
+                    && snapshot.CooldownUntil.Value > DateTime.UtcNow,
+            });
         });
 
         group.MapPost("/", async (AccountCreateRequest req, IClusterClient client, ListingRepository repo) =>

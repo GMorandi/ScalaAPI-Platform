@@ -1,3 +1,4 @@
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Orleans;
 using Orleans.Runtime;
@@ -31,6 +32,9 @@ public class SchedulerGrain : Grain, ISchedulerGrain
         _logger = logger;
     }
 
+    private IProviderQuotaService? QuotaService =>
+        ServiceProvider.GetService<IProviderQuotaService>();
+
     public async Task<SelectionResult> Select(SelectRequest req)
     {
         var groupId = this.GetPrimaryKeyLong();
@@ -52,9 +56,13 @@ public class SchedulerGrain : Grain, ISchedulerGrain
         var sticky = await GetStickyAccount(req.SessionHash);
         if (sticky.HasValue && candidateIds.Contains(sticky.Value))
         {
-            var slotResult = await TryAcquireOnAccount(sticky.Value, req.RequestId);
-            if (slotResult is not null)
-                return slotResult;
+            var quotaOk = await CheckQuotaForAccount(sticky.Value);
+            if (quotaOk)
+            {
+                var slotResult = await TryAcquireOnAccount(sticky.Value, req.RequestId);
+                if (slotResult is not null)
+                    return slotResult;
+            }
         }
 
         // Layer 2: Load-aware selection (priority -> load -> LRU)
@@ -80,15 +88,62 @@ public class SchedulerGrain : Grain, ISchedulerGrain
 
         foreach (var selected in ordered)
         {
+            // Check provider quota before attempting slot acquisition
+            if (!await CheckQuotaForAccount(selected.Id))
+                continue;
+
             var result = await TryAcquireOnAccount(selected.Id, req.RequestId);
             if (result is not null)
             {
+                // Reserve quota after slot acquisition
+                await ReserveQuotaForAccount(selected.Id);
                 await BindSticky(req.SessionHash, selected.Id, TimeSpan.FromHours(1));
                 return result;
             }
         }
 
         return new SelectionResult(SelectionOutcome.Wait, ordered[0].Id, null, 45_000, null);
+    }
+
+    /// <summary>
+    /// Checks whether the account's quota allows scheduling. Returns true
+    /// if the account can proceed (or if quota service is not configured).
+    /// </summary>
+    private async Task<bool> CheckQuotaForAccount(long accountId)
+    {
+        var quotaService = QuotaService;
+        if (quotaService is null) return true;
+
+        try
+        {
+            var check = await quotaService.CheckAsync(accountId, estimatedCost: 0m);
+            return check.Status is QuotaCheckStatus.Ok
+                or QuotaCheckStatus.UnknownTier
+                or QuotaCheckStatus.NoSnapshot;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Quota check failed for account {AccountId}", accountId);
+            return true; // Fail-open: don't block scheduling on quota service errors
+        }
+    }
+
+    /// <summary>
+    /// Attempts to reserve quota for the account before dispatch.
+    /// </summary>
+    private async Task ReserveQuotaForAccount(long accountId)
+    {
+        var quotaService = QuotaService;
+        if (quotaService is null) return;
+
+        try
+        {
+            await quotaService.ReserveAsync(accountId, estimatedCost: 0.001m);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Quota reservation failed for account {AccountId}", accountId);
+        }
     }
 
     private async Task<SelectionResult?> TryAcquireOnAccount(long accountId, string requestId)

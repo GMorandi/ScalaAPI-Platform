@@ -1,8 +1,10 @@
 using ScalaAPI.Host.Services;
 using ScalaAPI.Data.Accounting;
 using ScalaAPI.Data.Provider;
+using ScalaAPI.Data.ProviderQuota;
 using ScalaAPI.Data.Search;
 using ScalaAPI.Data.Voice;
+using ScalaAPI.Grains.Interfaces;
 using Npgsql;
 using System.Security.Cryptography;
 
@@ -142,6 +144,11 @@ builder.Services.AddSingleton<MediaRetentionService>();
 builder.Services.AddSingleton<ISearchHistoryStore, SearchHistoryStore>();
 builder.Services.AddSingleton<IVoiceStore, VoiceStore>();
 builder.Services.AddSingleton<IAudioHistoryStore, AudioHistoryStore>();
+builder.Services.AddSingleton<ProviderQuotaStore>();
+builder.Services.AddSingleton<IProviderQuotaStore>(sp => sp.GetRequiredService<ProviderQuotaStore>());
+builder.Services.AddSingleton<IProviderQuotaService, ProviderQuotaServiceAdapter>();
+builder.Services.AddSingleton<ProviderQuotaRefreshService>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<ProviderQuotaRefreshService>());
 var classifierEndpoint = builder.Configuration["ContentClassifier:Endpoint"];
 var openAiClassifierEndpoint = builder.Configuration["ContentClassifier:OpenAI:Endpoint"];
 builder.Services.AddSingleton<OpenAiModerationMetrics>();
