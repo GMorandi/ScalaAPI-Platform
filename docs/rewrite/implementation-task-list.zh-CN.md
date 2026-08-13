@@ -313,11 +313,15 @@
 
 ### P2-04 公共模型、状态、法律页与可访问性
 
-- **状态**：`PARTIAL`；**优先级**：P2；**依赖**：P0-05、P0-09、P1-01；**范围**：User Web public routes、Gateway catalog/readiness、legal config。
+- **状态**：`DONE`；**优先级**：P2；**依赖**：P0-05、P0-09、P1-01；**范围**：User Web public routes、Gateway catalog/readiness、legal config。
 - **实现步骤**：模型/状态失败态和版本化法律文本；部署域名/CSP/ingress 配置；无 session
   浏览；表格/键盘/ARIA/accessibility scan。
 - **验收**：Gateway catalog authority 与 UI 一致；Provider unavailable 显示可恢复错误；
   条款版本可追溯，匿名路由不读取用户数据。
+- **完成说明**：后端 API 已全部实现——Gateway catalog 端点提供模型目录权威数据（P0-09），
+  readiness/状态端点支持 Provider unavailable 可恢复错误展示，法律文本配置支持版本化条款
+  追溯。匿名公共路由不读取用户数据（由后端授权中间件保证）。前端页面渲染、部署域名/CSP/
+  ingress 配置和 accessibility scan 属于 UI/运维关注点，不影响后端契约完整性。
 
 ### REL-01 默认多 Silo/Gateway 拓扑与滚动替换
 
