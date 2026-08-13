@@ -79,6 +79,7 @@ builder.Services.AddSingleton<NetworkProfileStore>();
 builder.Services.AddSingleton<ChannelMonitorStore>();
 builder.Services.AddSingleton<ScalaAPI.Host.Services.ChannelMonitorTemplateStore>();
 builder.Services.AddSingleton<ScalaAPI.Host.Services.OpsMetricsSampleStore>();
+builder.Services.AddSingleton<ScalaAPI.Host.Services.PassiveMonitorV2Store>();
 builder.Services.AddSingleton<PasskeyStore>();
 builder.Services.AddSingleton<MaintenanceStore>();
 builder.Services.AddSingleton<BackupStore>();
@@ -176,6 +177,7 @@ app.MapSearchAuditEndpoints();
 app.MapCaptchaConfigEndpoints();
 app.MapChannelMonitorEndpoints();
 app.MapOpsMetricsEndpoints();
+app.MapPassiveMonitorV2Endpoints();
 
 app.MapGet("/live", () => Results.Ok(new { status = "live" })).AllowAnonymous();
 app.MapGet("/ready", async (ISqlSugarClient db) =>

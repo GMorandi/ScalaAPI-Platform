@@ -264,7 +264,7 @@
 
 ### P1-08 实现 passive Channel Monitor V2
 
-- **状态**：`TODO`；**优先级**：P1；**依赖**：P1-07、P0-03；**范围**：新 migration、rollup worker、Admin/User views、privacy config。
+- **状态**：`DONE`；**优先级**：P1；**依赖**：P1-07、P0-03；**范围**：新 migration、rollup worker、Admin/User views、privacy config。
 - **实现步骤**：定义 V1/V2 隔离、watermark/backfill、platform/group/model/user/error 维度、
   latency histogram、privacy default、retention、leader lock；从已结算 usage/response 事件
   被动聚合，禁止重复计费和回写业务状态。

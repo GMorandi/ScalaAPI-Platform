@@ -117,7 +117,13 @@ public sealed class MigrationSchemaTests
                 "quota_granted_usd", "quota_used_usd", "quota_reserved_usd"],
             ["config_revisions"] = ["revision_id", "config_key", "config_value", "previous_revision_id",
                 "actor_user_id", "actor_reason", "created_at", "applied_at", "rolled_back_at", "status"],
-            ["config_node_observations"] = ["node_id", "last_seen_revision", "last_seen_at"]
+            ["config_node_observations"] = ["node_id", "last_seen_revision", "last_seen_at"],
+            ["monitor_v2_watermarks"] = ["dimension", "watermark_event_id", "watermark_timestamp", "updated_at"],
+            ["monitor_v2_rollups"] = ["rollup_id", "dimension", "dimension_value", "window_start",
+                "window_end", "event_count", "error_count", "latency_p50", "latency_p95",
+                "latency_p99", "unique_event_ids", "created_at"],
+            ["monitor_v2_privacy_config"] = ["config_key", "redact_user_ids", "redact_prompts",
+                "retention_days", "updated_at"]
         };
 
         await using var connection = new NpgsqlConnection(connectionString);

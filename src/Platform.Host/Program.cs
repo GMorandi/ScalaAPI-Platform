@@ -227,6 +227,9 @@ builder.Services.AddHostedService(sp => sp.GetRequiredService<ChannelMonitorServ
 builder.Services.AddSingleton<OpsMetricsSampleStore>();
 builder.Services.AddSingleton<OpsMetricsCollector>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<OpsMetricsCollector>());
+builder.Services.AddSingleton<PassiveMonitorV2Store>();
+builder.Services.AddSingleton<PassiveMonitorV2Service>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<PassiveMonitorV2Service>());
 
 var app = builder.Build();
 
