@@ -48,4 +48,35 @@ public sealed class MockMediaCancellationHttpContractTests :
         using var response = await client.PostAsync("/v1/images/batches/missing/cancel", null);
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
     }
+
+    [Fact]
+    public async Task VideoCancellationIsVisibleToPolling()
+    {
+        using var client = factory.CreateClient();
+        using var create = await client.PostAsJsonAsync("/v1/videos/generations",
+            new { model = "mock-video-1" });
+        Assert.Equal(HttpStatusCode.Accepted, create.StatusCode);
+        using var created = JsonDocument.Parse(await create.Content.ReadAsStringAsync());
+        var videoId = created.RootElement.GetProperty("id").GetString();
+        Assert.False(string.IsNullOrWhiteSpace(videoId));
+
+        using var cancel = await client.PostAsync($"/v1/videos/{videoId}/cancel", null);
+        Assert.Equal(HttpStatusCode.OK, cancel.StatusCode);
+        using var canceled = JsonDocument.Parse(await cancel.Content.ReadAsStringAsync());
+        Assert.Equal("canceled", canceled.RootElement.GetProperty("status").GetString());
+
+        using var poll = await client.GetAsync($"/v1/videos/{videoId}");
+        Assert.Equal(HttpStatusCode.OK, poll.StatusCode);
+        using var polled = JsonDocument.Parse(await poll.Content.ReadAsStringAsync());
+        Assert.Equal("canceled", polled.RootElement.GetProperty("status").GetString());
+        Assert.Equal("", polled.RootElement.GetProperty("output_url").GetString());
+    }
+
+    [Fact]
+    public async Task UnknownVideoCancellationReturnsNotFound()
+    {
+        using var client = factory.CreateClient();
+        using var response = await client.PostAsync("/v1/videos/missing/cancel", null);
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
 }

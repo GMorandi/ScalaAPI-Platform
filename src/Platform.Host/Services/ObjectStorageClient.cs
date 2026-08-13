@@ -36,6 +36,10 @@ public interface IMediaObjectStorage
         string operationId, int itemIndex, string customId,
         CancellationToken ct = default);
 
+    Task<ObjectStoragePutResult> CopyFromUrlAsync(string sourceUrl,
+        string operationId, string contentType,
+        CancellationToken ct = default);
+
     Task DeleteAsync(string objectKey, CancellationToken ct = default);
 }
 

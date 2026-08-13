@@ -1299,37 +1299,65 @@ app.MapGet("/v1/images/batches/models", () => Results.Ok(new
     data = new[] { new { id = "mock-image-1", @object = "model", owned_by = "scalaapi-provider-mock" } }
 }));
 
-app.MapPost("/v1/videos/generations", () => Results.Accepted(value: new
+app.MapPost("/v1/videos/generations", () =>
 {
-    id = MockProviderHelpers.Id("video"),
-    status = "pending",
-    progress = 0
-}));
+    var id = MockProviderHelpers.Id("video");
+    mediaStatuses[id] = "pending";
+    return Results.Accepted(value: new
+    {
+        id,
+        status = "pending",
+        progress = 0
+    });
+});
 
-app.MapPost("/v1/videos/edits", () => Results.Accepted(value: new
+app.MapPost("/v1/videos/edits", () =>
 {
-    id = MockProviderHelpers.Id("video-edit"),
-    status = "pending",
-    progress = 0
-}));
+    var id = MockProviderHelpers.Id("video-edit");
+    mediaStatuses[id] = "pending";
+    return Results.Accepted(value: new
+    {
+        id,
+        status = "pending",
+        progress = 0
+    });
+});
 
-app.MapPost("/v1/videos/extensions", () => Results.Accepted(value: new
+app.MapPost("/v1/videos/extensions", () =>
 {
-    id = MockProviderHelpers.Id("video-extension"),
-    status = "pending",
-    progress = 0
-}));
+    var id = MockProviderHelpers.Id("video-extension");
+    mediaStatuses[id] = "pending";
+    return Results.Accepted(value: new
+    {
+        id,
+        status = "pending",
+        progress = 0
+    });
+});
 
-app.MapGet("/v1/videos/{videoId}", (string videoId) => Results.Ok(new
+app.MapPost("/v1/videos/{videoId}/cancel", (string videoId) =>
 {
-    id = videoId,
-    status = "succeeded",
-    progress = 100,
-    output_url = MockProviderHelpers.OutputUrl(videoId),
-    content_type = "video/mp4",
-    resolution = "1280x720",
-    duration = 4
-}));
+    if (!mediaStatuses.ContainsKey(videoId))
+        return Results.NotFound(new { error = "video_not_found" });
+    mediaStatuses[videoId] = "canceled";
+    return Results.Ok(new { id = videoId, status = "canceled", progress = 100 });
+});
+
+app.MapGet("/v1/videos/{videoId}", (string videoId) =>
+{
+    var status = mediaStatuses.TryGetValue(videoId, out var current)
+        && current == "canceled" ? "canceled" : "succeeded";
+    return Results.Ok(new
+    {
+        id = videoId,
+        status,
+        progress = 100,
+        output_url = status == "canceled" ? "" : MockProviderHelpers.OutputUrl(videoId),
+        content_type = "video/mp4",
+        resolution = "1280x720",
+        duration = 4
+    });
+});
 
 app.MapGet("/v1/mock-output/{outputId}", (string outputId) =>
 {

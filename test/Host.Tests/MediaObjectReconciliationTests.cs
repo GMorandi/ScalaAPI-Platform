@@ -35,12 +35,14 @@ public sealed class MediaObjectReconciliationTests
 
             await MakeDueAsync(dataSource, operationId);
             storage.Head = new(false, "", 0, "");
+            storage.ParentCopyException = new HttpRequestException("provider URL expired");
             Assert.Equal(1, await service.ReconcileOnceAsync());
             Assert.Equal(("succeeded", "failed"), await ReadStateAsync(dataSource, operationId));
-            Assert.Contains("object_missing", await ReadErrorAsync(dataSource, operationId));
+            Assert.Contains("object_recopy_failed", await ReadErrorAsync(dataSource, operationId));
 
             await MakeDueAsync(dataSource, operationId);
             storage.Head = new(true, "etag-1", 5, "image/png");
+            storage.ParentCopyException = null;
             Assert.Equal(1, await service.ReconcileOnceAsync());
             Assert.Equal(("succeeded", "stored"), await ReadStateAsync(dataSource, operationId));
             Assert.Equal("{}", await ReadErrorAsync(dataSource, operationId));
@@ -386,6 +388,101 @@ public sealed class MediaObjectReconciliationTests
         }
     }
 
+    [Fact]
+    public async Task ParentOperationIsRepairedOnHeadMismatch()
+    {
+        var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
+        if (string.IsNullOrWhiteSpace(connectionString)) return;
+
+        await using var dataSource = NpgsqlDataSource.Create(connectionString);
+        var suffix = Guid.NewGuid().ToString("N");
+        var leaseToken = $"media-parent-repair-lease-{suffix}";
+        var operationId = $"med_parent_repair_{suffix}";
+        var objectKey = $"media/{operationId}.png";
+        await InsertSettledMediaAsync(dataSource, leaseToken, operationId, objectKey);
+        var store = new MediaOperationStore(dataSource);
+        var storage = new FakeObjectStorage(new(true, "wrong-etag", 999, "image/png"));
+        var service = new MediaObjectReconciliationService(store, storage,
+            new ConfigurationBuilder().Build(),
+            NullLogger<MediaObjectReconciliationService>.Instance);
+
+        try
+        {
+            // HEAD mismatch triggers recopy from provider URL
+            Assert.Equal(1, await service.ReconcileOnceAsync());
+            Assert.Equal(1, storage.ParentCopies);
+
+            // Verify the operation was repaired
+            await using var state = dataSource.CreateCommand("""
+                SELECT object_key, object_etag, object_size, object_status, output_url
+                FROM media_operations WHERE operation_id = $1
+                """);
+            state.Parameters.AddWithValue(operationId);
+            await using var reader = await state.ExecuteReaderAsync();
+            Assert.True(await reader.ReadAsync());
+            Assert.Equal($"media/{operationId}.png", reader.GetString(0));
+            Assert.Equal("repaired-parent-etag", reader.GetString(1));
+            Assert.Equal(20, reader.GetInt64(2));
+            Assert.Equal("stored", reader.GetString(3));
+            Assert.Equal("https://storage.test/repaired-parent", reader.GetString(4));
+        }
+        finally
+        {
+            await using var media = dataSource.CreateCommand(
+                "DELETE FROM media_operations WHERE operation_id = $1");
+            media.Parameters.AddWithValue(operationId);
+            await media.ExecuteNonQueryAsync();
+            await using var lease = dataSource.CreateCommand(
+                "DELETE FROM request_leases WHERE lease_token = $1");
+            lease.Parameters.AddWithValue(leaseToken);
+            await lease.ExecuteNonQueryAsync();
+        }
+    }
+
+    [Fact]
+    public async Task ParentOperationRecopyFailureIsHandledGracefully()
+    {
+        var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
+        if (string.IsNullOrWhiteSpace(connectionString)) return;
+
+        await using var dataSource = NpgsqlDataSource.Create(connectionString);
+        var suffix = Guid.NewGuid().ToString("N");
+        var leaseToken = $"media-parent-fail-lease-{suffix}";
+        var operationId = $"med_parent_fail_{suffix}";
+        var objectKey = $"media/{operationId}.png";
+        await InsertSettledMediaAsync(dataSource, leaseToken, operationId, objectKey);
+        var store = new MediaOperationStore(dataSource);
+        var storage = new FakeObjectStorage(new(true, "wrong-etag", 999, "image/png"))
+        {
+            ParentCopyException = new HttpRequestException("provider URL expired"),
+        };
+        var service = new MediaObjectReconciliationService(store, storage,
+            new ConfigurationBuilder().Build(),
+            NullLogger<MediaObjectReconciliationService>.Instance);
+
+        try
+        {
+            // HEAD mismatch triggers recopy, but recopy fails
+            Assert.Equal(1, await service.ReconcileOnceAsync());
+            Assert.Equal(1, storage.ParentCopies);
+
+            // Verify the operation is marked as failed
+            Assert.Equal(("succeeded", "failed"), await ReadStateAsync(dataSource, operationId));
+            Assert.Contains("object_recopy_failed", await ReadErrorAsync(dataSource, operationId));
+        }
+        finally
+        {
+            await using var media = dataSource.CreateCommand(
+                "DELETE FROM media_operations WHERE operation_id = $1");
+            media.Parameters.AddWithValue(operationId);
+            await media.ExecuteNonQueryAsync();
+            await using var lease = dataSource.CreateCommand(
+                "DELETE FROM request_leases WHERE lease_token = $1");
+            lease.Parameters.AddWithValue(leaseToken);
+            await lease.ExecuteNonQueryAsync();
+        }
+    }
+
     private static async Task InsertSettledMediaAsync(NpgsqlDataSource dataSource,
         string leaseToken, string operationId, string objectKey)
     {
@@ -468,7 +565,9 @@ public sealed class MediaObjectReconciliationTests
         public IReadOnlyList<ObjectStorageItem> Objects { get; set; } = [];
         public List<string> Deleted { get; } = [];
         public int Copies { get; private set; }
+        public int ParentCopies { get; private set; }
         public Exception? CopyException { get; set; }
+        public Exception? ParentCopyException { get; set; }
         public int? FailDeleteAttempt { get; set; }
         private int _deleteAttempts;
         private bool _deleteFailureEmitted;
@@ -488,6 +587,18 @@ public sealed class MediaObjectReconciliationTests
             return Task.FromResult(new ObjectStoragePutResult(
                 $"media/{operationId}/items/{itemIndex + 1:D4}-{customId}.png",
                 "repaired-etag", 14, "image/png", "https://storage.test/repaired"));
+        }
+
+        public Task<ObjectStoragePutResult> CopyFromUrlAsync(string sourceUrl,
+            string operationId, string contentType,
+            CancellationToken ct = default)
+        {
+            ParentCopies++;
+            if (ParentCopyException is not null) throw ParentCopyException;
+            return Task.FromResult(new ObjectStoragePutResult(
+                $"media/{operationId}.png",
+                "repaired-parent-etag", 20, contentType,
+                "https://storage.test/repaired-parent"));
         }
 
         public Task DeleteAsync(string objectKey, CancellationToken ct = default)

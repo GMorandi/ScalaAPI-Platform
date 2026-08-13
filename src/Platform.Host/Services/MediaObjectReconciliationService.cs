@@ -24,8 +24,51 @@ public sealed class MediaObjectReconciliationService(
             {
                 var head = await objectStorage.HeadAsync(operation.ObjectKey, ct);
                 var error = Validate(operation, head);
-                await store.RecordObjectVerificationAsync(operation, error is null,
-                    error, ct);
+                if (error is null)
+                {
+                    await store.RecordObjectVerificationAsync(operation, true, ct: ct);
+                    continue;
+                }
+
+                // HEAD mismatch detected -- attempt recopy from provider URL
+                if (!string.IsNullOrWhiteSpace(operation.OutputUrl))
+                {
+                    try
+                    {
+                        var stored = await objectStorage.CopyFromUrlAsync(
+                            operation.OutputUrl, operation.OperationId,
+                            operation.ContentType, ct);
+                        if (await store.RecordOperationRepairAsync(operation, stored, ct))
+                        {
+                            logger.LogInformation(
+                                "Repaired parent operation object {OperationId} after {VerificationError}",
+                                operation.OperationId, error);
+                            continue;
+                        }
+                    }
+                    catch (OperationCanceledException) when (ct.IsCancellationRequested)
+                    {
+                        throw;
+                    }
+                    catch (Exception recopyEx)
+                    {
+                        // Provider URL may have expired; mark as failed gracefully
+                        var recopyError = JsonSerializer.Serialize(new
+                        {
+                            type = "object_recopy_failed",
+                            message = recopyEx.Message.Length > 500
+                                ? recopyEx.Message[..500] : recopyEx.Message,
+                        });
+                        await store.RecordObjectVerificationAsync(operation, false,
+                            recopyError, ct);
+                        logger.LogWarning(recopyEx,
+                            "Parent operation recopy failed for {OperationId}",
+                            operation.OperationId);
+                        continue;
+                    }
+                }
+
+                await store.RecordObjectVerificationAsync(operation, false, error, ct);
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {

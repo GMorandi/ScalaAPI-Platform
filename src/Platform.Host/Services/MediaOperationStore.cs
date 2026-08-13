@@ -571,6 +571,34 @@ public sealed class MediaOperationStore(
         return await reader.ReadAsync(ct) ? Read(reader) : null;
     }
 
+    public async Task<bool> RecordOperationRepairAsync(
+        MediaOperation operation, ObjectStoragePutResult stored,
+        CancellationToken ct = default)
+    {
+        await using var command = dataSource.CreateCommand($"""
+            UPDATE media_operations
+            SET object_key = $4, object_etag = $5, object_size = $6,
+                content_type = $7, object_status = 'stored', output_url = $8,
+                object_error = NULL, object_verified_at = now(),
+                object_next_check_at = now() + interval '1 hour',
+                updated_at = now()
+            WHERE api_key_id = $1 AND operation_id = $2
+              AND status = 'succeeded'
+              AND object_reconcile_attempts = $3
+            RETURNING {Projection}
+            """);
+        command.Parameters.AddWithValue(operation.ApiKeyId);
+        command.Parameters.AddWithValue(operation.OperationId);
+        command.Parameters.AddWithValue(operation.ObjectReconcileAttempts);
+        command.Parameters.AddWithValue(stored.ObjectKey);
+        command.Parameters.AddWithValue(stored.ETag);
+        command.Parameters.AddWithValue(stored.Size);
+        command.Parameters.AddWithValue(stored.ContentType);
+        command.Parameters.AddWithValue(stored.DownloadUrl);
+        await using var reader = await command.ExecuteReaderAsync(ct);
+        return await reader.ReadAsync(ct);
+    }
+
     public async Task<IReadOnlyList<MediaOperationItem>> ClaimItemReconciliationBatchAsync(
         int limit, CancellationToken ct = default)
     {

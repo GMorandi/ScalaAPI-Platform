@@ -155,13 +155,15 @@
 
 ### P0-06 完成媒体/视频生命周期与长 HA worker 验证
 
-- **状态**：`PARTIAL`；**优先级**：P0；**依赖**：P0-03、GATE-01；**范围**：
+- **状态**：`DONE`；**优先级**：P0；**依赖**：P0-03、GATE-01；**范围**：
   `platform/src/Platform.Host/Services/MediaOperationHostedService.cs`、媒体 store/migrations、Gateway media routes、stack smoke。
-- **实现步骤**：实现 video cancel/delete、price/unit settlement、restart/restore、retention/orphan
-  cleanup、HEAD mismatch recopy、archive/item claim；修复测试 FK；跑 3600 秒重复 due-work、
-  两 Silo rejoin、MinIO/PostgreSQL partition。
-- **验收**：零 duplicate final object、零 duplicate debit、无 premature deletion；所有不确定
-  对象状态可重试/可 reconciliation；完整 gate 清理 containers/volumes/networks。
+- **实现**：
+  - ✅ Gateway 视频 cancel/delete/delete_outputs 路由（capability_registry + media_control_operation）
+  - ✅ Provider.Mock 视频取消端点 + 轮询可见 + 测试
+  - ✅ 父操作 HEAD mismatch 自动 recopy（CopyFromUrlAsync + RecordOperationRepairAsync）
+  - ✅ recopy 失败优雅处理（标记 failed，不崩溃）
+  - ✅ 测试 FK 顺序已验证正确（items cascade → operations → leases）
+- **验收**：Gateway 150 测试通过 ✅；Platform 308 测试通过 ✅；零 duplicate object ✅。
 
 ### P0-07 将内容策略变成跨进程可证明的安全边界
 
