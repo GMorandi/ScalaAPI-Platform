@@ -290,7 +290,7 @@
 
 ### P2-02 完成用户导出、维护和保留策略
 
-- **状态**：`PARTIAL`；**优先级**：P2；**依赖**：P1-09、P1-02；**范围**：MaintenanceStore、media/object retention、User/Admin Web、hosted worker。
+- **状态**：`DONE`；**优先级**：P2；**依赖**：P1-09、P1-02；**范围**：MaintenanceStore、media/object retention、User/Admin Web、hosted worker。
 - **实现步骤**：定时 cleanup、immutable retention policy、media/orphan cleanup、bounded export
   artifact、download authorization、metrics；导出不含密码、refresh token、API key hash、音频正文。
 - **验收**：dry-run 与 apply 的 row/object 计数可解释；重复 key 幂等；保留期内对象不删；

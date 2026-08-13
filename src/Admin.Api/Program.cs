@@ -1,6 +1,8 @@
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Orleans.Configuration;
 using SqlSugar;
+using ScalaAPI.Data.Exports;
+using ScalaAPI.Data.Retention;
 using ScalaAPI.Admin.Auth;
 using ScalaAPI.Admin.Data;
 using ScalaAPI.Admin.Data.Audit;
@@ -102,6 +104,10 @@ builder.Services.AddSingleton<ConfigRevisionStore>();
 builder.Services.AddSingleton<ISearchHistoryStore, SearchHistoryStore>();
 builder.Services.AddSingleton<IVoiceStore, VoiceStore>();
 builder.Services.AddSingleton<IAudioHistoryStore, AudioHistoryStore>();
+builder.Services.AddSingleton<RetentionService>();
+builder.Services.AddSingleton<ExportService>();
+builder.Services.AddSingleton<ScalaAPI.Host.Services.RetentionCleanupWorker>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<ScalaAPI.Host.Services.RetentionCleanupWorker>());
 builder.Services.AddSingleton<IMetadataService, EmptyPasskeyMetadataService>();
 builder.Services.AddSingleton<Fido2>(sp =>
 {
@@ -196,6 +202,8 @@ app.MapPassiveMonitorV2Endpoints();
 app.MapSecurityEndpoints();
 app.MapSubscriptionEndpoints();
 app.MapSubscriptionAdminEndpoints();
+app.MapExportEndpoints();
+app.MapRetentionEndpoints();
 
 app.MapGet("/live", () => Results.Ok(new { status = "live" })).AllowAnonymous();
 app.MapGet("/ready", async (ISqlSugarClient db) =>
