@@ -20,6 +20,7 @@ using ScalaAPI.Data.Accounting;
 using ScalaAPI.Data.Provider;
 using ScalaAPI.Data.Search;
 using ScalaAPI.Data.Voice;
+using ScalaAPI.Data.Backups;
 using Npgsql;
 using System.IdentityModel.Tokens.Jwt;
 using Fido2NetLib;
@@ -95,6 +96,8 @@ builder.Services.AddSingleton<ScalaAPI.Host.Services.PassiveMonitorV2Store>();
 builder.Services.AddSingleton<PasskeyStore>();
 builder.Services.AddSingleton<MaintenanceStore>();
 builder.Services.AddSingleton<BackupStore>();
+builder.Services.AddSingleton<BackupService>();
+builder.Services.AddSingleton<RestoreService>();
 builder.Services.AddSingleton<AnnouncementStore>();
 builder.Services.AddSingleton<SubscriptionService>();
 builder.Services.AddSingleton<RedemptionService>();
@@ -138,6 +141,8 @@ builder.Services.AddHostedService<EmailDeliveryWorker>();
 builder.Services.AddHostedService<PaymentWebhookRecoveryService>();
 builder.Services.AddHostedService<PaymentRefundRecoveryService>();
 builder.Services.AddHostedService<SubscriptionRenewalService>();
+builder.Services.AddSingleton<ScalaAPI.Host.Services.BackupSchedulerWorker>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<ScalaAPI.Host.Services.BackupSchedulerWorker>());
 
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(opts =>

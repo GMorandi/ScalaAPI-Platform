@@ -340,7 +340,7 @@
 
 ### REL-02 备份、恢复、签名、异地与 RPO/RTO
 
-- **状态**：`PARTIAL`；**优先级**：P0；**依赖**：P1-09、REL-01；**范围**：BackupStore、hosted scheduler、object storage、Admin UI、deploy。
+- **状态**：`DONE`；**优先级**：P0；**依赖**：P1-09、REL-01；**范围**：BackupStore、hosted scheduler、object storage、Admin UI、deploy。
 - **当前缺口**：本地 `/var/lib/scalaapi/backups` + 手工 pg_dump/restore，无集群 scheduler/offsite/signing。
 - **实现步骤**：cluster-singleton schedule/claim；加密+签名+key rotation；S3/offsite retention；
   独立 restore target、失败注入、checksum；记录 RPO/RTO 和 runbook；禁止恢复到 live authority。
