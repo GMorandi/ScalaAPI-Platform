@@ -59,6 +59,10 @@ public sealed class ContentPolicyPropagationService(
         // section is serialized, so a slow Garnet call does not prevent another
         // worker from claiming unrelated outbox rows. The monotonic Garnet
         // operation makes a later revision win when workers finish out of order.
+        //
+        // The Garnet publish and the propagated-at mark share a single
+        // advisory-lock transaction so that no other worker can re-claim the
+        // same event between the Garnet write commit and the PostgreSQL mark.
         await using var connection = await dataSource.OpenConnectionAsync(ct);
         await using var transaction = await connection.BeginTransactionAsync(ct);
         await using (var lockCommand = new NpgsqlCommand(
@@ -69,7 +73,7 @@ public sealed class ContentPolicyPropagationService(
         }
 
         garnet.PublishContentPolicyRevision(change.Revision);
-        await MarkPropagatedAsync(change.Id, workerId, ct);
+        await MarkPropagatedAsync(connection, transaction, change.Id, workerId, ct);
         await transaction.CommitAsync(ct);
     }
 
@@ -107,15 +111,16 @@ public sealed class ContentPolicyPropagationService(
         return result;
     }
 
-    private async Task MarkPropagatedAsync(long eventId, string workerId,
+    private static async Task MarkPropagatedAsync(NpgsqlConnection connection,
+        NpgsqlTransaction transaction, long eventId, string workerId,
         CancellationToken ct)
     {
-        await using var command = dataSource.CreateCommand("""
+        await using var command = new NpgsqlCommand("""
             UPDATE content_policy_change_events
             SET propagated_at = now(), claimed_by = NULL, claimed_until = NULL,
                 last_error = NULL
             WHERE id = $1 AND claimed_by = $2
-            """);
+            """, connection, transaction);
         command.Parameters.AddWithValue(eventId);
         command.Parameters.AddWithValue(workerId);
         await command.ExecuteNonQueryAsync(ct);

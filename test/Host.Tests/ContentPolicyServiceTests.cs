@@ -348,6 +348,134 @@ public sealed class ContentPolicyServiceTests
         }
     }
 
+    [Fact]
+    public async Task RedactedAuditLogsNeverContainContentOrSecrets()
+    {
+        var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
+        if (string.IsNullOrWhiteSpace(connectionString)) return;
+
+        var suffix = Guid.NewGuid().ToString("N");
+        var requestId = $"content-policy-redact:{suffix}";
+        var pattern = $"secret-{suffix}";
+        var secretPayload = $"SENSITIVE-CONTENT-{suffix}-DO-NOT-LEAK";
+        await using var dataSource = NpgsqlDataSource.Create(connectionString);
+        try
+        {
+            // Redacted rule: content_snippet must be [REDACTED], never the body.
+            await using (var command = dataSource.CreateCommand("""
+                INSERT INTO content_audit_rules(
+                    pattern, action_type, scope, status, stage, redact_content)
+                VALUES ($1, 'block', 'chat_completions', 'active', 'response', true)
+                """))
+            {
+                command.Parameters.AddWithValue(pattern);
+                await command.ExecuteNonQueryAsync();
+            }
+
+            var service = new ContentPolicyService(
+                dataSource, NullLogger<ContentPolicyService>.Instance);
+            var decision = await service.EvaluateAsync(9_500_005L, requestId,
+                "chat_completions", "chat_completions", ContentPolicyStage.Response,
+                $"Payload with {pattern} and {secretPayload}");
+
+            Assert.False(decision.Allowed);
+
+            // Audit log: content_snippet must be exactly [REDACTED].
+            await using var verify = dataSource.CreateCommand("""
+                SELECT content_snippet, content_redacted
+                FROM content_audit_logs WHERE request_id = $1
+                """);
+            verify.Parameters.AddWithValue(requestId);
+            await using var reader = await verify.ExecuteReaderAsync();
+            Assert.True(await reader.ReadAsync());
+            Assert.Equal("[REDACTED]", reader.GetString(0));
+            Assert.True(reader.GetBoolean(1));
+
+            // Alert details must not contain the secret payload or pattern.
+            await using var alert = dataSource.CreateCommand("""
+                SELECT details::text FROM content_policy_alert_events
+                WHERE request_id = $1
+                """);
+            alert.Parameters.AddWithValue(requestId);
+            var alertDetails = await alert.ExecuteScalarAsync();
+            if (alertDetails is string detailsText)
+            {
+                Assert.DoesNotContain(secretPayload, detailsText);
+                Assert.DoesNotContain(pattern, detailsText);
+            }
+
+            // Clean up for the non-redacted comparison.
+            await using (var cleanupAlerts = dataSource.CreateCommand(
+                "DELETE FROM content_policy_alert_events WHERE request_id = $1"))
+            {
+                cleanupAlerts.Parameters.AddWithValue(requestId);
+                await cleanupAlerts.ExecuteNonQueryAsync();
+            }
+            await using (var cleanupLogs = dataSource.CreateCommand(
+                "DELETE FROM content_audit_logs WHERE request_id = $1"))
+            {
+                cleanupLogs.Parameters.AddWithValue(requestId);
+                await cleanupLogs.ExecuteNonQueryAsync();
+            }
+            await using (var cleanupRule = dataSource.CreateCommand(
+                "DELETE FROM content_audit_rules WHERE pattern = $1"))
+            {
+                cleanupRule.Parameters.AddWithValue(pattern);
+                await cleanupRule.ExecuteNonQueryAsync();
+            }
+
+            // Non-redacted rule: content_snippet must contain actual content.
+            var nonRedactedRequestId = $"content-policy-noredact:{suffix}";
+            await using (var command = dataSource.CreateCommand("""
+                INSERT INTO content_audit_rules(
+                    pattern, action_type, scope, status, stage, redact_content)
+                VALUES ($1, 'block', 'chat_completions', 'active', 'response', false)
+                """))
+            {
+                command.Parameters.AddWithValue(pattern);
+                await command.ExecuteNonQueryAsync();
+            }
+
+            var nonRedactedDecision = await service.EvaluateAsync(9_500_005L,
+                nonRedactedRequestId, "chat_completions", "chat_completions",
+                ContentPolicyStage.Response, $"Visible {pattern} text");
+            Assert.False(nonRedactedDecision.Allowed);
+
+            await using var verifyNr = dataSource.CreateCommand("""
+                SELECT content_snippet, content_redacted
+                FROM content_audit_logs WHERE request_id = $1
+                """);
+            verifyNr.Parameters.AddWithValue(nonRedactedRequestId);
+            await using var readerNr = await verifyNr.ExecuteReaderAsync();
+            Assert.True(await readerNr.ReadAsync());
+            Assert.NotEqual("[REDACTED]", readerNr.GetString(0));
+            Assert.False(readerNr.GetBoolean(1));
+
+            await using (var cleanupNrLogs = dataSource.CreateCommand(
+                "DELETE FROM content_audit_logs WHERE request_id = $1"))
+            {
+                cleanupNrLogs.Parameters.AddWithValue(nonRedactedRequestId);
+                await cleanupNrLogs.ExecuteNonQueryAsync();
+            }
+            await using var cleanupNrRule = dataSource.CreateCommand(
+                "DELETE FROM content_audit_rules WHERE pattern = $1");
+            cleanupNrRule.Parameters.AddWithValue(pattern);
+            await cleanupNrRule.ExecuteNonQueryAsync();
+        }
+        finally
+        {
+            // Safety net: ensure no leftover rows.
+            await using var safetyAlerts = dataSource.CreateCommand(
+                "DELETE FROM content_policy_alert_events WHERE request_id LIKE $1");
+            safetyAlerts.Parameters.AddWithValue($"content-policy-redact:{suffix}");
+            await safetyAlerts.ExecuteNonQueryAsync();
+            await using var safetyAlertsNr = dataSource.CreateCommand(
+                "DELETE FROM content_policy_alert_events WHERE request_id LIKE $1");
+            safetyAlertsNr.Parameters.AddWithValue($"content-policy-noredact:{suffix}");
+            await safetyAlertsNr.ExecuteNonQueryAsync();
+        }
+    }
+
     private sealed class MatchingClassifier : IContentClassifier
     {
         public Task<ContentClassifierResult> EvaluateAsync(

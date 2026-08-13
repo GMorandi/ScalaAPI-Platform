@@ -130,6 +130,105 @@ public sealed class ContentPolicyPropagationTests
         }
     }
 
+    [Fact]
+    public async Task ReclaimAfterCrashAllowsReplacementWorkerToPropagate()
+    {
+        var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
+        if (string.IsNullOrWhiteSpace(connectionString)) return;
+
+        await using var dataSource = NpgsqlDataSource.Create(connectionString);
+        var revision = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() + 2;
+        var eventId = await InsertEventAsync(dataSource, revision);
+        var crashedWorker = $"crashed-{Guid.NewGuid():N}";
+        try
+        {
+            // Simulate Worker A claiming the event then crashing before publish:
+            // the claim is recorded but the claim expiry is in the past so a
+            // replacement worker can reclaim it.
+            await using (var claim = dataSource.CreateCommand("""
+                UPDATE content_policy_change_events
+                SET claimed_by = $2, claimed_until = now() - interval '1 second',
+                    attempts = attempts + 1
+                WHERE id = $1
+                """))
+            {
+                claim.Parameters.AddWithValue(eventId);
+                claim.Parameters.AddWithValue(crashedWorker);
+                await claim.ExecuteNonQueryAsync();
+            }
+
+            var garnet = new RecordingGarnet();
+            var service = new ContentPolicyPropagationService(
+                dataSource, new GarnetWriteThroughService(garnet),
+                NullLogger<ContentPolicyPropagationService>.Instance);
+
+            var result = await service.PropagateOnceAsync($"replacement-{Guid.NewGuid():N}");
+
+            Assert.Equal(1, result.Claimed);
+            Assert.Equal(1, result.Propagated);
+            Assert.Equal(0, result.Failed);
+            Assert.True(await IsPropagatedAsync(dataSource, eventId));
+            Assert.Contains(garnet.SetCalls, call =>
+                call.Key == GarnetKeyspace.ContentPolicyRevision
+                && call.Value == revision.ToString());
+        }
+        finally
+        {
+            await DeleteEventAsync(dataSource, eventId);
+        }
+    }
+
+    [Fact]
+    public async Task CrossProcessOrderingPreservesRevisionSequence()
+    {
+        var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
+        if (string.IsNullOrWhiteSpace(connectionString)) return;
+
+        await using var dataSource = NpgsqlDataSource.Create(connectionString);
+        var baseRevision = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() * 1000
+            + Random.Shared.Next(1, 900);
+        var revisions = new[] { baseRevision, baseRevision + 1, baseRevision + 2 };
+        var eventIds = new long[revisions.Length];
+        for (var i = 0; i < revisions.Length; i++)
+            eventIds[i] = await InsertEventAsync(dataSource, revisions[i]);
+        try
+        {
+            var garnetA = new RecordingGarnet();
+            var garnetB = new RecordingGarnet();
+            var workerA = new ContentPolicyPropagationService(
+                dataSource, new GarnetWriteThroughService(garnetA),
+                NullLogger<ContentPolicyPropagationService>.Instance);
+            var workerB = new ContentPolicyPropagationService(
+                dataSource, new GarnetWriteThroughService(garnetB),
+                NullLogger<ContentPolicyPropagationService>.Instance);
+
+            var results = await Task.WhenAll(
+                workerA.PropagateOnceAsync($"order-a-{Guid.NewGuid():N}"),
+                workerB.PropagateOnceAsync($"order-b-{Guid.NewGuid():N}"));
+
+            Assert.Equal(3, results.Sum(r => r.Propagated));
+            foreach (var id in eventIds)
+                Assert.True(await IsPropagatedAsync(dataSource, id));
+
+            // All revisions must appear in Garnet in monotonically increasing
+            // order within each worker's call sequence (advisory lock serializes).
+            var allRevisions = garnetA.SetCalls
+                .Concat(garnetB.SetCalls)
+                .Where(c => c.Key == GarnetKeyspace.ContentPolicyRevision)
+                .Select(c => long.Parse(c.Value))
+                .ToArray();
+            Assert.Equal(3, allRevisions.Length);
+            for (var i = 1; i < allRevisions.Length; i++)
+                Assert.True(allRevisions[i] > allRevisions[i - 1],
+                    $"Revision {allRevisions[i]} should be > {allRevisions[i - 1]}");
+        }
+        finally
+        {
+            foreach (var id in eventIds)
+                await DeleteEventAsync(dataSource, id);
+        }
+    }
+
     private static async Task<long> InsertEventAsync(NpgsqlDataSource dataSource, long revision)
     {
         await using var command = dataSource.CreateCommand("""

@@ -165,6 +165,9 @@ public sealed class HttpContentClassifier(
         }
         catch (HttpRequestException)
         {
+            // HttpRequestException.Message may contain the request URI which
+            // could embed credentials.  Discard the message entirely and
+            // return a deterministic fail-closed result.
             return ContentClassifierResult.Unavailable(
                 "content_policy_classifier_unavailable");
         }
@@ -344,6 +347,10 @@ public sealed class OpenAiModerationMetrics
 /// not sent upstream: an <c>openai</c> rule means that any flagged moderation
 /// result matches that rule, while local/source-owned rules retain pattern
 /// matching semantics.
+///
+/// The API key is immutable for the process lifetime: it is read once from
+/// configuration at startup and held in <see cref="OpenAiModerationClientOptions"/>.
+/// Key rotation requires a process restart and is scoped to P1-09.
 /// </summary>
 public sealed class OpenAiModerationClassifier(
     HttpClient httpClient,
@@ -429,6 +436,9 @@ public sealed class OpenAiModerationClassifier(
         }
         catch (HttpRequestException)
         {
+            // HttpRequestException.Message may contain the request URI which
+            // could embed credentials.  Discard the message entirely and
+            // return a deterministic fail-closed result.
             return ContentClassifierResult.Unavailable(
                 "content_policy_classifier_unavailable");
         }

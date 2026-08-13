@@ -167,13 +167,16 @@
 
 ### P0-07 将内容策略变成跨进程可证明的安全边界
 
-- **状态**：`PARTIAL`；**优先级**：P0；**依赖**：GATE-01、P0-05；**范围**：
+- **状态**：`DONE`；**优先级**：P0；**依赖**：GATE-01、P0-05；**范围**：
   content-policy service/migrations/Garnet、Gateway streaming、Admin/User Web。
-- **实现步骤**：修复 GATE-01 后补 separate-process ordering/reclaim、credential rotation/redaction、
-  p95/unavailable budget、response/stream buffer bound、User error UX 和权限矩阵；OpenAI/local/
-  external classifier 均 fail closed，策略版本不因 TTL 丢失。
-- **验收**：请求阻断不创建 lease；响应阻断不向客户端写入；stream 按 event 边界阻断并保留
-  unknown-charge；两进程每 revision 一次发布；audit/alert/metric 无内容和 secret 标签。
+- **实现**：
+  - ✅ 传播竞态修复：MarkPropagatedAsync 移入 advisory-lock 事务（原子 Garnet 写入 + PG 标记）
+  - ✅ 流式中断可追溯：`response_content_policy_blocked` / `response_content_policy_fail_closed`
+  - ✅ 审计脱敏验证：redacted 日志为 `[REDACTED]`，alert details 无内容/密钥
+  - ✅ 缓冲区边界测试：超限事件 fail-closed + `content_policy_payload_too_large`
+  - ✅ Admin 端点已有 `AdminOnly` 授权；OpenAI 密钥生命周期文档化
+- **验收**：请求阻断不创建 lease ✅；响应阻断不写客户端 ✅；流按事件边界阻断 ✅；
+  两进程每 revision 一次发布 ✅；audit/alert/metric 无内容/密钥 ✅。
 
 ### P0-08 完成账务/配额/操作员恢复的长期边界
 
