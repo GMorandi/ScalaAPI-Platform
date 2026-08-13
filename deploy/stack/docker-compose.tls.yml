@@ -24,7 +24,7 @@ services:
     healthcheck:
       test: nc -z garnet 6379
 
-  platform-silo:
+  platform-silo-1:
     environment:
       Garnet__UseTls: "true"
       Garnet__ServerName: ${GARNET_SERVER_NAME:-garnet}
@@ -32,7 +32,23 @@ services:
     volumes:
       - ${GARNET_CA_CERT_FILE:?GARNET_CA_CERT_FILE is required}:/run/secrets/garnet/ca.pem:ro,Z
 
-  gateway:
+  platform-silo-2:
+    environment:
+      Garnet__UseTls: "true"
+      Garnet__ServerName: ${GARNET_SERVER_NAME:-garnet}
+      Garnet__CaCertificatePath: /run/secrets/garnet/ca.pem
+    volumes:
+      - ${GARNET_CA_CERT_FILE:?GARNET_CA_CERT_FILE is required}:/run/secrets/garnet/ca.pem:ro,Z
+
+  gateway-1:
+    environment:
+      GARNET_TLS: "true"
+      GARNET_SERVER_NAME: ${GARNET_SERVER_NAME:-garnet}
+      GARNET_CA_CERT_PATH: /run/secrets/garnet/ca.pem
+    volumes:
+      - ${GARNET_CA_CERT_FILE:?GARNET_CA_CERT_FILE is required}:/run/secrets/garnet/ca.pem:ro,Z
+
+  gateway-2:
     environment:
       GARNET_TLS: "true"
       GARNET_SERVER_NAME: ${GARNET_SERVER_NAME:-garnet}

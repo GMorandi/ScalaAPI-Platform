@@ -16,7 +16,14 @@ services:
       timeout: 3s
       retries: 20
 
-  platform-silo:
+  platform-silo-1:
+    environment:
+      ObjectStorage__Endpoint: http://object-storage-fault-proxy:9000
+    depends_on:
+      object-storage-fault-proxy:
+        condition: service_healthy
+
+  platform-silo-2:
     environment:
       ObjectStorage__Endpoint: http://object-storage-fault-proxy:9000
     depends_on:

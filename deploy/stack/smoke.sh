@@ -155,7 +155,7 @@ partition_secondary_silo() {
         $container_cli network connect --alias object-storage-fault-proxy \
             "$partition_network" "$dependency_id" >/dev/null
     fi
-    $container_cli network connect --alias platform-media-2 \
+    $container_cli network connect --alias platform-silo-2 \
         "$partition_network" "$secondary_id" >/dev/null
     $container_cli start "$secondary_platform_container" >/dev/null
 }
@@ -174,12 +174,12 @@ restore_secondary_silo_network() {
     done
     $container_cli network disconnect --force "$partition_network" \
         "$secondary_id" >/dev/null 2>&1 || true
-    $container_cli network connect --alias platform-media-2 \
+    $container_cli network connect --alias platform-silo-2 \
         "$secondary_default_network" "$secondary_id" >/dev/null
     $container_cli start "$secondary_platform_container" >/dev/null
     wait_for "secondary Silo readiness after network recovery" 90 \
         $container_cli exec "$secondary_platform_container" \
-        curl -fsS http://127.0.0.1:5002/ready >/dev/null
+        curl -fsS http://127.0.0.1:5000/ready >/dev/null
     $container_cli network rm "$partition_network" >/dev/null
     partition_network=""
     secondary_default_network=""
@@ -189,8 +189,8 @@ start_platform_after_fault() {
     # Podman Compose may leave an exited container stopped even with
     # restart: on-failure. Start the same container so the SQL claim and
     # fault marker survive the recovery boundary.
-    compose start platform-silo >/dev/null
-    wait_for "Platform recovery after fault hook" 90 compose exec -T platform-silo \
+    compose start platform-silo-1 >/dev/null
+    wait_for "Platform recovery after fault hook" 90 compose exec -T platform-silo-1 \
         curl -fsS http://127.0.0.1:5000/ready >/dev/null
 }
 
@@ -1032,6 +1032,10 @@ wait_for "Admin API readiness" 60 compose exec -T admin-api \
     curl -fsS http://127.0.0.1:5001/ready >/dev/null
 wait_for "User Web readiness" 60 curl -fsS "$user_web_url/" >/dev/null
 
+# The formal topology defines platform-silo-2 and gateway-2. Keep them stopped
+# during single-silo fault/restart tests; multi-silo sections start them later.
+compose stop platform-silo-2 gateway-2 >/dev/null
+
 if [[ "${PUBLIC_UI_SMOKE_ONLY:-0}" == "1" ]]; then
     PUBLIC_UI_BASE_URL="$user_web_url" npm --prefix "$repo_root/user-web" run test:e2e -- \
         tests/public-pages.live.spec.ts
@@ -1357,11 +1361,11 @@ content_policy_change_propagated() {
 }
 platform_policy_faulted() {
     local container_id
-    container_id="$(service_container_id platform-silo 2>/dev/null || true)"
+    container_id="$(service_container_id platform-silo-1 2>/dev/null || true)"
     [[ -n "$container_id" ]] && [[ "$($container_cli inspect --format '{{.State.Status}}' "$container_id" 2>/dev/null)" != "running" ]]
 }
 platform_policy_fault_claimed() {
-    compose exec -T platform-silo test -f \
+    compose exec -T platform-silo-1 test -f \
         "/var/run/scalaapi/fault-hooks/platform-after-policy-outbox-claim.claimed"
 }
 if [[ "${PLATFORM_FAULT_HOOK:-}" == "platform.after_policy_outbox_claim" ]]; then
@@ -1568,22 +1572,17 @@ if [[ "${MULTI_PROCESS_METRICS_SMOKE_ONLY:-0}" == "1" ]]; then
     assert_equals "0" "$(db_query "SELECT count(*) FROM content_classifier_metric_snapshots;")" \
         "Empty classifier snapshot baseline"
 
-    secondary_socket="/var/run/scalaapi/dispatch-metrics.sock"
-    secondary_platform_container="${project}_platform-metrics-2"
-    compose run --detach --no-deps --name "$secondary_platform_container" \
-        -e "CapnpRpc__SocketPath=$secondary_socket" \
-        -e "ASPNETCORE_URLS=http://0.0.0.0:5002" platform-silo >/dev/null
+    secondary_platform_container="$(service_container_id platform-silo-2)"
+    compose start platform-silo-2 >/dev/null
     wait_for "secondary Platform readiness" 120 "$container_cli" exec \
-        "$secondary_platform_container" curl -fsS http://127.0.0.1:5002/ready >/dev/null
+        "$secondary_platform_container" curl -fsS http://127.0.0.1:5000/ready >/dev/null
     secondary_silos_ready() {
         [[ "$(db_query "SELECT count(*) FROM OrleansMembershipTable WHERE DeploymentId = 'platform' AND Status = 3;")" -ge 2 ]]
     }
     wait_for "two active Platform silos" 60 secondary_silos_ready
 
-    secondary_gateway_container="${project}_gateway-metrics-2"
-    compose run --detach --no-deps --name "$secondary_gateway_container" \
-        -e "CAPNP_UDS_PATH=$secondary_socket" \
-        -e GATEWAY_USAGE_DB=/var/lib/scalaapi/metrics-usage-outbox.db gateway >/dev/null
+    secondary_gateway_container="$(service_container_id gateway-2)"
+    compose start gateway-2 >/dev/null
     wait_for "secondary Gateway readiness" 90 "$container_cli" exec \
         "$secondary_gateway_container" curl -fsS http://127.0.0.1:8080/ready >/dev/null
 
@@ -1614,7 +1613,7 @@ if [[ "${MULTI_PROCESS_METRICS_SMOKE_ONLY:-0}" == "1" ]]; then
 
     "$container_cli" restart "$secondary_platform_container" >/dev/null
     wait_for "secondary Platform readiness after restart" 120 "$container_cli" exec \
-        "$secondary_platform_container" curl -fsS http://127.0.0.1:5002/ready >/dev/null
+        "$secondary_platform_container" curl -fsS http://127.0.0.1:5000/ready >/dev/null
     "$container_cli" restart "$secondary_gateway_container" >/dev/null
     wait_for "secondary Gateway readiness after restart" 90 "$container_cli" exec \
         "$secondary_gateway_container" curl -fsS http://127.0.0.1:8080/ready >/dev/null
@@ -1726,7 +1725,7 @@ SELECT (SELECT count(*) FROM request_idempotency
 
     "$container_cli" start "$secondary_platform_container" >/dev/null
     wait_for "secondary Platform readiness after rejoin" 120 "$container_cli" exec \
-        "$secondary_platform_container" curl -fsS http://127.0.0.1:5002/ready >/dev/null
+        "$secondary_platform_container" curl -fsS http://127.0.0.1:5000/ready >/dev/null
     wait_for "two active Platform silos after rejoin" 60 secondary_silos_ready
     "$container_cli" start "$secondary_gateway_container" >/dev/null
     wait_for "secondary Gateway readiness after rejoin" 90 "$container_cli" exec \
@@ -2069,7 +2068,7 @@ platform_dispatch_fault_claimed() {
     if [[ "${PLATFORM_FAULT_HOOK:-}" == "platform.before_provider_dispatch_retry" ]]; then
         marker_name=platform-before-provider-dispatch-retry.claimed
     fi
-    compose exec -T platform-silo test -f \
+    compose exec -T platform-silo-1 test -f \
         "/var/run/scalaapi/fault-hooks/$marker_name"
 }
 
@@ -2088,7 +2087,7 @@ platform_dispatch_fault_lease_safely_expired() {
 }
 
 platform_worker_fault_claimed() {
-    compose exec -T platform-silo test -f \
+    compose exec -T platform-silo-1 test -f \
         /var/run/scalaapi/fault-hooks/platform-after-outbox-claim.claimed
 }
 
@@ -2159,7 +2158,7 @@ start_gateway_after_fault() {
     # Podman Compose may leave an exited container stopped even with
     # restart: on-failure. Start the same container so its durable marker and
     # Gateway usage outbox volume are preserved across the recovery boundary.
-    compose start gateway >/dev/null
+    compose start gateway-1 >/dev/null
     wait_for "Gateway recovery after fault hook" 90 curl -fsS "$gateway_url/ready" >/dev/null
 }
 
@@ -2173,7 +2172,7 @@ gateway_fault_claimed() {
         *)
             return 1 ;;
     esac
-    compose exec -T gateway test -f "/var/lib/scalaapi/fault-hooks/$marker_name"
+    compose exec -T gateway-1 test -f "/var/lib/scalaapi/fault-hooks/$marker_name"
 }
 
 gateway_fault_lease_reconciled() {
@@ -2654,7 +2653,7 @@ platform_hook_exits_after_durable_write() {
 
 if [[ "${PLATFORM_FAULT_HOOK:-}" == "platform.before_settlement_commit" ]] ||
    platform_hook_exits_after_durable_write; then
-    platform_container_id="$(service_container_id platform-silo)"
+    platform_container_id="$(service_container_id platform-silo-1)"
     platform_faulted() {
         [[ "$("$container_cli" inspect --format '{{.State.Status}}' \
             "$platform_container_id" 2>/dev/null)" != "running" ]]
@@ -2799,8 +2798,8 @@ wait_for "realtime WebSocket soak settlement" 45 realtime_soak_settled
 echo "PASS: realtime WebSocket soak settled $realtime_soak_count sessions without duplicate billing"
 
 echo "Restarting Platform and verifying a new billable request"
-recreate_service platform-silo
-wait_for "Platform readiness after restart" 90 compose exec -T platform-silo \
+recreate_service platform-silo-1
+wait_for "Platform readiness after restart" 90 compose exec -T platform-silo-1 \
     curl -fsS http://127.0.0.1:5000/ready >/dev/null
 
 platform_restart_response="$(curl -fsS "$gateway_url/v1/chat/completions" \
@@ -2817,7 +2816,7 @@ platform_restart_settled() {
 wait_for "post-Platform-restart settlement" 30 platform_restart_settled
 
 echo "Restarting Gateway and verifying a new billable request"
-recreate_service gateway
+recreate_service gateway-1
 wait_for "Gateway readiness after restart" 90 curl -fsS "$gateway_url/ready" >/dev/null
 
 gateway_restart_response="$(curl -fsS "$gateway_url/v1/chat/completions" \
@@ -2885,8 +2884,8 @@ media_restart_pending() {
 }
 wait_for "durable media operation before restart" 15 media_restart_pending
 db_query "UPDATE media_operations SET next_poll_at = now() + interval '30 seconds' WHERE operation_id = '$media_restart_id';" >/dev/null
-recreate_service platform-silo
-wait_for "Platform readiness after media restart" 90 compose exec -T platform-silo \
+recreate_service platform-silo-1
+wait_for "Platform readiness after media restart" 90 compose exec -T platform-silo-1 \
     curl -fsS http://127.0.0.1:5000/ready >/dev/null
 db_query "UPDATE media_operations SET next_poll_at = now() - interval '1 minute' WHERE operation_id = '$media_restart_id' AND status IN ('pending', 'running');" >/dev/null
 media_restart_result=""
@@ -2947,9 +2946,9 @@ if (( media_batch_item_size <= 0 )); then
 fi
 echo "PASS: durable per-item media object projection and signed download"
 
-compose exec -T platform-silo curl -fsS -X POST \
+compose exec -T platform-silo-1 curl -fsS -X POST \
     http://object-storage-fault-proxy:9002/faults/clear >/dev/null
-compose exec -T platform-silo curl -fsS -X POST \
+compose exec -T platform-silo-1 curl -fsS -X POST \
     http://object-storage-fault-proxy:9002/faults/arm \
     -H 'Content-Type: application/json' \
     --data '{"mode":"truncate_request","method":"PUT","pathContains":"/items/","requestBodyBytes":16}' \
@@ -2975,7 +2974,7 @@ media_batch_transport_recovered() {
 }
 wait_for "mid-body S3 PUT recovery" 75 \
     media_batch_transport_recovered "$media_batch_truncate_id"
-media_batch_truncate_fault_state="$(compose exec -T platform-silo curl -fsS \
+media_batch_truncate_fault_state="$(compose exec -T platform-silo-1 curl -fsS \
     http://object-storage-fault-proxy:9002/state)"
 jq -e --arg id "$media_batch_truncate_id" '
     .armed == null and
@@ -3001,9 +3000,9 @@ assert_equals \
     "Mid-body S3 PUT converges into deterministic keys and one settlement"
 echo "PASS: real mid-body S3 PUT interruption retries deterministic item/archive keys"
 
-compose exec -T platform-silo curl -fsS -X POST \
+compose exec -T platform-silo-1 curl -fsS -X POST \
     http://object-storage-fault-proxy:9002/faults/clear >/dev/null
-compose exec -T platform-silo curl -fsS -X POST \
+compose exec -T platform-silo-1 curl -fsS -X POST \
     http://object-storage-fault-proxy:9002/faults/arm \
     -H 'Content-Type: application/json' \
     --data '{"mode":"drop_response","method":"PUT","pathContains":"/items/"}' \
@@ -3015,7 +3014,7 @@ media_batch_response_drop_response="$(curl -fsS "$gateway_url/v1/images/batches"
 media_batch_response_drop_id="$(jq -er '.id' <<<"$media_batch_response_drop_response")"
 wait_for "post-commit S3 response-loss recovery" 75 \
     media_batch_transport_recovered "$media_batch_response_drop_id"
-media_batch_response_drop_fault_state="$(compose exec -T platform-silo curl -fsS \
+media_batch_response_drop_fault_state="$(compose exec -T platform-silo-1 curl -fsS \
     http://object-storage-fault-proxy:9002/state)"
 jq -e --arg id "$media_batch_response_drop_id" '
     .armed == null and
@@ -3055,13 +3054,10 @@ media_partition_batch_stored() {
 }
 wait_for "dedicated media partition batch persistence" 75 media_partition_batch_stored
 
-secondary_media_socket="/var/run/scalaapi/dispatch-media.sock"
-secondary_platform_container="${project}_platform-media-2"
-compose run --detach --no-deps --name "$secondary_platform_container" \
-    -e "CapnpRpc__SocketPath=$secondary_media_socket" \
-    -e "ASPNETCORE_URLS=http://0.0.0.0:5002" platform-silo >/dev/null
+secondary_platform_container="$(service_container_id platform-silo-2)"
+compose start platform-silo-2 >/dev/null
 wait_for "secondary media Platform readiness" 120 "$container_cli" exec \
-    "$secondary_platform_container" curl -fsS http://127.0.0.1:5002/ready >/dev/null
+    "$secondary_platform_container" curl -fsS http://127.0.0.1:5000/ready >/dev/null
 media_secondary_silos_ready() {
     [[ "$(db_query "SELECT count(*) FROM OrleansMembershipTable WHERE DeploymentId = 'platform' AND Status = 3;")" -ge 2 ]]
 }
@@ -3080,7 +3076,7 @@ media_partition_parent_attempts_before="$(db_query "
 # can claim the due object. The primary remains on the default network and
 # resumes before the secondary is restored, so recovery is still exercised by
 # two independent Silos.
-compose stop platform-silo >/dev/null
+compose stop platform-silo-1 >/dev/null
 partition_secondary_silo object-storage
 media_secondary_object_partition_visible() {
     local secondary_health
@@ -3089,7 +3085,7 @@ media_secondary_object_partition_visible() {
         http://object-storage-fault-proxy:9000/minio/health/live 2>/dev/null || true)"
     [[ "$secondary_health" != "200" ]] \
         && $container_cli exec "$secondary_platform_container" \
-            curl -fsS http://127.0.0.1:5002/live >/dev/null
+            curl -fsS http://127.0.0.1:5000/live >/dev/null
 }
 wait_for "secondary Silo object-storage partition" 30 \
     media_secondary_object_partition_visible
@@ -3111,9 +3107,9 @@ media_partition_storage_failed() {
        "failed|$((media_partition_item_attempts_before + 1))|item_object_reconcile_error|failed|$((media_partition_parent_attempts_before + 1))" ]]
 }
 wait_for "isolated secondary Silo object-storage failure" 75 media_partition_storage_failed
-compose start platform-silo >/dev/null
+compose start platform-silo-1 >/dev/null
 wait_for "primary Silo readiness after object partition" 90 compose exec -T \
-    platform-silo curl -fsS http://127.0.0.1:5000/ready >/dev/null
+    platform-silo-1 curl -fsS http://127.0.0.1:5000/ready >/dev/null
 restore_secondary_silo_network
 db_query "
     UPDATE media_operation_items
@@ -3136,7 +3132,7 @@ wait_for "isolated secondary Silo object-storage recovery" 75 \
     media_partition_storage_recovered
 echo "PASS: one Silo object-storage partition preserved claim fencing and recovered"
 
-compose stop platform-silo >/dev/null
+compose stop platform-silo-1 >/dev/null
 db_query "
     UPDATE media_operations
     SET object_next_check_at = now() - interval '1 second'
@@ -3146,12 +3142,12 @@ media_secondary_postgres_partition_visible() {
     local ready_status
     ready_status="$($container_cli exec "$secondary_platform_container" \
         curl -sS -o /dev/null -w '%{http_code}' \
-        http://127.0.0.1:5002/ready 2>/dev/null || true)"
+        http://127.0.0.1:5000/ready 2>/dev/null || true)"
     [[ "$ready_status" != "200" ]]
 }
 wait_for "secondary Silo PostgreSQL partition" 30 \
     media_secondary_postgres_partition_visible
-compose stop platform-silo >/dev/null
+compose stop platform-silo-1 >/dev/null
 db_query "
     UPDATE media_operation_items
     SET object_next_check_at = now() - interval '1 second'
@@ -3165,9 +3161,9 @@ assert_equals "true" "$(db_query "
     JOIN media_operations operation ON operation.operation_id = item.operation_id
     WHERE item.operation_id = '$media_partition_batch_id';")" \
     "PostgreSQL-partitioned Silo retained due media work"
-compose start platform-silo >/dev/null
+compose start platform-silo-1 >/dev/null
 wait_for "primary Silo readiness after PostgreSQL partition" 90 compose exec -T \
-    platform-silo curl -fsS http://127.0.0.1:5000/ready >/dev/null
+    platform-silo-1 curl -fsS http://127.0.0.1:5000/ready >/dev/null
 restore_secondary_silo_network
 media_partition_postgres_recovered() {
     [[ "$(db_query "
@@ -3241,7 +3237,7 @@ wait_for "media item verification recovery" 75 media_batch_item_recovered
 recreate_service object-storage
 wait_for "replacement object storage readiness" 60 \
     curl -fsS "http://127.0.0.1:${OBJECT_STORAGE_PORT}/minio/health/live" >/dev/null
-wait_for "Platform readiness after object storage replacement" 90 compose exec -T platform-silo \
+wait_for "Platform readiness after object storage replacement" 90 compose exec -T platform-silo-1 \
     curl -fsS http://127.0.0.1:5000/ready >/dev/null
 wait_for "Admin API readiness after object storage replacement" 90 compose exec -T admin-api \
     curl -fsS http://127.0.0.1:5001/ready >/dev/null
@@ -3310,7 +3306,7 @@ if (( media_contention_soak_seconds > 0 )); then
             "$container_cli" restart "$secondary_platform_container" >/dev/null
             wait_for "secondary Silo readiness after contention restart" 90 \
                 "$container_cli" exec "$secondary_platform_container" \
-                curl -fsS http://127.0.0.1:5002/ready >/dev/null
+                curl -fsS http://127.0.0.1:5000/ready >/dev/null
             wait_for "two active Silos after contention restart" 60 media_secondary_silos_ready
             media_contention_soak_restarts=$((media_contention_soak_restarts + 1))
         fi
@@ -3323,7 +3319,7 @@ if (( media_contention_soak_seconds > 0 )); then
     echo "PASS: media worker contention soak ran ${media_contention_elapsed}s across ${media_contention_soak_cycle} cycles with ${media_contention_soak_restarts} secondary Silo rejoin(s), without duplicate objects or billing"
 fi
 
-"$container_cli" rm -f "$secondary_platform_container" >/dev/null
+compose stop platform-silo-2 >/dev/null 2>&1 || "$container_cli" rm -f "$secondary_platform_container" >/dev/null 2>&1 || true
 secondary_platform_container=""
 echo "PASS: two Silo item claim, storage outage recovery, and volume-preserving replacement"
 media_batch_archive="${TMPDIR:-/tmp}/scalaapi-${project}-batch.zip"
@@ -3503,12 +3499,12 @@ wait_for "Gateway usage outbox drain" 30 gateway_backlog
 if [[ "$GARNET_TLS" == "true" || "$GARNET_TLS" == "1" ]] &&
    [[ "$garnet_tls_rotation_enabled" == "true" || "$garnet_tls_rotation_enabled" == "1" ]]; then
     tls_platform_ready() {
-        compose exec -T platform-silo curl -fsS http://127.0.0.1:5000/ready >/dev/null
+        compose exec -T platform-silo-1 curl -fsS http://127.0.0.1:5000/ready >/dev/null
     }
 
     tls_platform_not_ready() {
         local status
-        status="$(compose exec -T platform-silo \
+        status="$(compose exec -T platform-silo-1 \
             curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:5000/ready \
             2>/dev/null | tr -d '\r' | tail -n 1 || true)"
         [[ "$status" == "503" ]]
@@ -3521,8 +3517,8 @@ if [[ "$GARNET_TLS" == "true" || "$GARNET_TLS" == "1" ]] &&
     }
 
     tls_restart_clients() {
-        recreate_service platform-silo
-        recreate_service gateway
+        recreate_service platform-silo-1
+        recreate_service gateway-1
     }
 
     echo "Rotating Garnet TLS server certificate and reconnecting clients"
@@ -3535,11 +3531,11 @@ if [[ "$GARNET_TLS" == "true" || "$GARNET_TLS" == "1" ]] &&
     tls_wrong_name_request_id="smoke-garnet-tls-rotation-${suffix}"
     tls_wrong_name_idempotency_key="${tls_wrong_name_request_id}-idem"
     tls_refresh_certificate "$GARNET_SERVER_CERT_WRONG_NAME_FILE"
-    recreate_service platform-silo
+    recreate_service platform-silo-1
     wait_for "Garnet wrong-name certificate rejection" 45 tls_platform_not_ready
 
     tls_refresh_certificate "$GARNET_SERVER_CERT_EXPIRED_FILE"
-    recreate_service platform-silo
+    recreate_service platform-silo-1
     wait_for "Garnet expired certificate rejection" 45 tls_platform_not_ready
 
     tls_refresh_certificate "$GARNET_SERVER_CERT_ROTATED_FILE"
@@ -3567,7 +3563,7 @@ if [[ "$GARNET_TLS" == "true" || "$GARNET_TLS" == "1" ]]; then
     # The Platform readiness endpoint performs an authenticated TLS RESP PING
     # through the production RemoteGarnetService. The busybox helper has no TLS
     # client, so do not send a plaintext probe to a TLS-only Garnet listener.
-    garnet_probe="$(compose exec -T platform-silo \
+    garnet_probe="$(compose exec -T platform-silo-1 \
         curl -fsS http://127.0.0.1:5000/ready)"
 else
     garnet_probe="$(compose exec -T garnet-health sh -c '

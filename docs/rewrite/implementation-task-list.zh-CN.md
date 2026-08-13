@@ -325,12 +325,18 @@
 
 ### REL-01 默认多 Silo/Gateway 拓扑与滚动替换
 
-- **状态**：`PARTIAL`；**优先级**：P0；**依赖**：P0-01、P0-06、P0-08；**范围**：`platform/deploy/stack/docker-compose*.yml`、smoke scripts、readiness/drain。
-- **当前缺口**：默认 Compose 只有一个 `platform-silo`；secondary 由 smoke 脚本临时创建。
-- **实现步骤**：定义至少两 Silo/两 Gateway 的正式拓扑、placement/version、graceful drain、
-  readiness、leader locks；滚动替换 primary/secondary、Garnet/PostgreSQL/MinIO 失败和 rejoin。
-- **验收**：任意单节点停止时 billable 请求仍按策略完成；rejoin 无重复 lease/debit/object；
-  正式 compose 与 smoke 使用同一配置，不依赖临时容器名。
+- **状态**：`DONE`；**优先级**：P0；**依赖**：P0-01、P0-06、P0-08；**范围**：`platform/deploy/stack/docker-compose*.yml`、`rolling-update.sh`、smoke scripts、readiness/drain。
+- **实现**：
+  - ✅ 正式 Compose 定义 `platform-silo-1`/`platform-silo-2`（YAML anchor 共享 env，各自 CapnpRpc socket）
+  - ✅ 正式 Compose 定义 `gateway-1`/`gateway-2`（各自 CAPNP_UDS_PATH、独立 usage-outbox DB）
+  - ✅ 所有 Silo/Gateway 配置 `stop_grace_period: 30s` 实现 graceful drain
+  - ✅ `rolling-update.sh` 脚本：逐个替换 silo/gateway，等待 peer 吸收流量 + readiness + 集群恢复
+  - ✅ `docker-compose.tls.yml` 和 `docker-compose.faults.yml` 更新为双实例
+  - ✅ Smoke 测试使用正式 compose 服务（`compose start/stop platform-silo-2/gateway-2`），不再创建临时容器
+  - ✅ 单节点停止后 billable 请求由 peer 完成；rejoin 无重复 lease/debit/object
+  - ✅ admin-api 指向 `platform-silo-1:5000`；gateway-1 映射宿主端口，gateway-2 仅内部可达
+- **验收**：正式 compose 定义 2 Silo/2 Gateway ✅；smoke 使用同一配置无临时容器名 ✅；
+  滚动替换、单节点停止/rejoin、Garnet/PostgreSQL/MinIO 故障场景均由 smoke 覆盖 ✅。
 
 ### REL-02 备份、恢复、签名、异地与 RPO/RTO
 
