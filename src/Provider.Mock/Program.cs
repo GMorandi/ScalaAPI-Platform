@@ -608,6 +608,75 @@ app.MapPost("/v1/messages", async (HttpContext context, CancellationToken cancel
         }
         return Results.Empty;
     }
+    if (scenario == "tool_call")
+    {
+        if (stream)
+        {
+            context.Response.StatusCode = StatusCodes.Status200OK;
+            context.Response.ContentType = "text/event-stream";
+            context.Response.Headers.CacheControl = "no-cache";
+            var toolEvents = new (string Name, object Payload)[]
+            {
+                ("message_start", new
+                {
+                    type = "message_start",
+                    message = new
+                    {
+                        id = requestId,
+                        type = "message",
+                        role = "assistant",
+                        model,
+                        content = Array.Empty<object>(),
+                        stop_reason = (string?)null,
+                        stop_sequence = (string?)null,
+                        usage = new { input_tokens = inputTokens, output_tokens = 0 }
+                    }
+                }),
+                ("content_block_start", new
+                {
+                    type = "content_block_start",
+                    index = 0,
+                    content_block = new { type = "tool_use", id = "toolu_mock_1", name = "get_weather", input = new { } }
+                }),
+                ("content_block_delta", new
+                {
+                    type = "content_block_delta",
+                    index = 0,
+                    delta = new { type = "input_json_delta", partial_json = "{\"city\":\"Vienna\"}" }
+                }),
+                ("content_block_stop", new { type = "content_block_stop", index = 0 }),
+                ("message_delta", new
+                {
+                    type = "message_delta",
+                    delta = new { stop_reason = "tool_use", stop_sequence = (string?)null },
+                    usage = new { output_tokens = 8 }
+                }),
+                ("message_stop", new { type = "message_stop" }),
+            };
+            foreach (var item in toolEvents)
+            {
+                await context.Response.WriteAsync(
+                    $"event: {item.Name}\ndata: {JsonSerializer.Serialize(item.Payload)}\n\n",
+                    cancellationToken);
+            }
+            return Results.Empty;
+        }
+        return Results.Ok(new
+        {
+            id = requestId,
+            type = "message",
+            role = "assistant",
+            model,
+            content = new object[]
+            {
+                new { type = "text", text = "Let me check the weather." },
+                new { type = "tool_use", id = "toolu_mock_1", name = "get_weather", input = new { city = "Vienna" } },
+            },
+            stop_reason = "tool_use",
+            stop_sequence = (string?)null,
+            usage = new { input_tokens = inputTokens, output_tokens = 8 }
+        });
+    }
     if (stream && !scenario.Equals("json_stream", StringComparison.OrdinalIgnoreCase))
     {
         context.Response.StatusCode = StatusCodes.Status200OK;
@@ -750,6 +819,51 @@ app.MapPost("/v1/responses", async (HttpContext context, CancellationToken cance
         && streamValue.ValueKind == JsonValueKind.True;
     if (!stream && scenario == "malformed")
         return Results.Text("{not-json", "application/json", statusCode: 200);
+    if (scenario == "tool_call")
+    {
+        var toolUsage = new { input_tokens = inputTokens, output_tokens = 8,
+            total_tokens = inputTokens + 8 };
+        var toolCallItem = new
+        {
+            type = "function_call",
+            id = "fc_mock_1",
+            call_id = "call_mock_1",
+            name = "get_weather",
+            arguments = "{\"city\":\"Vienna\"}",
+        };
+        var toolCompletedResponse = new
+        {
+            id = requestId,
+            @object = "response",
+            status = "completed",
+            model,
+            output = new object[] { toolCallItem },
+            usage = toolUsage,
+        };
+        if (stream)
+        {
+            context.Response.StatusCode = StatusCodes.Status200OK;
+            context.Response.ContentType = "text/event-stream";
+            context.Response.Headers.CacheControl = "no-cache";
+            var toolEvents = new (string Type, object Payload)[]
+            {
+                ("response.created", new { type = "response.created", response = new { id = requestId, status = "in_progress", model } }),
+                ("response.output_item.added", new { type = "response.output_item.added", output_index = 0, item = toolCallItem }),
+                ("response.function_call_arguments.delta", new { type = "response.function_call_arguments.delta", item_id = "fc_mock_1", output_index = 0, delta = "{\"city\":\"Vienna\"}" }),
+                ("response.function_call_arguments.done", new { type = "response.function_call_arguments.done", item_id = "fc_mock_1", output_index = 0, arguments = "{\"city\":\"Vienna\"}" }),
+                ("response.output_item.done", new { type = "response.output_item.done", output_index = 0, item = toolCallItem }),
+                ("response.completed", new { type = "response.completed", response = toolCompletedResponse }),
+            };
+            foreach (var item in toolEvents)
+            {
+                await context.Response.WriteAsync(
+                    $"event: {item.Type}\ndata: {JsonSerializer.Serialize(item.Payload)}\n\n",
+                    cancellationToken);
+            }
+            return Results.Empty;
+        }
+        return Results.Json(toolCompletedResponse);
+    }
     var usage = new { input_tokens = inputTokens, output_tokens = 5,
         total_tokens = inputTokens + 5 };
     var completedResponse = new
@@ -882,6 +996,42 @@ app.MapPost("/v1beta/models/{model}:generateContent", async (
         return Results.Empty;
     }
     var inputTokens = MockProviderHelpers.EstimateInputTokens(body.RootElement);
+    if (scenario == "tool_call")
+    {
+        return Results.Ok(new
+        {
+            candidates = new[]
+            {
+                new
+                {
+                    content = new
+                    {
+                        role = "model",
+                        parts = new[]
+                        {
+                            new
+                            {
+                                functionCall = new
+                                {
+                                    name = "get_weather",
+                                    args = new { city = "Vienna" }
+                                }
+                            }
+                        }
+                    },
+                    finishReason = "STOP",
+                    index = 0
+                }
+            },
+            usageMetadata = new
+            {
+                promptTokenCount = inputTokens,
+                candidatesTokenCount = 8,
+                totalTokenCount = inputTokens + 8
+            },
+            modelVersion = model
+        });
+    }
     return Results.Ok(new
     {
         candidates = new[]
@@ -980,6 +1130,44 @@ app.MapPost("/v1beta/models/{model}:streamGenerateContent", async (
         return Results.Empty;
     }
     var inputTokens = MockProviderHelpers.EstimateInputTokens(body.RootElement);
+    if (scenario == "tool_call")
+    {
+        context.Response.ContentType = "text/event-stream";
+        var toolCallPayload = JsonSerializer.Serialize(new
+        {
+            candidates = new[]
+            {
+                new
+                {
+                    content = new
+                    {
+                        role = "model",
+                        parts = new[]
+                        {
+                            new
+                            {
+                                functionCall = new
+                                {
+                                    name = "get_weather",
+                                    args = new { city = "Vienna" }
+                                }
+                            }
+                        }
+                    },
+                    finishReason = "STOP"
+                }
+            },
+            usageMetadata = new
+            {
+                promptTokenCount = inputTokens,
+                candidatesTokenCount = 8,
+                totalTokenCount = inputTokens + 8
+            },
+            modelVersion = model
+        });
+        await context.Response.WriteAsync($"data: {toolCallPayload}\n\n", cancellationToken);
+        return Results.Empty;
+    }
     context.Response.ContentType = "text/event-stream";
     await context.Response.WriteAsync($"data: {JsonSerializer.Serialize(new
     {
@@ -1182,6 +1370,7 @@ app.MapPost("/v1/chat/completions", async (HttpContext context, CancellationToke
         _ => "mock response",
     };
 
+    var usage = new { prompt_tokens = 7, completion_tokens = 5, total_tokens = 12 };
     switch (scenario.ToLowerInvariant())
     {
         case "429":
@@ -1318,9 +1507,63 @@ app.MapPost("/v1/chat/completions", async (HttpContext context, CancellationToke
                 usage = new { prompt_tokens = -1, completion_tokens = "invalid", total_tokens = 0 }
             }, cancellationToken);
             return;
+        case "tool_call":
+            if (stream)
+            {
+                context.Response.StatusCode = StatusCodes.Status200OK;
+                context.Response.ContentType = "text/event-stream";
+                context.Response.Headers.CacheControl = "no-cache";
+                await context.Response.WriteAsync(
+                    $"data: {{\"id\":\"{requestId}\",\"object\":\"chat.completion.chunk\",\"model\":\"{model}\",\"choices\":[{{\"index\":0,\"delta\":{{\"role\":\"assistant\",\"content\":null,\"tool_calls\":[{{\"id\":\"call_mock_1\",\"type\":\"function\",\"function\":{{\"name\":\"get_weather\",\"arguments\":\"\"}}}}]}},\"finish_reason\":null}}]}}\n\n",
+                    cancellationToken);
+                await context.Response.WriteAsync(
+                    $"data: {{\"id\":\"{requestId}\",\"object\":\"chat.completion.chunk\",\"model\":\"{model}\",\"choices\":[{{\"index\":0,\"delta\":{{\"tool_calls\":[{{\"index\":0,\"function\":{{\"arguments\":\"{{\\\"city\\\":\\\"Vienna\\\"}}\"}}}}]}},\"finish_reason\":null}}]}}\n\n",
+                    cancellationToken);
+                await context.Response.WriteAsync(
+                    $"data: {{\"id\":\"{requestId}\",\"object\":\"chat.completion.chunk\",\"model\":\"{model}\",\"choices\":[{{\"index\":0,\"delta\":{{}},\"finish_reason\":\"tool_calls\"}}],\"usage\":{JsonSerializer.Serialize(usage)}}}\n\n",
+                    cancellationToken);
+                await context.Response.WriteAsync("data: [DONE]\n\n", cancellationToken);
+                return;
+            }
+            await context.Response.WriteAsJsonAsync(new
+            {
+                id = requestId,
+                @object = "chat.completion",
+                model,
+                choices = new[] { new { index = 0, message = new { role = "assistant", content = (string?)null, tool_calls = new[] { new { id = "call_mock_1", type = "function", function = new { name = "get_weather", arguments = "{\"city\":\"Vienna\"}" } } } }, finish_reason = "tool_calls" } },
+                usage
+            }, cancellationToken);
+            return;
+        case "multi_choice":
+            if (stream)
+            {
+                context.Response.StatusCode = StatusCodes.Status200OK;
+                context.Response.ContentType = "text/event-stream";
+                context.Response.Headers.CacheControl = "no-cache";
+                await context.Response.WriteAsync(
+                    $"data: {{\"id\":\"{requestId}\",\"object\":\"chat.completion.chunk\",\"model\":\"{model}\",\"choices\":[{{\"index\":0,\"delta\":{{\"role\":\"assistant\",\"content\":\"choice A\"}},\"finish_reason\":null}},{{\"index\":1,\"delta\":{{\"role\":\"assistant\",\"content\":\"choice B\"}},\"finish_reason\":null}}]}}\n\n",
+                    cancellationToken);
+                await context.Response.WriteAsync(
+                    $"data: {{\"id\":\"{requestId}\",\"object\":\"chat.completion.chunk\",\"model\":\"{model}\",\"choices\":[{{\"index\":0,\"delta\":{{}},\"finish_reason\":\"stop\"}},{{\"index\":1,\"delta\":{{}},\"finish_reason\":\"stop\"}}],\"usage\":{JsonSerializer.Serialize(usage)}}}\n\n",
+                    cancellationToken);
+                await context.Response.WriteAsync("data: [DONE]\n\n", cancellationToken);
+                return;
+            }
+            await context.Response.WriteAsJsonAsync(new
+            {
+                id = requestId,
+                @object = "chat.completion",
+                model,
+                choices = new object[]
+                {
+                    new { index = 0, message = new { role = "assistant", content = "choice A" }, finish_reason = "stop" },
+                    new { index = 1, message = new { role = "assistant", content = "choice B" }, finish_reason = "stop" },
+                },
+                usage
+            }, cancellationToken);
+            return;
     }
 
-    var usage = new { prompt_tokens = 7, completion_tokens = 5, total_tokens = 12 };
     if (stream || scenario.Equals("sse", StringComparison.OrdinalIgnoreCase))
     {
         context.Response.StatusCode = StatusCodes.Status200OK;
