@@ -1595,7 +1595,9 @@ namespace CapnpGen
             models,
             alphaSearch,
             realtime,
-            antigravity
+            antigravity,
+            audioTts,
+            audioStt
         }
     }
 

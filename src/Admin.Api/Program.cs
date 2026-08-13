@@ -9,6 +9,7 @@ using ScalaAPI.Data.Repositories;
 using ScalaAPI.Data.Accounting;
 using ScalaAPI.Data.Provider;
 using ScalaAPI.Data.Search;
+using ScalaAPI.Data.Voice;
 using Npgsql;
 using System.IdentityModel.Tokens.Jwt;
 using Fido2NetLib;
@@ -78,6 +79,8 @@ builder.Services.AddSingleton<MaintenanceStore>();
 builder.Services.AddSingleton<BackupStore>();
 builder.Services.AddSingleton<AnnouncementStore>();
 builder.Services.AddSingleton<ISearchHistoryStore, SearchHistoryStore>();
+builder.Services.AddSingleton<IVoiceStore, VoiceStore>();
+builder.Services.AddSingleton<IAudioHistoryStore, AudioHistoryStore>();
 builder.Services.AddSingleton<IMetadataService, EmptyPasskeyMetadataService>();
 builder.Services.AddSingleton<Fido2>(sp =>
 {

@@ -1822,6 +1822,159 @@ app.MapPost("/alpha/search", async (HttpContext context, CancellationToken cance
     }, cancellationToken);
 });
 
+app.MapPost("/alpha/audio/speech", async (HttpContext context, CancellationToken cancellationToken) =>
+{
+    var auth = context.Request.Headers.Authorization.ToString();
+    if (!auth.StartsWith("Bearer ", StringComparison.Ordinal))
+    {
+        context.Response.StatusCode = 401;
+        await context.Response.WriteAsJsonAsync(new { error = new { type = "authentication_error", message = "missing bearer token" } }, cancellationToken);
+        return;
+    }
+
+    using var body = await MockProviderHelpers.ReadJsonAsync(context, cancellationToken);
+    var root = body.RootElement;
+    if (root.ValueKind != JsonValueKind.Object
+        || !root.TryGetProperty("input", out var inputEl)
+        || inputEl.ValueKind != JsonValueKind.String)
+    {
+        context.Response.StatusCode = 400;
+        await context.Response.WriteAsJsonAsync(new { error = new { type = "invalid_request_error", message = "input is required and must be a string" } }, cancellationToken);
+        return;
+    }
+
+    if (!root.TryGetProperty("voice", out var voiceEl) || voiceEl.ValueKind != JsonValueKind.String)
+    {
+        context.Response.StatusCode = 400;
+        await context.Response.WriteAsJsonAsync(new { error = new { type = "invalid_request_error", message = "voice is required and must be a string" } }, cancellationToken);
+        return;
+    }
+
+    var input = inputEl.GetString() ?? "";
+    if (input.Length > 4096)
+    {
+        context.Response.StatusCode = 400;
+        await context.Response.WriteAsJsonAsync(new { error = new { type = "invalid_request_error", message = "input exceeds 4096 character limit" } }, cancellationToken);
+        return;
+    }
+
+    var voice = voiceEl.GetString() ?? "alloy";
+    var responseFormat = "mp3";
+    if (root.TryGetProperty("response_format", out var fmtEl) && fmtEl.ValueKind == JsonValueKind.String)
+        responseFormat = fmtEl.GetString() ?? "mp3";
+
+    var model = "tts-1";
+    if (root.TryGetProperty("model", out var modelEl) && modelEl.ValueKind == JsonValueKind.String)
+        model = modelEl.GetString() ?? "tts-1";
+
+    var scenario = context.Request.Headers["X-Mock-Scenario"].ToString().ToLowerInvariant();
+    if (scenario == "rate_limited")
+    {
+        context.Response.StatusCode = 429;
+        context.Response.Headers.RetryAfter = "5";
+        await context.Response.WriteAsJsonAsync(new { error = new { type = "rate_limit_error", message = "mock rate limited" } }, cancellationToken);
+        return;
+    }
+    if (scenario == "server_error")
+    {
+        context.Response.StatusCode = 500;
+        await context.Response.WriteAsJsonAsync(new { error = new { type = "server_error", message = "mock server error" } }, cancellationToken);
+        return;
+    }
+    if (scenario == "timeout")
+    {
+        await Task.Delay(TimeSpan.FromMinutes(2), cancellationToken);
+        return;
+    }
+
+    var contentType = responseFormat switch
+    {
+        "opus" => "audio/opus",
+        "aac" => "audio/aac",
+        "flac" => "audio/flac",
+        "wav" => "audio/wav",
+        "pcm" => "audio/pcm",
+        _ => "audio/mpeg",
+    };
+
+    // Return a mock audio payload: a small deterministic byte sequence
+    var estimatedDuration = Math.Max(1.0, input.Length / 15.0);
+    var mockAudioBytes = System.Text.Encoding.ASCII.GetBytes("MOCK_AUDIO:" + input[..Math.Min(input.Length, 50)]);
+
+    context.Response.StatusCode = 200;
+    context.Response.ContentType = contentType;
+    context.Response.Headers.Append("X-Mock-Model", model);
+    context.Response.Headers.Append("X-Mock-Voice", voice);
+    context.Response.Headers.Append("X-Mock-Duration-Sec", estimatedDuration.ToString("F2"));
+    await context.Response.Body.WriteAsync(mockAudioBytes, cancellationToken);
+});
+
+app.MapPost("/alpha/audio/transcriptions", async (HttpContext context, CancellationToken cancellationToken) =>
+{
+    var auth = context.Request.Headers.Authorization.ToString();
+    if (!auth.StartsWith("Bearer ", StringComparison.Ordinal))
+    {
+        context.Response.StatusCode = 401;
+        await context.Response.WriteAsJsonAsync(new { error = new { type = "authentication_error", message = "missing bearer token" } }, cancellationToken);
+        return;
+    }
+
+    var scenario = context.Request.Headers["X-Mock-Scenario"].ToString().ToLowerInvariant();
+    if (scenario == "rate_limited")
+    {
+        context.Response.StatusCode = 429;
+        context.Response.Headers.RetryAfter = "5";
+        await context.Response.WriteAsJsonAsync(new { error = new { type = "rate_limit_error", message = "mock rate limited" } }, cancellationToken);
+        return;
+    }
+    if (scenario == "server_error")
+    {
+        context.Response.StatusCode = 500;
+        await context.Response.WriteAsJsonAsync(new { error = new { type = "server_error", message = "mock server error" } }, cancellationToken);
+        return;
+    }
+    if (scenario == "timeout")
+    {
+        await Task.Delay(TimeSpan.FromMinutes(2), cancellationToken);
+        return;
+    }
+
+    // Parse multipart form or JSON body
+    string language = "";
+    string model = "whisper-1";
+    if (context.Request.ContentType?.Contains("application/json") == true)
+    {
+        using var body = await MockProviderHelpers.ReadJsonAsync(context, cancellationToken);
+        var root = body.RootElement;
+        if (root.ValueKind == JsonValueKind.Object)
+        {
+            if (root.TryGetProperty("language", out var langEl) && langEl.ValueKind == JsonValueKind.String)
+                language = langEl.GetString() ?? "";
+            if (root.TryGetProperty("model", out var modelEl) && modelEl.ValueKind == JsonValueKind.String)
+                model = modelEl.GetString() ?? "whisper-1";
+        }
+    }
+    else if (context.Request.HasFormContentType)
+    {
+        var form = await context.Request.ReadFormAsync(cancellationToken);
+        language = form["language"].ToString();
+        model = form["model"].ToString();
+        if (string.IsNullOrEmpty(model)) model = "whisper-1";
+    }
+
+    var transcript = scenario == "empty" ? "" : "This is a mock transcription from the audio input.";
+    var durationSec = scenario == "empty" ? 0.0 : 3.5;
+
+    await context.Response.WriteAsJsonAsync(new
+    {
+        id = MockProviderHelpers.Id("transcription"),
+        text = transcript,
+        language = string.IsNullOrEmpty(language) ? "en" : language,
+        duration_sec = durationSec,
+        model,
+    }, cancellationToken);
+});
+
 app.Run();
 
 public partial class Program;

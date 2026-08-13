@@ -2,6 +2,7 @@ using ScalaAPI.Host.Services;
 using ScalaAPI.Data.Accounting;
 using ScalaAPI.Data.Provider;
 using ScalaAPI.Data.Search;
+using ScalaAPI.Data.Voice;
 using Npgsql;
 using System.Security.Cryptography;
 
@@ -139,6 +140,8 @@ builder.Services.AddSingleton<ScalaAPI.Grains.Interfaces.ISlotLeaseStore, ScalaA
 builder.Services.AddSingleton<MediaOperationStore>();
 builder.Services.AddSingleton<MediaRetentionService>();
 builder.Services.AddSingleton<ISearchHistoryStore, SearchHistoryStore>();
+builder.Services.AddSingleton<IVoiceStore, VoiceStore>();
+builder.Services.AddSingleton<IAudioHistoryStore, AudioHistoryStore>();
 var classifierEndpoint = builder.Configuration["ContentClassifier:Endpoint"];
 var openAiClassifierEndpoint = builder.Configuration["ContentClassifier:OpenAI:Endpoint"];
 builder.Services.AddSingleton<OpenAiModerationMetrics>();

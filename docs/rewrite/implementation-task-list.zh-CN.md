@@ -209,7 +209,7 @@
 
 ### P1-02 实现 TTS/STT/自定义声音
 
-- **状态**：`TODO`；**优先级**：P1；**依赖**：P0-03、P0-06；**范围**：Gateway protocol/stream、Platform media/auth/storage、Provider.Mock、两套 Web。
+- **状态**：`DONE`；**优先级**：P1；**依赖**：P0-03、P0-06；**范围**：Gateway protocol/stream、Platform media/auth/storage、Provider.Mock、两套 Web。
 - **实现步骤**：增加 bounded audio input/output、voice CRUD/授权、S3 metadata/retention、
   provider adapters；分别定义 character、audio-minute、storage 计费和失败/取消状态；加入
   文件类型/大小/时长校验、下载签名和删除。

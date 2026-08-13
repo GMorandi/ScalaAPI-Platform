@@ -214,6 +214,8 @@ public class CapnpRpcHostedService : IHostedService
                 CapnpGen.DispatchRequest.EndpointKind.alphaSearch => "search",
                 CapnpGen.DispatchRequest.EndpointKind.realtime => "realtime",
                 CapnpGen.DispatchRequest.EndpointKind.antigravity => "antigravity",
+                CapnpGen.DispatchRequest.EndpointKind.audioTts => "audio_tts",
+                CapnpGen.DispatchRequest.EndpointKind.audioStt => "audio_stt",
                 _ => "unknown",
             },
             MetadataUserId: capnpReq.MetadataUserId,
