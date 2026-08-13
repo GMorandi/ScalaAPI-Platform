@@ -349,7 +349,7 @@
 
 ### REL-03 一小时长压测与资源清理
 
-- **状态**：`TODO`；**优先级**：P0；**依赖**：P0-06、P0-08、REL-01；**范围**：stack smoke、realtime/media/load clients、metrics。
+- **状态**：`DONE`；**优先级**：P0；**依赖**：P0-06、P0-08、REL-01；**范围**：stack smoke、realtime/media/load clients、metrics。
 - **实现步骤**：运行 3600 秒媒体 due-work/stream/realtime/backpressure 混合负载；注入 Provider/
   Garnet/PostgreSQL/MinIO/TLS/进程替换；采集 p95、连接、buffer、lease、hold、outbox backlog。
 - **验收**：无重复 financial effect、无泄漏连接/容器/临时网络、unknown-charge incident 可解释；
