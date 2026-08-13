@@ -218,10 +218,48 @@ aggregate projections through the protected Platform rebuild operation. Garnet o
 new rate-sensitive dispatch fail closed while settlement and recovery outboxes stay
 available.
 
+Passive monitoring and scheduled operations use PostgreSQL authority plus fenced,
+expiring claims or advisory locks. Channel Monitor V2 keeps its mode separate from
+manual probes, advances durable watermarks in bounded batches, stores privacy-aware
+rollups rather than raw cross-user payloads, and permits only one cluster worker to
+own a backfill segment. Scheduled backups likewise require cluster-singleton
+leadership while manual backup remains an independent idempotent command; Garnet or
+another cache may coordinate a lease but cannot be the sole history or artifact
+authority.
+
 ## Provider and object storage
 
 Gateway owns the streaming Provider transport behind a common adapter contract.
 Platform owns account selection, credential protection, scheduling, and settlement.
+Provider names and generic credentials are discovery metadata, not an implementation
+claim. A provider is supported only when its capability matrix, native path/method,
+request/response/stream semantics, credential lifecycle, account health and quota
+state, model catalogue, usage units, pricing, error/account-penalty policy, and
+source-owned fixtures are explicit. This prevents the current generic `grok`/`xai`
+label and Bearer path from being mistaken for Grok parity.
+
+Specialized capabilities remain first-class contracts. Web/X Search needs bounded
+filters, source/result normalization, dedicated usage counts, and stable feature
+gates. TTS, STT, and custom voices need separate media, authorization, retention,
+and character/hour/minute settlement semantics. Generic Chat, alpha-search routing,
+realtime WebSocket transport, or video storage may be reused, but none is sufficient
+evidence that those APIs exist.
+
+Pricing records four independent model identities when available: client-requested,
+channel-mapped, upstream-target, and terminal Provider-observed response model. A
+response-model billing policy must conservatively reject conflicts, never select a
+more expensive model than the authorized request basis, never turn a positive price
+into zero, never bypass an explicit administrative quote, and never apply token-model
+selection to search/audio/image/video unit charges. Group exact/wildcard overrides,
+long-context tiers, and specialized units become immutable lease snapshots before
+Provider contact.
+
+Provider quota/tier snapshots are scheduler inputs rather than monetary authority.
+Each provider adapter bounds and timestamps its snapshot; unknown or stale state has
+an explicit fail/soft-gate policy, refresh is fenced across Silos, and account/model
+cooldowns are audited. Subscription claims embedded in Provider tokens never replace
+ScalaAPI's own balance, hold, subscription, or ledger authority.
+
 Stored Provider credentials are semantic encrypted fields, not an unbounded list of
 HTTP headers. Platform alone compiles those fields into the source-owned target:
 OpenAI-compatible API keys become Bearer authorization, Anthropic keys become

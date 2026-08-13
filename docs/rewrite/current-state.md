@@ -1,18 +1,23 @@
 # ScalaAPI Rewrite Current State
 
 This document is the active baseline for the new ScalaAPI product as of
-2026-08-11. ScalaAPI reimplements the useful product capabilities catalogued in
+2026-08-13. ScalaAPI reimplements the useful product capabilities catalogued in
 Sub2API, but it does not preserve Sub2API APIs, internal contracts, schemas, IDs,
 keys, state mappings, deployment processes, or data. The Sub2API repository is a
 read-only requirements reference and is excluded from builds and runtime.
+
+This refresh is static by request. It inspected source, routes, schemas, migrations,
+configuration, documentation, and Git history; it did not build, test, benchmark,
+start services, or perform runtime probes. Runtime results later in this document
+are retained historical evidence, not results rerun on 2026-08-13.
 
 ## Source snapshot
 
 | Repository | Commit | Worktree | Active role |
 | --- | --- | --- | --- |
-| `gateway` | `04ec18c` | clean | C++ Gateway edge, protocol routing/conversion, Provider transport, client-hangup cancellation, target-credential isolation, and Garnet client |
-| `platform` | `e7bcf09` (`651a786` implementation) | clean | C# Orleans control plane, PostgreSQL authority, terminal OAuth credential lifecycle, native Provider mock, Admin Web, User Web, and source-owned runtime evidence |
-| `sub2api` | `43ec48d` | read-only clean | Requirements reference only; no runtime or compatibility dependency |
+| `gateway` | `04ec18c` | clean at audit start; 40 ahead of `origin/master@60f99a0` | C++ Gateway edge, protocol routing/conversion, Provider transport, client-hangup cancellation, target-credential isolation, and Garnet client |
+| `platform` | `c8a59d7` docs (`651a786` implementation) | clean at audit start; 9 ahead of `origin/master@d70a993` | C# Orleans control plane, PostgreSQL authority, terminal OAuth credential lifecycle, native Provider mock, Admin Web, User Web, and historical source-owned runtime evidence |
+| `sub2api` | `origin/main@fbfdcef` fetched; local `43ec48d` | read-only clean; local 1 ahead / 283 behind | Requirements reference only; no runtime or compatibility dependency |
 
 ## Historical role descriptions
 
@@ -22,32 +27,35 @@ read-only requirements reference and is excluded from builds and runtime.
 | `platform` | `eecaff6` backend + Admin Web + User Web | clean | C# Orleans control plane, PostgreSQL accounting/product authority and reconciliation, Provider mock contracts including source-owned malformed, cancellation, and input-item OpenAI Responses fixtures, OpenAI Responses JSON/SSE plus idempotent read/input_items/cancel/delete subresource runtime smoke coverage, four non-billable control leases with no usage/debit evidence, malformed-success 502/unknown-charge retention smoke coverage, seeded Anthropic/Gemini provider-group smoke coverage, Claude price aliasing, control-operation concurrency accounting, terminal lease-slot release, bounded provider pricing catalog refresh with immutable source/checksum history and admin-source precedence, media object HEAD reconciliation with retryable missing/mismatch state, native mock and Stripe Checkout Session payment adapters with HTTPS/auth/amount bounds and idempotent pending-order retry, Stripe raw-body webhook verification and event normalization with provider payment-id association, native partial-refund Provider commands with pending/retryable state, cumulative order refund state, independent Provider/ledger refund effects, SKIP LOCKED refund recovery with expiring claims, and one NUMERIC ledger effect per refund, User Web provider selection and checkout links, public model catalog/status/legal routes with source-built Compose browser evidence, authenticated portal browser evidence for login/dashboard/usage/API keys/profile, rotating identity/session/TOTP/OAuth state, native Passkey/WebAuthn ceremonies, encrypted email notification outbox and retry worker, API-key policy and audit, versioned runtime configuration, persistent scheduling and lease/hold/ledger state, atomic subscription quota reservation and settlement, idempotent subscription expiry/renewal worker, audited operator reconciliation, Admin Web incident filtering/run/evidence-backed settle-release workflow with replay-key preservation, content-policy rule CRUD/change/alert operations with an API-intercepted Playwright smoke, authenticated Operations metric/alert dashboard, bounded Channel Monitor history and health-check submission with browser evidence, source-built OpenAI Moderation empty-stack smoke coverage, atomic audited referral rewards, authenticated and audited operational metrics, bounded redacted audit queries/exports, encrypted proxy and validated TLS profile administration, audited bounded channel monitor checks, auditable user data export, bounded authentication/ceremony cleanup, user announcement read tracking, media/object lifecycle, staged request/response content-policy evaluation with versioned Unicode normalization, explicitly selectable source-owned/OpenAI Moderation classifiers, fixed-label OpenAI moderation counters, persisted cross-process snapshots, configuration-backed p95/unavailable-ratio budget gauges, durable budget alerts with rolling-window recovery, deterministic hosted-worker and multi-process/restart evidence, cross-Gateway shared-idempotency exactly-once settlement evidence, controlled secondary Silo/Gateway outage and rejoin settlement evidence, idempotent PostgreSQL backup artifacts with SHA-256 and isolated restore target, bilingual Admin backup/restore controls, isolated Provider fault fixtures with deterministic empty-stream EOF, durable no-TTL policy revision propagation and PostgreSQL-backed Garnet rebuild, Garnet TLS CA trust-anchor and server-name validation, source-built Garnet TLS server override, rotation/expiry rejection and recovery, four-session realtime WebSocket soak with bounded connection hold and exactly-once billing assertions, operational alert evidence, redacted audits, and crash-reclaimable content-policy outbox propagation |
 | `sub2api` | `43ec48d` | read-only clean | Requirements catalogue only; never a runtime or compatibility dependency |
 
-The 2026-08-11 re-investigation started from clean Platform documentation HEAD
-`e7bcf09`, whose latest production implementation commit is `651a786`, and clean
-Gateway `04ec18c`. The table's longer capability descriptions are retained as
-inventory context, while this override and the evidence below define the current
-code under review.
+The 2026-08-13 re-investigation started from clean Platform documentation HEAD
+`c8a59d7`, whose latest production implementation commit is `651a786`, and clean
+Gateway `04ec18c`. It fetched Sub2API `origin/main@fbfdcef` without checking it out;
+the clean local worktree remains `43ec48d`, whose local CDC commit is absent upstream.
+The table's longer descriptions are retained as inventory context, while this
+override defines the current code and reference requirements under review.
 
 The current tracked inventory is:
 
-- Gateway: 52 production C++ source/header files, 11 test source files, and 127
-  CTest cases.
+- Gateway: 52 production C++ source/header files, 11 test/benchmark source files,
+  3 tracked Cap'n Proto schemas with dispatch revision 3, and 127 statically
+  discoverable GoogleTest declarations. The earlier 127/127 CTest result was not rerun.
 - Platform: 132 source C# files, including 4 smoke-only object-storage
   fault-proxy files, 5 generated Cap'n Proto/global C# files, 72 test/benchmark C#
   files, and 294 discovered tests: 76 Grain, 96 Host, 46 Admin, and 76 Provider mock
-  tests. The ordinary no-database run passes all 294; the fresh database-enabled
-  run passes 292 and fails 2 as detailed below.
+  tests. Historically, the ordinary no-database run reported 294/294; the isolated
+  database-enabled run reported 292 passed and 2 failed as detailed below. Neither
+  run was repeated in this refresh.
   The Admin Web source has 28 TypeScript/TSX files and 16 page views.
 - Product surface: 142 direct Admin API route declarations, 62 product tables,
   22 SQLSugar entity types, 28 Admin Web TypeScript/TSX files and 16 page views,
   plus 21 User Web TypeScript/TSX files and 14 user views.
-- Reference scope at read-only `sub2api@43ec48d`: 647 production Gin route
-  registrations in its primary route/handler surface, 39 concrete Ent schemas,
-  289 Vue files including 59 lazy router imports, and 240 SQL migrations. These
-  are scope signals, not parity percentages or migration targets.
+- Reference scope at fetched read-only `sub2api origin/main@fbfdcef`: 661 production
+  Gin route registrations in `backend/internal/server/routes`, 42 Ent schemas,
+  297 Vue files plus 424 TS/TSX files, 59 lazy router imports, and 259 SQL migrations.
+  These are scope signals, not parity percentages or migration targets.
 
-The 58-domain inventory is 2 `implemented`, 55 `partial`, 1 `skeleton`,
-and 0 `missing`. A route, table, mock response, or manual probe does not promote a
+The 65-domain inventory is 2 `implemented`, 56 `partial`, 5 `skeleton`,
+and 2 `missing`. A route, table, mock response, or manual probe does not promote a
 domain; promotion requires a defined contract/state machine, automated tests, and
 current-source runtime evidence.
 
@@ -55,6 +63,45 @@ The concise per-domain result is maintained in
 [`feature-gap-report.md`](feature-gap-report.md). It is the active
 implementation-gap summary; `feature-inventory.csv` retains the detailed evidence
 catalogue.
+
+## 2026-08-13 static reference delta
+
+The 283 upstream commits beyond the local reference snapshot are a material product
+catalogue change, not ordinary churn:
+
+- Grok/xAI now has dedicated model, OAuth/account, quota/tier, text, image, video,
+  realtime, Voice, Web Search, and X Search behavior in the reference. ScalaAPI has
+  only a generic provider label/Bearer path and therefore remains `skeleton` for the
+  dedicated provider domain.
+- Reference pricing now includes group model exact/wildcard resolution,
+  long-context toggles, response-model-aware admission, model/resolution video,
+  search-per-1k, TTS-per-character, STT-per-hour, and realtime-minute units.
+  ScalaAPI's immutable NUMERIC foundation is useful but does not encode that full
+  decision contract.
+- Channel Monitor V2 is passive, mode-isolated, watermark-driven aggregation with
+  platform/group/model/user/error dimensions, latency histograms, bounded backfill,
+  privacy defaults, retention, and both Admin and user views. Manual monitor checks
+  and general metrics are only adjacent infrastructure.
+- Captcha providers and per-email-domain registration quotas add a public abuse
+  boundary not present in ScalaAPI. Generic registration counters do not satisfy it.
+- Scheduled backup now has a cluster leader lock in the reference. ScalaAPI's local
+  backup skeleton still lacks cluster-singleton scheduling, offsite lifecycle, and
+  measured recovery.
+
+Several reference findings are deliberately not target requirements: the local
+Sub2API CDC outbox is a private commit, lacks an in-repository consumer/checkpoint/
+retention lifecycle, and collides with upstream migration number 194. ScalaAPI keeps
+DEP-02 clean-room and must not import that migration history. Reference deployment
+and prose also contain stale or unsafe edges (`PrivateTmp` socket isolation,
+permissive Compose defaults, optional checksum verification, and Voice/Search/
+payment documentation drift), so source behavior is catalogued without treating the
+reference as a release-quality acceptance oracle.
+
+Gateway-specific static corrections are also reflected in the inventory: proxy URLs
+are already applied to HTTP and realtime transport, while proxy credentials and TLS
+fingerprints are not; cross-protocol conversion still loses or rejects tool,
+multimodal, multi-candidate, identifier, and finish semantics; and catalogue code
+validates response shapes rather than proving requested-model authority.
 
 ## Architecture now implemented
 
@@ -527,7 +574,7 @@ catalogue.
 - The direct source migrator applies product migrations 001-050 plus the Orleans
   baseline to an empty PostgreSQL 17 database; the Compose gate therefore expects
   51 records (50 product migrations plus the image-owned Orleans baseline). The
-  fresh 2026-08-11 audit applied and replay-skipped all 51 records.
+  historical 2026-08-11 audit applied and replay-skipped all 51 records.
   Migration 043 makes `openai` an explicit allowed classifier for policy rules and
   migration 044 adds cross-process classifier metric snapshots; migration 045 adds
   budget alert state; migration 046 adds idempotent PostgreSQL backup jobs and
@@ -554,9 +601,9 @@ catalogue.
   `docs/migration/README.md` is only a pointer to historical material under
   `docs/archive/migration`.
 
-## Current verification evidence
+## Historical verification evidence
 
-### Fresh 2026-08-11 re-investigation
+### 2026-08-11 runtime re-investigation
 
 Release build, the ordinary no-database Platform run (294/294), Gateway CTest
 (127/127), both Web typecheck/build commands, contract digests, pinned Cap'n Proto
@@ -572,11 +619,12 @@ legally let one worker claim both; `BatchListIsOwnerScopedAndReturnsDurableOpera
 deletes synthetic operation IDs rather than the generated rows and then violates the
 `media_operations_lease_token_fkey` during cleanup. Both fail independently on a
 fresh schema. This is a verification-harness defect rather than evidence of a
-production state-machine failure, but the current release gate is red until the
+  production state-machine failure, but the recorded release gate is red until the
 tests and database isolation contract are corrected. The prior complete source
-smoke remains runtime evidence; it no longer justifies describing every current
+  smoke remains runtime evidence; it no longer justifies describing every
 verification gate as green. The audit trap removed its PostgreSQL container and
-temporary migration directory; `podman ps -a` is empty.
+  temporary migration directory; `podman ps -a` was empty at that checkpoint. None
+  of these commands was rerun during the 2026-08-13 static refresh.
 
 ### Native Provider credential implementation evidence
 
@@ -1309,7 +1357,12 @@ Detailed gate results and residual coverage are maintained in `verification.md`.
 
 ## Known gaps
 
-- The database-enabled solution gate is currently red: two Host tests fail on a
+- The fetched requirement catalogue now has dedicated Grok/xAI, Web/X Search,
+  TTS/STT/custom voices, provider quota/tier scheduling, passive Channel Monitor V2,
+  captcha/domain quotas, and specialized pricing domains. ScalaAPI has only generic
+  provider/search/realtime/scheduler primitives for several of them; GW-13, GW-14,
+  CORE-07, and OPS-06 are skeletons, while GW-15 and AUTH-08 are missing.
+- The 2026-08-11 database-enabled solution gate was red: two Host tests failed on a
   fresh PostgreSQL schema, while the ordinary 294/294 run hides those paths through
   early returns. Fix the invalid concurrent-claim distribution assertion and the
   media cleanup foreign-key leak, then make missing integration prerequisites fail
@@ -1334,13 +1387,21 @@ Detailed gate results and residual coverage are maintained in `verification.md`.
   evidence. Scheduled execution, immutable retention, object/media cleanup, and
   browser download authorization remain before OPS-05 is implemented.
 - Proxy and TLS administration now encrypts proxy credentials, validates profile
-  inputs, and records actor/IP audit evidence. Provider-specific outbound
-  adapters, actual TLS fingerprint application, retention/rotation, and browser
-  security evidence remain before SEC-03 is implemented.
+  inputs, and records actor/IP audit evidence. Gateway applies proxy URLs to HTTP
+  and realtime transports, but it ignores proxy username/password, merely decodes
+  TLS fingerprint metadata, and does not apply the fingerprint. Realtime target
+  headers also bypass the HTTP validator. Credentialed proxy E2E, retention/rotation,
+  browser authorization, live transport, and security evidence remain.
+- Gateway's production request path extracts/hashes the API key and delegates
+  authority to Platform; its separate `ApiKeyAuth::authenticate()` object is not
+  called. The Cap'n Proto invalidation stream is also not used; Gateway polls the
+  Garnet version and flushes its cache. Media capability flags and the hard-coded
+  `pricing_version = "v1"` are further placeholders. These adjacent objects must not
+  be counted as additional production capability.
 - Gateway now classifies client cancellation and incomplete SSE as unknown-charge
   outcomes, records disconnect/cancellation reasons, and prevents failover after
-  output or partial Provider output. The source-level behavior is covered by 127
-  CTest cases; the empty-stack gate now proves Provider partial-SSE disconnect,
+  output or partial Provider output. The source-level behavior has 127 discoverable
+  GoogleTest declarations; the historical empty-stack gate proves Provider partial-SSE disconnect,
   disconnect-before-output, malformed-usage retention, and bounded pre-header
   timeout handling with no usage/debit.
   The empty-stack gate now proves actual downstream socket cancellation as well;
@@ -1379,8 +1440,10 @@ Detailed gate results and residual coverage are maintained in `verification.md`.
   does include rootless single-Silo object-storage and PostgreSQL partition
   recovery for media work.
 - Hosted CI cannot currently check out the private sibling repository with the
-  default per-repository token. The local cross-repository smoke must become a
-  blocking release workflow with a read-only checkout boundary.
+  default per-repository token. Gateway is also 40 commits ahead of its remote and
+  Platform is 9 ahead, so the remote branches cannot reproduce this audit. Publish
+  immutable refs, then make the local cross-repository smoke a blocking release
+  workflow with a read-only checkout boundary.
 - Provider adapters beyond the mock, provider-specific OAuth refresh profiles,
   provider-specific tokenizer/catalog fixtures, User Web browser
   tests for auth recovery/TOTP/Passkey UX, Passkey anti-enumeration and abuse,

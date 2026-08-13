@@ -58,6 +58,13 @@ public record SlotResult(bool Acquired, string? LeaseToken, int CurrentLoad, int
 public record ErrorInfo(int StatusCode, int? RetryAfterMs, string? Message);
 
 [GenerateSerializer]
+public record HealthReport(
+    bool Schedulable, int ConsecutiveErrors,
+    DateTime? RateLimitResetAt, DateTime? OverloadUntil,
+    DateTime? TempUnschedulableUntil, bool DisabledPermanently,
+    string? DisableReason, DateTime? LastSuccessAt);
+
+[GenerateSerializer]
 public record AccountUpsert(
     string Name, string Platform, string Type, string BaseUrl,
     int Priority, int Concurrency, int LoadFactor, decimal RateMultiplier,
@@ -81,6 +88,7 @@ public interface IAccountGrain : IGrainWithIntegerKey
     Task<SlotResult> TryAcquireSlot(string leaseToken, DateTime expiresAt, int maxConcurrency);
     Task ReleaseSlot(string requestId);
     Task<int> GetLoad();
+    Task<HealthReport> GetHealthReport();
     Task ReportUpstreamError(ErrorInfo error);
     Task ReportSuccess();
     Task RecordRpm();

@@ -2,25 +2,46 @@
 
 ## Current evidence
 
-The 2026-08-11 re-investigation started from Platform documentation HEAD `e7bcf09`
-with production code through `651a786`, Gateway `04ec18c`, and read-only
-`sub2api@43ec48d`. Rows later in this document retain historical runtime checkpoints;
-they do not override the fresh result below.
+The 2026-08-13 re-investigation started from Platform documentation HEAD `c8a59d7`
+with production code through `651a786`, Gateway `04ec18c`, and fetched read-only
+`sub2api origin/main@fbfdcef`. The local reference worktree remains clean at
+`43ec48d`, one local commit ahead and 283 commits behind the fetched ref.
 
-Current non-database gates pass: Platform Release build has zero warnings/errors,
-the ordinary suite reports 294/294, Gateway builds and passes 127/127, both Web
+Per the investigation request, this pass executed no build, test, benchmark,
+container, service, browser, database, or runtime probe. It used only static source,
+route, schema, migration, configuration, documentation, and Git-history inspection.
+Rows later in this document retain historical runtime checkpoints and are explicitly
+not revalidated 2026-08-13 results.
+
+Static evidence found no new production commit after Platform `651a786` or Gateway
+`04ec18c`. It did find a material requirements delta in Sub2API: dedicated Grok/xAI,
+Web/X Search, TTS/STT/custom voices, provider quota/tier scheduling, response-model
+and long-context/specialized pricing, captcha/domain quotas, Channel Monitor V2, and
+cluster-singleton scheduled backup. The feature inventory consequently expands from
+58 to 65 domains without promoting any existing domain.
+
+Repository publication state is also part of the static result: Gateway `master` is
+40 commits ahead of `origin/master@60f99a0`, Platform `master` is 9 commits ahead of
+`origin/master@d70a993`, and the Sub2API local branch is 1 ahead / 283 behind
+`origin/main@fbfdcef`. Hosted or third-party reproduction cannot rely on those remote
+branches alone.
+
+## Historical 2026-08-11 runtime evidence
+
+At the recorded commits, non-database gates passed: Platform Release build had zero warnings/errors,
+the ordinary suite reported 294/294, Gateway builds and passed 127/127, both Web
 projects typecheck/build, contract digests and Cap'n Proto 1.0.2 generated C# match,
 the retired-dependency scan passes, and every Scheduler Dry child exits zero. The
 ordinary Platform count is incomplete evidence because 33 test files return early
 without `GREENFIELD_SCHEMA_CONNECTION`.
 
-A fresh isolated PostgreSQL 17 run applied and replay-skipped all 51 schema records.
+The historical isolated PostgreSQL 17 run applied and replay-skipped all 51 schema records.
 With database tests enabled, the solution is red at 292 passed / 2 failed:
 `ConcurrentWorkersSerializeClaimsAndPublishEachRevisionOnce` requires an invalid
 one-row-per-worker distribution even though one worker legally claims both rows,
 and `BatchListIsOwnerScopedAndReturnsDurableOperations` deletes IDs that were not
 the generated media rows before removing their referenced leases. Each failure
-reproduces alone on a clean schema. The current release gate therefore does not
+reproduces alone on a clean schema. The recorded release gate therefore did not
 pass, even though the prior complete source-built runtime matrix below remains valid
 evidence for the production paths it exercised.
 

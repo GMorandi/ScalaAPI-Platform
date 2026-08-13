@@ -20,7 +20,7 @@ public class UserGrainTests
 
         var result = await grain.TryAcquireSlot("req-1");
         Assert.True(result.Acquired);
-        Assert.Equal("req-1", result.LeaseToken);
+        Assert.NotNull(result.LeaseToken);
         Assert.Equal(1, result.CurrentLoad);
         Assert.Equal(3, result.MaxConcurrency);
     }
@@ -43,9 +43,9 @@ public class UserGrainTests
     {
         var grain = GetGrain(7003);
         await grain.Create(new UserCreate("user", 1, 0, []));
-        await grain.TryAcquireSlot("req-x");
+        var first = await grain.TryAcquireSlot("req-x");
 
-        await grain.ReleaseSlot("req-x");
+        await grain.ReleaseSlot(first.LeaseToken!);
 
         Assert.True((await grain.TryAcquireSlot("req-y")).Acquired);
     }
@@ -55,10 +55,10 @@ public class UserGrainTests
     {
         var grain = GetGrain(7004);
         await grain.Create(new UserCreate("user", 1, 0, []));
-        await grain.TryAcquireSlot("lease-a");
+        var acquired = await grain.TryAcquireSlot("lease-a");
 
-        await grain.FinalizeLease("lease-a", "request-a");
-        await grain.FinalizeLease("lease-a", "request-a");
+        await grain.FinalizeLease(acquired.LeaseToken!, "request-a");
+        await grain.FinalizeLease(acquired.LeaseToken!, "request-a");
 
         Assert.True((await grain.TryAcquireSlot("lease-b")).Acquired);
     }

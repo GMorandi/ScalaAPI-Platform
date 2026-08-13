@@ -22,16 +22,18 @@ public class UserGrain : Grain, IUserGrain
 {
     private readonly IPersistentState<UserState> _state;
     private readonly IInvalidationService _invalidation;
-    private readonly Dictionary<string, long> _activeSlots = new();
+    private readonly ISlotLeaseStore _slotLeaseStore;
     private int _rpmCount;
     private long _rpmWindowStart;
 
     public UserGrain(
         [PersistentState("user", "postgres")] IPersistentState<UserState> state,
-        IInvalidationService invalidation)
+        IInvalidationService invalidation,
+        ISlotLeaseStore slotLeaseStore)
     {
         _state = state;
         _invalidation = invalidation;
+        _slotLeaseStore = slotLeaseStore;
     }
 
     public Task<UserProjection> GetAuthProjection()
@@ -42,28 +44,28 @@ public class UserGrain : Grain, IUserGrain
             s.Concurrency, s.AllowedGroups, s.RpmLimit));
     }
 
-    public Task<SlotResult> TryAcquireSlot(string requestId)
+    public async Task<SlotResult> TryAcquireSlot(string requestId)
     {
-        return TryAcquireSlot(requestId, DateTime.UtcNow.AddMinutes(10));
+        var expiresAt = DateTime.UtcNow.AddMinutes(10);
+        return await TryAcquireSlot(requestId, expiresAt);
     }
 
-    public Task<SlotResult> TryAcquireSlot(string requestId, DateTime expiresAt)
+    public async Task<SlotResult> TryAcquireSlot(string requestId, DateTime expiresAt)
     {
+        var userId = this.GetPrimaryKeyLong();
         var max = _state.State.Concurrency;
-        var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-        foreach (var expired in _activeSlots.Where(x => x.Value <= now).Select(x => x.Key).ToArray())
-            _activeSlots.Remove(expired);
-        if (_activeSlots.Count >= max)
-            return Task.FromResult(new SlotResult(false, null, _activeSlots.Count, max));
-
-        _activeSlots[requestId] = new DateTimeOffset(expiresAt).ToUnixTimeMilliseconds();
-        return Task.FromResult(new SlotResult(true, requestId, _activeSlots.Count, max));
+        var leaseToken = Guid.NewGuid().ToString("N");
+        var siloId = this.RuntimeIdentity;
+        var acquired = await _slotLeaseStore.TryAcquireUserSlot(
+            userId, leaseToken, requestId, siloId, expiresAt, max);
+        var currentLoad = await _slotLeaseStore.GetUserActiveCount(userId);
+        return new SlotResult(acquired, acquired ? leaseToken : null, currentLoad, max);
     }
 
-    public Task ReleaseSlot(string requestId)
+    public async Task ReleaseSlot(string requestId)
     {
-        _activeSlots.Remove(requestId);
-        return Task.CompletedTask;
+        var siloId = this.RuntimeIdentity;
+        await _slotLeaseStore.ReleaseUserSlot(requestId, siloId);
     }
 
     public async Task FinalizeLease(string leaseToken, string requestId)
@@ -71,7 +73,6 @@ public class UserGrain : Grain, IUserGrain
         var s = _state.State;
         if (!s.FinalizedLeases.Add(leaseToken)) return;
 
-        var hadSlot = _activeSlots.Remove(leaseToken) || _activeSlots.Remove(requestId);
         try
         {
             await _state.WriteStateAsync();
@@ -79,9 +80,12 @@ public class UserGrain : Grain, IUserGrain
         catch
         {
             s.FinalizedLeases.Remove(leaseToken);
-            if (hadSlot) _activeSlots[leaseToken] = DateTimeOffset.UtcNow.AddMinutes(10).ToUnixTimeMilliseconds();
             throw;
         }
+
+        // Release the persistent slot now that the lease is finalized
+        var siloId = this.RuntimeIdentity;
+        await _slotLeaseStore.ReleaseUserSlot(leaseToken, siloId);
     }
 
     public Task<bool> CheckAndRecordRpm(int limit)

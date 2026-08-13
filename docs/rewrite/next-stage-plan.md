@@ -1,20 +1,26 @@
 # ScalaAPI Next Stage Plan
 
-Current re-investigation baseline: Platform documentation HEAD `e7bcf09` with
-production code through `651a786`, Gateway `04ec18c`, and read-only
-`sub2api@43ec48d`. The latest complete runtime gate remains
+Current static re-investigation baseline: Platform documentation HEAD `c8a59d7`
+with production code through `651a786`, Gateway `04ec18c`, and fetched read-only
+`sub2api origin/main@fbfdcef`; the clean local reference worktree is `43ec48d`, one
+commit ahead and 283 behind. The latest complete historical runtime gate remains
 `scalaapi-credential-cancel-0811d`: it passed the empty-volume matrix and proves
 terminal OAuth `invalid_grant` revocation, secret clearing, monotonic replacement
 recovery, and real Anthropic/Gemini client-hangup -> Provider-socket cancellation.
 
-The fresh source audit changes the next action. Release build, Gateway 127/127, both
-Web builds, contract checks, retired-dependency scan, and all Scheduler Dry children
-pass. All 51 migration records apply and replay idempotently. However, the ordinary
+No build, test, benchmark, service, container, or runtime probe was run during the
+2026-08-13 refresh. The recorded gates below remain evidence for their exact commits,
+not a current rerun.
+
+The static source audit changes the product backlog while preserving the first gate
+repair. Historically, Release build, Gateway 127/127, both Web builds, contract
+checks, retired-dependency scan, and all Scheduler Dry children passed, and all 51
+migration records applied and replayed idempotently. However, the ordinary
 Platform 294/294 run hides database paths through early returns; enabling the real
 PostgreSQL schema produces 292 passed / 2 failed Host tests. The release gate is red
 until the invalid concurrent-claim distribution assertion and media cleanup FK leak
 are fixed. [`feature-gap-report.md`](feature-gap-report.md) is the concise
-58-domain planning authority.
+65-domain planning authority.
 
 The Provider-specific fault slice is implemented at Platform `024b215`, and the
 native credential slice is implemented at Platform `c30e237` plus Gateway
@@ -28,28 +34,29 @@ retain one unknown-charge lease/hold each. Live upstream adapters,
 provider-specific pricing/tokenizers, and longer load/backpressure remain
 next-stage work.
 
-## Immediate execution order after the 2026-08-11 re-investigation
+## Immediate execution order after the 2026-08-13 re-investigation
 
 1. Restore trustworthy integration evidence. Fix the two clean-schema Host test
    failures, make absent database/Garnet prerequisites explicit failures or skips,
    isolate shared database state, and pass all 294 tests against migrations 001-050
    plus Orleans. This is a release-gate repair, not a product compatibility change.
-2. Run the documented 3600-second two-Silo media contention/rejoin gate. Preserve
-   deterministic parent/item keys, claim fencing, one terminal usage effect, and
-   recoverability across repeated secondary restart/rejoin cycles.
-3. Finish the remaining P0 protocol lifecycle gaps: OpenAI Responses mutation
-   subresources and the complete video create/poll/cancel/delete/object-retention
-   state machine. Reuse the same lease/accounting and S3-compatible lifecycle;
-   no compatibility storage or legacy status mapping is allowed.
-4. Bind live Provider adapter evidence to explicit configuration profiles: real
-   Anthropic/Gemini credentials in an isolated secret store, provider-owned
-   pricing/catalog/tokenizer snapshots, HTTPS/TLS fingerprint enforcement, and
-   revocation/rotation drills. No secret may enter fixtures, logs, query strings,
-   error bodies, or repository history.
-5. Add longer realtime/provider backpressure, refresh-contention, Garnet-outage,
-   and rolling process-replacement soak evidence.
-6. Make the source-built Gateway + Platform empty-volume gate blocking in hosted
-   CI after credentials for the private sibling checkout are available.
+2. Freeze a provider-specific Grok/xAI contract and ship one complete P0 vertical
+   slice: catalogue, one text protocol, semantic credentials, account health/quota,
+   settlement, Provider mock, Admin operation, and stable feature-gated errors.
+3. Extend the price/usage contract before exposing specialized endpoints. Record
+   requested, mapped, upstream-target, and observed response model separately;
+   enforce conservative mismatch fallback and no-more-expensive/no-zero/
+   no-admin-price-bypass rules; add group model, long-context, search, audio, and
+   media-unit snapshots.
+4. Implement Web/X Search, then TTS/STT/custom voices, then provider tier/quota-aware
+   scheduling. Reuse durable lease/accounting foundations but define distinct
+   request, response, storage, usage-unit, feature-gate, and cleanup contracts.
+5. Add passive Channel Monitor V2 and captcha/domain abuse controls with explicit
+   mode/privacy/freshness/leader-fencing semantics and Admin/User workflows.
+6. Resume the prior release work: one-hour media contention/rejoin, Responses/video
+   lifecycle, live Anthropic/Gemini/Grok profiles, credentialed proxy and TLS
+   fingerprint evidence, long backpressure, hosted CI, offsite restore, and rolling
+   replacement.
 
 ### Credential revocation and native cancellation slice completed at `651a786` / `04ec18c`
 
@@ -228,7 +235,9 @@ and deployment-scale HA/offsite lifecycle remain partial.
 ## Checkpoint
 
 The next stage starts from Platform/Admin Web/User Web `651a786`, Gateway
-`04ec18c`, and read-only reference `sub2api@43ec48d`.
+`04ec18c`, and fetched read-only requirements reference
+`sub2api origin/main@fbfdcef`. The divergent local `43ec48d` CDC commit is not a
+migration input or compatibility dependency.
 
 The greenfield baseline now starts from empty volumes, uses PostgreSQL as authority,
 Garnet as the only distributed projection/cache, S3-compatible object storage for
@@ -638,7 +647,7 @@ different CI-only path. No package may add Redis, CDC, Debezium, legacy schema,
 old IDs/keys, compatibility routes, or Sub2API runtime/data dependencies.
 
 Exit for this stage: streaming and non-stream policy decisions are deterministic,
-audited, fail closed, and replay-safe; all current 58 inventory domains have an
+audited, fail closed, and replay-safe; all current 65 inventory domains have an
 API/state machine, automated test, and source-built runtime evidence for their
 claimed status. This stage contains no compatibility, cutover, dual-write, CDC,
 snapshot import, old-key import, ID preservation, status mapping, or business-data
@@ -1123,28 +1132,32 @@ The stage exits only when all 13 scenarios pass from an empty environment locall
 and in hosted CI, all monetary invariants reconcile, and OpenAI Chat can be promoted
 using the inventory's contract/test/runtime rule.
 
-Then expand the remaining 58-domain work in this order:
+Then expand the remaining 65-domain work in this order:
 
-1. Complete the remaining OpenAI Responses mutation subresources beyond the
-   implemented read/input_items/cancel/delete/compact slice, then Embeddings/Images/video/realtime,
-   Anthropic Messages, Gemini generation, model catalogue/token counting, and
-   runtime cross-protocol E2E; source-owned protocol fixtures are frozen in
-   Gateway `8f33790`.
+1. Complete the Grok/xAI vertical slice and specialized response-model,
+   long-context, search/audio/media pricing contract, then add Web/X Search,
+   TTS/STT/custom voices, and quota/tier-aware scheduling without claiming generic
+   OpenAI compatibility as provider parity.
 2. Complete the remaining media lifecycle after the now-finished batch
    list/items/cancellation/orphan-cleanup/archive/retention/item-storage,
    transport-loss, and single-Silo partition slice: a one-hour worker contention
    soak, Provider-specific OAuth refresh and pricing/tokenizer
    adapters, deployment-scale HA/offsite object storage, and full lifecycle evidence.
-3. Complete identity hardening beyond the TOTP, OAuth PKCE, Passkey, and encrypted
+3. Complete the remaining OpenAI Responses mutation subresources and full
+   cross-protocol tool/multimodal/multiple-candidate semantics, then finish
+   Embeddings/Images/video/realtime, Anthropic, Gemini, catalogues/tokenizers, and
+   runtime provider E2E.
+4. Complete identity hardening beyond the TOTP, OAuth PKCE, Passkey, and encrypted
    mail-outbox state machines, including backup-code recovery UX, live SMTP/provider
-   delivery, anti-enumeration,
+   delivery, captcha/domain quotas, anti-enumeration,
    and browser tests for the new User Web/API-key/usage/order/
    subscription flows.
-4. Complete production payment adapters/reconciliation/refunds, subscription payment confirmation
+5. Complete production payment adapters/reconciliation/refunds, subscription payment confirmation
    and quota reconciliation, redeem, signup referral
    attribution/anti-abuse, notification, and commercial audit flows.
-5. Complete policy/security, observability, multi-region/HA, load and long-connection
-   soak, backup/restore, signed updates, and rollback drills.
+6. Complete passive Channel Monitor V2, policy/security, observability,
+   multi-region/HA, load and long-connection soak, cluster-singleton scheduled
+   backup/offsite restore, signed updates, and rollback drills.
 
 Every later domain uses new ScalaAPI contracts and clean seed data. Sub2API remains
 read-only research material and is never an acceptance oracle for compatibility.

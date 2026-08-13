@@ -57,8 +57,7 @@ public class AccountGrain : Grain, IAccountGrain
     private readonly ILogger<AccountGrain> _logger;
     private readonly IInvalidationService _invalidation;
     private readonly ICredentialProtector _credentialProtector;
-
-    private readonly Dictionary<string, long> _activeSlots = new();
+    private readonly ISlotLeaseStore _slotLeaseStore;
     private int _rpmCount;
     private long _rpmWindowStart;
 
@@ -66,15 +65,17 @@ public class AccountGrain : Grain, IAccountGrain
         [PersistentState("account", "postgres")] IPersistentState<AccountState> state,
         ILogger<AccountGrain> logger,
         IInvalidationService invalidation,
-        ICredentialProtector credentialProtector)
+        ICredentialProtector credentialProtector,
+        ISlotLeaseStore slotLeaseStore)
     {
         _state = state;
         _logger = logger;
         _invalidation = invalidation;
         _credentialProtector = credentialProtector;
+        _slotLeaseStore = slotLeaseStore;
     }
 
-    public Task<AccountProjection> GetProjection()
+    public async Task<AccountProjection> GetProjection()
     {
         var s = _state.State;
         var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
@@ -84,16 +85,18 @@ public class AccountGrain : Grain, IAccountGrain
             && (s.OverloadUntil is null || s.OverloadUntil < now)
             && (s.TempUnschedulableUntil is null || s.TempUnschedulableUntil < now);
 
-        return Task.FromResult(new AccountProjection(
+        var currentLoad = await _slotLeaseStore.GetAccountActiveCount(this.GetPrimaryKeyLong());
+
+        return new AccountProjection(
             s.Id, s.Name, s.Platform, s.Priority, s.Concurrency,
-            _activeSlots.Count, schedulable, s.RateMultiplier,
+            currentLoad, schedulable, s.RateMultiplier,
             s.LoadFactor, s.Status, s.RateLimitResetAt,
             s.OverloadUntil, s.TempUnschedulableUntil, s.SupportedModels,
             s.OAuth?.ExpiresAtUnixSeconds,
             s.OAuth is null ? "static"
                 : s.OAuth.RevokedAtUnixSeconds is not null ? "revoked"
                 : s.OAuth.LastRefreshError is null ? "oauth" : "refresh_error",
-            s.OAuth?.Version ?? 0, s.OAuth?.LastRefreshError));
+            s.OAuth?.Version ?? 0, s.OAuth?.LastRefreshError);
     }
 
     public Task<AccountCredentials> Hydrate()
@@ -235,33 +238,30 @@ public class AccountGrain : Grain, IAccountGrain
         _invalidation.NotifyChange("account", _state.State.Id.ToString());
     }
 
-    public Task<SlotResult> TryAcquireSlot(string requestId, int maxConcurrency)
+    public async Task<SlotResult> TryAcquireSlot(string requestId, int maxConcurrency)
     {
-        return TryAcquireSlot(requestId, DateTime.UtcNow.AddMinutes(10), maxConcurrency);
+        var expiresAt = DateTime.UtcNow.AddMinutes(10);
+        return await TryAcquireSlot(requestId, expiresAt, maxConcurrency);
     }
 
-    public Task<SlotResult> TryAcquireSlot(string requestId, DateTime expiresAt, int maxConcurrency)
+    public async Task<SlotResult> TryAcquireSlot(string requestId, DateTime expiresAt, int maxConcurrency)
     {
-        var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-        foreach (var expired in _activeSlots.Where(x => x.Value <= now).Select(x => x.Key).ToArray())
-            _activeSlots.Remove(expired);
-        if (_activeSlots.Count >= maxConcurrency)
-        {
-            return Task.FromResult(new SlotResult(false, null, _activeSlots.Count, maxConcurrency));
-        }
-
-        var lease = requestId;
-        _activeSlots[lease] = new DateTimeOffset(expiresAt).ToUnixTimeMilliseconds();
-        return Task.FromResult(new SlotResult(true, lease, _activeSlots.Count, maxConcurrency));
+        var accountId = this.GetPrimaryKeyLong();
+        var leaseToken = Guid.NewGuid().ToString("N");
+        var siloId = this.RuntimeIdentity;
+        var acquired = await _slotLeaseStore.TryAcquireAccountSlot(
+            accountId, leaseToken, requestId, siloId, expiresAt, maxConcurrency);
+        var currentLoad = await _slotLeaseStore.GetAccountActiveCount(accountId);
+        return new SlotResult(acquired, acquired ? leaseToken : null, currentLoad, maxConcurrency);
     }
 
-    public Task ReleaseSlot(string requestId)
+    public async Task ReleaseSlot(string requestId)
     {
-        _activeSlots.Remove(requestId);
-        return Task.CompletedTask;
+        var siloId = this.RuntimeIdentity;
+        await _slotLeaseStore.ReleaseAccountSlot(requestId, siloId);
     }
 
-    public Task<int> GetLoad() => Task.FromResult(_activeSlots.Count);
+    public async Task<int> GetLoad() => await _slotLeaseStore.GetAccountActiveCount(this.GetPrimaryKeyLong());
 
     public async Task ReportUpstreamError(ErrorInfo error)
     {
@@ -286,7 +286,52 @@ public class AccountGrain : Grain, IAccountGrain
             s.Id, error.StatusCode);
     }
 
-    public Task ReportSuccess() => Task.CompletedTask;
+    public async Task ReportSuccess()
+    {
+        var accountId = this.GetPrimaryKeyLong();
+        await _slotLeaseStore.UpdateAccountHealthAsync(accountId, h =>
+        {
+            h.ConsecutiveErrors = 0;
+            h.LastSuccessAt = DateTime.UtcNow;
+        });
+    }
+
+    public async Task<HealthReport> GetHealthReport()
+    {
+        var accountId = this.GetPrimaryKeyLong();
+        var health = await _slotLeaseStore.GetAccountHealthAsync(accountId);
+        var s = _state.State;
+        var now = DateTime.UtcNow;
+
+        if (health is null)
+        {
+            return new HealthReport(
+                Schedulable: s.Schedulable && s.Status == "active",
+                ConsecutiveErrors: 0,
+                RateLimitResetAt: null,
+                OverloadUntil: null,
+                TempUnschedulableUntil: null,
+                DisabledPermanently: false,
+                DisableReason: null,
+                LastSuccessAt: null);
+        }
+
+        var schedulable = s.Schedulable && s.Status == "active"
+            && !health.DisabledPermanently
+            && (health.RateLimitResetAt is null || health.RateLimitResetAt < now)
+            && (health.OverloadUntil is null || health.OverloadUntil < now)
+            && (health.TempUnschedulableUntil is null || health.TempUnschedulableUntil < now);
+
+        return new HealthReport(
+            Schedulable: schedulable,
+            ConsecutiveErrors: health.ConsecutiveErrors,
+            RateLimitResetAt: health.RateLimitResetAt,
+            OverloadUntil: health.OverloadUntil,
+            TempUnschedulableUntil: health.TempUnschedulableUntil,
+            DisabledPermanently: health.DisabledPermanently,
+            DisableReason: health.DisableReason,
+            LastSuccessAt: health.LastSuccessAt);
+    }
 
     public Task RecordRpm()
     {

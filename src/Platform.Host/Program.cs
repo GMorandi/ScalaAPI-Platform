@@ -134,6 +134,7 @@ builder.Services.AddHttpClient<ObjectStorageClient>();
 builder.Services.AddSingleton<IMediaObjectStorage>(sp =>
     sp.GetRequiredService<ObjectStorageClient>());
 builder.Services.AddSingleton<RequestLeaseStore>();
+builder.Services.AddSingleton<ScalaAPI.Grains.Interfaces.ISlotLeaseStore, ScalaAPI.Host.Services.SlotLeaseStore>();
 builder.Services.AddSingleton<MediaOperationStore>();
 builder.Services.AddSingleton<MediaRetentionService>();
 var classifierEndpoint = builder.Configuration["ContentClassifier:Endpoint"];

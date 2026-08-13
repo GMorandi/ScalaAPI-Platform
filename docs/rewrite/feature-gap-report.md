@@ -1,77 +1,106 @@
 # ScalaAPI Feature Implementation Gap Report
 
-This report is the concise result of the 2026-08-11 re-investigation. It compares
-the new ScalaAPI product with the useful capability catalogue in read-only
-`sub2api@43ec48d`; it does not require API, schema, identifier, state, deployment,
-or data compatibility with Sub2API.
+This report is the concise result of the 2026-08-13 static re-investigation. It
+compares the new ScalaAPI product with the useful capability catalogue in fetched,
+read-only `sub2api origin/main@fbfdcef`; it does not require API, schema, identifier,
+state, deployment, or data compatibility with Sub2API. Per investigation scope,
+no build, test, benchmark, service, container, or runtime probe was executed.
+
+The execution-oriented backlog is maintained in
+[`implementation-task-list.zh-CN.md`](implementation-task-list.zh-CN.md). It converts
+the gaps below into dependency-ordered task cards with implementation scope,
+state-machine constraints, commands, and completion evidence for small iterative
+agents. This report remains the concise inventory authority; the task list is the
+work queue and does not promote a domain by itself.
 
 ## Baseline
 
 | Item | Current evidence |
 | --- | --- |
-| Platform | Documentation baseline `e7bcf09`; production implementation through `651a786`; clean at investigation start |
-| Gateway | `04ec18c`; clean at investigation start |
-| Sub2API | `43ec48d`; clean and read-only |
+| Platform | Documentation baseline `c8a59d7`; production implementation through `651a786`; clean at investigation start; local `master` is 9 commits ahead of `origin/master@d70a993` |
+| Gateway | `04ec18c`; clean at investigation start; local `master` is 40 commits ahead of `origin/master@60f99a0` |
+| Sub2API requirement baseline | Fetched `origin/main@fbfdcef` (`v0.1.176`) without checkout; local clean worktree remains `43ec48d`, one local commit ahead and 283 commits behind |
 | ScalaAPI code surface | 132 production C# files, 72 test/benchmark C# files, 142 direct Admin API route declarations, 62 product tables, 22 SQLSugar entity types, 28 Admin Web TS/TSX files with 16 pages, and 21 User Web TS/TSX files with 14 pages |
-| Gateway surface | 52 production C++ source/header files, 11 test source files, one revision-3 Cap'n Proto contract set, and 127 CTest cases |
-| Reference scope signal | 647 production Gin route declarations in the primary route/handler surface, 39 Ent schemas, 289 Vue files including 59 lazy router imports, and 240 SQL migrations |
-| Inventory result | 58 domains: 2 implemented, 55 partial, 1 skeleton, 0 missing |
-| Priority result | P0: 35 total, 2 implemented and 33 partial; P1: 19 total, 18 partial and 1 skeleton; P2: 4 partial |
-| Risk result | 31 tracked risks: 3 open, 25 partial, and 3 controlled; the database test false-positive risk is now P0/open |
+| Gateway static surface | 52 production C++ source/header files, 11 test/benchmark sources, 3 tracked Cap'n Proto schemas with revision-3 dispatch, and 127 discoverable GoogleTest declarations |
+| Reference scope signal | 661 production Gin route registrations, 42 Ent schemas, 297 Vue files plus 424 TS/TSX files, 59 lazy router imports, and 259 SQL migrations at the fetched upstream ref |
+| Inventory result | 65 domains: 2 implemented, 56 partial, 5 skeleton, 2 missing |
+| Priority result | P0: 37 total, 2 implemented, 34 partial, 1 skeleton; P1: 24 total, 18 partial, 4 skeleton, 2 missing; P2: 4 partial |
+| Risk result | 33 tracked risks: 4 open, 26 partial, and 3 controlled |
 
 The reference counts are breadth signals only. ScalaAPI promotion is based on its
 own contract, state machine, automated tests, and current-source runtime evidence,
 not a route-count parity percentage.
 
+## Material Reference Delta
+
+The 283 upstream commits after the local reference worktree materially change the
+requirements catalogue. The largest additions are a dedicated Grok/xAI account and
+protocol stack, Grok 4.6 and subscription-tier quota handling, native Web/X Search,
+TTS/STT/custom voices, group model and long-context pricing, response-model-aware
+billing, passive Channel Monitor V2, captcha/domain registration controls, and
+cluster-singleton scheduled backup behavior. These are now explicit inventory rows
+rather than being hidden inside generic Provider, billing, or monitor gaps.
+
+Two boundaries must stay explicit:
+
+1. A generic `grok`/`xai` label and Bearer token in Platform are scaffolding, not a
+   Grok implementation. Gateway has no dedicated adapter, native routes, catalogue,
+   account quota flow, or source-owned fixture.
+2. The local Sub2API-only CDC migration uses number 194, while fetched upstream has
+   reused that migration range for usage and Channel Monitor V2. It is not mergeable
+   migration history and is not a ScalaAPI dependency; DEP-02 remains intentionally
+   clean-room.
+
+The reference repository also contains its own documentation and deployment risks,
+including stale Voice/Search and payment documentation, a systemd `PrivateTmp`
+socket mismatch, permissive Compose defaults, and checksum-optional installation.
+Those findings inform risk review but do not count as ScalaAPI implementation.
+
 ## Verification Status
 
-| Gate | Result |
+| Evidence | Result |
 | --- | --- |
-| Platform Release build | Pass, 0 warnings and 0 errors |
-| Platform ordinary test run | 294/294 pass, but 33 files return early without `GREENFIELD_SCHEMA_CONNECTION`; not sufficient integration evidence |
-| Fresh PostgreSQL 17 migrator | Pass: 51 records applied, then all 51 skipped on replay |
-| Fresh database-enabled solution | Fail: 292 passed, 2 failed |
-| Failing integration tests | Invalid 1+1 worker-claim assertion in `ConcurrentWorkersSerializeClaimsAndPublishEachRevisionOnce`; generated media rows not removed before lease cleanup in `BatchListIsOwnerScopedAndReturnsDurableOperations` |
-| Gateway | Build pass and CTest 127/127 |
-| Web | Admin Web and User Web typecheck/build pass |
-| Contracts and dependency retirement | Digests pass; generated C# matches Cap'n Proto 1.0.2 / capnpc-csharp 1.3.118; retired dependency scan passes |
-| Benchmark integrity | Four Scheduler Dry children execute and exit zero; Dry results are integrity evidence, not performance evidence |
-| Latest complete runtime matrix | `scalaapi-credential-cancel-0811d` passed from empty volumes on Platform `651a786` / Gateway `04ec18c`; current release promotion remains blocked by the fresh database-test failures |
-| Investigation cleanup | The disposable PostgreSQL audit container and migration directory were removed; `podman ps -a` is empty |
+| 2026-08-13 investigation | Static source, route, schema, migration, configuration, documentation, and Git-history inspection only; no runtime gate was run |
+| Current source movement | Platform production remains `651a786`; Gateway remains `04ec18c`; only the Sub2API requirement reference advanced |
+| Historical 2026-08-11 gates | Release build, ordinary 294/294 Platform run, 127/127 Gateway run, Web builds, contracts, and the empty-volume matrix were previously recorded; none was rerun or revalidated here |
+| Historical database gate | Previously red at 292 passed / 2 failed: invalid one-row-per-worker claim expectation and media cleanup FK leakage |
+| Promotion interpretation | Historical evidence remains attributable to its exact commits, but current status is not promoted from static inspection |
 
 ## Blocking Gap Order
 
 1. Restore a truthful database-enabled CI gate. Fix the two deterministic Host
    tests, isolate shared database state, and stop reporting integration tests as
    passes when prerequisites are absent.
-2. Finish the one-hour two-Silo media contention/rejoin gate and deployment-scale
-   HA/offsite object lifecycle evidence.
-3. Complete OpenAI Responses mutation semantics and the full video lifecycle.
-4. Replace mock-only confidence with live Provider profiles, provider-owned pricing,
-   tokenizers/catalogues, outbound proxy/TLS fingerprint application, and secret
-   rotation drills.
-5. Close identity, commercial, operations, and UI workflows with real browser,
-   notification, payment, abuse, recovery, and authorization evidence.
-6. Make the cross-repository empty-volume matrix blocking in hosted CI and complete
-   long load/backpressure, rolling replacement, backup/offsite restore, and rollback
-   drills.
+2. Decide and freeze the Grok/xAI product contract, then implement one complete P0
+   vertical slice rather than treating a provider label as parity.
+3. Extend settlement for observed response model, long-context, per-group model,
+   search, speech, and media units before exposing the new routes.
+4. Add Web/X Search, speech/custom voice, provider quota-aware scheduling, and
+   passive Channel Monitor V2 as explicit bounded state machines.
+5. Finish the prior Responses/video/media lifecycle work and replace mock-only
+   confidence with live Provider, proxy, TLS, rotation, and long-soak evidence.
+6. Close identity, commercial, operations, UI, hosted CI, offsite restore, and
+   rolling-release gaps, including captcha/domain abuse controls.
 
 ## Gateway And Protocol
 
 | ID | Priority | Status | Implemented now | Gap to `implemented` |
 | --- | --- | --- | --- | --- |
-| GW-01 | P0 | partial | Native Anthropic JSON/SSE, count tokens, auth isolation, usage/terminal handling, fault matrix, terminal OAuth revoke/recovery, and Provider-side cancellation evidence | Live Anthropic credentials, provider pricing/tokenizer fixtures, multi-Silo refresh contention, and long-stream/load evidence |
+| GW-01 | P0 | partial | Gateway has native Anthropic JSON/SSE, count tokens, auth isolation, usage/terminal handling, and cancellation transport; Platform and the historical stack add fault and OAuth revoke/recovery evidence | Live Anthropic credentials, provider pricing/tokenizer fixtures, multi-Silo refresh contention, and long-stream/load evidence |
 | GW-02 | P0 | partial | OpenAI Chat JSON/SSE, strict terminal/media checks, timers, normalized errors, durable replay, late usage, and several crash boundaries | Replay after replacement across every remaining crash boundary, live Provider/TLS evidence, and long backpressure soak |
 | GW-03 | P0 | partial | Responses root JSON/SSE, compact, get, input-items, cancel, delete, replay, usage, and malformed-success handling | Remaining mutation lifecycle, full provider fault/runtime matrix, cross-protocol fixtures, and live adapter evidence |
-| GW-04 | P0 | partial | Native Gemini JSON/SSE/catalogue, auth isolation, usage/terminal handling, fault matrix, terminal OAuth revoke/recovery, and Provider-side cancellation evidence | Live Gemini credentials, provider pricing/tokenizer fixtures, multi-Silo refresh contention, and long-stream/load evidence |
-| GW-05 | P0 | partial | Sixteen pairwise request/response conversions, error conversion, same-format passthrough, and representative stream goldens | Malformed/header edge semantics and runtime E2E for every provider pair |
-| GW-06 | P1 | partial | OpenAI/Gemini model validation, Gemini list/detail, Anthropic count tokens, bounded control operations, and no-charge release | Versioned catalogue authority, provider tokenizer goldens, live runtime errors, and production refresh policy |
+| GW-04 | P0 | partial | Gateway has native Gemini JSON/SSE/catalogue, auth isolation, and usage/terminal/cancellation transport; Platform and the historical stack add fault and OAuth revoke/recovery evidence | Live Gemini credentials, provider pricing/tokenizer fixtures, multi-Silo refresh contention, and long-stream/load evidence |
+| GW-05 | P0 | partial | Sixteen pairwise request/response/error conversions, same-format passthrough, and representative stream goldens | Tool/multimodal shapes, multiple candidates, identifiers, finish semantics, unknown native fields, malformed/header edges, and runtime E2E |
+| GW-06 | P1 | partial | OpenAI/Gemini catalogue response-shape validation, Gemini list/detail, Anthropic count tokens, bounded control operations, and historical no-charge evidence | Requested-model and versioned catalogue authority, empty-cache behavior, provider tokenizer goldens, live runtime errors, and refresh policy |
 | GW-07 | P0 | partial | Bounded Embeddings validation, float/base64 results, Jina/Gemini profiles, price-aware settlement, and malformed-response reconciliation | Live adapters and provider-specific production fidelity/runtime evidence |
 | GW-08 | P0 | partial | Sync/async/batch image lifecycle, S3 item/archive storage, cancellation, retention, reconciliation, partial-write recovery, partitions, and short two-Silo contention | Fix the database cleanup test, run the full 3600-second contention gate, and prove deployment-scale HA/offsite lifecycle |
 | GW-09 | P1 | partial | Video create/edit/extend, durable polling, MP4 storage metadata, signed access, and object verification foundations | Cancel/delete semantics, unit pricing, restart/restore, retention/orphan cleanup, reconciliation, and complete E2E |
 | GW-10 | P0 | partial | Realtime WebSocket/calls dispatch, Provider handshake/usage, exact settlement, retry policy, and a four-session three-second soak | Long load/backpressure, replay after process replacement, shutdown behavior, and wider Provider evidence |
 | GW-11 | P0 | partial | API-key auth, failover, durable lease/hold/outbox, immutable evidence, late settlement, operator resolution, cross-Gateway idempotency, and many crash hooks | Remaining exact-boundary crashes, TLS and cache outage under load, broader multi-instance recovery, and long soak |
-| GW-12 | P0 | partial | Provider-native method/header/status fixtures, bounded target headers, proxy/TLS profile administration, and Anthropic/Gemini fault groups | Live outbound adapters, actual proxy and TLS fingerprint application, Provider production evidence, rotation, and scans |
+| GW-12 | P0 | partial | Provider-native method/path/status handling, bounded HTTP auth headers, filtered request headers, proxy URL application for HTTP/realtime, and historical Anthropic/Gemini fault evidence | Credentialed proxy decoding/E2E, realtime header validation, actual TLS fingerprint application, live Provider evidence, rotation, and scans |
+| GW-13 | P0 | skeleton | Platform recognizes generic `grok`/`xai` labels and generic Bearer credentials | Dedicated Grok/xAI catalogue and transforms, OAuth/account/quota lifecycle, image/video behavior, native routes, fixtures, billing, and runtime evidence |
+| GW-14 | P1 | skeleton | `/alpha/search` routing and capability plumbing exist | Web/X Search schemas, provider adapter/mock, source normalization, failure semantics, dedicated usage/pricing, and Admin/User workflows |
+| GW-15 | P1 | missing | Generic realtime transport is reusable, but no speech or custom-voice product API exists | TTS, STT, custom voice CRUD/audio, storage/auth, adapters, specialized settlement, cleanup, and operator/user workflows |
 
 ## Identity
 
@@ -84,6 +113,7 @@ not a route-count parity percentage.
 | AUTH-05 | P1 | partial | Email verification/password reset state, encrypted leased mail outbox, supersession, retry, and User Web action links | Live SMTP/provider TLS/auth, browser receipt/expiry, metrics/alerts, retention, and abuse limits |
 | AUTH-06 | P1 | partial | GitHub/Google-style OAuth PKCE, hashed one-shot state, provider-bound callback, mock exchange, and replay rejection | Production redirect allowlists, account-link collision policy, more provider profiles, and browser evidence |
 | AUTH-07 | P1 | partial | Profile read/update, password change with other-session revocation, and password-confirmed soft deletion | Concurrent session/API-key revocation, retention and erasure policy, and browser evidence |
+| AUTH-08 | P1 | missing | Existing PostgreSQL login/registration counters provide adjacent abuse-control infrastructure | Captcha proof lifecycle across auth entry points, provider/CSP configuration, email-domain quotas, Admin controls, audit/metrics, and browser evidence |
 
 ## Core Control Plane
 
@@ -95,6 +125,7 @@ not a route-count parity percentage.
 | CORE-04 | P0 | partial | Encrypted semantic credentials, OAuth refresh CAS, terminal revoke/secret clearing, audit, and explicit replacement recovery | Live Provider profiles, master-key rotation, multi-Silo refresh contention, and operator UI evidence |
 | CORE-05 | P0 | partial | Capability/priority/load scheduling, sticky routing, account/user concurrency, RPM, and fallback | Distributed rate-window/lease contention plus HTTP fault/recovery under multiple Silos |
 | CORE-06 | P1 | partial | Bounded versioned runtime configuration, secret-key rejection, stale-write conflict, and actor audit | Real dynamic consumers, reload propagation, rollout semantics, and browser controls |
+| CORE-07 | P1 | skeleton | Generic capability/load/sticky/concurrency/RPM/fallback scheduling exists | Provider tier and quota snapshots, freshness/unknown policy, free-tier gates, model cooldowns, fenced refresh, recovery, audit, and UI |
 
 ## Billing
 
@@ -105,6 +136,7 @@ not a route-count parity percentage.
 | BILL-03 | P0 | partial | API-key absolute/rolling quotas and transactionally reserved/settled subscription grants | Provider-price coupling, every-protocol invalidation, quota reconciliation, multi-Silo contention, and browser proof |
 | BILL-04 | P0 | partial | Per-user NUMERIC authority, monotonic ledger, idempotent effects, hold oversubscription protection, drift incidents, repair, and concurrent operator decisions | Long multi-Silo crash/settlement soak and complete commercial/media effect coverage |
 | BILL-05 | P1 | partial | Usage aggregates, scoped queries, exports, retention/cleanup foundations, and dashboard surfaces | Complete aggregation correctness, scheduled cleanup, immutable retention, browser export, and load evidence |
+| BILL-06 | P0 | partial | Immutable NUMERIC pricing, service tier, realtime/video rates, and requested/upstream model fields provide foundations | Terminal response-model observation and conservative selection, long-context/group model prices, search/audio/video units, mismatch audit, and no-price-escalation/bypass invariants |
 
 ## Commercial
 
@@ -123,8 +155,9 @@ not a route-count parity percentage.
 | OPS-01 | P0 | partial | Core CRUD, dashboard/config, safe Provider account forms, balance actions, and selected Admin browser routes | Full authorization matrix, bulk/filter workflows, refresh audit UI, and live browser coverage |
 | OPS-02 | P0 | partial | Authenticated metrics, fixed-label classifier snapshots, budgets/alerts, multi-process evidence, and Operations UI | Complete collectors, traces/correlation, alert delivery/recovery, credential redaction, long-stream metrics, and live auth |
 | OPS-03 | P1 | partial | Authenticated manual channel checks, bounded history, audit, and Admin history/check UI | Scheduled runners, templates, notification/feedback loop, broader history, and live authorization |
-| OPS-04 | P1 | skeleton | Local PostgreSQL backup jobs, checksums, isolated restore command, and basic Admin controls exist | Signed/encrypted offsite retention, measured RPO/RTO, restore faults, service restart/update, rolling rollout, and rollback drills |
+| OPS-04 | P1 | skeleton | Local PostgreSQL backup jobs, checksums, isolated restore command, and basic Admin controls exist | Signed/encrypted offsite retention, cluster-singleton scheduled jobs, measured RPO/RTO, restore faults, service restart/update, rolling rollout, and rollback drills |
 | OPS-05 | P2 | partial | Bounded user export and audited, idempotent, dry-run maintenance cleanup | Scheduling, immutable retention, object/media cleanup, browser download authorization, and maintenance metrics |
+| OPS-06 | P1 | skeleton | Manual channel checks and general operational metrics exist | Isolated V1/V2 mode, passive rollups/watermarks/backfill, matrices and latency histograms, privacy defaults, retention/config APIs, leader fencing, and Admin/User views |
 
 ## Security
 
@@ -163,9 +196,9 @@ not a route-count parity percentage.
 
 The project has substantial implementation depth, but it is not close to the
 defined full-migration exit condition: only the two clean bootstrap domains are
-currently `implemented`. The 55 partial domains are not placeholders; most contain
-working state machines and tests, but each still lacks at least one required
-production adapter, lifecycle branch, browser/authorization scenario, distributed
-failure case, long-running gate, or hosted release proof. OPS-04 remains a skeleton
-because backup primitives do not yet constitute a signed update/rollback and
-measured disaster-recovery system.
+currently `implemented`. The 56 partial domains are not placeholders; most contain
+working state machines and historical evidence, but each still lacks at least one
+required production adapter, lifecycle branch, browser/authorization scenario,
+distributed failure case, long-running gate, or hosted release proof. Five domains
+remain skeletons and speech plus captcha/domain controls are missing. Static source
+inspection alone did not promote any domain.
