@@ -320,7 +320,7 @@ public sealed class RequestLeaseStore(
         }
 
         var subscription = await TryReserveSubscriptionQuotaAsync(
-            connection, transaction, request.UserId, request.HoldAmount, ct);
+            connection, transaction, request.UserId, request.LeaseToken, request.HoldAmount, ct);
         if (!subscription.Allowed)
         {
             await transaction.RollbackAsync(ct);
@@ -637,7 +637,7 @@ public sealed class RequestLeaseStore(
                 out var normalized, out var validationError))
             return new(ReconciliationResolutionStatus.Invalid, validationError);
 
-        var fingerprint = ReconciliationResolutionFingerprint.Compute(incidentId, normalized);
+        var fingerprint = ReconciliationResolutionFingerprint.Compute(incidentId, normalized, actorId);
         await using var connection = await dataSource.OpenConnectionAsync(ct);
         await using var transaction = await connection.BeginTransactionAsync(
             IsolationLevel.ReadCommitted, ct);
@@ -1085,7 +1085,7 @@ public sealed class RequestLeaseStore(
                 await accounting.FinalizeHoldAsync(connection, transaction,
                     item.UserId, item.HoldHandle, "released", ct);
                 await ReleaseSubscriptionQuotaAsync(connection, transaction,
-                    item.SubscriptionId, item.SubscriptionHoldAmount, ct: ct);
+                    item.Token, item.SubscriptionId, item.SubscriptionHoldAmount, ct: ct);
             }
             await FinalizeIdempotencyAsync(connection, transaction,
                 item.Token, safe ? "expired" : "reconciliation_needed", ct);
@@ -1209,7 +1209,7 @@ public sealed class RequestLeaseStore(
 
     private static async Task<(bool Allowed, long? SubscriptionId)> TryReserveSubscriptionQuotaAsync(
         NpgsqlConnection connection, NpgsqlTransaction transaction, long userId,
-        decimal holdAmount, CancellationToken ct)
+        string leaseToken, decimal holdAmount, CancellationToken ct)
     {
         await using var select = connection.CreateCommand();
         select.Transaction = transaction;
@@ -1246,24 +1246,37 @@ public sealed class RequestLeaseStore(
         update.Parameters.AddWithValue(subscriptionId);
         update.Parameters.AddWithValue(holdAmount);
         await update.ExecuteNonQueryAsync(ct);
+
+        await using var eventCmd = connection.CreateCommand();
+        eventCmd.Transaction = transaction;
+        eventCmd.CommandText = """
+            INSERT INTO subscription_quota_events(lease_token, subscription_id, event_type, reserved_amount)
+            VALUES ($1, $2, 'reserved', $3)
+            ON CONFLICT (lease_token) DO NOTHING
+            """;
+        eventCmd.Parameters.AddWithValue(leaseToken);
+        eventCmd.Parameters.AddWithValue(subscriptionId);
+        eventCmd.Parameters.AddWithValue(holdAmount);
+        await eventCmd.ExecuteNonQueryAsync(ct);
+
         return (true, subscriptionId);
     }
 
     private static Task FinalizeSubscriptionQuotaAsync(
         NpgsqlConnection connection, NpgsqlTransaction transaction,
         RequestLease lease, decimal cost, CancellationToken ct) =>
-        ReleaseSubscriptionQuotaAsync(connection, transaction, lease.SubscriptionId,
-            lease.SubscriptionHoldAmount, cost, ct);
+        ReleaseSubscriptionQuotaAsync(connection, transaction, lease.LeaseToken,
+            lease.SubscriptionId, lease.SubscriptionHoldAmount, cost, ct);
 
     private static Task ReleaseSubscriptionQuotaAsync(
         NpgsqlConnection connection, NpgsqlTransaction transaction,
         RequestLease lease, CancellationToken ct) =>
-        ReleaseSubscriptionQuotaAsync(connection, transaction, lease.SubscriptionId,
-            lease.SubscriptionHoldAmount, 0m, ct);
+        ReleaseSubscriptionQuotaAsync(connection, transaction, lease.LeaseToken,
+            lease.SubscriptionId, lease.SubscriptionHoldAmount, 0m, ct);
 
     private static async Task ReleaseSubscriptionQuotaAsync(
         NpgsqlConnection connection, NpgsqlTransaction transaction,
-        long? subscriptionId, decimal reservedAmount, decimal usedAmount = 0m,
+        string leaseToken, long? subscriptionId, decimal reservedAmount, decimal usedAmount = 0m,
         CancellationToken ct = default)
     {
         if (subscriptionId is null || (reservedAmount <= 0m && usedAmount <= 0m))
@@ -1281,6 +1294,19 @@ public sealed class RequestLeaseStore(
         command.Parameters.AddWithValue(usedAmount);
         if (await command.ExecuteNonQueryAsync(ct) != 1)
             throw new InvalidOperationException($"Subscription {subscriptionId} disappeared during lease settlement");
+
+        var eventType = usedAmount > 0m ? "committed" : "released";
+        await using var eventCmd = connection.CreateCommand();
+        eventCmd.Transaction = transaction;
+        eventCmd.CommandText = """
+            UPDATE subscription_quota_events
+            SET event_type = $2, used_amount = $3
+            WHERE lease_token = $1 AND event_type = 'reserved'
+            """;
+        eventCmd.Parameters.AddWithValue(leaseToken);
+        eventCmd.Parameters.AddWithValue(eventType);
+        eventCmd.Parameters.AddWithValue(usedAmount);
+        await eventCmd.ExecuteNonQueryAsync(ct);
     }
 
     private static decimal ComputeCost(RequestLease lease, LeaseCompletion usage, ModelPrice price)

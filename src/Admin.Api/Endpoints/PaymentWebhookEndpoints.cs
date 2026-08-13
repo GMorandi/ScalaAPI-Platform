@@ -202,7 +202,7 @@ public static class PaymentWebhookEndpoints
                 effectId,
                 isRefund ? "payment_refund" : "payment_credit",
                 isRefund ? -refundAmount : payment.Value.Amount,
-                IdempotencyKey: isRefund ? webhookIdempotencyKey : null,
+                IdempotencyKey: webhookIdempotencyKey,
                 PaymentId: isRefund ? null : payment.Value.Id), ct);
         if (effect.Status == AccountingEffectStatus.Conflict)
         {

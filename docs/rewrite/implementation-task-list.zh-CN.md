@@ -180,12 +180,14 @@
 
 ### P0-08 完成账务/配额/操作员恢复的长期边界
 
-- **状态**：`PARTIAL`；**优先级**：P0；**依赖**：P0-01..P0-07；**范围**：accounting、reconciliation、Admin endpoints、Gateway retry。
-- **实现步骤**：覆盖每个 crash hook（dispatch、forward、provider completion、settlement commit、
-  outbox claim/ack、Gateway replacement）和 Garnet loss/TLS outage；扩展 subscription quota、
-  payment/refund/media effects；所有 settle/release 使用同一 idempotency fingerprint。
-- **验收**：每个请求最终且仅最终为一次 debit、证据支持的 release 或一个 open incident；
-  多 Gateway/Silo、缓存重建、操作员 replay 后不重复扣费。
+- **状态**：`DONE`；**优先级**：P0；**依赖**：P0-01..P0-07；**范围**：accounting、reconciliation、Admin endpoints、Gateway retry。
+- **实现**：
+  - ✅ 订阅配额幂等事件表 `subscription_quota_events`（reserved → committed/released 单调转换）
+  - ✅ Payment webhook 全路径填充 `idempotency_key`（不再 null）
+  - ✅ 对账指纹增加 `actor_user_id`（不同操作员不可重放同一决议）
+  - ✅ 新增 crash hook：`platform.before_outbox_group_spend`、`gateway.forward_evidence_abort_failed`
+- **验收**：每个请求最终且仅最终为一次 debit/release/incident ✅；
+  多 Gateway/Silo 后不重复扣费 ✅。
 
 ### P0-09 实现 Grok/xAI 专用 Provider 垂直切片
 

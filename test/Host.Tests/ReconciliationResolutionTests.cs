@@ -9,6 +9,22 @@ namespace ScalaAPI.Host.Tests;
 public sealed class ReconciliationResolutionTests
 {
     [Fact]
+    public void DifferentActorsProduceDifferentFingerprints()
+    {
+        var request = new ReconciliationResolutionRequest(
+            "release", "provider_rejection", "Provider HTTP 429 receipt",
+            "Provider rejected the request", StatusCode: 429);
+
+        var fingerprintA = ReconciliationResolutionFingerprint.Compute(1, request, actorUserId: 100);
+        var fingerprintB = ReconciliationResolutionFingerprint.Compute(1, request, actorUserId: 200);
+
+        Assert.NotEqual(fingerprintA, fingerprintB);
+
+        var fingerprintSame = ReconciliationResolutionFingerprint.Compute(1, request, actorUserId: 100);
+        Assert.Equal(fingerprintA, fingerprintSame);
+    }
+
+    [Fact]
     public async Task OperatorSettleAndReleaseAreAtomicAndIdempotent()
     {
         var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");

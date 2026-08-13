@@ -85,6 +85,7 @@ public sealed class LeaseOutboxHostedService(
         await user.FinalizeLease(lease.LeaseToken, lease.RequestId);
         if (item.EventType == "complete")
         {
+            faults.CrashIfConfigured("platform.before_outbox_group_spend", lease.LeaseToken);
             var cost = lease.FinalCostUsd ?? 0m;
             await cluster.GetGrain<IGroupGrain>(lease.GroupId)
                 .RecordLeaseSpend(lease.LeaseToken, cost);

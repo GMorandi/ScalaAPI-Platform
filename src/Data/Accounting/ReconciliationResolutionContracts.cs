@@ -58,11 +58,13 @@ public sealed record ReconciliationResolutionResult(
 
 public static class ReconciliationResolutionFingerprint
 {
-    public static string Compute(long incidentId, ReconciliationResolutionRequest request)
+    public static string Compute(long incidentId, ReconciliationResolutionRequest request,
+        long actorUserId = 0)
     {
         var canonical = JsonSerializer.Serialize(new
         {
             incident_id = incidentId,
+            actor_user_id = actorUserId,
             action = request.Action.Trim().ToLowerInvariant(),
             evidence_type = request.EvidenceType.Trim().ToLowerInvariant(),
             evidence = request.Evidence.Trim(),

@@ -94,6 +94,176 @@ public sealed class SubscriptionQuotaTests
         }
     }
 
+    [Fact]
+    public async Task QuotaEventsAreIdempotent()
+    {
+        var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
+        if (string.IsNullOrWhiteSpace(connectionString)) return;
+
+        await using var dataSource = NpgsqlDataSource.Create(connectionString);
+        var suffix = Guid.NewGuid().ToString("N");
+        var userId = Random.Shared.NextInt64(600_000_000, 900_000_000);
+        var planId = await InsertPlanAsync(dataSource, suffix);
+        var subscriptionId = await InsertSubscriptionAsync(dataSource, userId, planId);
+        var accounting = new AccountingStore(dataSource);
+        await accounting.AppendEffectAsync(new AccountingEffect(
+            userId, $"quota-event-test-funding:{suffix}", "test_credit", 10m));
+        var pricing = new ModelPricingService(new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Pricing:Models:gpt-4o:InputPerMillion"] = "1",
+            }).Build());
+        var store = new RequestLeaseStore(dataSource, accounting, pricing,
+            NullLogger<RequestLeaseStore>.Instance);
+        var leaseToken = $"quota-event-lease-{suffix}";
+
+        try
+        {
+            var request = new LeaseCreateRequest(
+                leaseToken, $"quota-event-request-{suffix}",
+                "subscription-key", 777001, userId, 777002, 777003, "gpt-4o", "gpt-4o",
+                "chat_completions", 1m, null, 0.50m, DateTime.UtcNow.AddMinutes(5));
+            Assert.True((await store.CreateDetailedAsync(request)).Created);
+
+            var eventCount = await CountEventsAsync(dataSource, leaseToken);
+            Assert.Equal(1L, eventCount);
+
+            var eventType = await ReadEventTypeAsync(dataSource, leaseToken);
+            Assert.Equal("reserved", eventType);
+
+            var completed = await store.CompleteAsync(new LeaseCompletion(
+                leaseToken, 100, 0, 0, 0, 10, 0, 200, false, false));
+            Assert.True(completed.Accepted);
+
+            var committedType = await ReadEventTypeAsync(dataSource, leaseToken);
+            Assert.Equal("committed", committedType);
+
+            var usedAmount = await ReadUsedAmountAsync(dataSource, leaseToken);
+            Assert.Equal(0.0001m, usedAmount);
+        }
+        finally
+        {
+            await CleanupAsync(dataSource, new[] { leaseToken }, subscriptionId, planId, userId);
+        }
+    }
+
+    [Fact]
+    public async Task QuotaEventTransitionIsMonotonic()
+    {
+        var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
+        if (string.IsNullOrWhiteSpace(connectionString)) return;
+
+        await using var dataSource = NpgsqlDataSource.Create(connectionString);
+        var suffix = Guid.NewGuid().ToString("N");
+        var userId = Random.Shared.NextInt64(600_000_000, 900_000_000);
+        var planId = await InsertPlanAsync(dataSource, suffix);
+        var subscriptionId = await InsertSubscriptionAsync(dataSource, userId, planId);
+        var accounting = new AccountingStore(dataSource);
+        await accounting.AppendEffectAsync(new AccountingEffect(
+            userId, $"quota-monotonic-test-funding:{suffix}", "test_credit", 10m));
+        var pricing = new ModelPricingService(new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Pricing:Models:gpt-4o:InputPerMillion"] = "1",
+            }).Build());
+        var store = new RequestLeaseStore(dataSource, accounting, pricing,
+            NullLogger<RequestLeaseStore>.Instance);
+        var leaseToken = $"quota-monotonic-lease-{suffix}";
+
+        try
+        {
+            var request = new LeaseCreateRequest(
+                leaseToken, $"quota-monotonic-request-{suffix}",
+                "subscription-key", 777001, userId, 777002, 777003, "gpt-4o", "gpt-4o",
+                "chat_completions", 1m, null, 0.50m, DateTime.UtcNow.AddMinutes(5));
+            Assert.True((await store.CreateDetailedAsync(request)).Created);
+
+            var completed = await store.CompleteAsync(new LeaseCompletion(
+                leaseToken, 100, 0, 0, 0, 10, 0, 200, false, false));
+            Assert.True(completed.Accepted);
+            Assert.Equal("committed", await ReadEventTypeAsync(dataSource, leaseToken));
+
+            var duplicate = await store.CompleteAsync(new LeaseCompletion(
+                leaseToken, 100, 0, 0, 0, 10, 0, 200, false, false));
+            Assert.True(duplicate.Duplicate);
+            Assert.Equal("committed", await ReadEventTypeAsync(dataSource, leaseToken));
+
+            var eventCount = await CountEventsAsync(dataSource, leaseToken);
+            Assert.Equal(1L, eventCount);
+        }
+        finally
+        {
+            await CleanupAsync(dataSource, new[] { leaseToken }, subscriptionId, planId, userId);
+        }
+    }
+
+    private static async Task<long> CountEventsAsync(NpgsqlDataSource dataSource, string leaseToken)
+    {
+        await using var command = dataSource.CreateCommand(
+            "SELECT count(*) FROM subscription_quota_events WHERE lease_token = $1");
+        command.Parameters.AddWithValue(leaseToken);
+        return Convert.ToInt64(await command.ExecuteScalarAsync());
+    }
+
+    private static async Task<string> ReadEventTypeAsync(NpgsqlDataSource dataSource, string leaseToken)
+    {
+        await using var command = dataSource.CreateCommand(
+            "SELECT event_type FROM subscription_quota_events WHERE lease_token = $1");
+        command.Parameters.AddWithValue(leaseToken);
+        return (string)(await command.ExecuteScalarAsync() ?? "");
+    }
+
+    private static async Task<decimal> ReadUsedAmountAsync(NpgsqlDataSource dataSource, string leaseToken)
+    {
+        await using var command = dataSource.CreateCommand(
+            "SELECT used_amount FROM subscription_quota_events WHERE lease_token = $1");
+        command.Parameters.AddWithValue(leaseToken);
+        return Convert.ToDecimal(await command.ExecuteScalarAsync() ?? 0m);
+    }
+
+    private static async Task CleanupAsync(NpgsqlDataSource dataSource, string[] leaseTokens,
+        long subscriptionId, long planId, long userId)
+    {
+        foreach (var table in new[] { "usage_outbox", "usage_logs", "usage_events" })
+        {
+            await using var cleanup = dataSource.CreateCommand(
+                $"DELETE FROM {table} WHERE lease_token = ANY($1)");
+            cleanup.Parameters.AddWithValue(leaseTokens);
+            await cleanup.ExecuteNonQueryAsync();
+        }
+        await using (var events = dataSource.CreateCommand(
+            "DELETE FROM subscription_quota_events WHERE lease_token = ANY($1)"))
+        {
+            events.Parameters.AddWithValue(leaseTokens);
+            await events.ExecuteNonQueryAsync();
+        }
+        await using (var leases = dataSource.CreateCommand(
+            "DELETE FROM request_leases WHERE lease_token = ANY($1)"))
+        {
+            leases.Parameters.AddWithValue(leaseTokens);
+            await leases.ExecuteNonQueryAsync();
+        }
+        await using (var subscriptions = dataSource.CreateCommand(
+            "DELETE FROM user_subscriptions WHERE id = $1"))
+        {
+            subscriptions.Parameters.AddWithValue(subscriptionId);
+            await subscriptions.ExecuteNonQueryAsync();
+        }
+        await using (var plans = dataSource.CreateCommand(
+            "DELETE FROM subscription_plans WHERE id = $1"))
+        {
+            plans.Parameters.AddWithValue(planId);
+            await plans.ExecuteNonQueryAsync();
+        }
+        foreach (var table in new[] { "accounting_projection_outbox", "balance_ledger", "accounting_accounts" })
+        {
+            await using var accountingCleanup = dataSource.CreateCommand(
+                $"DELETE FROM {table} WHERE user_id = $1");
+            accountingCleanup.Parameters.AddWithValue(userId);
+            await accountingCleanup.ExecuteNonQueryAsync();
+        }
+    }
+
     private static LeaseCreateRequest NewRequest(string suffix, string name, long userId,
         decimal holdAmount) => new(
         $"subscription-lease-{name}-{suffix}", $"subscription-request-{name}-{suffix}",
