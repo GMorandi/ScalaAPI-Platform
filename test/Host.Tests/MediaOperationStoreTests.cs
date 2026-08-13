@@ -338,10 +338,6 @@ public sealed class MediaOperationStoreTests
         var leaseA = $"lease-media-list-a-{suffix}";
         var leaseB = $"lease-media-list-b-{suffix}";
         var leaseOther = $"lease-media-list-other-{suffix}";
-        var operationIds = new[]
-        {
-            $"med_batch_a_{suffix}", $"med_batch_b_{suffix}", $"med_batch_other_{suffix}"
-        };
         try
         {
             await InsertLease(dataSource, leaseA, $"request-media-list-a-{suffix}");
@@ -349,30 +345,47 @@ public sealed class MediaOperationStoreTests
             await InsertLease(dataSource, leaseOther, $"request-media-list-other-{suffix}");
             var store = new MediaOperationStore(dataSource);
 
-            Assert.True((await store.CreateOrGetAsync(91001, 92001,
+            var createdA = await store.CreateOrGetAsync(91001, 92001,
                 $"request-media-list-a-{suffix}", leaseA, "images_batch_create",
                 $"idem-list-a-{suffix}", "fingerprint-a", "openai",
-                DateTime.UtcNow.AddHours(1))).Created);
-            Assert.True((await store.CreateOrGetAsync(91001, 92001,
+                DateTime.UtcNow.AddHours(1));
+            Assert.True(createdA.Created);
+            var createdB = await store.CreateOrGetAsync(91001, 92001,
                 $"request-media-list-b-{suffix}", leaseB, "images_batch_create",
                 $"idem-list-b-{suffix}", "fingerprint-b", "openai",
-                DateTime.UtcNow.AddHours(1))).Created);
-            Assert.True((await store.CreateOrGetAsync(91002, 92001,
+                DateTime.UtcNow.AddHours(1));
+            Assert.True(createdB.Created);
+            var createdOther = await store.CreateOrGetAsync(91002, 92001,
                 $"request-media-list-other-{suffix}", leaseOther, "images_batch_create",
                 $"idem-list-other-{suffix}", "fingerprint-other", "openai",
-                DateTime.UtcNow.AddHours(1))).Created);
+                DateTime.UtcNow.AddHours(1));
+            Assert.True(createdOther.Created);
+
+            var actualOwnerOperationIds = new[]
+            {
+                createdA.Operation.OperationId, createdB.Operation.OperationId
+            };
 
             var listed = await store.ListBatchesAsync(91001);
             Assert.Equal(2, listed.Count);
-            Assert.All(listed, operation => Assert.Contains(operation.OperationId, operationIds[..2]));
-            Assert.DoesNotContain(listed, operation => operation.OperationId == operationIds[2]);
+            Assert.All(listed, operation =>
+                Assert.Contains(operation.OperationId, actualOwnerOperationIds));
+            Assert.DoesNotContain(listed,
+                operation => operation.OperationId == createdOther.Operation.OperationId);
         }
         finally
         {
-            await using (var cleanupMedia = dataSource.CreateCommand(
-                "DELETE FROM media_operations WHERE operation_id = ANY($1)"))
+            await using (var cleanupItems = dataSource.CreateCommand(
+                "DELETE FROM media_operation_items WHERE operation_id IN (" +
+                "SELECT operation_id FROM media_operations WHERE lease_token = ANY($1))"))
             {
-                cleanupMedia.Parameters.AddWithValue(operationIds);
+                cleanupItems.Parameters.AddWithValue(new[] { leaseA, leaseB, leaseOther });
+                await cleanupItems.ExecuteNonQueryAsync();
+            }
+            await using (var cleanupMedia = dataSource.CreateCommand(
+                "DELETE FROM media_operations WHERE lease_token = ANY($1)"))
+            {
+                cleanupMedia.Parameters.AddWithValue(new[] { leaseA, leaseB, leaseOther });
                 await cleanupMedia.ExecuteNonQueryAsync();
             }
             await using var cleanupLeases = dataSource.CreateCommand(

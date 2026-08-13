@@ -47,6 +47,7 @@ public sealed class PasskeyStoreTests
         }
         finally
         {
+            await using var cleanupConnection = await dataSource.OpenConnectionAsync();
             foreach (var (sql, value) in new[]
             {
                 ("DELETE FROM passkey_challenges WHERE challenge_id = $1", (object)challengeId),
@@ -54,7 +55,7 @@ public sealed class PasskeyStoreTests
                 ("DELETE FROM audit_logs WHERE user_id = $1 AND action IN ('passkey.registered', 'passkey.revoked')", (object)1L),
             })
             {
-                await using var cleanup = dataSource.CreateCommand(sql);
+                await using var cleanup = new NpgsqlCommand(sql, cleanupConnection);
                 cleanup.Parameters.AddWithValue(value);
                 await cleanup.ExecuteNonQueryAsync();
             }
