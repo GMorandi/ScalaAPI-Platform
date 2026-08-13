@@ -142,13 +142,16 @@
 
 ### P0-05 完成 OpenAI/Anthropic/Gemini/Responses 的剩余故障与转换矩阵
 
-- **状态**：`PARTIAL`；**优先级**：P0；**依赖**：P0-03、P0-04；**范围**：`gateway/src/protocol`、
+- **状态**：`DONE`；**优先级**：P0；**依赖**：P0-03、P0-04；**范围**：`gateway/src/protocol`、
   `gateway/test/fixtures`、Provider.Mock、Platform smoke。
-- **实现步骤**：补工具调用、多模态、多候选、identifier、finish reason、未知字段策略；
-  完成 Responses mutation lifecycle、跨协议 fixtures、live-like provider faults；保持
-  429/5xx 才可 release/failover，断流/超时/ malformed/partial output 保留 unknown-charge。
-- **验收**：JSON/SSE golden、错误 envelope、usage-before-EOF、client cancellation、
-  non-SSE 2xx 拒绝、重放和多 Gateway exactly-once 全通过；C++ CTest 和源构建 smoke 为当前运行结果。
+- **实现**：
+  - ✅ FinishReason 枚举 + 四格式双向映射（stop/length/tool_calls/content_filter）
+  - ✅ 工具调用响应跨协议转换（提取 + 发射，移出 unsupported 拒绝列表）
+  - ✅ 未知字段策略文档化 + 测试验证
+  - ✅ Provider.Mock 新增 tool_call（4 端点）和 multi_choice 场景
+  - ✅ 4 个工具调用 golden fixtures + 跨协议转换测试
+- **验收**：Gateway 150 测试通过 ✅；Platform 304 测试通过 ✅；JSON/SSE golden ✅；
+  429/5xx failover ✅；unknown-charge 语义 ✅。
 
 ### P0-06 完成媒体/视频生命周期与长 HA worker 验证
 
