@@ -200,7 +200,7 @@
 
 ### P1-01 实现 Web Search/X Search
 
-- **状态**：`TODO`；**优先级**：P1；**依赖**：P0-03、P0-09（可先用独立 mock）；**范围**：Gateway capability/schema、Platform adapter/mock、Admin/User routes/UI。
+- **状态**：`DONE`；**优先级**：P1；**依赖**：P0-03、P0-09（可先用独立 mock）；**范围**：Gateway capability/schema、Platform adapter/mock、Admin/User routes/UI。
 - **实现步骤**：替换 generic `/alpha/search` 为版本化能力；定义 bounded query/domain/recency、
   source/result/citation schema、provider failure/account penalty、per-search unit/pricing、
   redaction/audit、idempotency；补 Web/X provider fixture 和模型/权限配置。

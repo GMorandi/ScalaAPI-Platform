@@ -9,6 +9,7 @@ using System.Text.Json;
 using Npgsql;
 using Capnp;
 using CapnpGen;
+using ScalaAPI.Data.Search;
 
 namespace ScalaAPI.Host.Services;
 
@@ -537,6 +538,7 @@ public class DispatchService
     private readonly FaultInjection _faults;
     private readonly NpgsqlDataSource _dataSource;
     private readonly ContentPolicyService _contentPolicy;
+    private readonly ISearchHistoryStore _searchHistory;
     private readonly TimeSpan _leaseTtl;
     private readonly decimal _maxReservationUsd;
     private readonly int _asyncMediaRetentionHours;
@@ -553,7 +555,8 @@ public class DispatchService
                            IConfiguration configuration,
                            ILogger<DispatchService> logger,
                            FaultInjection faults,
-                           ContentPolicyService contentPolicy)
+                           ContentPolicyService contentPolicy,
+                           ISearchHistoryStore searchHistory)
     {
         _cluster = cluster;
         _leases = leases;
@@ -568,6 +571,7 @@ public class DispatchService
         _logger = logger;
         _faults = faults;
         _contentPolicy = contentPolicy;
+        _searchHistory = searchHistory;
         _leaseTtl = TimeSpan.FromSeconds(
             configuration.GetValue("Dispatch:LeaseTtlSeconds", 360));
         _maxReservationUsd = Math.Max(0.01m,
@@ -825,6 +829,9 @@ public class DispatchService
             _faults.CrashIfConfigured("platform.before_provider_dispatch", req.RequestId);
             _faults.CrashIfConfigured("platform.before_provider_dispatch_retry", req.RequestId);
 
+            if (capability == "search")
+                await RecordSearchDispatchAsync(auth, accountId, selection.LeaseToken!, req, creds.Platform);
+
             var mediaOperationId = "";
             if (isMediaOperation)
             {
@@ -1039,8 +1046,93 @@ public class DispatchService
             req.MediaOperationId, req.PricingVersion,
             req.ResponseStatusCode, req.ResponseContentType, req.ResponseBody));
         if (ack.Accepted)
+        {
             await ReleaseTerminalLeaseSlotsAsync(req.LeaseToken);
+            await RecordSearchHistoryIfNeeded(req.LeaseToken, req);
+        }
         return ack;
+    }
+
+    private async Task RecordSearchDispatchAsync(AuthResult auth, long accountId,
+        string leaseToken, DispatchRequest req, string platform)
+    {
+        try
+        {
+            var query = "";
+            string? domainFilter = null;
+            string? recencyFilter = null;
+            if (!string.IsNullOrEmpty(req.RequestBody))
+            {
+                try
+                {
+                    using var doc = JsonDocument.Parse(req.RequestBody);
+                    if (doc.RootElement.TryGetProperty("query", out var q) && q.ValueKind == JsonValueKind.String)
+                        query = q.GetString() ?? "";
+                    if (doc.RootElement.TryGetProperty("domain", out var d) && d.ValueKind == JsonValueKind.String)
+                        domainFilter = d.GetString();
+                    if (doc.RootElement.TryGetProperty("recency", out var r) && r.ValueKind == JsonValueKind.String)
+                        recencyFilter = r.GetString();
+                }
+                catch { /* malformed body */ }
+            }
+
+            var providerPlatform = platform is "grok" or "xai" ? "xai" : "openai";
+            await _searchHistory.RecordAsync(
+                auth.UserId, auth.ApiKeyId, leaseToken,
+                query, domainFilter, recencyFilter,
+                0, false, providerPlatform,
+                accountId, "pending", null);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to pre-record search history for lease {LeaseToken}", leaseToken);
+        }
+    }
+
+    private async Task RecordSearchHistoryIfNeeded(string leaseToken, UsageReportRequest req)
+    {
+        try
+        {
+            var lease = await _leases.GetByLeaseTokenAsync(leaseToken);
+            if (lease is null || lease.InboundEndpoint != "search") return;
+
+            var resultCount = 0;
+            var truncated = false;
+            var status = req.StatusCode >= 200 && req.StatusCode < 400 ? "success" : "error";
+            string? errorCode = null;
+            if (!string.IsNullOrEmpty(req.ResponseBody))
+            {
+                try
+                {
+                    using var doc = JsonDocument.Parse(req.ResponseBody);
+                    if (doc.RootElement.TryGetProperty("results", out var results) && results.ValueKind == JsonValueKind.Array)
+                        resultCount = results.GetArrayLength();
+                    if (doc.RootElement.TryGetProperty("truncated", out var t))
+                        truncated = t.ValueKind == JsonValueKind.True;
+                    if (req.StatusCode >= 400 && doc.RootElement.TryGetProperty("error", out var err) && err.ValueKind == JsonValueKind.Object)
+                    {
+                        if (err.TryGetProperty("code", out var code) && code.ValueKind == JsonValueKind.String)
+                            errorCode = code.GetString();
+                    }
+                }
+                catch { /* malformed response */ }
+            }
+            if (req.StatusCode >= 400 && string.IsNullOrEmpty(errorCode))
+                errorCode = req.StatusCode == 429 ? "rate_limited" : "upstream_error";
+
+            var platform = req.UpstreamEndpoint.Contains("grok") || req.UpstreamEndpoint.Contains("xai")
+                ? "xai" : "openai";
+
+            await _searchHistory.RecordAsync(
+                lease.UserId, lease.ApiKeyId, leaseToken,
+                "", null, null,
+                resultCount, truncated, platform,
+                lease.AccountId, status, errorCode);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to record search history for lease {LeaseToken}", leaseToken);
+        }
     }
 
     public async Task<ContentPolicyRpcResult> HandleContentPolicy(ContentPolicyRpcRequest req)

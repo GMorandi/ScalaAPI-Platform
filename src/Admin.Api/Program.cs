@@ -8,6 +8,7 @@ using ScalaAPI.Admin.Payments;
 using ScalaAPI.Data.Repositories;
 using ScalaAPI.Data.Accounting;
 using ScalaAPI.Data.Provider;
+using ScalaAPI.Data.Search;
 using Npgsql;
 using System.IdentityModel.Tokens.Jwt;
 using Fido2NetLib;
@@ -76,6 +77,7 @@ builder.Services.AddSingleton<PasskeyStore>();
 builder.Services.AddSingleton<MaintenanceStore>();
 builder.Services.AddSingleton<BackupStore>();
 builder.Services.AddSingleton<AnnouncementStore>();
+builder.Services.AddSingleton<ISearchHistoryStore, SearchHistoryStore>();
 builder.Services.AddSingleton<IMetadataService, EmptyPasskeyMetadataService>();
 builder.Services.AddSingleton<Fido2>(sp =>
 {
@@ -158,6 +160,7 @@ app.MapPasskeyEndpoints();
 app.MapMaintenanceEndpoints();
 app.MapAnnouncementEndpoints();
 app.MapPlatformEndpoints();
+app.MapSearchAuditEndpoints();
 
 app.MapGet("/live", () => Results.Ok(new { status = "live" })).AllowAnonymous();
 app.MapGet("/ready", async (ISqlSugarClient db) =>

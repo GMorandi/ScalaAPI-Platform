@@ -20,7 +20,7 @@ public static class GatewayCapabilityPolicy
             "antigravity" => feature is "antigravity" or "messages" or "count_tokens"
                 or "gemini_models" or "gemini_generate" or "images_sync" or "images_async",
             "grok" or "xai" => feature is "chat_completions" or "models"
-                or "images_sync" or "videos",
+                or "images_sync" or "videos" or "search",
             "openai" or "openai-compatible" => feature is "chat_completions" or "responses"
                 or "responses_subpath" or "models" or "embeddings" or "images_sync"
                 or "images_async" or "images_batch" or "videos" or "search" or "realtime",

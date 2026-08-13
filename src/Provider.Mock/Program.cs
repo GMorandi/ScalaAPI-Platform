@@ -1732,6 +1732,96 @@ static string ResponseInputText(JsonElement root)
     return string.Empty;
 }
 
+app.MapPost("/alpha/search", async (HttpContext context, CancellationToken cancellationToken) =>
+{
+    var auth = context.Request.Headers.Authorization.ToString();
+    if (!auth.StartsWith("Bearer ", StringComparison.Ordinal))
+    {
+        context.Response.StatusCode = 401;
+        await context.Response.WriteAsJsonAsync(new { error = new { type = "authentication_error", message = "missing bearer token" } }, cancellationToken);
+        return;
+    }
+
+    using var body = await MockProviderHelpers.ReadJsonAsync(context, cancellationToken);
+    var root = body.RootElement;
+    if (root.ValueKind != JsonValueKind.Object
+        || !root.TryGetProperty("query", out var queryElement)
+        || queryElement.ValueKind != JsonValueKind.String)
+    {
+        context.Response.StatusCode = 400;
+        await context.Response.WriteAsJsonAsync(new { error = new { code = "invalid_request", message = "query is required" } }, cancellationToken);
+        return;
+    }
+
+    var query = queryElement.GetString() ?? "";
+    if (query.Length > 1000)
+    {
+        context.Response.StatusCode = 400;
+        await context.Response.WriteAsJsonAsync(new { error = new { code = "invalid_request", message = "query exceeds 1000 character limit" } }, cancellationToken);
+        return;
+    }
+
+    if (root.TryGetProperty("domain", out var domainEl) && domainEl.ValueKind != JsonValueKind.String)
+    {
+        context.Response.StatusCode = 400;
+        await context.Response.WriteAsJsonAsync(new { error = new { code = "invalid_request", message = "domain must be a string" } }, cancellationToken);
+        return;
+    }
+    if (root.TryGetProperty("recency", out var recencyEl) && recencyEl.ValueKind != JsonValueKind.String)
+    {
+        context.Response.StatusCode = 400;
+        await context.Response.WriteAsJsonAsync(new { error = new { code = "invalid_request", message = "recency must be a string" } }, cancellationToken);
+        return;
+    }
+
+    var scenario = context.Request.Headers["X-Mock-Scenario"].ToString().ToLowerInvariant();
+    if (scenario == "rate_limited")
+    {
+        context.Response.StatusCode = 429;
+        context.Response.Headers.RetryAfter = "5";
+        await context.Response.WriteAsJsonAsync(new { error = new { code = "rate_limited", message = "mock rate limited" } }, cancellationToken);
+        return;
+    }
+    if (scenario == "server_error")
+    {
+        context.Response.StatusCode = 500;
+        await context.Response.WriteAsJsonAsync(new { error = new { code = "upstream_error", message = "mock server error" } }, cancellationToken);
+        return;
+    }
+    if (scenario == "timeout")
+    {
+        await Task.Delay(TimeSpan.FromMinutes(2), cancellationToken);
+        return;
+    }
+
+    var results = scenario == "empty" ? Array.Empty<object>() : new object[]
+    {
+        new
+        {
+            source = "web",
+            title = "Mock Search Result 1",
+            url = "https://example.test/result-1",
+            snippet = "This is a mock search result for: " + query,
+        },
+        new
+        {
+            source = "web",
+            title = "Mock Search Result 2",
+            url = "https://example.test/result-2",
+            snippet = "Another mock result for: " + query,
+        },
+    };
+
+    await context.Response.WriteAsJsonAsync(new
+    {
+        id = MockProviderHelpers.Id("search"),
+        query,
+        results,
+        truncated = scenario == "partial",
+        query_count = 1,
+    }, cancellationToken);
+});
+
 app.Run();
 
 public partial class Program;
