@@ -22,6 +22,7 @@
   <ItemGroup>
     <ProjectReference Include="../Grains.Interfaces/Grains.Interfaces.csproj" />
     <ProjectReference Include="../Data/ScalaAPI.Data.csproj" />
+    <ProjectReference Include="../Platform.Host/Platform.Host.csproj" />
   </ItemGroup>
 
 </Project>

@@ -221,6 +221,12 @@ builder.Services.AddHostedService<MediaOperationHostedService>();
 builder.Services.AddHostedService<MediaObjectReconciliationService>();
 builder.Services.AddHostedService<ContentPolicyPropagationHostedService>();
 builder.Services.AddHostedService<OpenAiModerationMetricFlushService>();
+builder.Services.AddSingleton<ChannelMonitorTemplateStore>();
+builder.Services.AddSingleton<ChannelMonitorService>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<ChannelMonitorService>());
+builder.Services.AddSingleton<OpsMetricsSampleStore>();
+builder.Services.AddSingleton<OpsMetricsCollector>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<OpsMetricsCollector>());
 
 var app = builder.Build();
 

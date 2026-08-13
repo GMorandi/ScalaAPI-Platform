@@ -254,7 +254,7 @@
 
 ### P1-07 实现主动 Channel Monitor 与 OPS metrics pipeline
 
-- **状态**：`PARTIAL`；**优先级**：P1；**依赖**：P0-01、P0-07；**范围**：ChannelMonitorStore、OpsMetricsStore、hosted workers、migrations、Admin Web。
+- **状态**：`DONE`；**优先级**：P1；**依赖**：P0-01、P0-07；**范围**：ChannelMonitorStore、OpsMetricsStore、hosted workers、migrations、Admin Web。
 - **当前缺口**：现有 `/admin/channel-monitors/check` 与 `/admin/ops-metrics/ingest` 主要是手工写入。
 - **实现步骤**：增加模板、schedule、leader fencing、bounded runner、retry/history、告警 delivery；
   metrics collector 从 Gateway/Platform/Provider 自动采集并关联 request/lease IDs，固定 label，
