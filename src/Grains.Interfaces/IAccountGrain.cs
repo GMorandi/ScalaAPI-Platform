@@ -14,7 +14,9 @@ public record AccountProjection(
     long? RateLimitResetAt, long? OverloadUntil,
     long? TempUnschedulableUntil, string[] SupportedModels,
     long? CredentialExpiresAt = null, string CredentialStatus = "static",
-    int CredentialVersion = 0, string? CredentialRefreshError = null);
+    int CredentialVersion = 0, string? CredentialRefreshError = null,
+    long? QuotaExpiresAtUnixSeconds = null, string QuotaTier = "",
+    decimal? QuotaRemaining = null);
 
 [GenerateSerializer]
 public record AccountCredentials(

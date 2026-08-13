@@ -80,4 +80,32 @@ public sealed class ProviderCredentialCompilerTests
             ProviderCredentialCompiler.CompileStatic("anthropic", "api_key", credentials));
         Assert.Equal("provider_credentials_too_many", count.Code);
     }
+
+    [Fact]
+    public void XaiCompilesBearerHeaderFromExplicitBranch()
+    {
+        var headers = ProviderCredentialCompiler.CompileStatic("grok", "api_key",
+            new Dictionary<string, string> { ["api_key"] = "xai-secret" });
+
+        Assert.Equal("Bearer xai-secret", headers["Authorization"]);
+        Assert.DoesNotContain("api_key", headers.Keys);
+    }
+
+    [Fact]
+    public void XaiMissingApiKeyThrows()
+    {
+        var missing = Assert.Throws<ProviderCredentialContractException>(() =>
+            ProviderCredentialCompiler.CompileStatic("xai", "api_key",
+                new Dictionary<string, string>()));
+        Assert.Equal("provider_api_key_missing", missing.Code);
+    }
+
+    [Fact]
+    public void XaiRejectsOAuthType()
+    {
+        var oauth = Assert.Throws<ProviderCredentialContractException>(() =>
+            ProviderCredentialCompiler.CompileStatic("grok", "oauth",
+                new Dictionary<string, string>()));
+        Assert.Equal("provider_oauth_not_supported", oauth.Code);
+    }
 }

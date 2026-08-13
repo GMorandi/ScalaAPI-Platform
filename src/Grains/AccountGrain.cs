@@ -31,6 +31,9 @@ public class AccountState
     [Id(20)] public string? ProxyUsername { get; set; }
     [Id(21)] public string? ProxyPassword { get; set; }
     [Id(22)] public string? TlsFingerprintProfileId { get; set; }
+    [Id(23)] public long? QuotaExpiresAtUnixSeconds { get; set; }
+    [Id(24)] public string QuotaTier { get; set; } = "";
+    [Id(25)] public decimal? QuotaRemaining { get; set; }
 }
 
 [GenerateSerializer]
@@ -82,11 +85,14 @@ public class AccountGrain : Grain, IAccountGrain
     {
         var s = _state.State;
         var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        var quotaExpired = s.QuotaExpiresAtUnixSeconds.HasValue
+            && s.QuotaExpiresAtUnixSeconds.Value * 1000 < now;
         var schedulable = s.Schedulable && s.Status == "active"
             && s.OAuth?.RevokedAtUnixSeconds is null
             && (s.RateLimitResetAt is null || s.RateLimitResetAt < now)
             && (s.OverloadUntil is null || s.OverloadUntil < now)
-            && (s.TempUnschedulableUntil is null || s.TempUnschedulableUntil < now);
+            && (s.TempUnschedulableUntil is null || s.TempUnschedulableUntil < now)
+            && !quotaExpired;
 
         var currentLoad = await _slotLeaseStore.GetAccountActiveCount(this.GetPrimaryKeyLong());
 
@@ -99,7 +105,8 @@ public class AccountGrain : Grain, IAccountGrain
             s.OAuth is null ? "static"
                 : s.OAuth.RevokedAtUnixSeconds is not null ? "revoked"
                 : s.OAuth.LastRefreshError is null ? "oauth" : "refresh_error",
-            s.OAuth?.Version ?? 0, s.OAuth?.LastRefreshError);
+            s.OAuth?.Version ?? 0, s.OAuth?.LastRefreshError,
+            s.QuotaExpiresAtUnixSeconds, s.QuotaTier, s.QuotaRemaining);
     }
 
     public Task<AccountCredentials> Hydrate()

@@ -33,6 +33,12 @@ public sealed class MockCatalogHttpContractTests :
             model => model.GetProperty("id").GetString() == "jina-embeddings-v5-text-small");
         Assert.Contains(openAiDocument.RootElement.GetProperty("data").EnumerateArray(),
             model => model.GetProperty("id").GetString() == "gemini-embedding-001");
+        Assert.Contains(openAiDocument.RootElement.GetProperty("data").EnumerateArray(),
+            model => model.GetProperty("id").GetString() == "grok-3");
+        Assert.Contains(openAiDocument.RootElement.GetProperty("data").EnumerateArray(),
+            model => model.GetProperty("id").GetString() == "grok-3-mini");
+        Assert.Contains(openAiDocument.RootElement.GetProperty("data").EnumerateArray(),
+            model => model.GetProperty("id").GetString() == "grok-2-image");
 
         using var gemini = await client.GetAsync("/v1beta/models");
         using var geminiDocument = JsonDocument.Parse(await gemini.Content.ReadAsStringAsync());
@@ -51,8 +57,11 @@ public sealed class MockCatalogHttpContractTests :
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
         var quotes = document.RootElement.GetProperty("data").EnumerateArray().ToArray();
-        Assert.Equal(3, quotes.Length);
+        Assert.Equal(6, quotes.Length);
         Assert.Contains(quotes, quote => quote.GetProperty("model").GetString() == "gpt-4o");
+        Assert.Contains(quotes, quote => quote.GetProperty("model").GetString() == "grok-3");
+        Assert.Contains(quotes, quote => quote.GetProperty("model").GetString() == "grok-3-mini");
+        Assert.Contains(quotes, quote => quote.GetProperty("model").GetString() == "grok-2-image");
         Assert.All(quotes, quote =>
         {
             Assert.True(quote.GetProperty("input_usd_per_million").GetDecimal() >= 0m);

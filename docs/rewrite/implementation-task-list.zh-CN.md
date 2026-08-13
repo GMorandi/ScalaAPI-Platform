@@ -191,7 +191,7 @@
 
 ### P0-09 实现 Grok/xAI 专用 Provider 垂直切片
 
-- **状态**：`TODO`；**优先级**：P0；**依赖**：P0-03..P0-05；**范围**：`gateway/src`、Platform grains/services、Provider.Mock、migrations、Web。
+- **状态**：`DONE`；**优先级**：P0；**依赖**：P0-03..P0-05；**范围**：`gateway/src`、Platform grains/services、Provider.Mock、migrations、Web。
 - **实现步骤**：冻结 provider capability matrix；实现模型目录/版本、至少一个文本 JSON/SSE
   transform、OAuth/account refresh/revoke、quota/tier probe、image/video native routes、
   provider error mapping、price snapshots、Admin account UI 和 feature flag。

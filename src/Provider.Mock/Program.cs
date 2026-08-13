@@ -124,6 +124,30 @@ app.MapGet("/v1/pricing", () => Results.Ok(new
             cache_read_usd_per_million = 0m,
             cache_write_usd_per_million = 0m,
         },
+        new
+        {
+            model = "grok-3",
+            input_usd_per_million = 3m,
+            output_usd_per_million = 15m,
+            cache_read_usd_per_million = 0m,
+            cache_write_usd_per_million = 0m,
+        },
+        new
+        {
+            model = "grok-3-mini",
+            input_usd_per_million = 0.30m,
+            output_usd_per_million = 0.50m,
+            cache_read_usd_per_million = 0m,
+            cache_write_usd_per_million = 0m,
+        },
+        new
+        {
+            model = "grok-2-image",
+            input_usd_per_million = 0m,
+            output_usd_per_million = 0m,
+            cache_read_usd_per_million = 0m,
+            cache_write_usd_per_million = 0m,
+        },
     },
 }));
 
@@ -243,6 +267,9 @@ app.MapGet("/v1/models", (HttpRequest request) =>
             new { id = "gemini-embedding-001", @object = "model", created = 1_700_000_003L, owned_by = "scalaapi-provider-mock" },
             new { id = "mock-image-1", @object = "model", created = 1_700_000_004L, owned_by = "scalaapi-provider-mock" },
             new { id = "mock-video-1", @object = "model", created = 1_700_000_005L, owned_by = "scalaapi-provider-mock" },
+            new { id = "grok-3", @object = "model", created = 1_700_000_006L, owned_by = "xai" },
+            new { id = "grok-3-mini", @object = "model", created = 1_700_000_007L, owned_by = "xai" },
+            new { id = "grok-2-image", @object = "model", created = 1_700_000_008L, owned_by = "xai" },
         }
     });
 });
@@ -1662,6 +1689,17 @@ static IResult? AuthenticateGemini(HttpRequest request)
             status = "UNAUTHENTICATED",
             message = "invalid provider credentials"
         }
+    }, statusCode: StatusCodes.Status401Unauthorized);
+}
+
+static IResult? AuthenticateXai(HttpRequest request)
+{
+    var auth = request.Headers.Authorization.ToString();
+    if (string.Equals(auth, "Bearer mock-xai-key", StringComparison.Ordinal))
+        return null;
+    return Results.Json(new
+    {
+        error = new { type = "authentication_error", message = "invalid provider credentials" }
     }, statusCode: StatusCodes.Status401Unauthorized);
 }
 

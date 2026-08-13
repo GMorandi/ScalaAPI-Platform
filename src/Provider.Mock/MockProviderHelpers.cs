@@ -24,6 +24,17 @@ internal static class MockProviderHelpers
                 "gemini-embedding-001", "gemini-compatible", 6, 3072, 3),
         };
 
+    private static readonly IReadOnlyDictionary<string, (string Provider, int CharactersPerToken)>
+        ChatModelProfiles = new Dictionary<string, (string, int)>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["grok-3"] = ("xai", 4),
+            ["grok-3-mini"] = ("xai", 4),
+            ["grok-2-image"] = ("xai", 4),
+        };
+
+    public static bool TryGetChatModelProfile(string model, out (string Provider, int CharactersPerToken) profile) =>
+        ChatModelProfiles.TryGetValue(model.Trim(), out profile);
+
     public static async Task<JsonDocument> ReadJsonAsync(HttpContext context,
         CancellationToken cancellationToken)
     {

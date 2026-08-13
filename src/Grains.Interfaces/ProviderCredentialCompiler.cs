@@ -59,6 +59,14 @@ public static class ProviderCredentialCompiler
             if (apiKey is not null)
                 AddHeader(headers, "x-goog-api-key", apiKey);
         }
+        else if (normalizedPlatform is "grok" or "xai")
+        {
+            if (isOAuth)
+                throw Invalid("provider_oauth_not_supported");
+            if (apiKey is null)
+                throw Invalid("provider_api_key_missing");
+            AddHeader(headers, "Authorization", $"Bearer {apiKey}");
+        }
         else if (apiKey is not null)
         {
             AddHeader(headers, "Authorization", $"Bearer {apiKey}");
