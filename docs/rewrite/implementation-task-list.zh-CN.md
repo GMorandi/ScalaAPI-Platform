@@ -78,7 +78,7 @@
 
 ### GATE-02 建立当前工作树的可重复基线
 
-- **状态**：`TODO`；**优先级**：P0；**依赖**：GATE-01；**范围**：`platform/scripts`、`platform/.github`、`gateway/.github`、文档。
+- **状态**：`DONE`；**优先级**：P0；**依赖**：GATE-01；**范围**：`platform/scripts`、`platform/.github`、`gateway/.github`、文档。
 - **实现步骤**：固定 Platform/Gateway/Sub2API commit，执行 Release build、C++ CTest、
   C# tests、Cap'n Proto digest/generation、Web build、迁移双跑和依赖扫描；所有子命令
   非零必须向顶层传播；记录外部工具不可用时的明确环境错误。
