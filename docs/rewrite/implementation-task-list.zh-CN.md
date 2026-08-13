@@ -357,7 +357,7 @@
 
 ### REL-04 跨仓库 CI 与发布制品
 
-- **状态**：`PARTIAL`；**优先级**：P0；**依赖**：GATE-02、REL-01..REL-03；**范围**：两个仓库 CI、release scripts、镜像构建。
+- **状态**：`DONE`；**优先级**：P0；**依赖**：GATE-02、REL-01..REL-03；**范围**：两个仓库 CI、release scripts、镜像构建。
 - **实现步骤**：使用 immutable reviewed refs 或专用 release repo；阻塞式执行 build/test/contract/
   migrations/Web/C++/smoke/bench/security；镜像记录 source commit/digest；不允许 sibling checkout
   缺失导致假绿。

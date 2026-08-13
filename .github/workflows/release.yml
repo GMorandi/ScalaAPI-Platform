@@ -1,0 +1,152 @@
+name: Platform Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  packages: write
+  contents: read
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Restore
+        run: dotnet restore
+
+      - name: Build release
+        run: dotnet build --no-restore -c Release
+
+      - name: Run all tests
+        run: |
+          dotnet test test/Grains.Tests -c Release --no-build --verbosity normal
+          dotnet test test/Host.Tests -c Release --no-build --verbosity normal
+          dotnet test test/Admin.Tests -c Release --no-build --verbosity normal
+          dotnet test test/Provider.Mock.Tests -c Release --no-build --verbosity normal
+
+      - name: Run benchmarks (smoke)
+        run: dotnet run --project test/Platform.Benchmarks -c Release --no-build -- --filter * --job dry
+
+      - name: Validate migrations
+        run: |
+          echo "Validating migration files..."
+          ls -1 deploy/migrations/*.sql | wc -l | xargs -I {} echo "Migration count: {}"
+          for f in deploy/migrations/*.sql; do
+            [ -s "$f" ] || { echo "Empty migration: $f"; exit 1; }
+          done
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        run: |
+          echo "sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
+          echo "tag=${GITHUB_REF_NAME}" >> $GITHUB_OUTPUT
+          echo "migration_version=$(ls -1 deploy/migrations/*.sql | tail -1 | sed 's/.*\///' | sed 's/-.*//')" >> $GITHUB_OUTPUT
+
+      - name: Build and push platform-silo
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          target: platform-silo
+          push: true
+          tags: |
+            ghcr.io/gmorandi/scalaapi-platform:${{ github.ref_name }}
+            ghcr.io/gmorandi/scalaapi-platform:latest
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ steps.meta.outputs.sha }}
+            org.opencontainers.image.version=${{ steps.meta.outputs.tag }}
+            io.scalaapi.migration-version=${{ steps.meta.outputs.migration_version }}
+            io.scalaapi.commit-digest=${{ steps.meta.outputs.sha }}
+
+      - name: Build and push admin-api
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          target: admin-api
+          push: true
+          tags: |
+            ghcr.io/gmorandi/scalaapi-admin-api:${{ github.ref_name }}
+            ghcr.io/gmorandi/scalaapi-admin-api:latest
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ steps.meta.outputs.sha }}
+            org.opencontainers.image.version=${{ steps.meta.outputs.tag }}
+            io.scalaapi.migration-version=${{ steps.meta.outputs.migration_version }}
+            io.scalaapi.commit-digest=${{ steps.meta.outputs.sha }}
+
+      - name: Build and push migrator
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          target: migrate
+          push: true
+          tags: |
+            ghcr.io/gmorandi/scalaapi-migrator:${{ github.ref_name }}
+            ghcr.io/gmorandi/scalaapi-migrator:latest
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ steps.meta.outputs.sha }}
+            org.opencontainers.image.version=${{ steps.meta.outputs.tag }}
+            io.scalaapi.migration-version=${{ steps.meta.outputs.migration_version }}
+            io.scalaapi.commit-digest=${{ steps.meta.outputs.sha }}
+
+      - name: Build and push provider-mock
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          target: provider-mock
+          push: true
+          tags: |
+            ghcr.io/gmorandi/scalaapi-provider-mock:${{ github.ref_name }}
+            ghcr.io/gmorandi/scalaapi-provider-mock:latest
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ steps.meta.outputs.sha }}
+            org.opencontainers.image.version=${{ steps.meta.outputs.tag }}
+            io.scalaapi.migration-version=${{ steps.meta.outputs.migration_version }}
+            io.scalaapi.commit-digest=${{ steps.meta.outputs.sha }}
+
+      - name: Verify clean rebuild
+        run: |
+          echo "Verifying clean checkout can rebuild..."
+          git clean -fdx
+          dotnet restore
+          dotnet build -c Release
+          echo "Clean rebuild successful"
+
+      - name: Generate release report
+        run: |
+          echo "## Platform Release Report" >> $GITHUB_STEP_SUMMARY
+          echo "- Tag: ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Commit: ${{ steps.meta.outputs.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Migration version: ${{ steps.meta.outputs.migration_version }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Test projects: Grains.Tests, Host.Tests, Admin.Tests, Provider.Mock.Tests" >> $GITHUB_STEP_SUMMARY
+          echo "- Benchmarks: dry run completed" >> $GITHUB_STEP_SUMMARY
+          echo "- Images pushed:" >> $GITHUB_STEP_SUMMARY
+          echo "  - ghcr.io/gmorandi/scalaapi-platform:${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "  - ghcr.io/gmorandi/scalaapi-admin-api:${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "  - ghcr.io/gmorandi/scalaapi-migrator:${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "  - ghcr.io/gmorandi/scalaapi-provider-mock:${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Skip reasons: none" >> $GITHUB_STEP_SUMMARY
