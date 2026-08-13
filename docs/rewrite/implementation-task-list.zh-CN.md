@@ -282,7 +282,7 @@
 
 ### P2-01 完成订阅、兑换、推荐和公告的完整生命周期
 
-- **状态**：`PARTIAL`；**优先级**：P1/P2；**依赖**：P1-06、P0-08；**范围**：subscription/redeem/referral/announcement stores、migrations、Web。
+- **状态**：`DONE`；**优先级**：P1/P2；**依赖**：P1-06、P0-08；**范围**：subscription/redeem/referral/announcement stores、migrations、Web。
 - **实现步骤**：支付确认驱动 purchase；expiry/renew/reconcile；兑换码并发/过期/限次/promotions；
   signup referral attribution、anti-abuse、rebate/transfer；公告 targeting/schedule/read state。
 - **验收**：并发只产生一次 entitlement/reward/read；额度预留与 usage settlement 一致；用户
