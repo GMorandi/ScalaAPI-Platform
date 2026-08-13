@@ -457,52 +457,150 @@ public static class PlatformEndpoints
             return Results.Ok(new { items });
         });
 
-        group.MapPost("/{id}/confirm", async (long id, NpgsqlDataSource dataSource,
+        group.MapPost("/{id}/confirm", async (long id, ClaimsPrincipal principal,
+            NpgsqlDataSource dataSource,
             AccountingStore accounting, AccountingProjectionService projection,
+            ScalaAPI.Data.Payments.IPaymentProvider paymentProvider,
             CancellationToken ct) =>
         {
+            if (!ScalaAPI.Admin.Auth.AuthClaims.TryGetUserId(principal, out var actorId))
+                return Results.Unauthorized();
+
             await using var connection = await dataSource.OpenConnectionAsync(ct);
             await using var transaction = await connection.BeginTransactionAsync(ct);
+
             long userId;
             decimal amount;
             string status;
+            string currency;
+            string? providerPaymentId;
+            string providerName;
+
             await using (var find = connection.CreateCommand())
             {
                 find.Transaction = transaction;
-                find.CommandText = "SELECT user_id, amount, status FROM payment_orders WHERE id = $1 FOR UPDATE";
+                find.CommandText = """
+                    SELECT user_id, amount, status, currency, provider_payment_id, provider
+                    FROM payment_orders WHERE id = $1 FOR UPDATE
+                    """;
                 find.Parameters.AddWithValue(id);
                 await using var reader = await find.ExecuteReaderAsync(ct);
                 if (!await reader.ReadAsync(ct)) return Results.NotFound();
                 userId = reader.GetInt64(0);
                 amount = reader.GetDecimal(1);
                 status = reader.GetString(2);
+                currency = reader.GetString(3);
+                providerPaymentId = reader.IsDBNull(4) ? null : reader.GetString(4);
+                providerName = reader.GetString(5);
             }
-            if (status is not ("pending" or "paid"))
-                return Results.Conflict(new { error = "Only a pending or paid payment can be confirmed" });
 
-            if (status == "pending")
+            // Provider-authoritative: verify with the provider before transitioning
+            if (string.IsNullOrWhiteSpace(providerPaymentId))
+            {
+                await transaction.RollbackAsync(ct);
+                return Results.Conflict(new { error = "No provider payment id; cannot verify with provider" });
+            }
+
+            ScalaAPI.Data.Payments.PaymentVerificationResult verification;
+            try
+            {
+                verification = await paymentProvider.VerifyPaymentAsync(
+                    providerPaymentId!, amount, currency, ct);
+            }
+            catch (Exception)
+            {
+                await transaction.RollbackAsync(ct);
+                return Results.Json(
+                    new { error = "payment_provider_unavailable", retryable = true },
+                    statusCode: StatusCodes.Status503ServiceUnavailable);
+            }
+
+            if (!verification.Verified)
+            {
+                // Log audit entry for failed admin confirm attempt
+                await InsertConfirmAuditAsync(connection, transaction, actorId, id,
+                    "rejected", verification.ErrorCode ?? verification.Status, ct);
+                await transaction.CommitAsync(ct);
+                return Results.Conflict(new
+                {
+                    error = "payment_not_verified",
+                    reason = verification.ErrorCode ?? verification.Status,
+                });
+            }
+
+            // State machine validates the transition
+            var transition = ScalaAPI.Data.Payments.PaymentStateMachine.TryTransitionPaid(
+                status, amount, currency, providerPaymentId,
+                verification.Amount, verification.Currency, providerPaymentId);
+
+            if (!transition.Success && transition.Error != "already_paid")
+            {
+                await InsertConfirmAuditAsync(connection, transaction, actorId, id,
+                    "rejected", transition.Error!, ct);
+                await transaction.CommitAsync(ct);
+                return Results.Conflict(new { error = transition.Error });
+            }
+
+            var isDuplicate = status.Equals("paid", StringComparison.OrdinalIgnoreCase)
+                || transition.Error == "already_paid";
+
+            if (!isDuplicate)
             {
                 await using var update = connection.CreateCommand();
                 update.Transaction = transaction;
-                update.CommandText = "UPDATE payment_orders SET status = 'paid', paid_at = now() WHERE id = $1";
+                update.CommandText = """
+                    UPDATE payment_orders
+                    SET status = 'paid', paid_at = now(),
+                        provider_payment_id = COALESCE($2, provider_payment_id)
+                    WHERE id = $1
+                    """;
                 update.Parameters.AddWithValue(id);
+                update.Parameters.AddWithValue((object?)providerPaymentId ?? DBNull.Value);
                 await update.ExecuteNonQueryAsync(ct);
             }
+
             var effect = await accounting.AppendEffectAsync(connection, transaction,
                 new AccountingEffect(userId, $"payment:{id}", "payment_credit", amount,
                     PaymentId: id), ct);
             if (effect.Status == AccountingEffectStatus.Conflict)
+            {
+                await transaction.RollbackAsync(ct);
                 return Results.Conflict(new { error = "Payment accounting effect changed" });
+            }
+
+            // Log audit entry for successful admin reconciliation
+            await InsertConfirmAuditAsync(connection, transaction, actorId, id,
+                "confirmed", $"provider={providerName},verified={verification.Status}", ct);
             await transaction.CommitAsync(ct);
             await projection.ApplyAsync(effect.Snapshot, ct);
             return Results.Ok(new
             {
-                message = "Payment confirmed",
-                duplicate = effect.Status == AccountingEffectStatus.Replay,
+                message = "Payment confirmed via provider verification",
+                duplicate = isDuplicate || effect.Status == AccountingEffectStatus.Replay,
+                provider_status = verification.Status,
                 ledger_version = effect.Snapshot.Version,
                 balance = effect.Snapshot.Balance,
             });
         });
+    }
+
+    private static async Task InsertConfirmAuditAsync(
+        NpgsqlConnection connection, NpgsqlTransaction transaction, long actorId,
+        long orderId, string action, string details, CancellationToken ct)
+    {
+        await using var audit = connection.CreateCommand();
+        audit.Transaction = transaction;
+        audit.CommandText = """
+            INSERT INTO audit_logs(user_id, action, resource_type, resource_id, details)
+            VALUES ($1, 'payment.confirm', 'payment_order', $2, $3)
+            """;
+        audit.Parameters.AddWithValue(actorId);
+        audit.Parameters.AddWithValue(orderId.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        audit.Parameters.AddWithValue(System.Text.Json.JsonSerializer.Serialize(new
+        {
+            action, details,
+        }));
+        await audit.ExecuteNonQueryAsync(ct);
     }
 
     private static void MapSubscriptions(WebApplication app)

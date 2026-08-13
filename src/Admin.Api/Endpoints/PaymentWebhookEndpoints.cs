@@ -4,6 +4,7 @@ using Npgsql;
 using ScalaAPI.Admin.Data;
 using ScalaAPI.Admin.Payments;
 using ScalaAPI.Data.Accounting;
+using ScalaAPI.Data.Payments;
 
 namespace ScalaAPI.Admin.Endpoints;
 
@@ -128,49 +129,55 @@ public static class PaymentWebhookEndpoints
             ? await FindRefundByKeyAsync(connection, transaction, payment.Value.UserId,
                 webhookIdempotencyKey, ct)
             : null;
-        if (!isRefund && (payment.Value.Amount != payload.Amount
-            || !string.Equals(payment.Value.Currency, payload.Currency, StringComparison.OrdinalIgnoreCase)))
+        var refundAmount = isRefund
+            ? (existingRefund is not null
+                ? existingRefund.Value.Amount
+                : payload.IsCumulativeRefund
+                    ? payload.Amount - payment.Value.RefundedAmount
+                    : payload.Amount)
+            : 0m;
+        // --- State machine validation (provider-authoritative) ---
+        if (isRefund)
         {
-            await SetEventRejectedAsync(connection, transaction, provider, payload.EventId,
-                "amount_or_currency_mismatch", ct);
-            await transaction.CommitAsync(ct);
-            return Results.Conflict(new { error = "Payment amount or currency mismatch" });
-        }
+            if (existingRefund is null)
+            {
+                var refundValidation = PaymentStateMachine.TryValidateRefund(
+                    payment.Value.Status, payment.Value.Amount, payment.Value.RefundedAmount,
+                    refundAmount, payment.Value.Currency, payload.Currency);
+                if (!refundValidation.IsValid)
+                {
+                    await SetEventRejectedAsync(connection, transaction, provider, payload.EventId,
+                        refundValidation.Error!, ct);
+                    await transaction.CommitAsync(ct);
+                    return Results.Conflict(new { error = refundValidation.Error });
+                }
+            }
 
-        var refundAmount = existingRefund is not null
-            ? existingRefund.Value.Amount
-            : payload.IsCumulativeRefund
-                ? payload.Amount - payment.Value.RefundedAmount
-                : payload.Amount;
-        if (isRefund && existingRefund is null
-            && (!string.Equals(payment.Value.Currency, payload.Currency, StringComparison.OrdinalIgnoreCase)
-                || refundAmount <= 0m
-                || refundAmount > payment.Value.Amount - payment.Value.RefundedAmount
-                || payment.Value.Status is not ("paid" or "partially_refunded")))
-        {
-            await SetEventRejectedAsync(connection, transaction, provider, payload.EventId,
-                "payment_not_paid_or_refund_exceeds_remaining", ct);
-            await transaction.CommitAsync(ct);
-            return Results.Conflict(new { error = "Refund exceeds the remaining paid amount" });
+            if (existingRefund is not null
+                && (existingRefund.Value.Amount != refundAmount
+                    || !string.Equals(existingRefund.Value.Currency, payload.Currency, StringComparison.OrdinalIgnoreCase)
+                    || existingRefund.Value.Status != "succeeded"))
+            {
+                await SetEventRejectedAsync(connection, transaction, provider, payload.EventId,
+                    "refund_event_state_conflict", ct);
+                await transaction.CommitAsync(ct);
+                return Results.Conflict(new { error = "Refund event state changed" });
+            }
         }
-
-        if (isRefund && existingRefund is not null
-            && (existingRefund.Value.Amount != refundAmount
-                || !string.Equals(existingRefund.Value.Currency, payload.Currency, StringComparison.OrdinalIgnoreCase)
-                || existingRefund.Value.Status != "succeeded"))
+        else
         {
-            await SetEventRejectedAsync(connection, transaction, provider, payload.EventId,
-                "refund_event_state_conflict", ct);
-            await transaction.CommitAsync(ct);
-            return Results.Conflict(new { error = "Refund event state changed" });
-        }
-
-        if (!isRefund && payment.Value.Status.Equals("refunded", StringComparison.OrdinalIgnoreCase))
-        {
-            await SetEventRejectedAsync(connection, transaction, provider, payload.EventId,
-                "payment_already_refunded", ct);
-            await transaction.CommitAsync(ct);
-            return Results.Conflict(new { error = "Payment was already refunded" });
+            var paymentTransition = PaymentStateMachine.TryTransitionPaid(
+                payment.Value.Status, payment.Value.Amount, payment.Value.Currency,
+                payment.Value.ProviderPaymentId, payload.Amount, payload.Currency,
+                payload.ProviderPaymentId);
+            if (!paymentTransition.Success
+                && paymentTransition.Error != "already_paid")
+            {
+                await SetEventRejectedAsync(connection, transaction, provider, payload.EventId,
+                    paymentTransition.Error!, ct);
+                await transaction.CommitAsync(ct);
+                return Results.Conflict(new { error = paymentTransition.Error });
+            }
         }
 
         if (!isRefund && payment.Value.Status.Equals("pending", StringComparison.OrdinalIgnoreCase))
@@ -212,8 +219,10 @@ public static class PaymentWebhookEndpoints
 
         if (isRefund && existingRefund is null)
         {
-            if (!await ApplyRefundOrderAsync(connection, transaction, payment.Value.Id,
-                refundAmount, ct))
+            var (newRefundStatus, newRefundTotal) = PaymentStateMachine.ApplyRefundTransition(
+                payment.Value.Amount, payment.Value.RefundedAmount, refundAmount);
+            if (!await ApplyRefundOrderWithStatusAsync(connection, transaction, payment.Value.Id,
+                refundAmount, newRefundStatus, ct))
             {
                 await transaction.RollbackAsync(ct);
                 return Results.Conflict(new { error = "Refund order state changed" });
@@ -403,6 +412,25 @@ public static class PaymentWebhookEndpoints
         return await command.ExecuteNonQueryAsync(ct) == 1;
     }
 
+    private static async Task<bool> ApplyRefundOrderWithStatusAsync(
+        NpgsqlConnection connection, NpgsqlTransaction transaction, long paymentId,
+        decimal amount, string targetStatus, CancellationToken ct)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            UPDATE payment_orders
+            SET refunded_amount = refunded_amount + $2,
+                status = $3
+            WHERE id = $1 AND status IN ('paid', 'partially_refunded')
+              AND refunded_amount + $2 <= amount
+            """;
+        command.Parameters.AddWithValue(paymentId);
+        command.Parameters.AddWithValue(amount);
+        command.Parameters.AddWithValue(targetStatus);
+        return await command.ExecuteNonQueryAsync(ct) == 1;
+    }
+
     private static async Task<PaymentRow?> FindPaymentAsync(NpgsqlConnection connection,
         NpgsqlTransaction transaction, string provider, PaymentWebhookPayload payload,
         CancellationToken ct)
@@ -410,10 +438,10 @@ public static class PaymentWebhookEndpoints
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
         command.CommandText = payload.OrderId.HasValue
-            ? "SELECT id, user_id, amount, refunded_amount, currency, status FROM payment_orders WHERE id = $1 AND provider = $2 FOR UPDATE"
+            ? "SELECT id, user_id, amount, refunded_amount, currency, status, provider_payment_id FROM payment_orders WHERE id = $1 AND provider = $2 FOR UPDATE"
             : !string.IsNullOrWhiteSpace(payload.ProviderOrderId)
-                ? "SELECT id, user_id, amount, refunded_amount, currency, status FROM payment_orders WHERE provider_order_id = $1 AND provider = $2 FOR UPDATE"
-                : "SELECT id, user_id, amount, refunded_amount, currency, status FROM payment_orders WHERE provider_payment_id = $1 AND provider = $2 FOR UPDATE";
+                ? "SELECT id, user_id, amount, refunded_amount, currency, status, provider_payment_id FROM payment_orders WHERE provider_order_id = $1 AND provider = $2 FOR UPDATE"
+                : "SELECT id, user_id, amount, refunded_amount, currency, status, provider_payment_id FROM payment_orders WHERE provider_payment_id = $1 AND provider = $2 FOR UPDATE";
         command.Parameters.AddWithValue(payload.OrderId.HasValue
             ? payload.OrderId.Value
             : !string.IsNullOrWhiteSpace(payload.ProviderOrderId)
@@ -423,7 +451,8 @@ public static class PaymentWebhookEndpoints
         await using var reader = await command.ExecuteReaderAsync(ct);
         if (!await reader.ReadAsync(ct)) return null;
         return new PaymentRow(reader.GetInt64(0), reader.GetInt64(1), reader.GetDecimal(2),
-            reader.GetDecimal(3), reader.GetString(4), reader.GetString(5));
+            reader.GetDecimal(3), reader.GetString(4), reader.GetString(5),
+            reader.IsDBNull(6) ? null : reader.GetString(6));
     }
 
     private static async Task UpdatePaymentStatusAsync(NpgsqlConnection connection,
@@ -439,7 +468,7 @@ public static class PaymentWebhookEndpoints
 
     private readonly record struct EventRow(string PayloadHash, string Status, long? PaymentId);
     private readonly record struct PaymentRow(long Id, long UserId, decimal Amount,
-        decimal RefundedAmount, string Currency, string Status);
+        decimal RefundedAmount, string Currency, string Status, string? ProviderPaymentId);
     private readonly record struct RefundRow(long Id, decimal Amount, string Currency, string Status);
 
     private static TimeSpan ParseStripeTolerance(IConfiguration configuration)

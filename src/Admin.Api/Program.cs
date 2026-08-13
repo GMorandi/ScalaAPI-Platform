@@ -68,6 +68,8 @@ builder.Services.AddHttpClient<StripePaymentProviderClient>(client =>
     client.Timeout = TimeSpan.FromSeconds(10);
 });
 builder.Services.AddTransient<PaymentProviderRouter>();
+builder.Services.AddSingleton<ScalaAPI.Data.Payments.IPaymentProvider,
+    ScalaAPI.Data.Payments.MockPaymentProvider>();
 builder.Services.AddSingleton(NpgsqlDataSource.Create(pgConnection));
 builder.Services.AddSingleton<ProviderCredentialRefreshAuditStore>();
 builder.Services.AddSingleton<ApiKeyAuditStore>();

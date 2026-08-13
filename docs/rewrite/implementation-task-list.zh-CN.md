@@ -242,10 +242,10 @@
 - **验收**：两进程最终收敛且不倒退 ✅；更新失败可重试/回滚 ✅；旧配置不会在 lease 中间改变 ✅；
   Admin 能看到版本、失败原因和生效节点 ✅。
 
-### P1-06 把支付完成从手工 force-credit 改为 Provider 权威
+### P1-06 把支付完成从手工 force-credit 改为 Provider 权威 ✅
 
-- **状态**：`PARTIAL`；**优先级**：P1；**依赖**：P0-08；**范围**：`PlatformEndpoints.cs` 支付路由、payment provider interfaces、webhooks/refunds、User/Admin Web。
-- **当前缺口**：`/admin/payments/{id}/confirm` 直接把 pending 改成 paid 并写 credit，不能代表外部支付完成。
+- **状态**：`DONE`；**优先级**：P1；**依赖**：P0-08；**范围**：`PlatformEndpoints.cs` 支付路由、payment provider interfaces、webhooks/refunds、User/Admin Web。
+- **当前缺口**：已修复。`/admin/payments/{id}/confirm` 现在需要 provider 验证才能转 paid。
 - **实现步骤**：将 confirm 改为受限的 reconciliation/retry 操作；订单只由已验签 webhook 或
   provider 查询转 paid；校验 amount/currency/provider payment ID；退款、部分退款、重放、
   pending claim、secret rotation 和浏览器 checkout 全部走同一状态机。
