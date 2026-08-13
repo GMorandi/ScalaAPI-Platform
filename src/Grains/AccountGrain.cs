@@ -28,6 +28,9 @@ public class AccountState
     [Id(17)] public string? ProxyUrl { get; set; }
     [Id(18)] public bool TlsFingerprint { get; set; }
     [Id(19)] public ProviderOAuthState? OAuth { get; set; }
+    [Id(20)] public string? ProxyUsername { get; set; }
+    [Id(21)] public string? ProxyPassword { get; set; }
+    [Id(22)] public string? TlsFingerprintProfileId { get; set; }
 }
 
 [GenerateSerializer]
@@ -118,10 +121,15 @@ public class AccountGrain : Grain, IAccountGrain
                 throw new ProviderCredentialContractException(
                     "provider_credential_header_collision");
         }
+        var proxyUsername = string.IsNullOrEmpty(s.ProxyUsername)
+            ? null : _credentialProtector.Unprotect(s.ProxyUsername);
+        var proxyPassword = string.IsNullOrEmpty(s.ProxyPassword)
+            ? null : _credentialProtector.Unprotect(s.ProxyPassword);
         return Task.FromResult(new AccountCredentials(
             s.Id, s.Platform, s.Type, s.BaseUrl,
             headers,
-            s.ProxyUrl, s.TlsFingerprint, s.ModelMapping));
+            s.ProxyUrl, proxyUsername, proxyPassword,
+            s.TlsFingerprint, s.TlsFingerprintProfileId, s.ModelMapping));
     }
 
     public Task<AccountDetails> GetDetails()
@@ -137,7 +145,8 @@ public class AccountGrain : Grain, IAccountGrain
             s.Id, s.Name, s.Platform, s.Type, s.BaseUrl, s.Priority,
             s.Concurrency, s.LoadFactor, s.RateMultiplier, s.Schedulable,
             s.Credentials.Count > 0, new(s.ModelMapping), [.. s.SupportedModels],
-            s.ProxyUrl, s.TlsFingerprint, oauth));
+            s.ProxyUrl, !string.IsNullOrEmpty(s.ProxyUsername),
+            s.TlsFingerprint, s.TlsFingerprintProfileId, oauth));
     }
 
     public async Task<ProviderOAuthRefreshLease> BeginOAuthRefresh(
@@ -364,6 +373,11 @@ public class AccountGrain : Grain, IAccountGrain
         s.SupportedModels = input.SupportedModels;
         s.ProxyUrl = input.ProxyUrl;
         s.TlsFingerprint = input.TlsFingerprint;
+        s.ProxyUsername = string.IsNullOrEmpty(input.ProxyUsername)
+            ? null : _credentialProtector.Protect(input.ProxyUsername);
+        s.ProxyPassword = string.IsNullOrEmpty(input.ProxyPassword)
+            ? null : _credentialProtector.Protect(input.ProxyPassword);
+        s.TlsFingerprintProfileId = input.TlsFingerprintProfileId;
         s.OAuth = ProtectOAuth(input.OAuth);
         await _state.WriteStateAsync();
         _invalidation.NotifyChange("account", s.Id.ToString());
@@ -387,6 +401,11 @@ public class AccountGrain : Grain, IAccountGrain
         s.SupportedModels = input.SupportedModels;
         s.ProxyUrl = input.ProxyUrl;
         s.TlsFingerprint = input.TlsFingerprint;
+        s.ProxyUsername = string.IsNullOrEmpty(input.ProxyUsername)
+            ? null : _credentialProtector.Protect(input.ProxyUsername);
+        s.ProxyPassword = string.IsNullOrEmpty(input.ProxyPassword)
+            ? null : _credentialProtector.Protect(input.ProxyPassword);
+        s.TlsFingerprintProfileId = input.TlsFingerprintProfileId;
         if (input.OAuth is not null)
             s.OAuth = ProtectOAuth(input.OAuth, (s.OAuth?.Version ?? 0) + 1);
         else if (!string.Equals(input.Type, "oauth", StringComparison.OrdinalIgnoreCase))

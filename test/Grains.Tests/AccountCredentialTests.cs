@@ -38,7 +38,7 @@ public class AccountCredentialTests(ClusterFixture fixture)
         await grain.Create(new AccountUpsert(
             "oauth-account", "openai", "oauth", "https://upstream.example",
             1, 2, 1, 1, true, new(), new(), ["model-a"], null, false,
-            new ProviderOAuthCredential(
+            OAuth: new ProviderOAuthCredential(
                 "https://identity.example/token", "client-id", "client-secret",
                 "refresh-old", "access-old", now - 1)));
 
@@ -78,7 +78,7 @@ public class AccountCredentialTests(ClusterFixture fixture)
         await grain.Update(new AccountUpsert(
             "oauth-account-replaced", "openai", "oauth", "https://upstream.example",
             1, 2, 1, 1, true, new(), new(), ["model-a"], null, false,
-            new ProviderOAuthCredential(
+            OAuth: new ProviderOAuthCredential(
                 "https://identity.example/token", "client-next", "secret-next",
                 "refresh-next", "access-next", now + 7200)));
         var replaced = await grain.GetDetails();
@@ -95,7 +95,7 @@ public class AccountCredentialTests(ClusterFixture fixture)
         await grain.Create(new AccountUpsert(
             "revoked-oauth-account", "anthropic", "oauth", "https://upstream.example",
             1, 2, 1, 1, true, new(), new(), ["claude-3-5-sonnet"], null, false,
-            new ProviderOAuthCredential(
+            OAuth: new ProviderOAuthCredential(
                 "https://identity.example/token", "client-id", "client-secret",
                 "refresh-token", "access-token", now - 1)));
 
@@ -122,7 +122,7 @@ public class AccountCredentialTests(ClusterFixture fixture)
         await grain.Update(new AccountUpsert(
             "recovered-oauth-account", "anthropic", "oauth", "https://upstream.example",
             1, 2, 1, 1, true, new(), new(), ["claude-3-5-sonnet"], null, false,
-            new ProviderOAuthCredential(
+            OAuth: new ProviderOAuthCredential(
                 "https://identity.example/token", "client-new", "secret-new",
                 "refresh-new", "access-new", now + 3600)));
         var recovered = await grain.GetProjection();
@@ -142,7 +142,7 @@ public class AccountCredentialTests(ClusterFixture fixture)
         await grain.Create(new AccountUpsert(
             "failing-oauth-account", "gemini", "oauth", "https://upstream.example",
             1, 2, 1, 1, true, new(), new(), ["model-a"], null, false,
-            new ProviderOAuthCredential(
+            OAuth: new ProviderOAuthCredential(
                 "https://identity.example/token", "client-id", "",
                 "refresh-token", "access-token", now - 1)));
         var acquired = await grain.BeginOAuthRefresh(now, 120, 30);
@@ -185,5 +185,41 @@ public class AccountCredentialTests(ClusterFixture fixture)
         Assert.Equal("gemini-secret", geminiHeaders["x-goog-api-key"]);
         Assert.DoesNotContain("api_key", anthropicHeaders.Keys);
         Assert.DoesNotContain("api_key", geminiHeaders.Keys);
+    }
+
+    [Fact]
+    public async Task ProxyCredentialsAreProtectedAndHydrateDecryptsThem()
+    {
+        var grain = fixture.Cluster.GrainFactory.GetGrain<IAccountGrain>(9007);
+        await grain.Create(new AccountUpsert(
+            "proxy-account", "openai", "api-key", "https://upstream.example",
+            1, 2, 1, 1, true,
+            new() { ["Authorization"] = "Bearer test-secret" },
+            new(), ["model-a"], "http://proxy.example:8080", false,
+            ProxyUsername: "proxy-user", ProxyPassword: "proxy-pass",
+            TlsFingerprintProfileId: "fp-profile-123"));
+
+        var hydrated = await grain.Hydrate();
+        Assert.Equal("http://proxy.example:8080", hydrated.ProxyUrl);
+        Assert.Equal("proxy-user", hydrated.ProxyUsername);
+        Assert.Equal("proxy-pass", hydrated.ProxyPassword);
+        Assert.Equal("fp-profile-123", hydrated.TlsFingerprintProfileId);
+
+        var details = await grain.GetDetails();
+        Assert.True(details.HasProxyCredentials);
+        Assert.Equal("fp-profile-123", details.TlsFingerprintProfileId);
+
+        // Update without proxy credentials should clear them
+        await grain.Update(new AccountUpsert(
+            "proxy-account-cleared", "openai", "api-key", "https://upstream.example",
+            1, 2, 1, 1, true,
+            new() { ["Authorization"] = "Bearer test-secret" },
+            new(), ["model-a"], "http://proxy.example:8080", false));
+
+        var afterClear = await grain.Hydrate();
+        Assert.Null(afterClear.ProxyUsername);
+        Assert.Null(afterClear.ProxyPassword);
+        var detailsAfterClear = await grain.GetDetails();
+        Assert.False(detailsAfterClear.HasProxyCredentials);
     }
 }

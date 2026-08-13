@@ -67,7 +67,9 @@ public static class AccountEndpoints
                 req.Name, req.Platform, req.Type, req.BaseUrl,
                 req.Priority, req.Concurrency, req.LoadFactor, req.RateMultiplier,
                 req.Schedulable, req.Credentials, req.ModelMapping,
-                req.SupportedModels, req.ProxyUrl, req.TlsFingerprint, req.OAuth));
+                req.SupportedModels, req.ProxyUrl, req.TlsFingerprint,
+                req.ProxyUsername, req.ProxyPassword, req.TlsFingerprintProfileId,
+                req.OAuth));
             await repo.RegisterInteger("account", id);
             return Results.Created($"/admin/accounts/{id}", new { id });
         });
@@ -84,7 +86,9 @@ public static class AccountEndpoints
                 req.Name, req.Platform, req.Type, req.BaseUrl,
                 req.Priority, req.Concurrency, req.LoadFactor, req.RateMultiplier,
                 req.Schedulable, req.Credentials, req.ModelMapping,
-                req.SupportedModels, req.ProxyUrl, req.TlsFingerprint, req.OAuth));
+                req.SupportedModels, req.ProxyUrl, req.TlsFingerprint,
+                req.ProxyUsername, req.ProxyPassword, req.TlsFingerprintProfileId,
+                req.OAuth));
             return Results.NoContent();
         });
 

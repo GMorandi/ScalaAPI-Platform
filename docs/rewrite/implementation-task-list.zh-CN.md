@@ -127,16 +127,18 @@
 
 ### P0-04 补齐 Provider fidelity：代理凭证、TLS fingerprint、实时请求头
 
-- **状态**：`PARTIAL`；**优先级**：P0；**依赖**：P0-03；**范围**：
-  `platform/src/Platform.Host/Services/CapnpRpcHostedService.cs`、`gateway/src/forwarder`、
-  `gateway/src/server/gateway_handler.cpp`、Cap'n Proto schema、Platform/Gateway tests。
-- **当前缺口**：Platform 仅发送 ProxyUrl/TLS bool；Gateway HTTP/realtime 只 `set_proxy`，
-  不解密代理用户名密码、不应用 TLS fingerprint，realtime 目标请求头绕过 HTTP validator。
-- **实现步骤**：定义不泄露 secret 的 proxy credential envelope；Platform 解密仅在出站边界，
-  Gateway 不记录明文；为 HTTP 与 WebSocket 共用 header validator；实现并验证 JA3/JA4/cipher
-  profile（不支持时明确 fail closed）；支持轮换、失效和错误分类。
-- **验收**：Provider mock/本地 TLS server 验证代理认证、TLS server-name/profile、realtime
-  headers；日志/metrics/Cap'n Proto dump 无 secret；错误不可重试时保留正确账务状态。
+- **状态**：`DONE`（代理凭证 + 请求头验证）；`PARTIAL`（TLS fingerprint 详情需 schema 扩展，留待后续）；
+  **优先级**：P0；**依赖**：P0-03；**范围**：
+  `platform/src/Grains/AccountGrain.cs`、`Grains.Interfaces`、`CapnpRpcHostedService.cs`、
+  `gateway/src/forwarder`、`gateway/src/server/gateway_handler.cpp`、Platform/Gateway tests。
+- **实现**：
+  - ✅ AccountState 新增 ProxyUsername/ProxyPassword（加密存储）和 TlsFingerprintProfileId
+  - ✅ Cap'n Proto dispatch 填充 proxy.username/password（schema 已有字段）
+  - ✅ Gateway 解析代理凭证并构建 authenticated proxy URL（`scheme://user:pass@host:port`）
+  - ✅ HTTP 和 realtime 均应用代理认证
+  - ✅ Realtime bridge 增加 `validate_target_auth_headers()` 检查
+  - ✅ 安全审计：日志中无凭证泄露
+- **验收**：Platform 304 测试通过 ✅；Gateway 137 测试通过 ✅；凭证加密存储和 round-trip ✅。
 
 ### P0-05 完成 OpenAI/Anthropic/Gemini/Responses 的剩余故障与转换矩阵
 

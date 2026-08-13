@@ -8,6 +8,8 @@ public record AccountCreateRequest(
     bool Schedulable, Dictionary<string, string> Credentials,
     Dictionary<string, string> ModelMapping, string[] SupportedModels,
     string? ProxyUrl, bool TlsFingerprint,
+    string? ProxyUsername = null, string? ProxyPassword = null,
+    string? TlsFingerprintProfileId = null,
     ProviderOAuthCredential? OAuth = null);
 
 public record GroupCreateRequest(

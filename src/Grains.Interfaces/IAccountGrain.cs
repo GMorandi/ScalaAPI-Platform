@@ -20,7 +20,9 @@ public record AccountProjection(
 public record AccountCredentials(
     long Id, string Platform, string Type, string BaseUrl,
     Dictionary<string, string> AuthHeaders, string? ProxyUrl,
-    bool TlsFingerprint, Dictionary<string, string> ModelMapping);
+    string? ProxyUsername, string? ProxyPassword,
+    bool TlsFingerprint, string? TlsFingerprintProfileId,
+    Dictionary<string, string> ModelMapping);
 
 [GenerateSerializer]
 public record ProviderOAuthCredentialProjection(
@@ -35,7 +37,8 @@ public record AccountDetails(
     int Priority, int Concurrency, int LoadFactor, decimal RateMultiplier,
     bool Schedulable, bool HasStaticCredentials,
     Dictionary<string, string> ModelMapping, string[] SupportedModels,
-    string? ProxyUrl, bool TlsFingerprint,
+    string? ProxyUrl, bool HasProxyCredentials,
+    bool TlsFingerprint, string? TlsFingerprintProfileId,
     ProviderOAuthCredentialProjection? OAuth);
 
 [GenerateSerializer]
@@ -71,6 +74,8 @@ public record AccountUpsert(
     bool Schedulable, Dictionary<string, string> Credentials,
     Dictionary<string, string> ModelMapping, string[] SupportedModels,
     string? ProxyUrl, bool TlsFingerprint,
+    string? ProxyUsername = null, string? ProxyPassword = null,
+    string? TlsFingerprintProfileId = null,
     ProviderOAuthCredential? OAuth = null);
 
 public interface IAccountGrain : IGrainWithIntegerKey

@@ -296,6 +296,8 @@ public class CapnpRpcHostedService : IHostedService
                 var proxy = up.Proxy;
                 proxy.Enabled = true;
                 proxy.Url = result.Upstream.ProxyUrl;
+                proxy.Username = result.Upstream.ProxyUsername ?? "";
+                proxy.Password = result.Upstream.ProxyPassword ?? "";
             }
 
             var billing = up.Billing;
@@ -863,7 +865,10 @@ public class DispatchService
                 AuthHeaders = creds.AuthHeaders,
                 MappedModel = mappedModel,
                 ProxyUrl = creds.ProxyUrl,
+                ProxyUsername = creds.ProxyUsername,
+                ProxyPassword = creds.ProxyPassword,
                 TlsFingerprint = creds.TlsFingerprint,
+                TlsFingerprintProfileId = creds.TlsFingerprintProfileId ?? "",
                 ApiKeyId = auth.ApiKeyId,
                 UserId = auth.UserId,
                 GroupId = selectedGroupId,
@@ -983,7 +988,10 @@ public class DispatchService
                 AuthHeaders = creds.AuthHeaders,
                 MappedModel = mappedModel,
                 ProxyUrl = creds.ProxyUrl,
+                ProxyUsername = creds.ProxyUsername,
+                ProxyPassword = creds.ProxyPassword,
                 TlsFingerprint = creds.TlsFingerprint,
+                TlsFingerprintProfileId = creds.TlsFingerprintProfileId ?? "",
                 ApiKeyId = lease.ApiKeyId,
                 UserId = lease.UserId,
                 GroupId = lease.GroupId,
@@ -1488,6 +1496,8 @@ public record UpstreamTargetResult
     public Dictionary<string, string> AuthHeaders { get; init; } = new();
     public string MappedModel { get; init; } = "";
     public string? ProxyUrl { get; init; }
+    public string? ProxyUsername { get; init; }
+    public string? ProxyPassword { get; init; }
     public bool TlsFingerprint { get; init; }
     public long ApiKeyId { get; init; }
     public long UserId { get; init; }
