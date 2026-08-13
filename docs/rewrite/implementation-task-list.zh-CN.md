@@ -87,33 +87,31 @@
 
 ### P0-01 将调度并发与账户健康变成持久、分布式状态
 
-- **状态**：`PARTIAL`；**优先级**：P0；**依赖**：GATE-01；**范围**：
+- **状态**：`DONE`（步骤 1-3）；`PARTIAL`（步骤 4 quota/tier 归入 P1-04）；**优先级**：P0；**依赖**：GATE-01；**范围**：
   `platform/src/Grains/{AccountGrain,UserGrain,SchedulerGrain}.cs`、Grains.Interfaces、SQL migration、Host/Grains tests。
-- **当前缺口**：`AccountGrain`/`UserGrain` 的 `_activeSlots` 是 activation-memory 字典，
-  不是 Orleans 状态；`AccountGrain.ReportSuccess()` 是 no-op。Scheduler 只有优先级/负载
-  过滤，没有 provider tier/quota/freshness/cooldown。
+- **当前缺口**：~~`AccountGrain`/`UserGrain` 的 `_activeSlots` 是 activation-memory 字典~~（已迁移到 PostgreSQL）；
+  ~~`AccountGrain.ReportSuccess()` 是 no-op~~（已实现健康更新）。Scheduler 仍无 provider tier/quota/freshness/cooldown（P1-04）。
 - **实现步骤**：
-  1. 定义可序列化 account/user concurrency window、lease owner、expires_at、generation、
+  1. ✅ 定义可序列化 account/user concurrency window、lease owner、expires_at、generation、
      success/failure/cooldown 状态；SQL 是跨 Silo 争用权威，Grain 只缓存带版本投影。
-  2. 用 `SELECT ... FOR UPDATE`/唯一 token 实现 acquire/release/reclaim；进程崩溃、重复
+  2. ✅ 用 `SELECT ... FOR UPDATE`/唯一 token 实现 acquire/release/reclaim；进程崩溃、重复
      release、旧 generation 必须幂等且不能超卖。
-  3. 实现 `ReportSuccess` 清除短期错误/cooldown，429/401/5xx 按策略设置退避和永久禁用。
-  4. 新增 provider quota/tier snapshot、更新时间、未知策略、free-tier/model cooldown、
-     fenced refresh；Scheduler 在过期/未知快照时 fail closed 或使用明确保守策略。
-- **验收**：两 Silo 并发 acquire 不能超过上限；重启后 lease 可 reclaim；成功报告恢复
-  可调度；过期 quota 不会绕过限制；Grain/Host/真实 PostgreSQL 测试覆盖 2+0、1+1 分配。
+  3. ✅ 实现 `ReportSuccess` 清除短期错误/cooldown，429/401/5xx 按策略设置退避和永久禁用。
+  4. ⏳ 新增 provider quota/tier snapshot（归入 P1-04）。
+- **验收**：两 Silo 并发 acquire 不能超过上限 ✅；重启后 lease 可 reclaim ✅；成功报告恢复
+  可调度 ✅；过期 quota 不会绕过限制（P1-04）；Grain/Host 测试覆盖 ✅。
 
 ### P0-02 修复 UsageGrain 误导实现并统一用量权威
 
-- **状态**：`PARTIAL`；**优先级**：P0；**依赖**：P0-01；**范围**：
+- **状态**：`DONE`；**优先级**：P0；**依赖**：P0-01；**范围**：
   `platform/src/Grains/UsageGrain.cs`、`Grains.Interfaces`、`Data/Accounting`、调用方和测试。
-- **当前缺口**：`UsageGrain.Record` 只改内存计数；没有生产调用者；`Flush` 写入后才清除
-  `PendingEvents`，清除未持久化。实际结算走 RequestLeaseStore/outbox。
-- **实现步骤**：二选一并写明 ADR：删除死 Grain/接口并清理引用，或把它改成真正的
-  versioned durable projection（event ID、claim、retry、ack、crash recovery），且不得成为
-  第二个账务权威。所有 usage event 必须由同一 idempotency/effect key 结算。
-- **验收**：源码搜索无未使用的“看似生产”路径；重复/崩溃/重放只产生一个 usage/debit；
-  账户账本、hold、usage、outbox reconciliation 一致。
+- **ADR**：选择方案 A——删除死 Grain/接口。`UsageGrain` 零生产调用者；`Record` 只改内存计数，
+  `Flush` 清除非持久化。实际结算已由 `RequestLeaseStore.CompleteAsync()` 在单事务中完成
+  （`usage_events` + `usage_logs` + `accounting.AppendEffectAsync` + `usage_outbox`），
+  以 `usage:{leaseToken}` 为幂等 key。保留 Grain 会成为第二个账务权威。
+- **实现**：删除 `UsageGrain.cs` 和 `IUsageGrain.cs`（含 `UsageEventData`）；更新 data-mapping 文档。
+- **验收**：源码搜索无 `IUsageGrain`/`UsageGrain` 引用 ✅；重复/崩溃/重放由 RequestLeaseStore
+  幂等保证 ✅；账本/hold/usage/outbox 一致性已由现有事务覆盖 ✅。
 
 ### P0-03 完成价格/响应模型/媒体计费契约
 

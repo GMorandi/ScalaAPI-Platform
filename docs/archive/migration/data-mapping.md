@@ -9,7 +9,7 @@
 | `account_groups` | group/account semantic projection | `(account_id, group_id)` | membership and priority; apply after referenced aggregates exist |
 | `scheduler_outbox` | scheduler semantic handler | source outbox id | source semantic scheduling invalidation; asynchronous but ordered by source LSN |
 | `auth_cache_invalidation_outbox` | Garnet invalidation publisher | source outbox id | async cache invalidation; cache can be rebuilt from grains |
-| `usage_logs` | `IUsageGrain`/usage projection | request/lease id | token counts and cost; asynchronous, idempotent by lease/request |
+| `usage_logs` | `RequestLeaseStore`/usage projection | request/lease id | token counts and cost; asynchronous, idempotent by lease/request |
 | balance hold/settlement events | `IUserGrain` + `balance_holds`/`settlement_effects` | hold/lease id | amount is decimal text/NUMERIC(20,8), one effect per `(lease,effect_type)`; synchronous acknowledgement |
 
 ### Identity and deletion
