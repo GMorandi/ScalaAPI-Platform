@@ -1,5 +1,6 @@
 using ScalaAPI.Host.Services;
 using ScalaAPI.Data.Accounting;
+using ScalaAPI.Data.Config;
 using ScalaAPI.Data.Provider;
 using ScalaAPI.Data.ProviderQuota;
 using ScalaAPI.Data.Search;
@@ -209,6 +210,9 @@ else
 }
 builder.Services.AddSingleton<ContentPolicyService>();
 builder.Services.AddSingleton<ContentPolicyPropagationService>();
+builder.Services.AddSingleton<ConfigRevisionStore>();
+builder.Services.AddSingleton<ConfigPropagationService>();
+builder.Services.AddHostedService<ConfigPropagationHostedService>();
 builder.Services.AddSingleton<DispatchService>();
 builder.Services.AddHostedService<LeaseOutboxHostedService>();
 builder.Services.AddHostedService<AccountingProjectionHostedService>();

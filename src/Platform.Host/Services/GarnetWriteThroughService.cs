@@ -57,6 +57,17 @@ public class GarnetWriteThroughService
             GarnetKeyspace.InvalidationVersion);
     }
 
+    public long PublishConfigRevision(long revision)
+    {
+        if (revision < 1)
+            throw new ArgumentOutOfRangeException(nameof(revision));
+
+        return _garnet.PublishMonotonicRevision(
+            GarnetKeyspace.ConfigRevision,
+            revision,
+            GarnetKeyspace.InvalidationVersion);
+    }
+
     public void Evict(string key)
     {
         _garnet.Delete(key);

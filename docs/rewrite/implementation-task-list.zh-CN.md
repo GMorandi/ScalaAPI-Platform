@@ -236,11 +236,11 @@
 
 ### P1-05 让运行时配置真正传播并可回滚
 
-- **状态**：`PARTIAL`；**优先级**：P1；**依赖**：P0-01、P0-07；**范围**：ConfigGrain、revision outbox/Garnet、所有动态消费者、Admin Web。
+- **状态**：`DONE`；**优先级**：P1；**依赖**：P0-01、P0-07；**范围**：ConfigGrain、revision outbox/Garnet、所有动态消费者、Admin Web。
 - **实现步骤**：配置写入生成 revision/outbox；消费者订阅/轮询后按版本原子 reload；secret
-  只允许引用外部 secret；加入 stale-write、rollback、逐节点观察和 actor audit。
-- **验收**：两进程最终收敛且不倒退；更新失败可重试/回滚；旧配置不会在 lease 中间改变；
-  Admin 能看到版本、失败原因和生效节点。
+  只允许引用外部 secret；加入 stale-write、rollback、逐节点观察和 actor audit。 ✅
+- **验收**：两进程最终收敛且不倒退 ✅；更新失败可重试/回滚 ✅；旧配置不会在 lease 中间改变 ✅；
+  Admin 能看到版本、失败原因和生效节点 ✅。
 
 ### P1-06 把支付完成从手工 force-credit 改为 Provider 权威
 

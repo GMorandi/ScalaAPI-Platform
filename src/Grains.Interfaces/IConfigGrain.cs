@@ -26,11 +26,26 @@ public static class ConfigValidation
             && !value.Equals("true", StringComparison.OrdinalIgnoreCase)
             && !value.Equals("false", StringComparison.OrdinalIgnoreCase))
             throw new ArgumentException("Feature flags must be true or false", nameof(value));
-        if (key.StartsWith("security:", StringComparison.OrdinalIgnoreCase)
+        if (IsSensitiveKey(key))
+        {
+            // Secrets must be references to external secret stores, never inline values.
+            if (!value.StartsWith("secret:", StringComparison.OrdinalIgnoreCase))
+                throw new ArgumentException(
+                    "Sensitive configuration values must be references starting with 'secret:'",
+                    nameof(value));
+        }
+    }
+
+    /// <summary>
+    /// Returns true if the key refers to a sensitive configuration value that
+    /// must not contain inline secrets.
+    /// </summary>
+    public static bool IsSensitiveKey(string key)
+    {
+        return key.StartsWith("security:", StringComparison.OrdinalIgnoreCase)
             || key.StartsWith("connectionstrings:", StringComparison.OrdinalIgnoreCase)
             || key.Contains("password", StringComparison.OrdinalIgnoreCase)
             || key.Contains("secret", StringComparison.OrdinalIgnoreCase)
-            || key.Contains("masterkey", StringComparison.OrdinalIgnoreCase))
-            throw new ArgumentException("Sensitive configuration cannot be stored at runtime", nameof(key));
+            || key.Contains("masterkey", StringComparison.OrdinalIgnoreCase);
     }
 }

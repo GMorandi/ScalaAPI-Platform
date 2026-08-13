@@ -114,7 +114,10 @@ public sealed class MigrationSchemaTests
                 "created_at", "updated_at"],
             ["subscription_events"] = ["subscription_id", "user_id", "event_type", "idempotency_key", "payload"],
             ["user_subscriptions"] = ["user_id", "plan_id", "status", "idempotency_key", "renewal_at",
-                "quota_granted_usd", "quota_used_usd", "quota_reserved_usd"]
+                "quota_granted_usd", "quota_used_usd", "quota_reserved_usd"],
+            ["config_revisions"] = ["revision_id", "config_key", "config_value", "previous_revision_id",
+                "actor_user_id", "actor_reason", "created_at", "applied_at", "rolled_back_at", "status"],
+            ["config_node_observations"] = ["node_id", "last_seen_revision", "last_seen_at"]
         };
 
         await using var connection = new NpgsqlConnection(connectionString);

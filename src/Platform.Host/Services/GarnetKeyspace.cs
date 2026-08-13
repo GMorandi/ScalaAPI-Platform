@@ -12,4 +12,5 @@ public static class GarnetKeyspace
         $"{Prefix}sticky:{groupId}:{sessionHash}";
     public static string InvalidationVersion => $"{Prefix}invalidation:version";
     public static string ContentPolicyRevision => $"{Prefix}content-policy:revision";
+    public static string ConfigRevision => $"{Prefix}config:revision";
 }
