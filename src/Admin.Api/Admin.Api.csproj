@@ -20,6 +20,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Compile Include="../Security/**/*.cs" LinkBase="Security" />
+    <Compile Include="../Data/Audit/**/*.cs" LinkBase="Data/Audit" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="../Grains.Interfaces/Grains.Interfaces.csproj" />
     <ProjectReference Include="../Data/ScalaAPI.Data.csproj" />
     <ProjectReference Include="../Platform.Host/Platform.Host.csproj" />

@@ -273,7 +273,7 @@
 
 ### P1-09 完成代理/TLS/秘密与审计安全强化
 
-- **状态**：`PARTIAL`；**优先级**：P1；**依赖**：P0-04、P0-07；**范围**：SecretProtector、NetworkProfileStore、AuditLogStore、deployment secrets、security tests。
+- **状态**：`DONE`；**优先级**：P1；**依赖**：P0-04、P0-07；**范围**：SecretProtector、NetworkProfileStore、AuditLogStore、deployment secrets、security tests。
 - **实现步骤**：master-key rotation/rewrap、step-up auth、最小权限、session/CSRF/rate policy、
   immutable audit retention/export authorization、供应链/secret scan；所有错误和 metrics 做
   递归 redaction；证书/代理轮换必须有过期拒绝和恢复。

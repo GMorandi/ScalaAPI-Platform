@@ -3,8 +3,11 @@ using Orleans.Configuration;
 using SqlSugar;
 using ScalaAPI.Admin.Auth;
 using ScalaAPI.Admin.Data;
+using ScalaAPI.Admin.Data.Audit;
 using ScalaAPI.Admin.Endpoints;
+using ScalaAPI.Admin.Middleware;
 using ScalaAPI.Admin.Payments;
+using ScalaAPI.Admin.Security;
 using ScalaAPI.Data.Config;
 using ScalaAPI.Data.Repositories;
 using ScalaAPI.Data.Accounting;
@@ -37,6 +40,9 @@ builder.UseOrleansClient(client =>
 var jwtService = new JwtService(builder.Configuration);
 builder.Services.AddSingleton(jwtService);
 builder.Services.AddSingleton<SecretProtector>();
+builder.Services.AddSingleton<SecretRedactionService>();
+builder.Services.AddSingleton<CertificateTracker>();
+builder.Services.AddSingleton<AuditLogService>();
 
 builder.Services.AddScoped<ISqlSugarClient>(_ => new SqlSugarClient(new ConnectionConfig
 {
@@ -154,6 +160,7 @@ var app = builder.Build();
 // Resolve eagerly so a missing or malformed encryption key fails before the API listens.
 app.Services.GetRequiredService<SecretProtector>();
 
+app.UseMiddleware<SecurityMiddleware>();
 app.UseCors();
 app.UseAuthentication();
 app.UseAuthorization();
@@ -178,6 +185,7 @@ app.MapCaptchaConfigEndpoints();
 app.MapChannelMonitorEndpoints();
 app.MapOpsMetricsEndpoints();
 app.MapPassiveMonitorV2Endpoints();
+app.MapSecurityEndpoints();
 
 app.MapGet("/live", () => Results.Ok(new { status = "live" })).AllowAnonymous();
 app.MapGet("/ready", async (ISqlSugarClient db) =>
