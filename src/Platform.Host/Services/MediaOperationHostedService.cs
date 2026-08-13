@@ -161,6 +161,8 @@ public sealed class MediaOperationHostedService(
 
                 var imageOperation = operation.OperationType.StartsWith("images_", StringComparison.Ordinal);
                 var videoOperation = operation.OperationType.StartsWith("videos_", StringComparison.Ordinal);
+                // TODO: Cap'n Proto integration - pass observed model from response headers
+                var lease = await leases.GetByLeaseTokenAsync(operation.LeaseToken, ct);
                 var settlement = await leases.CompleteAsync(new LeaseCompletion(
                     operation.LeaseToken, 0, 0, 0, 0, 0, 0, 200, false, false,
                     OutputImageCount: imageOperation ? Math.Max(1, parsed.OutputCount) : 0,
@@ -170,7 +172,8 @@ public sealed class MediaOperationHostedService(
                     VideoDurationSeconds: parsed.DurationSeconds,
                     UpstreamEndpoint: path,
                     MediaOperationId: operation.OperationId,
-                    PricingVersion: "v1"), ct);
+                    PricingVersion: lease?.PricingVersion ?? "",
+                    ObservedModel: ""), ct);
                 if (!settlement.Accepted)
                 {
                     await store.RecordPollFailureAsync(operation,

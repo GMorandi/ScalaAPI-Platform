@@ -7,6 +7,8 @@ public record ModelPrice(decimal InputPerMillion, decimal OutputPerMillion,
     decimal CacheCreatePerMillion = 0, decimal CacheReadPerMillion = 0,
     decimal ImageInputPerUnit = 0, decimal ImageOutputPerUnit = 0,
     decimal VideoPerSecond = 0, decimal RealtimePerMinute = 0,
+    decimal SearchPerQuery = 0, decimal AudioPerMinute = 0,
+    decimal CharacterPerMillion = 0, decimal LongContextPerMillion = 0,
     string Version = "runtime-v1");
 
 public class ModelPricingService
@@ -48,6 +50,10 @@ public class ModelPricingService
                 model.GetValue("ImageOutputPerUnit", 0m),
                 model.GetValue("VideoPerSecond", 0m),
                 model.GetValue("RealtimePerMinute", 0m),
+                model.GetValue("SearchPerQuery", 0m),
+                model.GetValue("AudioPerMinute", 0m),
+                model.GetValue("CharacterPerMillion", 0m),
+                model.GetValue("LongContextPerMillion", 0m),
                 model.GetValue("Version", _defaultVersion));
         }
     }
@@ -85,7 +91,9 @@ public class ModelPricingService
         await using var command = _dataSource.CreateCommand("""
             SELECT DISTINCT ON (model) model, version,
                    input_usd_per_million, output_usd_per_million,
-                   cache_read_usd_per_million, cache_write_usd_per_million
+                   cache_read_usd_per_million, cache_write_usd_per_million,
+                   search_per_query, audio_per_minute,
+                   character_per_million, long_context_per_million
             FROM pricing_versions
             WHERE effective_from <= now()
               AND (effective_until IS NULL OR effective_until > now())
@@ -101,6 +109,10 @@ public class ModelPricingService
                 reader.GetDecimal(2), reader.GetDecimal(3),
                 CacheCreatePerMillion: reader.GetDecimal(5),
                 CacheReadPerMillion: reader.GetDecimal(4),
+                SearchPerQuery: reader.GetDecimal(6),
+                AudioPerMinute: reader.GetDecimal(7),
+                CharacterPerMillion: reader.GetDecimal(8),
+                LongContextPerMillion: reader.GetDecimal(9),
                 Version: reader.GetString(1));
         }
     }

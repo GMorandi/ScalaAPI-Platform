@@ -32,6 +32,13 @@ public sealed record RequestLease(
     decimal? PriceImageOutputPerUnit,
     decimal? PriceVideoPerSecond,
     decimal? PriceRealtimePerMinute,
+    decimal? PriceSearchPerQuery = null,
+    decimal? PriceAudioPerMinute = null,
+    decimal? PriceCharacterPerMillion = null,
+    decimal? PriceLongContextPerMillion = null,
+    string ObservedModel = "",
+    string PriceSourceProvider = "",
+    string PriceSourceChecksum = "",
     long? SubscriptionId = null,
     decimal SubscriptionHoldAmount = 0m)
 {
@@ -44,7 +51,10 @@ public sealed record RequestLease(
         : new ModelPrice(PriceInputPerMillion.Value, PriceOutputPerMillion.Value,
             PriceCacheCreatePerMillion.Value, PriceCacheReadPerMillion.Value,
             PriceImageInputPerUnit.Value, PriceImageOutputPerUnit.Value,
-            PriceVideoPerSecond.Value, PriceRealtimePerMinute.Value, PricingVersion);
+            PriceVideoPerSecond.Value, PriceRealtimePerMinute.Value,
+            PriceSearchPerQuery ?? 0m, PriceAudioPerMinute ?? 0m,
+            PriceCharacterPerMillion ?? 0m, PriceLongContextPerMillion ?? 0m,
+            PricingVersion);
 }
 
 public sealed record LeaseCreateRequest(
@@ -125,7 +135,12 @@ public sealed record LeaseCompletion(
     string PricingVersion = "",
     int ResponseStatusCode = 0,
     string ResponseContentType = "",
-    string ResponseBody = "");
+    string ResponseBody = "",
+    string ObservedModel = "",
+    int SearchQueryCount = 0,
+    decimal AudioMinutes = 0m,
+    int CharacterCount = 0,
+    int LongContextTokenCount = 0);
 
 public sealed record WriteAck(bool Accepted, bool Duplicate, bool Retryable, string ErrorCode)
 {
@@ -179,9 +194,13 @@ public sealed class RequestLeaseStore(
                 pricing_version, price_input_per_million, price_output_per_million,
                 price_cache_create_per_million, price_cache_read_per_million,
                 price_image_input_per_unit, price_image_output_per_unit,
-                price_video_per_second, price_realtime_per_minute)
+                price_video_per_second, price_realtime_per_minute,
+                observed_model, price_source_provider, price_source_checksum,
+                price_search_per_query, price_audio_per_minute,
+                price_character_per_million, price_long_context_per_million)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 'held', $14,
-                    $15, $16, $17, $18, $19, $20, $21, $22, $23)
+                    $15, $16, $17, $18, $19, $20, $21, $22, $23,
+                    $24, $25, $26, $27, $28, $29, $30)
             ON CONFLICT (request_id) DO NOTHING
             RETURNING lease_token
             """;
@@ -208,6 +227,13 @@ public sealed class RequestLeaseStore(
         command.Parameters.AddWithValue((object?)request.Price?.ImageOutputPerUnit ?? DBNull.Value);
         command.Parameters.AddWithValue((object?)request.Price?.VideoPerSecond ?? DBNull.Value);
         command.Parameters.AddWithValue((object?)request.Price?.RealtimePerMinute ?? DBNull.Value);
+        command.Parameters.AddWithValue(""); // observed_model (set at completion)
+        command.Parameters.AddWithValue(""); // price_source_provider
+        command.Parameters.AddWithValue(""); // price_source_checksum
+        command.Parameters.AddWithValue((object?)request.Price?.SearchPerQuery ?? DBNull.Value);
+        command.Parameters.AddWithValue((object?)request.Price?.AudioPerMinute ?? DBNull.Value);
+        command.Parameters.AddWithValue((object?)request.Price?.CharacterPerMillion ?? DBNull.Value);
+        command.Parameters.AddWithValue((object?)request.Price?.LongContextPerMillion ?? DBNull.Value);
         var inserted = await command.ExecuteScalarAsync(ct);
         if (inserted is null || inserted is DBNull)
         {
@@ -365,7 +391,10 @@ public sealed class RequestLeaseStore(
                    price_cache_create_per_million, price_cache_read_per_million,
                    price_image_input_per_unit, price_image_output_per_unit,
                    price_video_per_second, price_realtime_per_minute,
-                   subscription_id, subscription_hold_amount
+                   subscription_id, subscription_hold_amount,
+                   observed_model, price_source_provider, price_source_checksum,
+                   price_search_per_query, price_audio_per_minute,
+                   price_character_per_million, price_long_context_per_million
             FROM request_leases WHERE request_id = $1
             """);
         command.Parameters.AddWithValue(requestId);
@@ -385,7 +414,10 @@ public sealed class RequestLeaseStore(
                    price_cache_create_per_million, price_cache_read_per_million,
                    price_image_input_per_unit, price_image_output_per_unit,
                    price_video_per_second, price_realtime_per_minute,
-                   subscription_id, subscription_hold_amount
+                   subscription_id, subscription_hold_amount,
+                   observed_model, price_source_provider, price_source_checksum,
+                   price_search_per_query, price_audio_per_minute,
+                   price_character_per_million, price_long_context_per_million
             FROM request_leases WHERE lease_token = $1
             """);
         command.Parameters.AddWithValue(leaseToken);
@@ -439,6 +471,10 @@ public sealed class RequestLeaseStore(
             RealtimeDurationMs = Math.Max(0, completion.RealtimeDurationMs),
             RealtimeFrames = Math.Max(0, completion.RealtimeFrames),
             ReasoningTokens = Math.Max(0, completion.ReasoningTokens),
+            SearchQueryCount = Math.Max(0, completion.SearchQueryCount),
+            AudioMinutes = Math.Max(0m, completion.AudioMinutes),
+            CharacterCount = Math.Max(0, completion.CharacterCount),
+            LongContextTokenCount = Math.Max(0, completion.LongContextTokenCount),
             PricingVersion = lease.PricingVersion ?? completion.PricingVersion,
             ResponseStatusCode = Math.Clamp(completion.ResponseStatusCode, 0, 999),
             ResponseContentType = completion.ResponseContentType.Length > 256
@@ -452,7 +488,50 @@ public sealed class RequestLeaseStore(
             logger.LogWarning("Usage settlement deferred because lease {LeaseToken} has no price snapshot", lease.LeaseToken);
             return WriteAck.Error("pricing_snapshot_missing", retryable: true);
         }
-        var cost = ComputeCost(lease, normalized, price);
+
+        // Model mismatch detection: compare observed model against requested models
+        var modelMismatchDetected = false;
+        var modelMismatchBillingModel = "";
+        var billingPrice = price;
+        var observedModel = normalized.ObservedModel;
+        if (!string.IsNullOrWhiteSpace(observedModel)
+            && !string.Equals(observedModel, lease.Model, StringComparison.Ordinal)
+            && !string.Equals(observedModel, lease.UpstreamModel, StringComparison.Ordinal))
+        {
+            modelMismatchDetected = true;
+            if (pricing.TryGetPrice(observedModel, out var observedPrice))
+            {
+                var requestedCost = ComputeCost(lease, normalized, price);
+                var observedCost = ComputeCost(lease, normalized, observedPrice);
+                if (observedCost < requestedCost)
+                {
+                    // Observed model is cheaper - bill at observed price (consumer benefit)
+                    billingPrice = observedPrice;
+                    modelMismatchBillingModel = observedModel;
+                    logger.LogWarning(
+                        "Model mismatch on lease {LeaseToken}: requested={Requested}, observed={Observed}. Billing at cheaper observed price.",
+                        lease.LeaseToken, lease.Model, observedModel);
+                }
+                else
+                {
+                    // Observed model is more expensive - bill at requested (cheaper) price (no auto-upgrade)
+                    modelMismatchBillingModel = lease.Model;
+                    logger.LogWarning(
+                        "Model mismatch on lease {LeaseToken}: requested={Requested}, observed={Observed}. Billing at requested price (no auto-upgrade).",
+                        lease.LeaseToken, lease.Model, observedModel);
+                }
+            }
+            else
+            {
+                // Observed model has no price - bill at requested price (never zero)
+                modelMismatchBillingModel = lease.Model;
+                logger.LogWarning(
+                    "Model mismatch on lease {LeaseToken}: requested={Requested}, observed={Observed} (no price). Billing at requested price.",
+                    lease.LeaseToken, lease.Model, observedModel);
+            }
+        }
+
+        var cost = ComputeCost(lease, normalized, billingPrice);
 
         await using (var usage = connection.CreateCommand())
         {
@@ -467,12 +546,16 @@ public sealed class RequestLeaseStore(
                     video_resolution, video_duration_seconds, realtime_duration_ms,
                     realtime_frames, disconnect_reason, provider_usage_json,
                     reasoning_tokens, service_tier, upstream_endpoint, cancellation_reason,
-                    media_operation_id, pricing_version)
+                    media_operation_id, pricing_version,
+                    observed_model, search_query_count, audio_minutes, character_count,
+                    long_context_token_count, price_source_provider, price_source_checksum,
+                    model_mismatch_detected, model_mismatch_billing_model)
                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,
-                        $20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35)
+                        $20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,
+                        $36,$37,$38,$39,$40,$41,$42,$43,$44)
                 """;
             AddUsageParameters(usage, lease, normalized, cost, includeEndpointAndStatus: true);
-            AddUsageExtensions(usage, normalized);
+            AddUsageExtensions(usage, normalized, modelMismatchDetected, modelMismatchBillingModel);
             await usage.ExecuteNonQueryAsync(ct);
         }
 
@@ -489,12 +572,16 @@ public sealed class RequestLeaseStore(
                     realtime_duration_ms, realtime_frames, disconnect_reason,
                     provider_usage_json, reasoning_tokens, service_tier,
                     upstream_endpoint, cancellation_reason, media_operation_id,
-                    pricing_version)
+                    pricing_version,
+                    observed_model, search_query_count, audio_minutes, character_count,
+                    long_context_token_count, price_source_provider, price_source_checksum,
+                    model_mismatch_detected, model_mismatch_billing_model)
                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,
-                        $18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33)
+                        $18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,
+                        $34,$35,$36,$37,$38,$39,$40,$41,$42)
                 """;
             AddUsageParameters(log, lease, normalized, cost, includeEndpointAndStatus: false);
-            AddUsageExtensions(log, normalized);
+            AddUsageExtensions(log, normalized, modelMismatchDetected, modelMismatchBillingModel);
             await log.ExecuteNonQueryAsync(ct);
         }
 
@@ -1044,7 +1131,10 @@ public sealed class RequestLeaseStore(
                       l.price_cache_create_per_million, l.price_cache_read_per_million,
                       l.price_image_input_per_unit, l.price_image_output_per_unit,
                       l.price_video_per_second, l.price_realtime_per_minute,
-                      l.subscription_id, l.subscription_hold_amount
+                      l.subscription_id, l.subscription_hold_amount,
+                      l.observed_model, l.price_source_provider, l.price_source_checksum,
+                      l.price_search_per_query, l.price_audio_per_minute,
+                      l.price_character_per_million, l.price_long_context_per_million
             """;
         command.Parameters.AddWithValue(batchSize);
         command.Parameters.AddWithValue(workerId);
@@ -1202,7 +1292,11 @@ public sealed class RequestLeaseStore(
             + usage.InputImageCount * price.ImageInputPerUnit
             + usage.OutputImageCount * price.ImageOutputPerUnit
             + usage.VideoDurationSeconds * price.VideoPerSecond
-            + usage.RealtimeDurationMs * price.RealtimePerMinute / 60_000m;
+            + usage.RealtimeDurationMs * price.RealtimePerMinute / 60_000m
+            + usage.SearchQueryCount * price.SearchPerQuery
+            + usage.AudioMinutes * price.AudioPerMinute
+            + usage.CharacterCount * price.CharacterPerMillion / 1_000_000m
+            + usage.LongContextTokenCount * price.LongContextPerMillion / 1_000_000m;
         return decimal.Round(cost * lease.RateMultiplier, 8, MidpointRounding.AwayFromZero);
     }
 
@@ -1232,7 +1326,8 @@ public sealed class RequestLeaseStore(
         command.Parameters.AddWithValue(usage.ClientDisconnect);
     }
 
-    private static void AddUsageExtensions(NpgsqlCommand command, LeaseCompletion usage)
+    private static void AddUsageExtensions(NpgsqlCommand command, LeaseCompletion usage,
+        bool modelMismatchDetected = false, string modelMismatchBillingModel = "")
     {
         command.Parameters.AddWithValue(usage.InputImageCount);
         command.Parameters.AddWithValue(usage.OutputImageCount);
@@ -1251,6 +1346,16 @@ public sealed class RequestLeaseStore(
         command.Parameters.AddWithValue(usage.CancellationReason);
         command.Parameters.AddWithValue(usage.MediaOperationId);
         command.Parameters.AddWithValue(usage.PricingVersion);
+        // New response-model contract columns
+        command.Parameters.AddWithValue(usage.ObservedModel);
+        command.Parameters.AddWithValue(usage.SearchQueryCount);
+        command.Parameters.AddWithValue(usage.AudioMinutes);
+        command.Parameters.AddWithValue(usage.CharacterCount);
+        command.Parameters.AddWithValue(usage.LongContextTokenCount);
+        command.Parameters.AddWithValue(""); // price_source_provider (from lease)
+        command.Parameters.AddWithValue(""); // price_source_checksum (from lease)
+        command.Parameters.AddWithValue(modelMismatchDetected);
+        command.Parameters.AddWithValue(modelMismatchBillingModel);
     }
 
     private static async Task<RequestLease?> GetForUpdateAsync(NpgsqlConnection connection,
@@ -1266,7 +1371,10 @@ public sealed class RequestLeaseStore(
                    price_cache_create_per_million, price_cache_read_per_million,
                    price_image_input_per_unit, price_image_output_per_unit,
                    price_video_per_second, price_realtime_per_minute,
-                   subscription_id, subscription_hold_amount
+                   subscription_id, subscription_hold_amount,
+                   observed_model, price_source_provider, price_source_checksum,
+                   price_search_per_query, price_audio_per_minute,
+                   price_character_per_million, price_long_context_per_million
             FROM request_leases WHERE lease_token = $1 FOR UPDATE
             """;
         command.Parameters.AddWithValue(leaseToken);
@@ -1296,6 +1404,17 @@ public sealed class RequestLeaseStore(
             reader.IsDBNull(i + 22) ? null : reader.GetDecimal(i + 22),
             reader.IsDBNull(i + 23) ? null : reader.GetDecimal(i + 23),
             reader.IsDBNull(i + 24) ? null : reader.GetDecimal(i + 24),
+            // Record ctor: PriceSearchPerQuery(col30), PriceAudioPerMinute(col31),
+            // PriceCharacterPerMillion(col32), PriceLongContextPerMillion(col33),
+            // ObservedModel(col27), PriceSourceProvider(col28), PriceSourceChecksum(col29),
+            // SubscriptionId(col25), SubscriptionHoldAmount(col26)
+            reader.IsDBNull(i + 30) ? null : reader.GetDecimal(i + 30),
+            reader.IsDBNull(i + 31) ? null : reader.GetDecimal(i + 31),
+            reader.IsDBNull(i + 32) ? null : reader.GetDecimal(i + 32),
+            reader.IsDBNull(i + 33) ? null : reader.GetDecimal(i + 33),
+            reader.GetString(i + 27),
+            reader.GetString(i + 28),
+            reader.GetString(i + 29),
             reader.IsDBNull(i + 25) ? null : reader.GetInt64(i + 25),
             reader.GetDecimal(i + 26));
     }

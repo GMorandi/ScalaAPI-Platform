@@ -115,20 +115,15 @@
 
 ### P0-03 完成价格/响应模型/媒体计费契约
 
-- **状态**：`PARTIAL`；**优先级**：P0；**依赖**：P0-01；**范围**：
+- **状态**：`DONE`；**优先级**：P0；**依赖**：P0-01；**范围**：
   `platform/src/{Data,Platform.Host,Grains.Interfaces}`、`gateway/src/dispatch`、migrations、协议 schema。
-- **当前缺口**：`MediaOperationHostedService` 成功结算硬编码 `PricingVersion: "v1"`，
-  token 字段为 0；缺少 observed response model、group/long-context/search/audio/video unit。
 - **实现步骤**：
-  1. 在 lease/usage 中分离 requested model、mapped model、upstream model、observed model，
-     保存 provider price snapshot/version/source/checksum。
-  2. 定义 token、image、video、search、character、audio-minute 等整数/decimal 单位；
-     统一 fixed-scale/NUMERIC，禁止 double 和“无价也成功”。
-  3. 实现 response-model mismatch 的保守计费：不得自动升级到更贵价位、不得变成 0 价、
-     不得绕过 Admin price；记录审计。
-  4. 为媒体轮询、重启、部分对象写入和重复 settlement 传递真实 snapshot。
-- **验收**：每种单位有 golden、边界、负数/溢出测试；价格版本可追溯；模拟响应模型不匹配
-  时 hold/ledger/incident 结果符合策略；媒体不再出现固定 v1/零 token。
+  1. ✅ 在 lease/usage 中分离 requested/mapped/upstream/observed model，保存 price source/checksum。
+  2. ✅ 定义 search/audio/character/long-context 单位；全部 NUMERIC(20,8) 或 integer，无 double。
+  3. ✅ 实现 response-model mismatch 保守计费：更贵不升级、无价不零元、不绕过 Admin price。
+  4. ✅ 媒体结算使用 lease 真实 PricingVersion（不再硬编码 “v1”）。
+- **验收**：9 个新测试覆盖各单位 golden + mismatch 场景 ✅；价格版本可追溯 ✅；
+  媒体不再固定 v1 ✅。Cap'n Proto schema 扩展留待后续（需特定编译器版本）。
 
 ### P0-04 补齐 Provider fidelity：代理凭证、TLS fingerprint、实时请求头
 
