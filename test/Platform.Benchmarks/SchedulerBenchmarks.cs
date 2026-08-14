@@ -68,6 +68,7 @@ public class SchedulerBenchmarks
             {
                 services.AddSingleton(Substitute.For<IInvalidationService>());
                 services.AddSingleton(Substitute.For<ICredentialProtector>());
+                services.AddSingleton<ISlotLeaseStore, InMemorySlotLeaseStore>();
             });
         }
     }
