@@ -127,11 +127,15 @@
 - **状态**：`PARTIAL`；**依赖**：G0-02、P0-01。
 - **已有**：OpenAI Chat/Responses、Anthropic、Gemini JSON/SSE，错误、terminal、usage、
   finish reason、tool-call response 和 pairwise text conversion。
-- **补齐**：tool result、multimodal、multiple candidates、identifier、未知 native field
-  策略和全 pair runtime provider group；未知 method/path/general header/TLS profile 必须在
-  Provider I/O 前拒绝，不能静默改成 POST 或只过滤 hop-by-hop header；明确是否提供上游
-  error pass-through/rewrite/monitor suppression，接受时必须有 bounded/redacted 产品规则，
-  不接受时明确 unsupported。
+- **已完成**：multimodal 内容拒绝（四个 parser 检测并 converter 返回错误）；多 candidate
+  检测（OpenAI choices>1、Gemini candidates>1 返回 unsupported）；Anthropic SSE 流转换修复
+  （从 JSON type 字段提取事件类型）；Gemini tool call ID 唯一性（同函数多次调用生成
+  name_counter 格式 ID）。
+- **补齐**：tool result image 处理、response ID 保留策略、未知 native field 策略和全 pair
+  runtime provider group；未知 method/path/general header/TLS profile 必须在 Provider I/O
+  前拒绝，不能静默改成 POST 或只过滤 hop-by-hop header；明确是否提供上游 error
+  pass-through/rewrite/monitor suppression，接受时必须有 bounded/redacted 产品规则，不接
+  受时明确 unsupported。
 - **验收**：versioned request/response/SSE/error goldens + source-built E2E；不静默只取第一
   个文本 candidate。
 
