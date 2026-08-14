@@ -72,4 +72,10 @@ public class GarnetWriteThroughService
     {
         _garnet.Delete(key);
     }
+
+    public void WriteModelsList(string serializedModels)
+    {
+        _garnet.Set(GarnetKeyspace.ModelsList, serializedModels,
+            TimeSpan.FromMinutes(5));
+    }
 }

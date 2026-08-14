@@ -13,4 +13,5 @@ public static class GarnetKeyspace
     public static string InvalidationVersion => $"{Prefix}invalidation:version";
     public static string ContentPolicyRevision => $"{Prefix}content-policy:revision";
     public static string ConfigRevision => $"{Prefix}config:revision";
+    public static string ModelsList => $"{Prefix}models:list";
 }

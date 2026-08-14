@@ -155,6 +155,8 @@ builder.Services.AddSingleton<IProviderQuotaClient, GeminiQuotaClient>();
 builder.Services.AddSingleton<ProviderQuotaClientFactory>();
 builder.Services.AddSingleton<ProviderQuotaRefreshService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<ProviderQuotaRefreshService>());
+builder.Services.AddSingleton<ModelCatalogRefreshService>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<ModelCatalogRefreshService>());
 var classifierEndpoint = builder.Configuration["ContentClassifier:Endpoint"];
 var openAiClassifierEndpoint = builder.Configuration["ContentClassifier:OpenAI:Endpoint"];
 builder.Services.AddSingleton<OpenAiModerationMetrics>();
