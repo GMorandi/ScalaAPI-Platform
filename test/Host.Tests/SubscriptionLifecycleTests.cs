@@ -18,7 +18,7 @@ public sealed class SubscriptionLifecycleTests
     public async Task PurchaseDrivenByPaymentConfirmation()
     {
         var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
-        if (string.IsNullOrWhiteSpace(connectionString)) return;
+        if (string.IsNullOrWhiteSpace(connectionString)) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
 
         await using var dataSource = NpgsqlDataSource.Create(connectionString);
         var userId = Random.Shared.NextInt64(600_000_000, 900_000_000);
@@ -56,7 +56,7 @@ public sealed class SubscriptionLifecycleTests
     public async Task PurchaseRejectedWhenPaymentNotConfirmed()
     {
         var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
-        if (string.IsNullOrWhiteSpace(connectionString)) return;
+        if (string.IsNullOrWhiteSpace(connectionString)) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
 
         await using var dataSource = NpgsqlDataSource.Create(connectionString);
         var userId = Random.Shared.NextInt64(600_000_000, 900_000_000);
@@ -82,7 +82,7 @@ public sealed class SubscriptionLifecycleTests
     public async Task ExpiryAndRenewal()
     {
         var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
-        if (string.IsNullOrWhiteSpace(connectionString)) return;
+        if (string.IsNullOrWhiteSpace(connectionString)) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
 
         await using var dataSource = NpgsqlDataSource.Create(connectionString);
         var userId = Random.Shared.NextInt64(600_000_000, 900_000_000);
@@ -132,7 +132,7 @@ public sealed class SubscriptionLifecycleTests
     public async Task RedemptionCodeConcurrency_OnlyOneEntitlement()
     {
         var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
-        if (string.IsNullOrWhiteSpace(connectionString)) return;
+        if (string.IsNullOrWhiteSpace(connectionString)) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
 
         await using var dataSource = NpgsqlDataSource.Create(connectionString);
         var userId1 = Random.Shared.NextInt64(600_000_000, 900_000_000);
@@ -194,7 +194,7 @@ public sealed class SubscriptionLifecycleTests
     public async Task RedemptionExpiryAndUsageLimit()
     {
         var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
-        if (string.IsNullOrWhiteSpace(connectionString)) return;
+        if (string.IsNullOrWhiteSpace(connectionString)) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
 
         await using var dataSource = NpgsqlDataSource.Create(connectionString);
         var userId = Random.Shared.NextInt64(600_000_000, 900_000_000);
@@ -256,7 +256,7 @@ public sealed class SubscriptionLifecycleTests
     public async Task ReferralAttribution_OnePerUser()
     {
         var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
-        if (string.IsNullOrWhiteSpace(connectionString)) return;
+        if (string.IsNullOrWhiteSpace(connectionString)) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
 
         await using var dataSource = NpgsqlDataSource.Create(connectionString);
         var referrerId = Random.Shared.NextInt64(600_000_000, 900_000_000);
@@ -308,7 +308,7 @@ public sealed class SubscriptionLifecycleTests
     public async Task AnnouncementTargetingAndReadState()
     {
         var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
-        if (string.IsNullOrWhiteSpace(connectionString)) return;
+        if (string.IsNullOrWhiteSpace(connectionString)) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
 
         await using var dataSource = NpgsqlDataSource.Create(connectionString);
         var userId = Random.Shared.NextInt64(600_000_000, 900_000_000);
@@ -371,7 +371,7 @@ public sealed class SubscriptionLifecycleTests
     public async Task UsersCannotReadOthersOrders()
     {
         var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
-        if (string.IsNullOrWhiteSpace(connectionString)) return;
+        if (string.IsNullOrWhiteSpace(connectionString)) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
 
         await using var dataSource = NpgsqlDataSource.Create(connectionString);
         var userId1 = Random.Shared.NextInt64(600_000_000, 900_000_000);
@@ -407,7 +407,7 @@ public sealed class SubscriptionLifecycleTests
     public async Task QuotaReservationMatchesUsageSettlement()
     {
         var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
-        if (string.IsNullOrWhiteSpace(connectionString)) return;
+        if (string.IsNullOrWhiteSpace(connectionString)) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
 
         await using var dataSource = NpgsqlDataSource.Create(connectionString);
         var userId = Random.Shared.NextInt64(600_000_000, 900_000_000);

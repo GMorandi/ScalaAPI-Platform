@@ -32,6 +32,12 @@ jobs:
       GREENFIELD_SCHEMA_CONNECTION: Host=localhost;Port=5432;Database=platform;Username=platform;Password=ci-password
     steps:
       - uses: actions/checkout@v4
+        with:
+          path: platform
+      - uses: actions/checkout@v4
+        with:
+          repository: scalaapi/gateway
+          path: gateway
       - name: Build pinned Cap'n Proto compiler
         run: |
           git clone --depth 1 --branch v1.0.2 https://github.com/capnproto/capnproto.git "$RUNNER_TEMP/capnproto"
@@ -43,13 +49,17 @@ jobs:
         with:
           dotnet-version: "10.0.x"
       - name: Verify contract digest and retired dependency scan
+        working-directory: platform
         run: |
-          scripts/verify-contracts.sh
+          scripts/verify-contracts.sh ../gateway
           scripts/verify-generated-contracts.sh
           scripts/verify-retired-dependencies.sh
-      - run: dotnet restore ScalaAPI.Platform.slnx
-      - run: dotnet build --no-restore -c Release
+      - working-directory: platform
+        run: dotnet restore ScalaAPI.Platform.slnx
+      - working-directory: platform
+        run: dotnet build --no-restore -c Release
       - name: Apply the greenfield schema twice
+        working-directory: platform
         run: |
           set -euo pipefail
           migration_dir="$RUNNER_TEMP/migrations"
@@ -59,12 +69,15 @@ jobs:
           dotnet run --project src/Db.Migrator/Db.Migrator.csproj --no-build -c Release -- "$migration_dir"
           dotnet run --project src/Db.Migrator/Db.Migrator.csproj --no-build -c Release -- "$migration_dir"
       - name: Verify schema and absence of retired control tables
+        working-directory: platform
         run: dotnet test test/Host.Tests/Host.Tests.csproj --no-build -c Release --filter FullyQualifiedName~MigrationSchemaTests --verbosity normal
 
       - name: Run all Platform tests
+        working-directory: platform
         run: dotnet test ScalaAPI.Platform.slnx --no-build -c Release --verbosity normal
 
       - name: Benchmark integrity smoke
+        working-directory: platform
         run: dotnet run --project test/Platform.Benchmarks/Platform.Benchmarks.csproj --no-build -c Release -- --job Dry --filter '*Scheduler*'
 
       - uses: actions/setup-node@v4
@@ -72,11 +85,11 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: |
-            admin-web/package-lock.json
-            user-web/package-lock.json
+            platform/admin-web/package-lock.json
+            platform/user-web/package-lock.json
       - name: Admin Web typecheck and build
-        working-directory: admin-web
+        working-directory: platform/admin-web
         run: npm ci && npm run typecheck && npm run build
       - name: User Web typecheck and build
-        working-directory: user-web
+        working-directory: platform/user-web
         run: npm ci && npm run typecheck && npm run build

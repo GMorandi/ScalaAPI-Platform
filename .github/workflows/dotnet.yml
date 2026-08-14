@@ -9,6 +9,20 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: platform
+          POSTGRES_USER: platform
+          POSTGRES_PASSWORD: ci-password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U platform -d platform"
+          --health-interval 5s --health-timeout 3s --health-retries 20
+    env:
+      GREENFIELD_SCHEMA_CONNECTION: Host=localhost;Port=5432;Database=platform;Username=platform;Password=ci-password
     steps:
       - uses: actions/checkout@v4
 
@@ -22,6 +36,17 @@ jobs:
 
       - name: Build
         run: dotnet build --no-restore -c Release
+
+      - name: Apply migrations
+        env:
+          ConnectionStrings__Postgres: Host=localhost;Port=5432;Database=platform;Username=platform;Password=ci-password
+        run: |
+          set -euo pipefail
+          migration_dir="$RUNNER_TEMP/migrations"
+          mkdir -p "$migration_dir"
+          cp deploy/orleans-postgres-schema.sql "$migration_dir/000-orleans.sql"
+          cp deploy/migrations/*.sql "$migration_dir/"
+          dotnet run --project src/Db.Migrator/Db.Migrator.csproj --no-build -c Release -- "$migration_dir"
 
       - name: Test
         run: dotnet test --no-build -c Release --verbosity normal

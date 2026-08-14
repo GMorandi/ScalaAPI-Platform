@@ -10,7 +10,7 @@ public sealed class VoiceStoreTests
     public async Task CreateAndListByUser()
     {
         var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
-        if (string.IsNullOrWhiteSpace(connectionString)) return;
+        if (string.IsNullOrWhiteSpace(connectionString)) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
 
         await using var dataSource = NpgsqlDataSource.Create(connectionString);
         var store = new VoiceStore(dataSource);
@@ -34,7 +34,7 @@ public sealed class VoiceStoreTests
     public async Task GetByUserEnforcesOwnership()
     {
         var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
-        if (string.IsNullOrWhiteSpace(connectionString)) return;
+        if (string.IsNullOrWhiteSpace(connectionString)) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
 
         await using var dataSource = NpgsqlDataSource.Create(connectionString);
         var store = new VoiceStore(dataSource);
@@ -57,7 +57,7 @@ public sealed class VoiceStoreTests
     public async Task UpdateStatusAndDelete()
     {
         var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
-        if (string.IsNullOrWhiteSpace(connectionString)) return;
+        if (string.IsNullOrWhiteSpace(connectionString)) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
 
         await using var dataSource = NpgsqlDataSource.Create(connectionString);
         var store = new VoiceStore(dataSource);
@@ -83,7 +83,7 @@ public sealed class VoiceStoreTests
     public async Task DuplicateNameUpserts()
     {
         var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
-        if (string.IsNullOrWhiteSpace(connectionString)) return;
+        if (string.IsNullOrWhiteSpace(connectionString)) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
 
         await using var dataSource = NpgsqlDataSource.Create(connectionString);
         var store = new VoiceStore(dataSource);

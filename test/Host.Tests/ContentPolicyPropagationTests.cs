@@ -11,7 +11,7 @@ public sealed class ContentPolicyPropagationTests
     public async Task ChangeOutboxPropagatesRevisionAndInvalidationToGarnet()
     {
         var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
-        if (string.IsNullOrWhiteSpace(connectionString)) return;
+        if (string.IsNullOrWhiteSpace(connectionString)) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
 
         await using var dataSource = NpgsqlDataSource.Create(connectionString);
         var revision = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
@@ -45,7 +45,7 @@ public sealed class ContentPolicyPropagationTests
     public async Task FailedPropagationLeavesRetryableErrorAndCanRecover()
     {
         var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
-        if (string.IsNullOrWhiteSpace(connectionString)) return;
+        if (string.IsNullOrWhiteSpace(connectionString)) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
 
         await using var dataSource = NpgsqlDataSource.Create(connectionString);
         var revision = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() + 1;
@@ -77,7 +77,7 @@ public sealed class ContentPolicyPropagationTests
     public async Task ConcurrentWorkersSerializeClaimsAndPublishEachRevisionOnce()
     {
         var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
-        if (string.IsNullOrWhiteSpace(connectionString)) return;
+        if (string.IsNullOrWhiteSpace(connectionString)) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
 
         await using var dataSource = NpgsqlDataSource.Create(connectionString);
         var baseRevision = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() * 1000
@@ -134,7 +134,7 @@ public sealed class ContentPolicyPropagationTests
     public async Task ReclaimAfterCrashAllowsReplacementWorkerToPropagate()
     {
         var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
-        if (string.IsNullOrWhiteSpace(connectionString)) return;
+        if (string.IsNullOrWhiteSpace(connectionString)) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
 
         await using var dataSource = NpgsqlDataSource.Create(connectionString);
         var revision = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() + 2;
@@ -182,7 +182,7 @@ public sealed class ContentPolicyPropagationTests
     public async Task CrossProcessOrderingPreservesRevisionSequence()
     {
         var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
-        if (string.IsNullOrWhiteSpace(connectionString)) return;
+        if (string.IsNullOrWhiteSpace(connectionString)) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
 
         await using var dataSource = NpgsqlDataSource.Create(connectionString);
         var baseRevision = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() * 1000

@@ -13,7 +13,7 @@ public sealed class SubscriptionQuotaTests
     public async Task ReservationsAreSerializedAndSettlementReleasesQuota()
     {
         var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
-        if (string.IsNullOrWhiteSpace(connectionString)) return;
+        if (string.IsNullOrWhiteSpace(connectionString)) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
 
         await using var dataSource = NpgsqlDataSource.Create(connectionString);
         var suffix = Guid.NewGuid().ToString("N");
@@ -98,7 +98,7 @@ public sealed class SubscriptionQuotaTests
     public async Task QuotaEventsAreIdempotent()
     {
         var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
-        if (string.IsNullOrWhiteSpace(connectionString)) return;
+        if (string.IsNullOrWhiteSpace(connectionString)) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
 
         await using var dataSource = NpgsqlDataSource.Create(connectionString);
         var suffix = Guid.NewGuid().ToString("N");
@@ -151,7 +151,7 @@ public sealed class SubscriptionQuotaTests
     public async Task QuotaEventTransitionIsMonotonic()
     {
         var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
-        if (string.IsNullOrWhiteSpace(connectionString)) return;
+        if (string.IsNullOrWhiteSpace(connectionString)) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
 
         await using var dataSource = NpgsqlDataSource.Create(connectionString);
         var suffix = Guid.NewGuid().ToString("N");

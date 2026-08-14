@@ -297,7 +297,7 @@ public sealed class ExportRetentionTests
     public async Task RetentionServiceUpsertAndListPolicies()
     {
         var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
-        if (string.IsNullOrWhiteSpace(connectionString)) return;
+        if (string.IsNullOrWhiteSpace(connectionString)) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
 
         await using var dataSource = NpgsqlDataSource.Create(connectionString);
         var logger = NullLogger<RetentionService>.Instance;
@@ -319,7 +319,7 @@ public sealed class ExportRetentionTests
     public async Task RetentionServiceCleanupIsIdempotent()
     {
         var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
-        if (string.IsNullOrWhiteSpace(connectionString)) return;
+        if (string.IsNullOrWhiteSpace(connectionString)) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
 
         await using var dataSource = NpgsqlDataSource.Create(connectionString);
         var logger = NullLogger<RetentionService>.Instance;
@@ -344,7 +344,7 @@ public sealed class ExportRetentionTests
     public async Task RetentionServiceDryRunDoesNotDelete()
     {
         var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
-        if (string.IsNullOrWhiteSpace(connectionString)) return;
+        if (string.IsNullOrWhiteSpace(connectionString)) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
 
         await using var dataSource = NpgsqlDataSource.Create(connectionString);
         var logger = NullLogger<RetentionService>.Instance;
@@ -364,7 +364,7 @@ public sealed class ExportRetentionTests
     public async Task ExportServiceRequestAndRetrieve()
     {
         var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
-        if (string.IsNullOrWhiteSpace(connectionString)) return;
+        if (string.IsNullOrWhiteSpace(connectionString)) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
 
         await using var dataSource = NpgsqlDataSource.Create(connectionString);
         var logger = NullLogger<ExportService>.Instance;
@@ -411,7 +411,7 @@ public sealed class ExportRetentionTests
     public async Task ExportServiceDownloadAuthorizationRejectsInvalidToken()
     {
         var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
-        if (string.IsNullOrWhiteSpace(connectionString)) return;
+        if (string.IsNullOrWhiteSpace(connectionString)) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
 
         await using var dataSource = NpgsqlDataSource.Create(connectionString);
         var logger = NullLogger<ExportService>.Instance;
@@ -426,7 +426,7 @@ public sealed class ExportRetentionTests
     public async Task ExportServiceExpireStaleJobs()
     {
         var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
-        if (string.IsNullOrWhiteSpace(connectionString)) return;
+        if (string.IsNullOrWhiteSpace(connectionString)) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
 
         await using var dataSource = NpgsqlDataSource.Create(connectionString);
         var logger = NullLogger<ExportService>.Instance;
@@ -440,7 +440,7 @@ public sealed class ExportRetentionTests
     public async Task RetentionServiceHistoryReturnsResults()
     {
         var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
-        if (string.IsNullOrWhiteSpace(connectionString)) return;
+        if (string.IsNullOrWhiteSpace(connectionString)) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
 
         await using var dataSource = NpgsqlDataSource.Create(connectionString);
         var logger = NullLogger<RetentionService>.Instance;

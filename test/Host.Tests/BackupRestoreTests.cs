@@ -97,7 +97,7 @@ public sealed class BackupRestoreTests
     public async Task EncryptDecryptRoundTrip()
     {
         var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
-        if (string.IsNullOrWhiteSpace(connectionString)) return;
+        if (string.IsNullOrWhiteSpace(connectionString)) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
 
         await using var dataSource = NpgsqlDataSource.Create(connectionString);
         var service = new BackupService(dataSource, NullLogger<BackupService>.Instance);
@@ -141,7 +141,7 @@ public sealed class BackupRestoreTests
     public async Task DecryptWithWrongKeyFails()
     {
         var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
-        if (string.IsNullOrWhiteSpace(connectionString)) return;
+        if (string.IsNullOrWhiteSpace(connectionString)) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
 
         await using var dataSource = NpgsqlDataSource.Create(connectionString);
         var service = new BackupService(dataSource, NullLogger<BackupService>.Instance);
@@ -174,7 +174,7 @@ public sealed class BackupRestoreTests
     public async Task SignAndVerifyRoundTrip()
     {
         var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
-        if (string.IsNullOrWhiteSpace(connectionString)) return;
+        if (string.IsNullOrWhiteSpace(connectionString)) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
 
         await using var dataSource = NpgsqlDataSource.Create(connectionString);
         var service = new BackupService(dataSource, NullLogger<BackupService>.Instance);
@@ -206,7 +206,7 @@ public sealed class BackupRestoreTests
     public async Task TamperedArtifactFailsSignatureVerification()
     {
         var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
-        if (string.IsNullOrWhiteSpace(connectionString)) return;
+        if (string.IsNullOrWhiteSpace(connectionString)) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
 
         await using var dataSource = NpgsqlDataSource.Create(connectionString);
         var service = new BackupService(dataSource, NullLogger<BackupService>.Instance);
@@ -238,7 +238,7 @@ public sealed class BackupRestoreTests
     public async Task KeyRotationRetiresOldKey()
     {
         var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
-        if (string.IsNullOrWhiteSpace(connectionString)) return;
+        if (string.IsNullOrWhiteSpace(connectionString)) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
 
         await using var dataSource = NpgsqlDataSource.Create(connectionString);
         var service = new BackupService(dataSource, NullLogger<BackupService>.Instance);
@@ -313,7 +313,7 @@ public sealed class BackupRestoreTests
     public async Task RetentionPolicyUpsertAndGet()
     {
         var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
-        if (string.IsNullOrWhiteSpace(connectionString)) return;
+        if (string.IsNullOrWhiteSpace(connectionString)) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
 
         await using var dataSource = NpgsqlDataSource.Create(connectionString);
         var service = new BackupService(dataSource, NullLogger<BackupService>.Instance);
@@ -343,7 +343,7 @@ public sealed class BackupRestoreTests
     public async Task RpoRtoRecordAndRetrieve()
     {
         var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
-        if (string.IsNullOrWhiteSpace(connectionString)) return;
+        if (string.IsNullOrWhiteSpace(connectionString)) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
 
         await using var dataSource = NpgsqlDataSource.Create(connectionString);
         var service = new BackupService(dataSource, NullLogger<BackupService>.Instance);
@@ -371,7 +371,7 @@ public sealed class BackupRestoreTests
     public async Task BackupCreateIsIdempotent()
     {
         var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
-        if (string.IsNullOrWhiteSpace(connectionString)) return;
+        if (string.IsNullOrWhiteSpace(connectionString)) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
 
         await using var dataSource = NpgsqlDataSource.Create(connectionString);
         var config = new ConfigurationBuilder()
@@ -464,7 +464,7 @@ public sealed class BackupRestoreTests
     public async Task FailureInjectionCreatesMarker()
     {
         var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
-        if (string.IsNullOrWhiteSpace(connectionString)) return;
+        if (string.IsNullOrWhiteSpace(connectionString)) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
 
         var service = new RestoreService(
             NpgsqlDataSource.Create(connectionString),
@@ -484,7 +484,7 @@ public sealed class BackupRestoreTests
     public async Task FailureInjectionRejectsUnknownType()
     {
         var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
-        if (string.IsNullOrWhiteSpace(connectionString)) return;
+        if (string.IsNullOrWhiteSpace(connectionString)) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
 
         var service = new RestoreService(
             NpgsqlDataSource.Create(connectionString),

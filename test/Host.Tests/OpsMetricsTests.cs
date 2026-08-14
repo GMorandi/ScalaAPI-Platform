@@ -107,7 +107,7 @@ public sealed class OpsMetricsTests
     public async Task P95Computation()
     {
         var dataSource = GetDataSource();
-        if (dataSource is null) return;
+        if (dataSource is null) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
 
         var store = new OpsMetricsSampleStore(dataSource);
         var metricName = $"test.p95.{Guid.NewGuid():N}";
@@ -143,7 +143,7 @@ public sealed class OpsMetricsTests
     public async Task RetentionCleanup()
     {
         var dataSource = GetDataSource();
-        if (dataSource is null) return;
+        if (dataSource is null) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
 
         var store = new OpsMetricsSampleStore(dataSource);
         var metricName = $"test.retention.{Guid.NewGuid():N}";
@@ -180,7 +180,7 @@ public sealed class OpsMetricsTests
     public async Task RequestLeaseIdCorrelation()
     {
         var dataSource = GetDataSource();
-        if (dataSource is null) return;
+        if (dataSource is null) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
 
         var store = new OpsMetricsSampleStore(dataSource);
         var metricName = $"test.correlation.{Guid.NewGuid():N}";

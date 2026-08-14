@@ -12,7 +12,7 @@ public sealed class OAuthStateServiceTests
     public async Task StateBindsProviderRedirectAndVerifierAndIsConsumedOnce()
     {
         var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
-        if (string.IsNullOrWhiteSpace(connectionString)) return;
+        if (string.IsNullOrWhiteSpace(connectionString)) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
 
         await using var dataSource = NpgsqlDataSource.Create(connectionString);
         var now = new FixedTimeProvider(DateTimeOffset.UtcNow);
@@ -59,7 +59,7 @@ public sealed class OAuthStateServiceTests
     public async Task ExpiredStateCannotBeConsumed()
     {
         var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
-        if (string.IsNullOrWhiteSpace(connectionString)) return;
+        if (string.IsNullOrWhiteSpace(connectionString)) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
 
         await using var dataSource = NpgsqlDataSource.Create(connectionString);
         var now = new FixedTimeProvider(DateTimeOffset.UtcNow);

@@ -11,7 +11,7 @@ public sealed class GarnetPolicyRevisionRebuildTests
     public async Task RebuildPublishesAuthoritativeRevisionWithoutExpiry()
     {
         var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
-        if (string.IsNullOrWhiteSpace(connectionString)) return;
+        if (string.IsNullOrWhiteSpace(connectionString)) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
 
         await using var dataSource = NpgsqlDataSource.Create(connectionString);
         await using var revisionCommand = dataSource.CreateCommand(

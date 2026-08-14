@@ -31,7 +31,6 @@ jobs:
 
       - name: Typecheck
         run: npx tsc --noEmit
-        continue-on-error: true
 
       - name: Build
         run: npx vite build

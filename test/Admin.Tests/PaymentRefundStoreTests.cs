@@ -11,7 +11,7 @@ public sealed class PaymentRefundStoreTests
     public async Task FullRefundSettlesOnceAndReplaysByCommandKey()
     {
         var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
-        if (string.IsNullOrWhiteSpace(connectionString)) return;
+        if (string.IsNullOrWhiteSpace(connectionString)) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
 
         var userId = 9_000_000L + Random.Shared.Next(1, 800_000);
         var actorId = userId + 2_000_000L;
@@ -113,7 +113,7 @@ public sealed class PaymentRefundStoreTests
     public async Task PartialRefundsAccumulateAndOnlyFinalRefundClosesOrder()
     {
         var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
-        if (string.IsNullOrWhiteSpace(connectionString)) return;
+        if (string.IsNullOrWhiteSpace(connectionString)) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
 
         var userId = 9_000_000L + Random.Shared.Next(1, 800_000);
         var actorId = userId + 2_000_000L;

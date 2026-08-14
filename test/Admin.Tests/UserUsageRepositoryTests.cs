@@ -12,7 +12,7 @@ public sealed class UserUsageRepositoryTests
     public async Task UsageQueriesRemainScopedToTheAuthenticatedUser()
     {
         var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
-        if (string.IsNullOrWhiteSpace(connectionString)) return;
+        if (string.IsNullOrWhiteSpace(connectionString)) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
 
         var userId = 7_100_000L + Random.Shared.Next(1, 800_000);
         var otherUserId = userId + 1;

@@ -17,7 +17,7 @@ public sealed class PassiveMonitorV2Tests
     public async Task EventDeduplicationByEventId()
     {
         var dataSource = GetDataSource();
-        if (dataSource is null) return;
+        if (dataSource is null) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
 
         var store = new PassiveMonitorV2Store(dataSource);
         var dimension = "platform";
@@ -72,7 +72,7 @@ public sealed class PassiveMonitorV2Tests
     public async Task WatermarkMonotonicityAfterRestart()
     {
         var dataSource = GetDataSource();
-        if (dataSource is null) return;
+        if (dataSource is null) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
 
         var store = new PassiveMonitorV2Store(dataSource);
         var dimension = $"test-watermark-{Guid.NewGuid():N}";
@@ -119,7 +119,7 @@ public sealed class PassiveMonitorV2Tests
     public async Task BoundedBackfillDoesNotBlock()
     {
         var dataSource = GetDataSource();
-        if (dataSource is null) return;
+        if (dataSource is null) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
 
         var store = new PassiveMonitorV2Store(dataSource);
 
@@ -136,7 +136,7 @@ public sealed class PassiveMonitorV2Tests
     public async Task PrivacyRedaction()
     {
         var dataSource = GetDataSource();
-        if (dataSource is null) return;
+        if (dataSource is null) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
 
         var store = new PassiveMonitorV2Store(dataSource);
         var configKey = $"test-privacy-{Guid.NewGuid():N}";
@@ -174,7 +174,7 @@ public sealed class PassiveMonitorV2Tests
     public async Task RetentionCleanup()
     {
         var dataSource = GetDataSource();
-        if (dataSource is null) return;
+        if (dataSource is null) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
 
         var store = new PassiveMonitorV2Store(dataSource);
         var dimension = "platform";
@@ -218,7 +218,7 @@ public sealed class PassiveMonitorV2Tests
     public async Task DimensionAggregation()
     {
         var dataSource = GetDataSource();
-        if (dataSource is null) return;
+        if (dataSource is null) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
 
         var store = new PassiveMonitorV2Store(dataSource);
         var windowStart = PassiveMonitorV2Service.FloorToWindow(DateTime.UtcNow);
@@ -289,7 +289,7 @@ public sealed class PassiveMonitorV2Tests
     public async Task ErrorCountOnlyIncrementsForNewEvents()
     {
         var dataSource = GetDataSource();
-        if (dataSource is null) return;
+        if (dataSource is null) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
 
         var store = new PassiveMonitorV2Store(dataSource);
         var dimension = "platform";

@@ -13,7 +13,7 @@ public sealed class NetworkProfileStoreTests
     public async Task ProxySecretsAreEncryptedAndTlsProfilesAreValidatedAndAudited()
     {
         var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
-        if (string.IsNullOrWhiteSpace(connectionString)) return;
+        if (string.IsNullOrWhiteSpace(connectionString)) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
 
         var actorId = 9_800_000L + Random.Shared.Next(1, 100_000);
         var proxyName = $"test-proxy-{Guid.NewGuid():N}";

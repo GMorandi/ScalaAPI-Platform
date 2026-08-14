@@ -11,7 +11,7 @@ public sealed class BalanceAdjustmentStoreTests
     public async Task RecordIsIdempotentAuditedAndProtectsActiveHolds()
     {
         var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
-        if (string.IsNullOrWhiteSpace(connectionString)) return;
+        if (string.IsNullOrWhiteSpace(connectionString)) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
 
         var userId = 8_000_000L + Random.Shared.Next(1, 900_000);
         var actorId = userId + 1_000_000L;

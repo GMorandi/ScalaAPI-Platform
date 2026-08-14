@@ -23,7 +23,7 @@ public sealed class ContentPolicyServiceTests
     public async Task BlockRuleIsEvaluatedBeforeDispatchAndAudited()
     {
         var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
-        if (string.IsNullOrWhiteSpace(connectionString)) return;
+        if (string.IsNullOrWhiteSpace(connectionString)) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
 
         var suffix = Guid.NewGuid().ToString("N");
         var userId = 9_500_000L + Random.Shared.Next(1, 100_000);
@@ -84,7 +84,7 @@ public sealed class ContentPolicyServiceTests
     public async Task ScopeMismatchDoesNotCreateAnAuditOrBlock()
     {
         var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
-        if (string.IsNullOrWhiteSpace(connectionString)) return;
+        if (string.IsNullOrWhiteSpace(connectionString)) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
 
         var suffix = Guid.NewGuid().ToString("N");
         var requestId = $"content-policy-scope:{suffix}";
@@ -123,7 +123,7 @@ public sealed class ContentPolicyServiceTests
     public async Task OversizedBodyFailsClosedWithoutAProviderLease()
     {
         var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
-        if (string.IsNullOrWhiteSpace(connectionString)) return;
+        if (string.IsNullOrWhiteSpace(connectionString)) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
 
         await using var dataSource = NpgsqlDataSource.Create(connectionString);
         var service = new ContentPolicyService(
@@ -141,7 +141,7 @@ public sealed class ContentPolicyServiceTests
     public async Task ResponseRuleIsStageScopedAndAuditWriteIsIdempotent()
     {
         var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
-        if (string.IsNullOrWhiteSpace(connectionString)) return;
+        if (string.IsNullOrWhiteSpace(connectionString)) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
 
         var suffix = Guid.NewGuid().ToString("N");
         var requestId = $"content-policy-response:{suffix}";
@@ -205,7 +205,7 @@ public sealed class ContentPolicyServiceTests
     public async Task ExternalClassifierUnavailableFailsClosedAndRedactsAuditContent()
     {
         var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
-        if (string.IsNullOrWhiteSpace(connectionString)) return;
+        if (string.IsNullOrWhiteSpace(connectionString)) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
 
         var suffix = Guid.NewGuid().ToString("N");
         var requestId = $"content-policy-external:{suffix}";
@@ -286,7 +286,7 @@ public sealed class ContentPolicyServiceTests
     public async Task OpenAiClassifierRuleCanBePersistedAndEvaluated()
     {
         var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
-        if (string.IsNullOrWhiteSpace(connectionString)) return;
+        if (string.IsNullOrWhiteSpace(connectionString)) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
 
         var suffix = Guid.NewGuid().ToString("N");
         var requestId = $"content-policy-openai:{suffix}";
@@ -352,7 +352,7 @@ public sealed class ContentPolicyServiceTests
     public async Task RedactedAuditLogsNeverContainContentOrSecrets()
     {
         var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
-        if (string.IsNullOrWhiteSpace(connectionString)) return;
+        if (string.IsNullOrWhiteSpace(connectionString)) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
 
         var suffix = Guid.NewGuid().ToString("N");
         var requestId = $"content-policy-redact:{suffix}";

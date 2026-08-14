@@ -10,7 +10,7 @@ public sealed class CaptchaVerificationTests
     public async Task PassTokenIsAccepted()
     {
         await using var dataSource = CreateDataSource();
-        if (dataSource is null) return;
+        if (dataSource is null) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
         var provider = new MockCaptchaProvider();
         var service = new CaptchaVerificationService(dataSource, provider);
         var nonce = await service.IssueChallengeAsync("register");
@@ -24,7 +24,7 @@ public sealed class CaptchaVerificationTests
     public async Task FailTokenIsRejected()
     {
         await using var dataSource = CreateDataSource();
-        if (dataSource is null) return;
+        if (dataSource is null) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
         var provider = new MockCaptchaProvider();
         var service = new CaptchaVerificationService(dataSource, provider);
         var nonce = await service.IssueChallengeAsync("register");
@@ -37,7 +37,7 @@ public sealed class CaptchaVerificationTests
     public async Task TimeoutTokenResultsInProviderFailure()
     {
         await using var dataSource = CreateDataSource();
-        if (dataSource is null) return;
+        if (dataSource is null) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
         var provider = new MockCaptchaProvider();
         var service = new CaptchaVerificationService(dataSource, provider);
         var nonce = await service.IssueChallengeAsync("register");
@@ -50,7 +50,7 @@ public sealed class CaptchaVerificationTests
     public async Task ReplayIsDetected()
     {
         await using var dataSource = CreateDataSource();
-        if (dataSource is null) return;
+        if (dataSource is null) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
         var provider = new MockCaptchaProvider();
         var service = new CaptchaVerificationService(dataSource, provider);
         var nonce = await service.IssueChallengeAsync("register");
@@ -65,7 +65,7 @@ public sealed class CaptchaVerificationTests
     public async Task MissingInputIsRejected()
     {
         await using var dataSource = CreateDataSource();
-        if (dataSource is null) return;
+        if (dataSource is null) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
         var provider = new MockCaptchaProvider();
         var service = new CaptchaVerificationService(dataSource, provider);
         var result = await service.VerifyAsync(null, null, "register", "127.0.0.1");

@@ -9,7 +9,7 @@ public sealed class MigrationSchemaTests
     public async Task GreenfieldSchemaContainsProductTablesAndNoRetiredControlTables()
     {
         var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
-        if (string.IsNullOrWhiteSpace(connectionString)) return;
+        if (string.IsNullOrWhiteSpace(connectionString)) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
 
         var required = new Dictionary<string, string[]>(StringComparer.Ordinal)
         {
@@ -178,7 +178,7 @@ public sealed class MigrationSchemaTests
     public async Task ContentPolicyClassifierConstraintIncludesOpenAi()
     {
         var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
-        if (string.IsNullOrWhiteSpace(connectionString)) return;
+        if (string.IsNullOrWhiteSpace(connectionString)) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
 
         await using var connection = new NpgsqlConnection(connectionString);
         await connection.OpenAsync();

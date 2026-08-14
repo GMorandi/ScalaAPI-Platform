@@ -22,7 +22,7 @@ public sealed class AuthAbuseServiceTests
     public async Task LoginCounterLocksAfterFiveFailuresAndReturnsRetryAfter()
     {
         await using var dataSource = CreateDataSource();
-        if (dataSource is null) return;
+        if (dataSource is null) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
         var service = new AuthAbuseService(dataSource);
         var email = $"abuse-{Guid.NewGuid():N}@example.com";
         var ip = $"198.51.100.{Random.Shared.Next(1, 254)}";
@@ -43,7 +43,7 @@ public sealed class AuthAbuseServiceTests
     public async Task SuccessfulLoginClearsIdentityAndIpCounters()
     {
         await using var dataSource = CreateDataSource();
-        if (dataSource is null) return;
+        if (dataSource is null) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
         var service = new AuthAbuseService(dataSource);
         var email = $"success-{Guid.NewGuid():N}@example.com";
         var ip = $"203.0.113.{Random.Shared.Next(1, 254)}";
@@ -58,7 +58,7 @@ public sealed class AuthAbuseServiceTests
     public async Task LoginIpCounterIsIndependentFromAnotherIdentity()
     {
         await using var dataSource = CreateDataSource();
-        if (dataSource is null) return;
+        if (dataSource is null) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
         var service = new AuthAbuseService(dataSource);
         var ip = $"192.0.2.{Random.Shared.Next(1, 254)}";
 
@@ -73,7 +73,7 @@ public sealed class AuthAbuseServiceTests
     public async Task RegistrationCounterHasSeparateHourlyBudget()
     {
         await using var dataSource = CreateDataSource();
-        if (dataSource is null) return;
+        if (dataSource is null) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
         var service = new AuthAbuseService(dataSource);
         var ip = $"198.18.0.{Random.Shared.Next(1, 254)}";
 

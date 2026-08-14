@@ -13,7 +13,7 @@ public sealed class PricingResponseModelTests
     public async Task SearchQueryUnitComputesCostCorrectly()
     {
         var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
-        if (string.IsNullOrWhiteSpace(connectionString)) return;
+        if (string.IsNullOrWhiteSpace(connectionString)) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
 
         await using var dataSource = NpgsqlDataSource.Create(connectionString);
         var suffix = Guid.NewGuid().ToString("N");
@@ -62,7 +62,7 @@ public sealed class PricingResponseModelTests
     public async Task AudioMinuteUnitComputesCostCorrectly()
     {
         var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
-        if (string.IsNullOrWhiteSpace(connectionString)) return;
+        if (string.IsNullOrWhiteSpace(connectionString)) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
 
         await using var dataSource = NpgsqlDataSource.Create(connectionString);
         var suffix = Guid.NewGuid().ToString("N");
@@ -110,7 +110,7 @@ public sealed class PricingResponseModelTests
     public async Task CharacterCountUnitComputesCostCorrectly()
     {
         var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
-        if (string.IsNullOrWhiteSpace(connectionString)) return;
+        if (string.IsNullOrWhiteSpace(connectionString)) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
 
         await using var dataSource = NpgsqlDataSource.Create(connectionString);
         var suffix = Guid.NewGuid().ToString("N");
@@ -158,7 +158,7 @@ public sealed class PricingResponseModelTests
     public async Task LongContextTokenUnitComputesCostCorrectly()
     {
         var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
-        if (string.IsNullOrWhiteSpace(connectionString)) return;
+        if (string.IsNullOrWhiteSpace(connectionString)) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
 
         await using var dataSource = NpgsqlDataSource.Create(connectionString);
         var suffix = Guid.NewGuid().ToString("N");
@@ -206,7 +206,7 @@ public sealed class PricingResponseModelTests
     public async Task ModelMismatchObservedCheaperBillsAtObservedPrice()
     {
         var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
-        if (string.IsNullOrWhiteSpace(connectionString)) return;
+        if (string.IsNullOrWhiteSpace(connectionString)) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
 
         await using var dataSource = NpgsqlDataSource.Create(connectionString);
         var suffix = Guid.NewGuid().ToString("N");
@@ -259,7 +259,7 @@ public sealed class PricingResponseModelTests
     public async Task ModelMismatchObservedMoreExpensiveBillsAtRequestedPrice()
     {
         var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
-        if (string.IsNullOrWhiteSpace(connectionString)) return;
+        if (string.IsNullOrWhiteSpace(connectionString)) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
 
         await using var dataSource = NpgsqlDataSource.Create(connectionString);
         var suffix = Guid.NewGuid().ToString("N");
@@ -312,7 +312,7 @@ public sealed class PricingResponseModelTests
     public async Task ModelMismatchObservedNoPriceBillsAtRequestedPrice()
     {
         var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
-        if (string.IsNullOrWhiteSpace(connectionString)) return;
+        if (string.IsNullOrWhiteSpace(connectionString)) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
 
         await using var dataSource = NpgsqlDataSource.Create(connectionString);
         var suffix = Guid.NewGuid().ToString("N");
@@ -362,7 +362,7 @@ public sealed class PricingResponseModelTests
     public async Task ModelMatchObservedSameAsRequestedNormalBilling()
     {
         var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
-        if (string.IsNullOrWhiteSpace(connectionString)) return;
+        if (string.IsNullOrWhiteSpace(connectionString)) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
 
         await using var dataSource = NpgsqlDataSource.Create(connectionString);
         var suffix = Guid.NewGuid().ToString("N");
@@ -409,7 +409,7 @@ public sealed class PricingResponseModelTests
     public async Task MediaSettlementUsesRealPricingVersionNotHardcoded()
     {
         var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
-        if (string.IsNullOrWhiteSpace(connectionString)) return;
+        if (string.IsNullOrWhiteSpace(connectionString)) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
 
         await using var dataSource = NpgsqlDataSource.Create(connectionString);
         var suffix = Guid.NewGuid().ToString("N");

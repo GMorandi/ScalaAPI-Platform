@@ -10,7 +10,7 @@ public sealed class ChannelMonitorStoreTests
     public async Task MonitorChecksRequireActiveAccountsAndWriteBoundedAuditEvidence()
     {
         var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
-        if (string.IsNullOrWhiteSpace(connectionString)) return;
+        if (string.IsNullOrWhiteSpace(connectionString)) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
 
         var actorId = 9_900_000L + Random.Shared.Next(1, 50_000);
         var accountName = $"monitor-test-{Guid.NewGuid():N}";

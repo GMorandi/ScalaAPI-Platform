@@ -13,7 +13,7 @@ public sealed class MediaObjectReconciliationTests
     public async Task MissingObjectIsRecoverableWithoutChangingSettledOperation()
     {
         var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
-        if (string.IsNullOrWhiteSpace(connectionString)) return;
+        if (string.IsNullOrWhiteSpace(connectionString)) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
 
         await using var dataSource = NpgsqlDataSource.Create(connectionString);
         var suffix = Guid.NewGuid().ToString("N");
@@ -64,7 +64,7 @@ public sealed class MediaObjectReconciliationTests
     public async Task OrphanCleanupProtectsReferencedAndYoungObjects()
     {
         var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
-        if (string.IsNullOrWhiteSpace(connectionString)) return;
+        if (string.IsNullOrWhiteSpace(connectionString)) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
 
         await using var dataSource = NpgsqlDataSource.Create(connectionString);
         var suffix = Guid.NewGuid().ToString("N");
@@ -118,7 +118,7 @@ public sealed class MediaObjectReconciliationTests
     public async Task ExpiredOutputClaimIsRetryableAndClearsMetadataOnce()
     {
         var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
-        if (string.IsNullOrWhiteSpace(connectionString)) return;
+        if (string.IsNullOrWhiteSpace(connectionString)) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
 
         await using var dataSource = NpgsqlDataSource.Create(connectionString);
         var suffix = Guid.NewGuid().ToString("N");
@@ -179,7 +179,7 @@ public sealed class MediaObjectReconciliationTests
     public async Task PartialRetentionDeleteRetriesAllKeysAndPreservesCompletedLease()
     {
         var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
-        if (string.IsNullOrWhiteSpace(connectionString)) return;
+        if (string.IsNullOrWhiteSpace(connectionString)) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
 
         await using var dataSource = NpgsqlDataSource.Create(connectionString);
         var suffix = Guid.NewGuid().ToString("N");
@@ -254,7 +254,7 @@ public sealed class MediaObjectReconciliationTests
     public async Task BatchItemsAreOwnerScopedReplaceableAndReferenced()
     {
         var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
-        if (string.IsNullOrWhiteSpace(connectionString)) return;
+        if (string.IsNullOrWhiteSpace(connectionString)) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
 
         await using var dataSource = NpgsqlDataSource.Create(connectionString);
         var suffix = Guid.NewGuid().ToString("N");
@@ -314,7 +314,7 @@ public sealed class MediaObjectReconciliationTests
     public async Task MissingBatchItemIsRepairedAndConcurrentClaimsAreFenced()
     {
         var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
-        if (string.IsNullOrWhiteSpace(connectionString)) return;
+        if (string.IsNullOrWhiteSpace(connectionString)) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
 
         await using var dataSource = NpgsqlDataSource.Create(connectionString);
         var suffix = Guid.NewGuid().ToString("N");
@@ -392,7 +392,7 @@ public sealed class MediaObjectReconciliationTests
     public async Task ParentOperationIsRepairedOnHeadMismatch()
     {
         var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
-        if (string.IsNullOrWhiteSpace(connectionString)) return;
+        if (string.IsNullOrWhiteSpace(connectionString)) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
 
         await using var dataSource = NpgsqlDataSource.Create(connectionString);
         var suffix = Guid.NewGuid().ToString("N");
@@ -443,7 +443,7 @@ public sealed class MediaObjectReconciliationTests
     public async Task ParentOperationRecopyFailureIsHandledGracefully()
     {
         var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
-        if (string.IsNullOrWhiteSpace(connectionString)) return;
+        if (string.IsNullOrWhiteSpace(connectionString)) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
 
         await using var dataSource = NpgsqlDataSource.Create(connectionString);
         var suffix = Guid.NewGuid().ToString("N");

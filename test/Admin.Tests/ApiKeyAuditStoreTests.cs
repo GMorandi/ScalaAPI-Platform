@@ -10,7 +10,7 @@ public sealed class ApiKeyAuditStoreTests
     public async Task ListIsFilteredPagedAndDoesNotExposeKeyMaterial()
     {
         var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
-        if (string.IsNullOrWhiteSpace(connectionString)) return;
+        if (string.IsNullOrWhiteSpace(connectionString)) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
 
         var apiKeyId = 8_500_000L + Random.Shared.Next(1, 900_000);
         var userId = apiKeyId + 1_000_000L;

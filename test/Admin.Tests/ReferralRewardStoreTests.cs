@@ -11,7 +11,7 @@ public sealed class ReferralRewardStoreTests
     public async Task RewardIsAtomicIdempotentAuditedAndSingleAttribution()
     {
         var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
-        if (string.IsNullOrWhiteSpace(connectionString)) return;
+        if (string.IsNullOrWhiteSpace(connectionString)) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
 
         var referrerId = 9_000_000L + Random.Shared.Next(1, 400_000);
         var referredId = referrerId + 1;

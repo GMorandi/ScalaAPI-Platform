@@ -10,7 +10,7 @@ public sealed class ProviderQuotaStoreTests
     public async Task CasRefresh_TwoConcurrentRefreshes_ProduceOneValidGeneration()
     {
         var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
-        if (string.IsNullOrWhiteSpace(connectionString)) return;
+        if (string.IsNullOrWhiteSpace(connectionString)) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
 
         await using var dataSource = NpgsqlDataSource.Create(connectionString);
         var store = new ProviderQuotaStore(dataSource);
@@ -55,7 +55,7 @@ public sealed class ProviderQuotaStoreTests
     public async Task ExpiredSnapshot_DoesNotAllowReservation()
     {
         var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
-        if (string.IsNullOrWhiteSpace(connectionString)) return;
+        if (string.IsNullOrWhiteSpace(connectionString)) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
 
         await using var dataSource = NpgsqlDataSource.Create(connectionString);
         var store = new ProviderQuotaStore(dataSource);
@@ -83,7 +83,7 @@ public sealed class ProviderQuotaStoreTests
     public async Task InsufficientQuota_FailsReservation()
     {
         var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
-        if (string.IsNullOrWhiteSpace(connectionString)) return;
+        if (string.IsNullOrWhiteSpace(connectionString)) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
 
         await using var dataSource = NpgsqlDataSource.Create(connectionString);
         var store = new ProviderQuotaStore(dataSource);
@@ -110,7 +110,7 @@ public sealed class ProviderQuotaStoreTests
     public async Task SuccessfulReservationAndSettlement_AdjustQuotaCorrectly()
     {
         var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
-        if (string.IsNullOrWhiteSpace(connectionString)) return;
+        if (string.IsNullOrWhiteSpace(connectionString)) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
 
         await using var dataSource = NpgsqlDataSource.Create(connectionString);
         var store = new ProviderQuotaStore(dataSource);
@@ -150,7 +150,7 @@ public sealed class ProviderQuotaStoreTests
     public async Task RejectedSettlement_ReturnsFullEstimate()
     {
         var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
-        if (string.IsNullOrWhiteSpace(connectionString)) return;
+        if (string.IsNullOrWhiteSpace(connectionString)) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
 
         await using var dataSource = NpgsqlDataSource.Create(connectionString);
         var store = new ProviderQuotaStore(dataSource);
@@ -183,7 +183,7 @@ public sealed class ProviderQuotaStoreTests
     public async Task Backoff_AffectsSchedulability()
     {
         var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
-        if (string.IsNullOrWhiteSpace(connectionString)) return;
+        if (string.IsNullOrWhiteSpace(connectionString)) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
 
         await using var dataSource = NpgsqlDataSource.Create(connectionString);
         var store = new ProviderQuotaStore(dataSource);
@@ -220,7 +220,7 @@ public sealed class ProviderQuotaStoreTests
     public async Task FreeTier_AllowsReservationWithoutDeduction()
     {
         var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
-        if (string.IsNullOrWhiteSpace(connectionString)) return;
+        if (string.IsNullOrWhiteSpace(connectionString)) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
 
         await using var dataSource = NpgsqlDataSource.Create(connectionString);
         var store = new ProviderQuotaStore(dataSource);
@@ -247,7 +247,7 @@ public sealed class ProviderQuotaStoreTests
     public async Task UnknownTier_WithNoQuota_AllowsPassThrough()
     {
         var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
-        if (string.IsNullOrWhiteSpace(connectionString)) return;
+        if (string.IsNullOrWhiteSpace(connectionString)) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
 
         await using var dataSource = NpgsqlDataSource.Create(connectionString);
         var store = new ProviderQuotaStore(dataSource);
@@ -272,7 +272,7 @@ public sealed class ProviderQuotaStoreTests
     public async Task RestartRecovery_DoesNotDoubleConsumeQuota()
     {
         var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
-        if (string.IsNullOrWhiteSpace(connectionString)) return;
+        if (string.IsNullOrWhiteSpace(connectionString)) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
 
         await using var dataSource = NpgsqlDataSource.Create(connectionString);
         var store = new ProviderQuotaStore(dataSource);

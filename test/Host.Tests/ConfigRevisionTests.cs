@@ -10,7 +10,7 @@ public sealed class ConfigRevisionTests
     public async Task RevisionIsCreatedOnConfigWrite()
     {
         var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
-        if (string.IsNullOrWhiteSpace(connectionString)) return;
+        if (string.IsNullOrWhiteSpace(connectionString)) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
 
         await using var dataSource = Npgsql.NpgsqlDataSource.Create(connectionString);
         var store = new ConfigRevisionStore(dataSource);
@@ -45,7 +45,7 @@ public sealed class ConfigRevisionTests
     public async Task RollbackMarksRevisionAndCreatesCompensatingEntry()
     {
         var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
-        if (string.IsNullOrWhiteSpace(connectionString)) return;
+        if (string.IsNullOrWhiteSpace(connectionString)) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
 
         await using var dataSource = Npgsql.NpgsqlDataSource.Create(connectionString);
         var store = new ConfigRevisionStore(dataSource);
@@ -93,7 +93,7 @@ public sealed class ConfigRevisionTests
     public async Task StaleWriteProtectionSkipsOlderPendingRevision()
     {
         var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
-        if (string.IsNullOrWhiteSpace(connectionString)) return;
+        if (string.IsNullOrWhiteSpace(connectionString)) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
 
         await using var dataSource = Npgsql.NpgsqlDataSource.Create(connectionString);
         var store = new ConfigRevisionStore(dataSource);
@@ -126,7 +126,7 @@ public sealed class ConfigRevisionTests
     public async Task NodeObservationRecordsAndUpdates()
     {
         var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
-        if (string.IsNullOrWhiteSpace(connectionString)) return;
+        if (string.IsNullOrWhiteSpace(connectionString)) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
 
         await using var dataSource = Npgsql.NpgsqlDataSource.Create(connectionString);
         var store = new ConfigRevisionStore(dataSource);
@@ -194,7 +194,7 @@ public sealed class ConfigRevisionTests
     public async Task MarkAppliedTransitionsPendingToApplied()
     {
         var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
-        if (string.IsNullOrWhiteSpace(connectionString)) return;
+        if (string.IsNullOrWhiteSpace(connectionString)) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
 
         await using var dataSource = Npgsql.NpgsqlDataSource.Create(connectionString);
         var store = new ConfigRevisionStore(dataSource);
@@ -227,7 +227,7 @@ public sealed class ConfigRevisionTests
     public async Task RollbackReturnsFalseForNonexistentRevision()
     {
         var connectionString = Environment.GetEnvironmentVariable("GREENFIELD_SCHEMA_CONNECTION");
-        if (string.IsNullOrWhiteSpace(connectionString)) return;
+        if (string.IsNullOrWhiteSpace(connectionString)) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
 
         await using var dataSource = Npgsql.NpgsqlDataSource.Create(connectionString);
         var store = new ConfigRevisionStore(dataSource);

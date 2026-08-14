@@ -10,7 +10,7 @@ public sealed class EmailDomainQuotaTests
     public async Task DomainUnderLimitIsAllowed()
     {
         await using var dataSource = CreateDataSource();
-        if (dataSource is null) return;
+        if (dataSource is null) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
         var service = new EmailDomainQuotaService(dataSource);
         var domain = $"quota-ok-{Guid.NewGuid():N}.example.com";
         var email = $"user@{domain}";
@@ -25,7 +25,7 @@ public sealed class EmailDomainQuotaTests
     public async Task DomainAtLimitIsRejected()
     {
         await using var dataSource = CreateDataSource();
-        if (dataSource is null) return;
+        if (dataSource is null) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
         var service = new EmailDomainQuotaService(dataSource);
         var domain = $"quota-full-{Guid.NewGuid():N}.example.com";
         var limit = 2;

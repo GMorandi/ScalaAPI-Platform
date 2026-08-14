@@ -18,7 +18,7 @@ public sealed class ChannelMonitorTests
     public async Task DuplicateWorkerDoesNotDuplicateCheck()
     {
         var dataSource = GetDataSource();
-        if (dataSource is null) return;
+        if (dataSource is null) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
 
         var store = new ChannelMonitorTemplateStore(dataSource);
         var templateId = $"test-dedup-{Guid.NewGuid():N}";
@@ -60,7 +60,7 @@ public sealed class ChannelMonitorTests
     public async Task IncidentOpensAfterThreshold()
     {
         var dataSource = GetDataSource();
-        if (dataSource is null) return;
+        if (dataSource is null) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
 
         var store = new ChannelMonitorTemplateStore(dataSource);
         var templateId = $"test-threshold-{Guid.NewGuid():N}";
@@ -116,7 +116,7 @@ public sealed class ChannelMonitorTests
     public async Task IncidentClosesOnRecovery()
     {
         var dataSource = GetDataSource();
-        if (dataSource is null) return;
+        if (dataSource is null) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
 
         var store = new ChannelMonitorTemplateStore(dataSource);
         var templateId = $"test-recovery-{Guid.NewGuid():N}";
@@ -163,7 +163,7 @@ public sealed class ChannelMonitorTests
         // Verify that the service's leader token mechanism works:
         // two services with different leader tokens should not create duplicate checks
         var dataSource = GetDataSource();
-        if (dataSource is null) return;
+        if (dataSource is null) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
 
         var store = new ChannelMonitorTemplateStore(dataSource);
         var templateId = $"test-leader-{Guid.NewGuid():N}";
@@ -206,7 +206,7 @@ public sealed class ChannelMonitorTests
     public async Task StaleClaimReclamation()
     {
         var dataSource = GetDataSource();
-        if (dataSource is null) return;
+        if (dataSource is null) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
 
         var store = new ChannelMonitorTemplateStore(dataSource);
         var templateId = $"test-reclaim-{Guid.NewGuid():N}";
