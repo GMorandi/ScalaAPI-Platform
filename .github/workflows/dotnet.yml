@@ -27,4 +27,4 @@ jobs:
         run: dotnet test --no-build -c Release --verbosity normal
 
       - name: Benchmarks (dry run)
-        run: dotnet run --project test/Platform.Benchmarks -c Release --no-build -- --filter * --job dry
+        run: dotnet run --project test/Platform.Benchmarks -c Release --no-build -- --filter '*' --job dry
