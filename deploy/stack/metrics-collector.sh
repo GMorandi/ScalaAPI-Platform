@@ -141,9 +141,9 @@ while (( $(date +%s) - started_at < duration_seconds )); do
 
     # --- Outbox backlog ---
     outbox_state="$(db_query "SELECT
-        (SELECT count(*) FROM gateway_usage_outbox WHERE status = 'pending') || '|' ||
-        (SELECT count(*) FROM gateway_usage_outbox WHERE status = 'processing') || '|' ||
-        (SELECT count(*) FROM gateway_usage_outbox);" 2>/dev/null)" || outbox_state="0|0|0"
+        (SELECT count(*) FROM usage_outbox WHERE processed_at IS NULL AND dead_lettered_at IS NULL) || '|' ||
+        (SELECT count(*) FROM usage_outbox WHERE processed_at IS NULL AND dead_lettered_at IS NOT NULL) || '|' ||
+        (SELECT count(*) FROM usage_outbox WHERE processed_at IS NULL);" 2>/dev/null)" || outbox_state="0|0|0"
     IFS='|' read -r outbox_pending outbox_processing outbox_total <<<"$outbox_state"
     echo "$timestamp,${outbox_pending:-0},${outbox_processing:-0},${outbox_total:-0}" >> "$outbox_log"
 

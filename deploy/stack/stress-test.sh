@@ -385,6 +385,7 @@ echo "  Stress Test - Phase 3: Running (${duration_seconds}s)"
 echo "=========================================="
 echo ""
 
+stress_failed=false
 test_started_at=$(date +%s)
 status_interval=300  # Print status every 5 minutes
 
@@ -399,8 +400,8 @@ while (( $(date +%s) - test_started_at < duration_seconds )); do
             exit_code=$?
             if (( exit_code != 0 )); then
                 echo "ERROR: Background process $pid exited with code $exit_code" >&2
-                # Show which process it was
                 echo "  Check logs in $logs_dir for details" >&2
+                stress_failed=true
             fi
         fi
     done
@@ -447,7 +448,7 @@ settlement_timeout=120
 for ((attempt = 1; attempt <= settlement_timeout; attempt++)); do
     pending_outbox="$(compose exec -T postgres psql --no-psqlrc --tuples-only --no-align \
         --set ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" \
-        --command "SELECT count(*) FROM gateway_usage_outbox WHERE status = 'pending';" 2>/dev/null | tr -d '\r')" || pending_outbox=1
+        --command "SELECT count(*) FROM usage_outbox WHERE processed_at IS NULL;" 2>/dev/null | tr -d '\r')" || pending_outbox=1
     active_leases="$(compose exec -T postgres psql --no-psqlrc --tuples-only --no-align \
         --set ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" \
         --command "SELECT count(*) FROM request_leases WHERE status = 'active';" 2>/dev/null | tr -d '\r')" || active_leases=1
@@ -462,7 +463,8 @@ for ((attempt = 1; attempt <= settlement_timeout; attempt++)); do
 done
 
 if [[ "$pending_outbox" != "0" || "$active_leases" != "0" ]]; then
-    echo "WARNING: Settlement incomplete after ${settlement_timeout}s (outbox=$pending_outbox, leases=$active_leases)" >&2
+    echo "ERROR: Settlement incomplete after ${settlement_timeout}s (outbox=$pending_outbox, leases=$active_leases)" >&2
+    stress_failed=true
 fi
 
 # ==================================================================
@@ -482,6 +484,12 @@ if (( verify_exit != 0 )); then
     echo "" >&2
     echo "VERIFICATION FAILED" >&2
     exit "$verify_exit"
+fi
+
+if [[ "$stress_failed" == "true" ]]; then
+    echo "" >&2
+    echo "STRESS TEST FAILED: background process crash or settlement failure detected" >&2
+    exit 1
 fi
 
 # ==================================================================

@@ -147,7 +147,7 @@ unexplained="$(db_query "
 SELECT count(*) FROM request_leases l
 WHERE l.status = 'reconciliation_needed'
   AND NOT EXISTS (
-    SELECT 1 FROM reconciliation_incidents ri
+    SELECT 1 FROM accounting_reconciliation_incidents ri
     WHERE ri.lease_token = l.lease_token
   );")" || unexplained=0
 # Some reconciliation_needed leases may not have incidents if the incident
@@ -156,8 +156,8 @@ assert_le 0 "$unexplained" "all reconciliation_needed leases have incident recor
 
 # All open incidents should have a known cause category
 open_without_cause="$(db_query "
-SELECT count(*) FROM reconciliation_incidents
-WHERE status = 'open' AND cause IS NULL;")" || open_without_cause=0
+SELECT count(*) FROM accounting_reconciliation_incidents
+WHERE status = 'open' AND kind IS NULL;")" || open_without_cause=0
 assert_equals "0" "$open_without_cause" "all open incidents have a cause classification"
 
 echo ""
