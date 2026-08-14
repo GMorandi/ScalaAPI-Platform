@@ -49,7 +49,7 @@
 
 ### G0-01 修复全新空库 migration
 
-- **状态**：`TODO`；**依赖**：无；**阻塞**：所有数据库与运行时任务。
+- **状态**：`DONE`；**依赖**：无；**阻塞**：所有数据库与运行时任务。
 - **现状证据**：Orleans + 001-053 已提交；055 报 PostgreSQL `42P01`，因为引用
   `users`；055/056 也引用 `api_keys`，而本产品表为 `user_accounts` /
   `user_api_keys`。产品 migration 共 65 个，编号跳过 054。
@@ -60,7 +60,7 @@
 
 ### G0-02 修复跨仓 Cap'n Proto 漂移
 
-- **状态**：`TODO`；**依赖**：无；**阻塞**：TTS/STT、跨仓发布。
+- **状态**：`DONE`；**依赖**：无；**阻塞**：TTS/STT、跨仓发布。
 - **现状证据**：Platform canonical `dispatch.capnp` 有 `audioTts @12` /
   `audioStt @13`，Gateway vendor 没有；Gateway 手写 C++ enum 仍写了 12/13。
 - **CI 缺口**：greenfield workflow 没有 checkout Gateway，且调用脚本时不传路径，实际只验
@@ -72,7 +72,7 @@
 
 ### G0-03 让测试和 CI 结果可信
 
-- **状态**：`TODO`；**依赖**：G0-01；**阻塞**：所有完成声明。
+- **状态**：`DONE`；**依赖**：G0-01；**阻塞**：所有完成声明。
 - **现状证据**：46 个测试文件读取 `GREENFIELD_SCHEMA_CONNECTION`，123 个测试直接
   return；普通 CI/release 无 PostgreSQL；重复 Admin Web workflow 允许 typecheck 失败；
   Scheduler benchmark 因未注册 `ISlotLeaseStore` 四个 case 均无有效报告并退出 1。
@@ -86,7 +86,7 @@
 
 ### G0-04 修复 smoke/stress 验证器
 
-- **状态**：`TODO`；**依赖**：G0-01。
+- **状态**：`DONE`；**依赖**：G0-01。
 - **现状证据**：脚本查询不存在的 PostgreSQL `gateway_usage_outbox` 和
   `reconciliation_incidents`；Gateway outbox 实际为本地 SQLite；后台 child 退出与
   settlement timeout 可能只打印日志/警告。
@@ -97,7 +97,7 @@
 
 ### G0-05 关闭首启 setup 与 Gateway readiness
 
-- **状态**：`TODO`；**依赖**：G0-01；**阻塞**：DEP-03、REL-01。
+- **状态**：`DONE`；**依赖**：G0-01；**阻塞**：DEP-03、REL-01。
 - **现状证据**：Gateway 初始化可在依赖或 bind/listen 失败后保留存活进程，`/ready` 只验
   dispatch UDS；原 DEP-02 只证明无参考系统依赖，并未证明空栈 bootstrap。
 - **实现**：任一每核 listener、dispatch、Garnet、usage SQLite 不可用时启动/ready 失败；在
