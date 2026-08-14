@@ -559,7 +559,7 @@ public sealed class PassiveMonitorV2Service(
                 var windowEnd = windowStart + WindowSize;
                 var affectedValues = events
                     .Where(e => FloorToWindow(e.CreatedAt) == windowStart)
-                    .Select(GetDimensionValue)
+                    .Select(e => GetDimensionValue(dimension, e))
                     .Distinct()
                     .ToList();
 
@@ -581,7 +581,16 @@ public sealed class PassiveMonitorV2Service(
         }
     }
 
-    private string GetDimensionValue(PassiveMonitorEvent evt) => "all";
+    private static string GetDimensionValue(string dimension, PassiveMonitorEvent evt) =>
+        dimension switch
+        {
+            "platform" => "all",
+            "group" => evt.GroupId.ToString(),
+            "model" => evt.Model,
+            "user" => evt.UserId.ToString(),
+            "error" => evt.StatusCode.ToString(),
+            _ => "unknown",
+        };
 
     /// <summary>
     /// Enforce retention by deleting old rollups based on privacy config.
