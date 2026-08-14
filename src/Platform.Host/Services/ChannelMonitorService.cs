@@ -300,32 +300,51 @@ public sealed class ChannelMonitorTemplateStore(NpgsqlDataSource dataSource)
 /// </summary>
 public sealed class ChannelMonitorService(
     ChannelMonitorTemplateStore store,
+    NpgsqlDataSource dataSource,
     ILogger<ChannelMonitorService> logger) : BackgroundService
 {
     private string _leaderToken = Guid.NewGuid().ToString("N");
     private readonly string _workerId = $"cm-{Environment.ProcessId}-{Environment.CurrentManagedThreadId}";
     private DateTime _lastReclaimScan = DateTime.MinValue;
     private readonly Dictionary<string, DateTime> _lastRunPerTemplate = new();
+    private const int LeadershipAdvisoryLockId = 0x434D4C44; // "CMLD" in hex
 
     /// <summary>
-    /// Attempt to become leader by acquiring a leader token. In a real deployment
-    /// this would use a distributed lock (e.g., pg_advisory_lock). For simplicity,
-    /// we use a process-level token and rely on the UNIQUE constraint to prevent
-    /// duplicate checks from duplicate workers.
+    /// Leadership is determined by holding a PostgreSQL advisory lock. Only one
+    /// process can hold the lock at a time, providing true distributed leadership
+    /// across multiple Silos.
     /// </summary>
     public bool IsLeader { get; private set; }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        // Attempt leadership on startup
-        IsLeader = true;
-        _leaderToken = Guid.NewGuid().ToString("N");
-        logger.LogInformation("Channel monitor service started as leader with token {LeaderToken}", _leaderToken);
+        logger.LogInformation("Channel monitor service starting with worker ID {WorkerId}", _workerId);
 
         while (!stoppingToken.IsCancellationRequested)
         {
             try
             {
+                // Try to acquire or verify leadership
+                if (!IsLeader)
+                {
+                    IsLeader = await TryAcquireLeadershipAsync(stoppingToken);
+                    if (IsLeader)
+                    {
+                        logger.LogInformation("Acquired leadership with token {LeaderToken}", _leaderToken);
+                    }
+                }
+                else
+                {
+                    // Verify we still hold the lock
+                    var stillLeader = await VerifyLeadershipAsync(stoppingToken);
+                    if (!stillLeader)
+                    {
+                        IsLeader = false;
+                        _leaderToken = Guid.NewGuid().ToString("N");
+                        logger.LogWarning("Lost leadership, will retry");
+                    }
+                }
+
                 // Periodically reclaim stale worker claims
                 if (DateTime.UtcNow - _lastReclaimScan >= TimeSpan.FromSeconds(30))
                 {
@@ -362,6 +381,44 @@ public sealed class ChannelMonitorService(
                 logger.LogError(ex, "Channel monitor service loop failed");
                 await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken);
             }
+        }
+    }
+
+    private async Task<bool> TryAcquireLeadershipAsync(CancellationToken ct)
+    {
+        try
+        {
+            await using var conn = await dataSource.OpenConnectionAsync(ct);
+            await using var cmd = conn.CreateCommand();
+            cmd.CommandText = "SELECT pg_try_advisory_lock(@lockId)";
+            cmd.Parameters.AddWithValue("lockId", LeadershipAdvisoryLockId);
+            var result = await cmd.ExecuteScalarAsync(ct);
+            return result is bool acquired && acquired;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Failed to acquire leadership lock");
+            return false;
+        }
+    }
+
+    private async Task<bool> VerifyLeadershipAsync(CancellationToken ct)
+    {
+        try
+        {
+            await using var conn = await dataSource.OpenConnectionAsync(ct);
+            await using var cmd = conn.CreateCommand();
+            cmd.CommandText = "SELECT pg_advisory_lock(@lockId)";
+            cmd.Parameters.AddWithValue("lockId", LeadershipAdvisoryLockId);
+            // If we already hold the lock, this returns immediately
+            // If we don't hold it, this will block or fail
+            await cmd.ExecuteNonQueryAsync(ct);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Leadership verification failed");
+            return false;
         }
     }
 
