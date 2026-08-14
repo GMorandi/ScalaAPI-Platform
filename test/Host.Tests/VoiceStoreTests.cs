@@ -103,7 +103,7 @@ public sealed class VoiceStoreTests
     private static async Task<long> EnsureTestUser(NpgsqlDataSource dataSource, string suffix)
     {
         await using var cmd = dataSource.CreateCommand("""
-            INSERT INTO users (email, password_hash, role, status)
+            INSERT INTO user_accounts (email, password_hash, role, status)
             VALUES ($1, 'test', 'user', 'active')
             ON CONFLICT (email) DO UPDATE SET status = 'active'
             RETURNING id

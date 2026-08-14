@@ -17,8 +17,8 @@ CREATE TABLE IF NOT EXISTS search_history (
     status text NOT NULL DEFAULT 'success',
     error_code text,
     created_at timestamptz NOT NULL DEFAULT now(),
-    CONSTRAINT fk_search_history_user FOREIGN KEY (user_id) REFERENCES users(id),
-    CONSTRAINT fk_search_history_api_key FOREIGN KEY (api_key_id) REFERENCES api_keys(id),
+    CONSTRAINT fk_search_history_user FOREIGN KEY (user_id) REFERENCES user_accounts(id),
+    CONSTRAINT fk_search_history_api_key FOREIGN KEY (api_key_id) REFERENCES user_api_keys(id),
     CONSTRAINT uq_search_history_lease UNIQUE (lease_id)
 );
 CREATE INDEX IF NOT EXISTS idx_search_history_user_created ON search_history(user_id, created_at DESC);

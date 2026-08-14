@@ -17,7 +17,7 @@ public sealed class SearchHistoryTests
 
         var suffix = Guid.NewGuid().ToString("N");
         var userId = await EnsureTestUser(dataSource, suffix);
-        var apiKeyId = await EnsureTestApiKey(dataSource, userId, suffix);
+        var apiKeyId = await EnsureTestApiKey(dataSource, suffix);
         var leaseId = $"search-lease-{suffix}";
 
         var entry = await store.RecordAsync(userId, apiKeyId, leaseId,
@@ -49,7 +49,7 @@ public sealed class SearchHistoryTests
 
         var suffix = Guid.NewGuid().ToString("N");
         var userId = await EnsureTestUser(dataSource, suffix);
-        var apiKeyId = await EnsureTestApiKey(dataSource, userId, suffix);
+        var apiKeyId = await EnsureTestApiKey(dataSource, suffix);
 
         await store.RecordAsync(userId, apiKeyId, $"search-since-{suffix}",
             "old query", null, null, 1, false, "openai", 1001, "success", null);
@@ -70,7 +70,7 @@ public sealed class SearchHistoryTests
 
         var suffix = Guid.NewGuid().ToString("N");
         var userId = await EnsureTestUser(dataSource, suffix);
-        var apiKeyId = await EnsureTestApiKey(dataSource, userId, suffix);
+        var apiKeyId = await EnsureTestApiKey(dataSource, suffix);
 
         await store.RecordAsync(userId, apiKeyId, $"search-audit-ok-{suffix}",
             "query1", null, null, 2, false, "xai", 2001, "success", null);
@@ -95,7 +95,7 @@ public sealed class SearchHistoryTests
 
         var suffix = Guid.NewGuid().ToString("N");
         var userId = await EnsureTestUser(dataSource, suffix);
-        var apiKeyId = await EnsureTestApiKey(dataSource, userId, suffix);
+        var apiKeyId = await EnsureTestApiKey(dataSource, suffix);
         var leaseId = $"search-idem-{suffix}";
 
         await store.RecordAsync(userId, apiKeyId, leaseId,
@@ -111,7 +111,7 @@ public sealed class SearchHistoryTests
     private static async Task<long> EnsureTestUser(NpgsqlDataSource dataSource, string suffix)
     {
         await using var cmd = dataSource.CreateCommand($"""
-            INSERT INTO users (email, password_hash, role, status)
+            INSERT INTO user_accounts (email, password_hash, role, status)
             VALUES ($1, 'test', 'user', 'active')
             ON CONFLICT (email) DO UPDATE SET status = 'active'
             RETURNING id
@@ -120,15 +120,15 @@ public sealed class SearchHistoryTests
         return Convert.ToInt64(await cmd.ExecuteScalarAsync());
     }
 
-    private static async Task<long> EnsureTestApiKey(NpgsqlDataSource dataSource, long userId, string suffix)
+    private static async Task<long> EnsureTestApiKey(NpgsqlDataSource dataSource, string suffix)
     {
         await using var cmd = dataSource.CreateCommand($"""
-            INSERT INTO api_keys (user_id, name, key_hash, scopes, status)
-            VALUES ($1, $2, $3, $4, 'active')
+            INSERT INTO user_api_keys (user_email, name, key_hash, key_prefix, scopes, status)
+            VALUES ($1, $2, $3, $4, '[]'::jsonb, 'active')
             ON CONFLICT (key_hash) DO UPDATE SET status = 'active'
             RETURNING id
             """);
-        cmd.Parameters.AddWithValue(userId);
+        cmd.Parameters.AddWithValue($"search-test-{suffix}@test.local");
         cmd.Parameters.AddWithValue($"search-test-key-{suffix}");
         cmd.Parameters.AddWithValue($"hash-{suffix}");
         cmd.Parameters.AddWithValue("search");

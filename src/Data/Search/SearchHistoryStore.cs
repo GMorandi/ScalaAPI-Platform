@@ -47,7 +47,11 @@ public sealed class SearchHistoryStore(NpgsqlDataSource dataSource) : ISearchHis
                  result_count, truncated, provider_platform, provider_account_id,
                  status, error_code)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-            ON CONFLICT (lease_id) DO UPDATE SET status = EXCLUDED.status
+            ON CONFLICT (lease_id) DO UPDATE SET
+                result_count = EXCLUDED.result_count,
+                truncated = EXCLUDED.truncated,
+                status = EXCLUDED.status,
+                error_code = EXCLUDED.error_code
             RETURNING id, user_id, api_key_id, lease_id, query, domain_filter,
                       recency_filter, result_count, truncated, provider_platform,
                       provider_account_id, status, error_code, created_at

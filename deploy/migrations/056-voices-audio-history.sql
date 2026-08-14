@@ -4,7 +4,7 @@
 -- Custom voices owned by users.
 CREATE TABLE IF NOT EXISTS voices (
     id              bigserial PRIMARY KEY,
-    user_id         bigint NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    user_id         bigint NOT NULL REFERENCES user_accounts(id) ON DELETE CASCADE,
     name            text NOT NULL,
     description     text NOT NULL DEFAULT '',
     voice_type      text NOT NULL DEFAULT 'custom' CHECK (voice_type IN ('custom', 'prebuilt')),
@@ -22,8 +22,8 @@ CREATE INDEX IF NOT EXISTS idx_voices_user_status ON voices (user_id, status);
 -- Audio request history for audit and billing reconciliation.
 CREATE TABLE IF NOT EXISTS audio_history (
     id                  bigserial PRIMARY KEY,
-    user_id             bigint NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    api_key_id          bigint NOT NULL REFERENCES api_keys(id) ON DELETE CASCADE,
+    user_id             bigint NOT NULL REFERENCES user_accounts(id) ON DELETE CASCADE,
+    api_key_id          bigint NOT NULL REFERENCES user_api_keys(id) ON DELETE CASCADE,
     lease_id            text NOT NULL,
     audio_type          text NOT NULL CHECK (audio_type IN ('tts', 'stt')),
     model               text NOT NULL DEFAULT '',
