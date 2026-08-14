@@ -161,7 +161,6 @@ public sealed class MediaOperationHostedService(
 
                 var imageOperation = operation.OperationType.StartsWith("images_", StringComparison.Ordinal);
                 var videoOperation = operation.OperationType.StartsWith("videos_", StringComparison.Ordinal);
-                // TODO: Cap'n Proto integration - pass observed model from response headers
                 var lease = await leases.GetByLeaseTokenAsync(operation.LeaseToken, ct);
                 var settlement = await leases.CompleteAsync(new LeaseCompletion(
                     operation.LeaseToken, 0, 0, 0, 0, 0, 0, 200, false, false,
@@ -173,7 +172,7 @@ public sealed class MediaOperationHostedService(
                     UpstreamEndpoint: path,
                     MediaOperationId: operation.OperationId,
                     PricingVersion: lease?.PricingVersion ?? "",
-                    ObservedModel: ""), ct);
+                    ObservedModel: parsed.Model), ct);
                 if (!settlement.Accepted)
                 {
                     await store.RecordPollFailureAsync(operation,
@@ -295,12 +294,13 @@ public sealed class MediaOperationHostedService(
             if (string.IsNullOrWhiteSpace(outputContentType)) outputContentType = contentType;
             return new PollResult(status, progress, outputUrl, outputContentType,
                 count, ReadString(root, "size"), ReadString(root, "resolution"),
-                ReadInt(root, "duration"), status == "failed" ? Limited(body) : "");
+                ReadInt(root, "duration"), status == "failed" ? Limited(body) : "",
+                ReadString(root, "model"));
         }
         catch (JsonException)
         {
             return new PollResult("failed", 100, "", contentType, 0, "", "", 0,
-                JsonSerializer.Serialize(new { type = "invalid_provider_response", message = "Provider returned invalid JSON" }));
+                JsonSerializer.Serialize(new { type = "invalid_provider_response", message = "Provider returned invalid JSON" }), "");
         }
     }
 
@@ -317,5 +317,5 @@ public sealed class MediaOperationHostedService(
 
     private sealed record PollResult(string Status, int Progress, string OutputUrl,
         string ContentType, int OutputCount, string Size, string Resolution,
-        int DurationSeconds, string Error);
+        int DurationSeconds, string Error, string Model);
 }
