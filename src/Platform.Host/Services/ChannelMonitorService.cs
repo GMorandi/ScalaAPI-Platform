@@ -301,6 +301,7 @@ public sealed class ChannelMonitorTemplateStore(NpgsqlDataSource dataSource)
 public sealed class ChannelMonitorService(
     ChannelMonitorTemplateStore store,
     NpgsqlDataSource dataSource,
+    IHttpClientFactory httpClientFactory,
     ILogger<ChannelMonitorService> logger) : BackgroundService
 {
     private string _leaderToken = Guid.NewGuid().ToString("N");
@@ -504,20 +505,59 @@ public sealed class ChannelMonitorService(
     }
 
     /// <summary>
-    /// Execute the actual check. This is a placeholder that simulates a health check.
-    /// In production, this would probe the actual channel endpoint.
+    /// Execute a real HTTP probe against the channel endpoint. The template_id encodes
+    /// the target URL. Check types: http_get (generic health), provider_models (OpenAI-compatible).
+    /// Throws on failure so the retry logic can handle it.
     /// </summary>
-    private Task<JsonElement?> ExecuteCheckAsync(ChannelMonitorTemplate template, CancellationToken ct)
+    private async Task<JsonElement?> ExecuteCheckAsync(ChannelMonitorTemplate template, CancellationToken ct)
     {
-        // Placeholder: in production, this would make an HTTP request to the channel endpoint
-        var result = JsonDocument.Parse(JsonSerializer.Serialize(new
+        using var client = httpClientFactory.CreateClient("ChannelMonitor");
+        client.Timeout = TimeSpan.FromSeconds(template.TimeoutSeconds);
+
+        var targetUrl = template.TemplateId;
+        HttpResponseMessage response;
+
+        switch (template.CheckType)
         {
-            check_type = template.CheckType,
-            template_id = template.TemplateId,
-            timestamp = DateTime.UtcNow,
-            status = "healthy",
-        })).RootElement;
-        return Task.FromResult<JsonElement?>(result);
+            case "http_get":
+                response = await client.GetAsync(targetUrl, ct);
+                break;
+
+            case "provider_models":
+                var modelsUrl = targetUrl.TrimEnd('/') + "/v1/models";
+                response = await client.GetAsync(modelsUrl, ct);
+                break;
+
+            default:
+                throw new InvalidOperationException($"Unknown check type: {template.CheckType}");
+        }
+
+        using (response)
+        {
+            if (!response.IsSuccessStatusCode)
+            {
+                throw new HttpRequestException(
+                    $"Channel probe failed: {(int)response.StatusCode} {response.ReasonPhrase}");
+            }
+
+            var body = await response.Content.ReadAsStringAsync(ct);
+            var boundedBody = body.Length > 4096 ? body[..4096] : body;
+
+            var result = JsonDocument.Parse(JsonSerializer.Serialize(new
+            {
+                check_type = template.CheckType,
+                template_id = template.TemplateId,
+                timestamp = DateTime.UtcNow,
+                status_code = (int)response.StatusCode,
+                latency_ms = response.Headers.TryGetValues("X-Response-Time", out var vals)
+                    ? vals.FirstOrDefault()
+                    : null,
+                body_preview = boundedBody,
+                healthy = true,
+            })).RootElement;
+
+            return result;
+        }
     }
 
     /// <summary>
