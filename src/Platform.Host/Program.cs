@@ -152,6 +152,7 @@ builder.Services.AddHttpClient();
 builder.Services.AddSingleton<IProviderQuotaClient, OpenAIQuotaClient>();
 builder.Services.AddSingleton<IProviderQuotaClient, AnthropicQuotaClient>();
 builder.Services.AddSingleton<IProviderQuotaClient, GeminiQuotaClient>();
+builder.Services.AddSingleton<IProviderQuotaClient, XaiQuotaClient>();
 builder.Services.AddSingleton<ProviderQuotaClientFactory>();
 builder.Services.AddSingleton<ProviderQuotaRefreshService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<ProviderQuotaRefreshService>());
