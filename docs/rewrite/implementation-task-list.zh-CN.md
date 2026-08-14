@@ -1,417 +1,293 @@
-# Orleans + C++ Sub2API 重写实现任务清单
-
-> 目标：为小型执行模型提供一个可以反复读取、逐项实现、逐项验证的任务队列。
-> 本文描述的是当前工作树 `/root/apitf` 中 `platform`（C# Orleans 控制面）、
-> `gateway`（C++ 网关）相对只读参考项目 `sub2api` 的剩余工作，不要求复制
-> Sub2API 的 API、数据库、ID、密钥、状态值或迁移历史。
-
-## 0. 使用规则
-
-### 0.1 证据基线
-
-- 审计基线：Platform 文档提交 `c8a59d7`（生产代码截至 `651a786`）、Gateway
-  `04ec18c`、Sub2API 参考 `origin/main@fbfdcef`；三者都必须在开始任务时重新检查
-  当前提交和工作树。
-- 当前审计是静态复核；`platform/docs/rewrite/verification.md` 中的历史通过结果
-  不能当作本次运行结果。历史数据库门禁为 `292 passed / 2 failed`，普通
-  `294/294` 会因缺少数据库而让 33 个测试提前返回。
-- 总库存为 65 个域：全部 65 个已提升为 `implemented`（2026-08-13）。
-  提升条件为”契约 + 持久化状态机 + 自动测试 + 当前源码运行证据”四项齐全。
-
-### 0.2 小模型循环协议
-
-每一轮只领取一个未完成任务，并严格执行以下步骤：
-
-1. 读取任务的“证据、范围、依赖”，检查相关文件是否已经被其他改动覆盖。
-2. 先写失败测试或可复现检查，再实现最小完整闭环；不要只添加 DTO、路由或假数据。
-3. 运行任务列出的命令；命令失败时保留日志并修复，不能把失败改写为“跳过”。
-4. 检查数据库/缓存/日志中没有泄露密钥、重复扣费、重复对象或越权数据。
-5. 在本文件对应任务的状态、提交/文件、验证日期和剩余风险中留下证据；若仍有
-   未完成分支，保持 `PARTIAL`，不要宣称完成。
-6. 一个任务完成后再领取其依赖已满足的下一个任务。跨仓库改 Cap'n Proto 时，
-   `platform/contracts/capnp` 与 `gateway/proto` 必须同一提交更新并通过生成物比较。
-
-状态值：`TODO`（未开始）、`DOING`（当前领取）、`BLOCKED`（同一外部阻塞连续三轮）、
-`PARTIAL`（已有实现但验收未闭合）、`DONE`（本任务验收全部通过）。
-
-### 0.3 禁止事项
-
-- 不引入 Redis、CDC、Debezium、Sub2API 数据/旧密钥/旧 ID 或兼容性路由。
-- 不以手工 Admin 确认、内存字典、Mock 200、静态路由或“测试提前返回”作为完成证据。
-- 不在 Gateway 重复实现账务；PostgreSQL 是金额权威，Orleans 只协调并投影。
-- 不把不确定的 Provider 结果当作无费用；转发后、部分输出、断流、超时和对象存储
-  不确定性必须保留 hold 并进入 reconciliation。
-
-## 1. 优先级与依赖图
-
-执行顺序：`GATE-01 -> GATE-02 -> P0-01..P0-09 -> P1-01..P1-09 -> P2-01..P2-04 -> REL-01..REL-05`。
-同一阶段中，满足依赖的任务可以并行，但每个任务仍要单独验收。
-
-| 阶段 | 任务 | 目的 |
-| --- | --- | --- |
-| 门禁修复 | GATE-01, GATE-02 | 让测试结果可信，防止小模型在假绿上继续堆功能 |
-| P0 产品闭环 | P0-01..P0-09 | 账务、调度、Provider、媒体和安全的生产必需路径 |
-| P1 功能补齐 | P1-01..P1-09 | 新 Provider、搜索、语音、身份、商业和运维功能 |
-| P2 体验补齐 | P2-01..P2-04 | 公告、导出、UI 与保留策略 |
-| 发布门禁 | REL-01..REL-05 | HA、备份、长压测、CI 和跨仓库证据 |
-
-## 2. 任务卡
-
-### GATE-01 修复数据库测试假绿与两项确定性失败
-
-- **状态**：`DONE`；**优先级**：P0；**依赖**：无；**负责人范围**：`platform/test/Host.Tests`、测试启动脚本/CI。
-- **证据**：`platform/docs/rewrite/verification.md:31-45`；失败测试为
-  `ContentPolicyPropagationTests.ConcurrentWorkersSerializeClaimsAndPublishEachRevisionOnce`
-  与 `MediaOperationStoreTests.BatchListIsOwnerScopedAndReturnsDurableOperations`。
-- **实现步骤**：
-  1. 为 Host 测试创建唯一数据库 schema/前缀和清理策略；禁止共享测试残留。
-  2. 将 Content Policy 断言改为“每个 revision 恰好一次、总 claim 数等于 revision 数、
-     worker 分配可为 2+0/1+1”，不要错误要求每个 worker 恰好一行。
-  3. 修复 MediaOperation 测试使用真实生成的 operation/item ID 清理，并验证外键顺序。
-  4. 缺少 `GREENFIELD_SCHEMA_CONNECTION`、PostgreSQL、Garnet 时明确失败或显式 skip，
-     输出原因和 skip 数；普通无数据库运行不能冒充集成通过。
-- **验收**：`dotnet test platform/test/Host.Tests/Host.Tests.csproj`（真实 schema）；
-  `dotnet test platform/ScalaAPI.Platform.slnx`；连续运行两次结果一致，
-  0 failed，且没有 early-return 假通过。
-- **完成证据**：测试日志含真实迁移/数据库连接、0 failed；记录命令、提交和时间。
-
-### GATE-02 建立当前工作树的可重复基线
-
-- **状态**：`DONE`；**优先级**：P0；**依赖**：GATE-01；**范围**：`platform/scripts`、`platform/.github`、`gateway/.github`、文档。
-- **实现步骤**：固定 Platform/Gateway/Sub2API commit，执行 Release build、C++ CTest、
-  C# tests、Cap'n Proto digest/generation、Web build、迁移双跑和依赖扫描；所有子命令
-  非零必须向顶层传播；记录外部工具不可用时的明确环境错误。
-- **验收**：同一 checkout 可从空卷重跑，失败子任务让顶层退出非零；不能引用旧的
-  `BenchmarkDotNet.Artifacts` 或历史 smoke 名称作为当前结果。
-
-### P0-01 将调度并发与账户健康变成持久、分布式状态
-
-- **状态**：`DONE`（步骤 1-3）；`DONE`（步骤 4 quota/tier 归入 P1-04）；**优先级**：P0；**依赖**：GATE-01；**范围**：
-  `platform/src/Grains/{AccountGrain,UserGrain,SchedulerGrain}.cs`、Grains.Interfaces、SQL migration、Host/Grains tests。
-- **当前缺口**：~~`AccountGrain`/`UserGrain` 的 `_activeSlots` 是 activation-memory 字典~~（已迁移到 PostgreSQL）；
-  ~~`AccountGrain.ReportSuccess()` 是 no-op~~（已实现健康更新）。Scheduler provider tier/quota/freshness/cooldown 已实现（P1-04）。
-- **实现步骤**：
-  1. ✅ 定义可序列化 account/user concurrency window、lease owner、expires_at、generation、
-     success/failure/cooldown 状态；SQL 是跨 Silo 争用权威，Grain 只缓存带版本投影。
-  2. ✅ 用 `SELECT ... FOR UPDATE`/唯一 token 实现 acquire/release/reclaim；进程崩溃、重复
-     release、旧 generation 必须幂等且不能超卖。
-  3. ✅ 实现 `ReportSuccess` 清除短期错误/cooldown，429/401/5xx 按策略设置退避和永久禁用。
-  4. ⏳ 新增 provider quota/tier snapshot（归入 P1-04）。
-- **验收**：两 Silo 并发 acquire 不能超过上限 ✅；重启后 lease 可 reclaim ✅；成功报告恢复
-  可调度 ✅；过期 quota 不会绕过限制（P1-04）；Grain/Host 测试覆盖 ✅。
-
-### P0-02 修复 UsageGrain 误导实现并统一用量权威
-
-- **状态**：`DONE`；**优先级**：P0；**依赖**：P0-01；**范围**：
-  `platform/src/Grains/UsageGrain.cs`、`Grains.Interfaces`、`Data/Accounting`、调用方和测试。
-- **ADR**：选择方案 A——删除死 Grain/接口。`UsageGrain` 零生产调用者；`Record` 只改内存计数，
-  `Flush` 清除非持久化。实际结算已由 `RequestLeaseStore.CompleteAsync()` 在单事务中完成
-  （`usage_events` + `usage_logs` + `accounting.AppendEffectAsync` + `usage_outbox`），
-  以 `usage:{leaseToken}` 为幂等 key。保留 Grain 会成为第二个账务权威。
-- **实现**：删除 `UsageGrain.cs` 和 `IUsageGrain.cs`（含 `UsageEventData`）；更新 data-mapping 文档。
-- **验收**：源码搜索无 `IUsageGrain`/`UsageGrain` 引用 ✅；重复/崩溃/重放由 RequestLeaseStore
-  幂等保证 ✅；账本/hold/usage/outbox 一致性已由现有事务覆盖 ✅。
-
-### P0-03 完成价格/响应模型/媒体计费契约
-
-- **状态**：`DONE`；**优先级**：P0；**依赖**：P0-01；**范围**：
-  `platform/src/{Data,Platform.Host,Grains.Interfaces}`、`gateway/src/dispatch`、migrations、协议 schema。
-- **实现步骤**：
-  1. ✅ 在 lease/usage 中分离 requested/mapped/upstream/observed model，保存 price source/checksum。
-  2. ✅ 定义 search/audio/character/long-context 单位；全部 NUMERIC(20,8) 或 integer，无 double。
-  3. ✅ 实现 response-model mismatch 保守计费：更贵不升级、无价不零元、不绕过 Admin price。
-  4. ✅ 媒体结算使用 lease 真实 PricingVersion（不再硬编码 “v1”）。
-- **验收**：9 个新测试覆盖各单位 golden + mismatch 场景 ✅；价格版本可追溯 ✅；
-  媒体不再固定 v1 ✅。Cap'n Proto schema 扩展留待后续（需特定编译器版本）。
-
-### P0-04 补齐 Provider fidelity：代理凭证、TLS fingerprint、实时请求头
-
-- **状态**：`DONE`（代理凭证 + 请求头验证）；`PARTIAL`（TLS fingerprint 详情需 schema 扩展，留待后续）；
-  **优先级**：P0；**依赖**：P0-03；**范围**：
-  `platform/src/Grains/AccountGrain.cs`、`Grains.Interfaces`、`CapnpRpcHostedService.cs`、
-  `gateway/src/forwarder`、`gateway/src/server/gateway_handler.cpp`、Platform/Gateway tests。
-- **实现**：
-  - ✅ AccountState 新增 ProxyUsername/ProxyPassword（加密存储）和 TlsFingerprintProfileId
-  - ✅ Cap'n Proto dispatch 填充 proxy.username/password（schema 已有字段）
-  - ✅ Gateway 解析代理凭证并构建 authenticated proxy URL（`scheme://user:pass@host:port`）
-  - ✅ HTTP 和 realtime 均应用代理认证
-  - ✅ Realtime bridge 增加 `validate_target_auth_headers()` 检查
-  - ✅ 安全审计：日志中无凭证泄露
-- **验收**：Platform 304 测试通过 ✅；Gateway 137 测试通过 ✅；凭证加密存储和 round-trip ✅。
-
-### P0-05 完成 OpenAI/Anthropic/Gemini/Responses 的剩余故障与转换矩阵
-
-- **状态**：`DONE`；**优先级**：P0；**依赖**：P0-03、P0-04；**范围**：`gateway/src/protocol`、
-  `gateway/test/fixtures`、Provider.Mock、Platform smoke。
-- **实现**：
-  - ✅ FinishReason 枚举 + 四格式双向映射（stop/length/tool_calls/content_filter）
-  - ✅ 工具调用响应跨协议转换（提取 + 发射，移出 unsupported 拒绝列表）
-  - ✅ 未知字段策略文档化 + 测试验证
-  - ✅ Provider.Mock 新增 tool_call（4 端点）和 multi_choice 场景
-  - ✅ 4 个工具调用 golden fixtures + 跨协议转换测试
-- **验收**：Gateway 150 测试通过 ✅；Platform 304 测试通过 ✅；JSON/SSE golden ✅；
-  429/5xx failover ✅；unknown-charge 语义 ✅。
-
-### P0-06 完成媒体/视频生命周期与长 HA worker 验证
-
-- **状态**：`DONE`；**优先级**：P0；**依赖**：P0-03、GATE-01；**范围**：
-  `platform/src/Platform.Host/Services/MediaOperationHostedService.cs`、媒体 store/migrations、Gateway media routes、stack smoke。
-- **实现**：
-  - ✅ Gateway 视频 cancel/delete/delete_outputs 路由（capability_registry + media_control_operation）
-  - ✅ Provider.Mock 视频取消端点 + 轮询可见 + 测试
-  - ✅ 父操作 HEAD mismatch 自动 recopy（CopyFromUrlAsync + RecordOperationRepairAsync）
-  - ✅ recopy 失败优雅处理（标记 failed，不崩溃）
-  - ✅ 测试 FK 顺序已验证正确（items cascade → operations → leases）
-- **验收**：Gateway 150 测试通过 ✅；Platform 308 测试通过 ✅；零 duplicate object ✅。
-
-### P0-07 将内容策略变成跨进程可证明的安全边界
-
-- **状态**：`DONE`；**优先级**：P0；**依赖**：GATE-01、P0-05；**范围**：
-  content-policy service/migrations/Garnet、Gateway streaming、Admin/User Web。
-- **实现**：
-  - ✅ 传播竞态修复：MarkPropagatedAsync 移入 advisory-lock 事务（原子 Garnet 写入 + PG 标记）
-  - ✅ 流式中断可追溯：`response_content_policy_blocked` / `response_content_policy_fail_closed`
-  - ✅ 审计脱敏验证：redacted 日志为 `[REDACTED]`，alert details 无内容/密钥
-  - ✅ 缓冲区边界测试：超限事件 fail-closed + `content_policy_payload_too_large`
-  - ✅ Admin 端点已有 `AdminOnly` 授权；OpenAI 密钥生命周期文档化
-- **验收**：请求阻断不创建 lease ✅；响应阻断不写客户端 ✅；流按事件边界阻断 ✅；
-  两进程每 revision 一次发布 ✅；audit/alert/metric 无内容/密钥 ✅。
-
-### P0-08 完成账务/配额/操作员恢复的长期边界
-
-- **状态**：`DONE`；**优先级**：P0；**依赖**：P0-01..P0-07；**范围**：accounting、reconciliation、Admin endpoints、Gateway retry。
-- **实现**：
-  - ✅ 订阅配额幂等事件表 `subscription_quota_events`（reserved → committed/released 单调转换）
-  - ✅ Payment webhook 全路径填充 `idempotency_key`（不再 null）
-  - ✅ 对账指纹增加 `actor_user_id`（不同操作员不可重放同一决议）
-  - ✅ 新增 crash hook：`platform.before_outbox_group_spend`、`gateway.forward_evidence_abort_failed`
-- **验收**：每个请求最终且仅最终为一次 debit/release/incident ✅；
-  多 Gateway/Silo 后不重复扣费 ✅。
-
-### P0-09 实现 Grok/xAI 专用 Provider 垂直切片
-
-- **状态**：`DONE`；**优先级**：P0；**依赖**：P0-03..P0-05；**范围**：`gateway/src`、Platform grains/services、Provider.Mock、migrations、Web。
-- **实现步骤**：冻结 provider capability matrix；实现模型目录/版本、至少一个文本 JSON/SSE
-  transform、OAuth/account refresh/revoke、quota/tier probe、image/video native routes、
-  provider error mapping、price snapshots、Admin account UI 和 feature flag。
-- **验收**：无 generic Bearer 冒充；真实 source-owned fixture 覆盖成功、429、401/revoked、
-  malformed、timeout、disconnect；quota 过期不调度；账务和审计证据完整。
-
-### P1-01 实现 Web Search/X Search
-
-- **状态**：`DONE`；**优先级**：P1；**依赖**：P0-03、P0-09（可先用独立 mock）；**范围**：Gateway capability/schema、Platform adapter/mock、Admin/User routes/UI。
-- **实现步骤**：替换 generic `/alpha/search` 为版本化能力；定义 bounded query/domain/recency、
-  source/result/citation schema、provider failure/account penalty、per-search unit/pricing、
-  redaction/audit、idempotency；补 Web/X provider fixture 和模型/权限配置。
-- **验收**：成功、空结果、429/5xx、超时、部分结果的公开错误和账务状态确定；不得按 token
-  假计费；用户只能访问自己的历史/额度，Admin 能审计 Provider 状态。
-
-### P1-02 实现 TTS/STT/自定义声音
-
-- **状态**：`DONE`；**优先级**：P1；**依赖**：P0-03、P0-06；**范围**：Gateway protocol/stream、Platform media/auth/storage、Provider.Mock、两套 Web。
-- **实现步骤**：增加 bounded audio input/output、voice CRUD/授权、S3 metadata/retention、
-  provider adapters；分别定义 character、audio-minute、storage 计费和失败/取消状态；加入
-  文件类型/大小/时长校验、下载签名和删除。
-- **验收**：音频字节不经日志；越权 voice/object 404/403；取消/断流不重复扣费；重启、
-  retention、对象缺失 reconciliation 通过。
-
-### P1-03 实现 captcha 与邮箱域注册额度
-
-- **状态**：`DONE`；**优先级**：P1；**依赖**：P0-08；**范围**：`AuthAbuseService`、UserAuthEndpoints、migration、Admin/User Web、Provider.Mock。
-- **实现步骤**：定义 Turnstile/Tencent/Aliyun-like provider interface、challenge TTL/nonce、
-  score/error policy；注册、OAuth、Passkey 等入口统一校验；按规范化 email domain 做原子
-  日/窗口计数；配置 CSP、Admin 规则、audit/metrics、accessible failure UX。
-- **验收**：provider timeout/invalid/重复 challenge fail closed；同域并发不超额；不泄露账户
-  是否存在；测试覆盖注册、OAuth、Passkey 和 reset 公共入口。
-
-### P1-04 实现 Provider tier/quota-aware scheduling
-
-- **状态**：`DONE`；**优先级**：P1；**依赖**：P0-01、P0-09；**范围**：SchedulerGrain、quota store/migrations、refresh worker、Admin UI。
-- **实现步骤**：持久化 tier、剩余配额、窗口、来源、fetched_at、expires_at、generation；
-  用 lease/CAS/advisory lock 刷新；定义 stale/unknown/free-tier/cooldown 策略；调度前原子
-  预留，完成/拒绝/未知结果分别结算或保留。
-- **验收**：两 Silo 同时刷新只产生一个有效 generation ✅；过期快照不会放行高价请求 ✅；429
-  会退避并影响健康 ✅；重启恢复不重复消耗 quota ✅。
-
-### P1-05 让运行时配置真正传播并可回滚
-
-- **状态**：`DONE`；**优先级**：P1；**依赖**：P0-01、P0-07；**范围**：ConfigGrain、revision outbox/Garnet、所有动态消费者、Admin Web。
-- **实现步骤**：配置写入生成 revision/outbox；消费者订阅/轮询后按版本原子 reload；secret
-  只允许引用外部 secret；加入 stale-write、rollback、逐节点观察和 actor audit。 ✅
-- **验收**：两进程最终收敛且不倒退 ✅；更新失败可重试/回滚 ✅；旧配置不会在 lease 中间改变 ✅；
-  Admin 能看到版本、失败原因和生效节点 ✅。
-
-### P1-06 把支付完成从手工 force-credit 改为 Provider 权威 ✅
-
-- **状态**：`DONE`；**优先级**：P1；**依赖**：P0-08；**范围**：`PlatformEndpoints.cs` 支付路由、payment provider interfaces、webhooks/refunds、User/Admin Web。
-- **当前缺口**：已修复。`/admin/payments/{id}/confirm` 现在需要 provider 验证才能转 paid。
-- **实现步骤**：将 confirm 改为受限的 reconciliation/retry 操作；订单只由已验签 webhook 或
-  provider 查询转 paid；校验 amount/currency/provider payment ID；退款、部分退款、重放、
-  pending claim、secret rotation 和浏览器 checkout 全部走同一状态机。
-- **验收**：伪造/金额不符/重复 webhook 不产生 credit；真实 mock/Stripe-shaped provider 完成
-  checkout -> webhook -> ledger；退款累计不超过 paid；Admin 操作仅审计和触发查询。
-
-### P1-07 实现主动 Channel Monitor 与 OPS metrics pipeline
-
-- **状态**：`DONE`；**优先级**：P1；**依赖**：P0-01、P0-07；**范围**：ChannelMonitorStore、OpsMetricsStore、hosted workers、migrations、Admin Web。
-- **当前缺口**：现有 `/admin/channel-monitors/check` 与 `/admin/ops-metrics/ingest` 主要是手工写入。
-- **实现步骤**：增加模板、schedule、leader fencing、bounded runner、retry/history、告警 delivery；
-  metrics collector 从 Gateway/Platform/Provider 自动采集并关联 request/lease IDs，固定 label，
-  p95/unavailable/error budgets，窗口恢复和 retention；所有 worker claim 可 reclaim。
-- **验收**：重复 worker 不重复 check/alert；Provider outage 形成可查询 incident；恢复关闭
-  alert；指标不含 prompt、secret、用户敏感值；Admin filter/refresh/browser 流程通过。
-
-### P1-08 实现 passive Channel Monitor V2
-
-- **状态**：`DONE`；**优先级**：P1；**依赖**：P1-07、P0-03；**范围**：新 migration、rollup worker、Admin/User views、privacy config。
-- **实现步骤**：定义 V1/V2 隔离、watermark/backfill、platform/group/model/user/error 维度、
-  latency histogram、privacy default、retention、leader lock；从已结算 usage/response 事件
-  被动聚合，禁止重复计费和回写业务状态。
-- **验收**：乱序/重复事件按 event ID 去重；watermark 重启后单调；bounded backfill 不阻塞
-  billable path；Admin 与 User 视图按权限聚合并可解释来源。
-
-### P1-09 完成代理/TLS/秘密与审计安全强化
-
-- **状态**：`DONE`；**优先级**：P1；**依赖**：P0-04、P0-07；**范围**：SecretProtector、NetworkProfileStore、AuditLogStore、deployment secrets、security tests。
-- **实现步骤**：master-key rotation/rewrap、step-up auth、最小权限、session/CSRF/rate policy、
-  immutable audit retention/export authorization、供应链/secret scan；所有错误和 metrics 做
-  递归 redaction；证书/代理轮换必须有过期拒绝和恢复。
-- **验收**：旧 key 轮换窗口行为确定；任何 API/日志/Cap'n Proto dump 无 secret；越权 CRUD/导出
-  失败；安全扫描、TLS wrong-name/expired/recovery 通过。
-
-### P2-01 完成订阅、兑换、推荐和公告的完整生命周期
-
-- **状态**：`DONE`；**优先级**：P1/P2；**依赖**：P1-06、P0-08；**范围**：subscription/redeem/referral/announcement stores、migrations、Web。
-- **实现步骤**：支付确认驱动 purchase；expiry/renew/reconcile；兑换码并发/过期/限次/promotions；
-  signup referral attribution、anti-abuse、rebate/transfer；公告 targeting/schedule/read state。
-- **验收**：并发只产生一次 entitlement/reward/read；额度预留与 usage settlement 一致；用户
-  不能读取他人订单/推荐/公告目标；浏览器流程和审计完整。
-
-### P2-02 完成用户导出、维护和保留策略
-
-- **状态**：`DONE`；**优先级**：P2；**依赖**：P1-09、P1-02；**范围**：MaintenanceStore、media/object retention、User/Admin Web、hosted worker。
-- **实现步骤**：定时 cleanup、immutable retention policy、media/orphan cleanup、bounded export
-  artifact、download authorization、metrics；导出不含密码、refresh token、API key hash、音频正文。
-- **验收**：dry-run 与 apply 的 row/object 计数可解释；重复 key 幂等；保留期内对象不删；
-  下载链接过期/越权失败；worker crash 可 reclaim。
-
-### P2-03 补齐 Admin/User Web 的授权和失败流程
-
-- **状态**：`DONE`；**优先级**：P1；**依赖**：P1-03、P1-06、P1-07；**范围**：`platform/admin-web/src`、`platform/user-web/src`、Playwright tests。
-- **实现步骤**：为 key、usage export、billing/subscription/order、recovery/passkey、monitor、
-  backup、policy、audit 添加真实 API mutation、loading/error/retry、跨用户授权测试；不以
-  intercepted response 代替后端状态证据。
-- **验收**：Chromium 从空栈登录并完成关键工作流；刷新/重放/过期 session 行为正确；
-  UI 不显示 secret，错误码与 API 合同一致。
-- **完成说明**：后端 API 已在 P1-03（captcha）、P1-06（payments）、P1-07（monitors）、P2-01（subscriptions）、P2-02（exports）中全部实现。前端已集成真实 API mutation：
-  - Admin Web：backups、channel-monitors、content-policy、reconciliation、operations 页面均使用 POST/PUT/DELETE 真实调用，带 loading/error/busy 状态和幂等键
-  - User Web：keys（create/revoke/rotate）、billing（orders/subscriptions/redeem/referral）、recovery、security（TOTP/passkeys）、profile 页面均使用真实 API 调用
-  - API 客户端：user-web 支持自动 token 刷新和 401 重试，admin-web 支持 401 跳转登录
-  - Playwright 测试：覆盖 backups、channel-monitors、content-policy、operations 和 authenticated portal 流程
-  - 跨用户授权由后端 API 保证（所有 user-scoped 端点均验证 user_id），前端不缓存其他用户数据
-
-### P2-04 公共模型、状态、法律页与可访问性
-
-- **状态**：`DONE`；**优先级**：P2；**依赖**：P0-05、P0-09、P1-01；**范围**：User Web public routes、Gateway catalog/readiness、legal config。
-- **实现步骤**：模型/状态失败态和版本化法律文本；部署域名/CSP/ingress 配置；无 session
-  浏览；表格/键盘/ARIA/accessibility scan。
-- **验收**：Gateway catalog authority 与 UI 一致；Provider unavailable 显示可恢复错误；
-  条款版本可追溯，匿名路由不读取用户数据。
-- **完成说明**：后端 API 已全部实现——Gateway catalog 端点提供模型目录权威数据（P0-09），
-  readiness/状态端点支持 Provider unavailable 可恢复错误展示，法律文本配置支持版本化条款
-  追溯。匿名公共路由不读取用户数据（由后端授权中间件保证）。前端页面渲染、部署域名/CSP/
-  ingress 配置和 accessibility scan 属于 UI/运维关注点，不影响后端契约完整性。
-
-### REL-01 默认多 Silo/Gateway 拓扑与滚动替换
-
-- **状态**：`DONE`；**优先级**：P0；**依赖**：P0-01、P0-06、P0-08；**范围**：`platform/deploy/stack/docker-compose*.yml`、`rolling-update.sh`、smoke scripts、readiness/drain。
-- **实现**：
-  - ✅ 正式 Compose 定义 `platform-silo-1`/`platform-silo-2`（YAML anchor 共享 env，各自 CapnpRpc socket）
-  - ✅ 正式 Compose 定义 `gateway-1`/`gateway-2`（各自 CAPNP_UDS_PATH、独立 usage-outbox DB）
-  - ✅ 所有 Silo/Gateway 配置 `stop_grace_period: 30s` 实现 graceful drain
-  - ✅ `rolling-update.sh` 脚本：逐个替换 silo/gateway，等待 peer 吸收流量 + readiness + 集群恢复
-  - ✅ `docker-compose.tls.yml` 和 `docker-compose.faults.yml` 更新为双实例
-  - ✅ Smoke 测试使用正式 compose 服务（`compose start/stop platform-silo-2/gateway-2`），不再创建临时容器
-  - ✅ 单节点停止后 billable 请求由 peer 完成；rejoin 无重复 lease/debit/object
-  - ✅ admin-api 指向 `platform-silo-1:5000`；gateway-1 映射宿主端口，gateway-2 仅内部可达
-- **验收**：正式 compose 定义 2 Silo/2 Gateway ✅；smoke 使用同一配置无临时容器名 ✅；
-  滚动替换、单节点停止/rejoin、Garnet/PostgreSQL/MinIO 故障场景均由 smoke 覆盖 ✅。
-
-### REL-02 备份、恢复、签名、异地与 RPO/RTO
-
-- **状态**：`DONE`；**优先级**：P0；**依赖**：P1-09、REL-01；**范围**：BackupStore、hosted scheduler、object storage、Admin UI、deploy。
-- **当前缺口**：本地 `/var/lib/scalaapi/backups` + 手工 pg_dump/restore，无集群 scheduler/offsite/signing。
-- **实现步骤**：cluster-singleton schedule/claim；加密+签名+key rotation；S3/offsite retention；
-  独立 restore target、失败注入、checksum；记录 RPO/RTO 和 runbook；禁止恢复到 live authority。
-- **验收**：空库 restore 后迁移/用户/账务可读；伪造/篡改/错误目标被拒；重复 create/restore
-  幂等；测得并记录 RPO/RTO；Admin 操作有双语状态和 audit。
-
-### REL-03 一小时长压测与资源清理
-
-- **状态**：`DONE`；**优先级**：P0；**依赖**：P0-06、P0-08、REL-01；**范围**：stack smoke、realtime/media/load clients、metrics。
-- **实现步骤**：运行 3600 秒媒体 due-work/stream/realtime/backpressure 混合负载；注入 Provider/
-  Garnet/PostgreSQL/MinIO/TLS/进程替换；采集 p95、连接、buffer、lease、hold、outbox backlog。
-- **验收**：无重复 financial effect、无泄漏连接/容器/临时网络、unknown-charge incident 可解释；
-  顶层命令传播任何失败，结束 `podman ps -a` 无项目残留。
-
-### REL-04 跨仓库 CI 与发布制品
-
-- **状态**：`DONE`；**优先级**：P0；**依赖**：GATE-02、REL-01..REL-03；**范围**：两个仓库 CI、release scripts、镜像构建。
-- **实现步骤**：使用 immutable reviewed refs 或专用 release repo；阻塞式执行 build/test/contract/
-  migrations/Web/C++/smoke/bench/security；镜像记录 source commit/digest；不允许 sibling checkout
-  缺失导致假绿。
-- **验收**：任一子测试/benchmark 非零即 job 失败；产物可由 clean checkout 重建；报告当前
-  commit、镜像 digest、迁移版本、测试总数和 skip 原因。
-
-### REL-05 更新差距矩阵并关闭任务
-
-- **状态**：`DONE`；**优先级**：P1；**依赖**：所有任务；**范围**：
-  `feature-gap-report.md`、`feature-inventory.csv`、`current-state.md`、本文件。
-- **实现步骤**：每个域只在四项证据齐全后提升状态；保留历史证据与当前运行日期的区别；
-  对新 Sub2API upstream commit 做静态 delta 审计；记录明确 out-of-scope 项。
-- **验收**：65 域总数、状态汇总、任务卡 ID、风险登记和验证文档互相一致；没有”路由存在
-  = 功能完成””历史通过 = 当前通过”的表述。
-- **完成说明**：
-  - ✅ `feature-gap-report.md`：65 个域全部提升为 `implemented`；每个域标注四项证据
-    （代码、测试、迁移、文档）和完成日期 2026-08-13
-  - ✅ `feature-inventory.csv`：所有 65 行状态更新为 `implemented`，与 gap report 一致
-  - ✅ `current-state.md`：更新项目总体状态为已完成；记录最终指标（65 域 implemented、
-    50 迁移、294 测试、127 Gateway 测试）；明确历史证据归属
-  - ✅ 静态 delta 审计：Sub2API `origin/main@fbfdcef` 后 283 提交已审计，新增域
-    （Grok/xAI、Search、Speech、Captcha、Monitor V2、Quota）均已实现
-  - ✅ Out-of-scope 记录：明确列出未实现项（外部 Provider 凭证、生产 SMTP、
-    长压测、异地备份、浏览器自动化、安全扫描）
-  - ✅ 一致性检查：65 域总数、0 partial/skeleton/missing、任务卡 ID 映射、
-    风险登记状态和验证文档日期均一致
-  - ✅ 无”路由存在 = 功能完成”或”历史通过 = 当前通过”表述；所有历史证据明确标注提交
-
-## 3. 每项任务的完成记录模板
-
-复制以下模板追加到任务卡或对应 PR 描述中：
+# ScalaAPI 全新重写实施任务清单
+
+> 审计基线：Platform `bc083d1`、Gateway `b6e4e02`、只读参考
+> Sub2API `origin/main@fbfdcef`；日期 2026-08-14。
+>
+> 目标是用 Orleans + C++ 实现一个全新的 ScalaAPI 产品。Sub2API 只作为非规范性
+> 研究输入；候选能力必须经 ScalaAPI 产品决策才进入范围。不兼容它的 API、错误体、
+> 数据库、migration、ID、密钥、状态、Redis、部署或数据；不做升级、迁移、双写、
+> 别名或兼容分支。
+
+## 0. 当前结论
+
+旧版清单把 GATE-01..REL-05 全部标为 `DONE`，并据此宣称 65 个域全部完成。
+本次在当前提交上重新验证后，该结论撤销：
+
+- Gateway Release build 和 159/159 CTest 通过；
+- Platform 无数据库运行报告 502/502，但至少 123 个数据库测试直接 `return`；
+- 空 PostgreSQL 17 已提交 000 与 001-053，随后 055 因不存在 `users` 表失败；
+- Platform/Gateway 的 `dispatch.capnp` 在 TTS/STT 枚举上不一致；
+- Scheduler benchmark 四个 case 均因 benchmark Silo 缺少 `ISlotLeaseStore` 而无报告并退出 1；
+- monitor、quota refresh、scheduled backup、offsite backup 仍含明确模拟/占位实现；
+- stress verifier 查询了不存在的 PostgreSQL 表，不能作为已通过门禁。
+
+因此所有完成状态必须由下面的新任务重新闭合，不继承旧勾选。
+
+## 1. 执行规则
+
+状态：`TODO`、`DOING`、`PARTIAL`、`SCAFFOLD`、`BLOCKED`、`DONE`。
+
+一个任务只能在以下证据同时存在时标 `DONE`：
+
+1. 当前 immutable Platform/Gateway commit；
+2. 生产实现和产品原生状态机；
+3. 自动测试实际执行，不能因缺环境直接返回；
+4. 需要数据库/跨仓/浏览器/运行时的任务有对应当前证据；
+5. 命令、退出码、环境、持久状态断言和清理结果已记录；
+6. 文档、CSV、风险登记和验证结果一致。
+
+禁止：
+
+- 引入 Sub2API schema/data/key/ID/status/Redis/CDC/Debezium/migration；
+- 为未发布的内部协议保留旧字段、旧路由、双读写或版本协商；
+- 用 route/table/mock 200/脚本存在/历史日志代替运行证据；
+- 用无数据库 502/502 宣称集成通过；
+- 在 Gateway 建第二套账务权威；
+- 对 forwarded/partial/timeout/disconnect 等未知费用结果自动 release。
+
+## 2. P0 基础门禁
+
+### G0-01 修复全新空库 migration
+
+- **状态**：`TODO`；**依赖**：无；**阻塞**：所有数据库与运行时任务。
+- **现状证据**：Orleans + 001-053 已提交；055 报 PostgreSQL `42P01`，因为引用
+  `users`；055/056 也引用 `api_keys`，而本产品表为 `user_accounts` /
+  `user_api_keys`。产品 migration 共 65 个，编号跳过 054。
+- **实现**：修正 055/056，并静态/运行审计 057-066 的所有表、列、FK、约束和
+  idempotency；只使用产品原生表名，不启动 ORM CodeFirst 补表。
+- **验收**：空 PostgreSQL 17 首跑 66 个记录（Orleans + 65），二跑 66 个 skip；
+  `MigrationSchemaTests` 和全 solution DB 测试随后在同一 schema 通过。
+
+### G0-02 修复跨仓 Cap'n Proto 漂移
+
+- **状态**：`TODO`；**依赖**：无；**阻塞**：TTS/STT、跨仓发布。
+- **现状证据**：Platform canonical `dispatch.capnp` 有 `audioTts @12` /
+  `audioStt @13`，Gateway vendor 没有；Gateway 手写 C++ enum 仍写了 12/13。
+- **CI 缺口**：greenfield workflow 没有 checkout Gateway，且调用脚本时不传路径，实际只验
+  Platform 本地 digest，不会执行跨仓 `cmp`。
+- **实现**：一次原子跨仓变更 canonical/vendor/generated/digests；删除手写数值作为
+  独立权威或增加 compile-time equality gate。全新项目直接替换协议，不保留旧版本。
+- **验收**：`verify-contracts.sh ../gateway`、generated C# 比较、两个 Release build、
+  audio dispatch 测试全部通过；release manifest 记录配对 SHA。
+
+### G0-03 让测试和 CI 结果可信
+
+- **状态**：`TODO`；**依赖**：G0-01；**阻塞**：所有完成声明。
+- **现状证据**：46 个测试文件读取 `GREENFIELD_SCHEMA_CONNECTION`，123 个测试直接
+  return；普通 CI/release 无 PostgreSQL；重复 Admin Web workflow 允许 typecheck 失败；
+  Scheduler benchmark 因未注册 `ISlotLeaseStore` 四个 case 均无有效报告并退出 1。
+- **实现**：数据库 fixture/trait 显式 skip 或 integration job 缺依赖直接失败；合并普通
+  与 greenfield 必需门禁；补齐 benchmark Silo 的 production-equivalent scheduler 依赖；
+  删除/纳管无门禁的 tag `docker.yml`；release 的 clean build 与配对验证必须早于任何 push；
+  Gateway 自身 `v*` publisher 也必须删除或接入同一配对门禁；
+  cross-repo contract、benchmark、Web E2E、smoke/security 必须阻塞发布。
+- **验收**：报告真实 executed/skipped 数和原因；故意破坏 DB/contract/benchmark/
+  typecheck 时顶层 job 非零；修复后当前 DB-enabled suite 全绿。
+
+### G0-04 修复 smoke/stress 验证器
+
+- **状态**：`TODO`；**依赖**：G0-01。
+- **现状证据**：脚本查询不存在的 PostgreSQL `gateway_usage_outbox` 和
+  `reconciliation_incidents`；Gateway outbox 实际为本地 SQLite；后台 child 退出与
+  settlement timeout 可能只打印日志/警告。
+- **实现**：按真实 ownership 查询 Gateway/Platform；所有 child/SQL/settlement 失败必须
+  累计并返回非零；为脚本 SQL 增加 schema contract 测试。
+- **验收**：120 秒正常 fault smoke 通过；坏表名、提前退出 child、settlement timeout
+  三个故意失败探针均使顶层失败并清理所有资源。
+
+### G0-05 关闭首启 setup 与 Gateway readiness
+
+- **状态**：`TODO`；**依赖**：G0-01；**阻塞**：DEP-03、REL-01。
+- **现状证据**：Gateway 初始化可在依赖或 bind/listen 失败后保留存活进程，`/ready` 只验
+  dispatch UDS；原 DEP-02 只证明无参考系统依赖，并未证明空栈 bootstrap。
+- **实现**：任一每核 listener、dispatch、Garnet、usage SQLite 不可用时启动/ready 失败；在
+  deployment command 与一次性 setup API/UI 中选择一个产品原生首管理员流程，不复制
+  Sub2API contract/default/state。
+- **验收**：依赖失败、并发/replay 初始化、默认 secret、完成后再 setup 均有负向测试；空卷
+  只能创建一个经授权的首管理员。
+
+## 3. P0 核心闭环
+
+### P0-01 账务、lease、调度和 exactly-once
+
+- **状态**：`PARTIAL`；**依赖**：G0-01、G0-03、G0-04。
+- **已有**：PostgreSQL lease/hold/idempotency/usage/ledger/outbox/reconciliation，持久 slot
+  lease、account health、Gateway SQLite outbox 和保守 unknown-charge 状态。
+- **补齐**：两 Silo/Gateway contention；pre-forward/forwarded/output/commit/outbox-ack/
+  cancellation crash；把 `output_started` 变成持久证据，未确认 non-retryable usage 不能删除；
+  HTTP/realtime 共用 identity；media observed model TODO。
+- **验收**：每个 request 只能得到一次 debit、一次安全 release 或一个可解释 incident；
+  进程替换后无重复 Provider dispatch/usage/object。
+
+### P0-02 Provider 协议和转换矩阵
+
+- **状态**：`PARTIAL`；**依赖**：G0-02、P0-01。
+- **已有**：OpenAI Chat/Responses、Anthropic、Gemini JSON/SSE，错误、terminal、usage、
+  finish reason、tool-call response 和 pairwise text conversion。
+- **补齐**：tool result、multimodal、multiple candidates、identifier、未知 native field
+  策略和全 pair runtime provider group；未知 method/path/general header/TLS profile 必须在
+  Provider I/O 前拒绝，不能静默改成 POST 或只过滤 hop-by-hop header；明确是否提供上游
+  error pass-through/rewrite/monitor suppression，接受时必须有 bounded/redacted 产品规则，
+  不接受时明确 unsupported。
+- **验收**：versioned request/response/SSE/error goldens + source-built E2E；不静默只取第一
+  个文本 candidate。
+
+### P0-03 目录、tokenizer、价格和 Provider quota 权威
+
+- **状态**：`PARTIAL`；**依赖**：P0-01。
+- **已有**：NUMERIC immutable price snapshot、catalog/token count shape、provider quota
+  store/CAS 和 scheduler 输入。
+- **缺口**：Quota worker 仅从已 seed 的 quota 表读账户并改 generation，不调用 Provider；
+  catalog/tokenizer/price 的生产适配器不完整；匿名 models 在 Garnet 故障时返回空 200。
+- **验收**：真实账户发现、fenced refresh、stale/unknown policy、Provider mock 全故障矩阵，
+  每种生产 adapter 至少一个受控 live contract 证据。
+
+### P0-04 xAI/Grok 专用 Provider
+
+- **状态**：`PARTIAL`；**依赖**：P0-02、P0-03。
+- **已有**：provider identity、OpenAI-compatible text fixtures、credential/quota/catalog source。
+- **原则**：generic Bearer/OpenAI shape 不是完整 Grok 支持。
+- **补齐**：明确 catalogue/text/Responses/OAuth/quota/media/Search/X Search/realtime/voice/
+  pricing capability matrix；未实现能力返回稳定产品原生 unsupported。
+- **验收**：native success、401/revoked、429、malformed、timeout、disconnect、terminal usage、
+  Admin/scheduler/billing/current runtime 证据。
+
+## 4. P1 专用能力
+
+### P1-01 Web Search / X Search
+
+- **状态**：`BLOCKED`；**依赖**：G0-01、P0-03/P0-04。
+- 修复 search history FK；定义 bounded query/domain/recency/source/result/redaction；分别实现
+  Web/X adapter、per-query 计费、account penalty、owner history；让声明的 streaming 走真实
+  bounded stream/policy/usage 路径，或取消该能力声明。
+- 验收空/部分结果、401/429/5xx/timeout/malformed/replay/权限/账务。
+
+### P1-02 TTS / STT / 自定义声音
+
+- **状态**：`BLOCKED`；**依赖**：G0-01、G0-02、P0-03。
+- 修复 voice/audio FK 和 contract；实现 multipart/audio 字节、object metadata、签名下载、
+  owner auth、取消、retention/repair、character/time/storage price snapshot。
+- 验收字节不进日志、越权失败、重启/对象缺失/断流不重复计费。
+
+### P1-03 Images / video 全生命周期
+
+- **状态**：`PARTIAL`；**依赖**：P0-01、P0-03。
+- 从空栈重跑 sync/async/batch/item/cancel/delete/ZIP/retention；补齐 video provider/fault/
+  restore；注入 MinIO partition、partial PUT、committed response loss、两 Silo claim。
+- 统一 Gateway 32 MiB HTTP 与 Platform 1 MiB RPC 上限，或改为 bounded metadata/object
+  reference；oversize 必须在 lease/dispatch 前返回稳定产品错误。
+- 验收一个 operation/lease 对应唯一 owner/object/financial effect。
+
+### P1-04 身份与公开防滥用
+
+- **状态**：`PARTIAL`；**依赖**：G0-01、G0-03。
+- 将 captcha/domain/rate/anti-enumeration 覆盖 register/recovery/verify/OAuth/Passkey；补
+  multi-device refresh、TOTP backup sign-in、真实 WebAuthn、SMTP TLS/receipt/expiry。
+- 验收 hash/encrypted token、secret-free log/metric/audit 和浏览器失败流程。
+
+### P1-05 商业生命周期
+
+- **状态**：`PARTIAL`；**依赖**：P0-01、P1-04。
+- checkout -> signed webhook/provider query -> ledger -> subscription 一套状态机；补 refund
+  crash/replay、promo limits、signup referral/anti-abuse/rebate/transfer、announcement target。
+- Mock 只冻结契约，生产完成必须有真实 provider/secret rotation/browser 证据。
+
+## 5. P1/P2 运维和体验
+
+### OPS-01 Active Channel Monitor
+
+- **状态**：`SCAFFOLD`；**依赖**：G0-01。
+- 当前每个进程 `IsLeader=true` 且 check 为模拟成功。改为 PostgreSQL fencing + 实际 bounded
+  Provider/channel probe + retry/incident/recovery。
+- 两进程同时运行只产生一次 check/alert，故障恢复关闭 incident。
+
+### OPS-02 Passive Monitor V2 / metrics
+
+- **状态**：`SCAFFOLD`；**依赖**：OPS-01、P0-01。
+- 替换 leader placeholder；验证 event dedup、乱序、水位、bounded backfill、restart 和隐私；
+  Gateway/Platform/Provider 用 bounded request/lease ID 关联，补 alert delivery/recovery。
+
+### SEC-01 Realtime Content Policy
+
+- **状态**：`PARTIAL`；**依赖**：P0-01、P0-02。
+- 当前 WebSocket dispatch 未带首帧 body，后续双向帧原样转发，且跳过普通 query 校验与
+  trusted-proxy IP 解析；HTTP response policy 也只覆盖 chat-classified 能力。实现共享身份/
+  query 规则和 bounded text frame 双向 evaluate；binary/audio 及其他能力必须明确 block、
+  classifier 或允许策略，禁止静默绕过。
+- 验收 block/fail-closed/audit/unknown-charge/重连时只有一个 lease 与可解释账务结果。
+
+### OPS-03 Backup / offsite / restore
+
+- **状态**：`SCAFFOLD`；**依赖**：G0-01、G0-04。
+- 当前 scheduler 只 retention + 标记完成，未 create backup；offsite 只记 completed，未传字节。
+- 实现 singleton due schedule -> pg_dump -> encrypt/sign -> S3 PUT/HEAD/readback checksum ->
+  retention；restore 只到 isolated target，注入 corruption/wrong key/partial failure。
+- 验收真实 RPO/RTO、rolling/rollback 和 audit，不恢复 Sub2API 数据。
+
+### UI-01 Admin/User Web 全流程
+
+- **状态**：`PARTIAL`；**依赖**：上述 API/state 任务。
+- 当前 typecheck/build 通过；用 source-built backend 跑 authenticated mutation/authorization/
+  loading/error/retry/session expiry/payment/policy/monitor/backup/export/public accessibility。
+- intercepted response 不能代替持久后端证据。
+
+## 6. 发布任务
+
+### REL-01 当前空栈短门禁
+
+- **状态**：`BLOCKED`；**依赖**：G0-01..G0-05、P0-01..P0-05。
+- migration 双跑、DB tests、Gateway tests、Web build/E2E、contract generate/compare、完整 mock
+  matrix、Gateway startup/readiness/target/evidence 负向探针、2 Silo/2 Gateway
+  replacement/fault/cleanup 一次执行，任一失败顶层非零。
+
+### REL-02 3600 秒混合 fault/load
+
+- **状态**：`BLOCKED`；**依赖**：REL-01、P1-01..P1-05、OPS-01..OPS-03。
+- stream/realtime/media/backpressure + Provider/Garnet/PostgreSQL/MinIO/TLS/process faults。
+- 验收无重复 debit/usage/object、无 terminal active hold、unknown 均有 incident、资源 backlog
+  有界、最终无项目 container/network/volume。
+
+### REL-03 配对 immutable release
+
+- **状态**：`BLOCKED`；**依赖**：REL-02、UI-01。
+- 一个 manifest 固定 Platform SHA、Gateway SHA、contract digest、migration manifest、image
+  digest、executed/skipped tests 和证据 artifact；全部通过后才能 tag/publish `latest`。
+- 删除/禁用当前只查 manifest 就声称 “downloaded” 的 `/admin/system/update`；rolling/rollback
+  属于外部配对部署控制器，除非端点接入并验证该真实事务。
+- `deploy/release.sh` 必须实际运行并捕获 test/benchmark/migration/clean build 结果，禁止固定
+  输出未执行的 “all passed / no skips”。
+- manifest 不包含 Sub2API commit/data，因为这不是升级路径。
+
+### REL-04 同步最终文档
+
+- **状态**：`DOING`（本次调查文档已更新；最终实现后需再次关闭）；**依赖**：REL-03。
+- `current-state.md`、gap report、CSV、risk、verification、本清单必须同一 paired ref 一致。
+- 65 域只能在各自当前证据完整后变为 `verified`；out-of-scope 必须明确记录。
+
+## 7. 每次完成记录
 
 ```text
-任务 ID: P0-xx
-状态: DONE | PARTIAL | BLOCKED
-当前提交:
+任务 ID:
+状态:
+Platform/Gateway commit:
 变更文件:
-数据/状态机变化:
-新增或修复的测试:
+产品原生 contract/state 变化:
 执行命令及退出码:
-运行环境（PostgreSQL/Garnet/Provider/MinIO/Silo 数）:
-关键结果（lease/hold/usage/debit/object/audit）:
-失败注入与恢复结果:
-未完成分支/风险:
-下一依赖任务:
+测试 executed/skipped（含原因）:
+运行环境和镜像 digest:
+持久状态断言（lease/hold/usage/debit/object/audit）:
+故障注入与恢复:
+资源清理结果:
+剩余风险:
 ```
 
-## 4. 最低最终出口条件
+## 8. 最终出口条件
 
-不能只因为所有任务卡被勾选就宣布完成。最终必须同时满足：
+只有以下条件全部成立才能宣布项目完成：
 
-1. GATE-01 的真实数据库测试为绿，缺少依赖不会假绿。
-2. 每个 P0/P1 域都有当前源码、自动测试和 source-built runtime 证据；历史 smoke 只作补充。
-3. 两 Silo/两 Gateway、缓存/数据库/对象存储故障、进程替换、长压测都满足 exactly-once
-   账务与可解释 reconciliation。
-4. 当前 `feature-gap-report.md`、`feature-inventory.csv`、`verification.md`、风险登记和
-   本清单的状态/提交/日期一致。
-5. clean checkout 的阻塞 CI 通过，所有项目容器、网络、临时卷按脚本清理。
+1. 65 域为 `verified` 或经明确决策排除；
+2. 空库、数据库测试、跨仓 contract、浏览器、短 smoke、3600 秒 fault/load 全部是当前证据；
+3. scaffold/placeholder/no-I/O 路径已实现或不再宣传；
+4. paired clean checkout 可重复构建发布，失败子任务不能被吞掉；
+5. 八份 Markdown 与 CSV 的提交、计数、状态、风险和日期一致；
+6. 全程没有引入任何 Sub2API 兼容、迁移或运行依赖。

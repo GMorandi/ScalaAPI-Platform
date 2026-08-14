@@ -28,21 +28,32 @@ or Podman Compose available:
 deploy/stack/smoke.sh
 ```
 
-The default gate uses authenticated plaintext Garnet on the private Compose
-network. To run the TLS deployment gate, use the checked-in wrapper:
+> Current audit status (2026-08-14): the gate is blocked at Platform `bc083d1` and
+> Gateway `b6e4e02`. The cross-repository Cap'n Proto check is red, and an empty
+> PostgreSQL 17 run commits migrations through 053 before 055 references a missing
+> `users` table. The required Scheduler benchmark separately fails before producing
+> reports, Gateway readiness covers only dispatch UDS, and the stress verifier also
+> contains invalid ownership/table queries.
+> The behavior below is the required gate contract, not a current pass claim. See
+> [current-state.md](../../docs/rewrite/current-state.md) and
+> [verification.md](../../docs/rewrite/verification.md).
+
+When the blockers above are repaired, the default gate is intended to use
+authenticated plaintext Garnet on the private Compose network. To run the TLS
+deployment gate, use the checked-in wrapper:
 
 ```sh
 deploy/stack/garnet_tls_smoke.sh
 ```
 
-The wrapper requires `openssl`, creates a short-lived local CA and a `garnet`
-server certificate with a `DNS:garnet` SAN, exports the server certificate as a
-password-protected PFX, and removes the temporary key material on exit. The TLS
+The wrapper is designed to require `openssl`, create a short-lived local CA and a
+`garnet` server certificate with a `DNS:garnet` SAN, export the server certificate
+as a password-protected PFX, and remove the temporary key material on exit. The TLS
 Compose override enables Garnet server TLS, disables client-certificate
 requirement for this password-authenticated deployment, mounts the PFX and CA
 read-only with rootless-container relabeling, and passes the CA path and server
-name to both production clients. The smoke verifies TLS through Platform's real
-authenticated Garnet readiness path, then runs the complete source-built fault,
+name to both production clients. Its acceptance contract requires TLS through
+Platform's real authenticated Garnet readiness path, then the source-built fault,
 restart, reconciliation, and object-storage matrix. During the TLS gate, the
 wrapper replaces the PFX with a second certificate signed by the same CA,
 forces Platform/Gateway reconnects, rejects a wrong-SAN certificate and an
@@ -54,9 +65,10 @@ default development stack remains plaintext; TLS is selected only by the
 wrapper or by setting `GARNET_TLS=true` together with all required certificate
 paths.
 
-The gate creates a unique Compose project and new named volumes, builds the
-current Platform and sibling Gateway sources, and removes only that project on
-exit. It applies all migrations, runs the migrator again, configures a new user,
+The gate is designed to create a unique Compose project and new named volumes, build
+the current Platform and sibling Gateway sources, and remove only that project on
+exit. Its acceptance contract applies all migrations, runs the migrator again,
+configures a new user,
 API key, Provider mock groups, and active price versions through product APIs,
 then verifies chat settlement, idempotent replay, Garnet authentication, and an
 asynchronous image stored in the S3-compatible object store. It also restarts the

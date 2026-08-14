@@ -1,328 +1,231 @@
-# ScalaAPI Rewrite Architecture
+# ScalaAPI Greenfield Architecture
 
-ScalaAPI is a new product implemented by Gateway and Platform. No internal or
-database compatibility with Sub2API exists.
+Audit baseline: Platform `bc083d1` and Gateway `b6e4e02` on 2026-08-14.
+
+This document defines ScalaAPI's own architecture. Sub2API is non-normative
+research input used only to discover capability families. Its API behavior,
+database, migrations, identifiers, keys, cache layout, deployment and commit
+delta do not define ScalaAPI requirements or acceptance.
+
+ScalaAPI is a new product. There is no upgrade, import, cutover, dual-run,
+dual-read/write or compatibility path from Sub2API.
+
+## System boundary
 
 ```text
-Client protocols
-      |
-      v
-Gateway (HTTP/WebSocket, conversion, streaming, Provider transport)
-      | Cap'n Proto over protected local RPC
-      v
-Platform (identity, scheduler, leases, pricing, ledger, media, Admin/User API)
-      |             |                    |
-PostgreSQL      Garnet             S3-compatible storage
-  authority      projection/cache    media bytes
-      |
- Provider accounts and settlement metadata
+Clients
+  |
+  | product-native HTTP / SSE / WebSocket
+  v
+Gateway
+  | protocol validation and conversion
+  | Provider transport and streaming
+  |
+  | product-native Cap'n Proto RPC
+  v
+Platform
+  | identity / policy / scheduling / leases / pricing / accounting
+  | Admin API / User API / background workflows
+  |
+  +--> PostgreSQL        durable business and accounting authority
+  +--> Garnet            disposable projections and coordination hints
+  +--> S3-compatible     media and backup bytes
+  +--> Providers         catalogues credentials quota and inference
 ```
 
-## Gateway
+Gateway and Platform are released as a paired product. A release identifies both
+immutable commits and the exact contract digest; neither repository can infer
+compatibility from a local build alone.
 
-Gateway owns external protocol semantics, request limits, format conversion,
-streaming/backpressure, WebSocket lifecycle, upstream headers, Provider adapters,
-and safe error translation. It never owns balances, leases, provider credentials,
-media metadata, or authoritative usage.
+## Ownership
 
-Gateway reads auth, model, and route projections from Garnet. It never writes those
-keys. On a cache miss it calls Platform RPC. Garnet failures cannot make billable
-requests fail open.
+| Concern | Authority | Rule |
+| --- | --- | --- |
+| Public protocol and streaming | Gateway | Validate bounded requests; translate supported protocol pairs; enforce backpressure and terminal stream semantics |
+| Provider HTTP/WebSocket transport | Gateway | Apply only Platform-issued target path headers and credentials; classify transport and Provider outcomes without inventing financial truth |
+| Identity keys policy and configuration | Platform | PostgreSQL-backed product-native models; secrets are encrypted or hashed and never become Gateway authority |
+| Account selection and scheduling | Platform | Durable leases and fenced coordination; stale cache or process-local state cannot authorize dispatch |
+| Pricing holds usage and ledger | Platform | PostgreSQL NUMERIC state is authoritative; Gateway never owns balance or settlement |
+| Business concurrency | Orleans plus PostgreSQL | Orleans coordinates actors; PostgreSQL remains the listing reconciliation and recovery authority |
+| Fast projections | Garnet | Rebuildable and non-authoritative; cache loss must not lose business state |
+| Media and backup payloads | S3-compatible storage | PostgreSQL owns metadata ownership lifecycle checksum and accounting links |
+| Operator and user experiences | Admin Web and User Web | Use only authenticated product APIs; browser success must reflect persisted backend state |
 
-The source-owned realtime boundary uses the same lease/idempotency contract as HTTP:
-the WebSocket upgrade and Provider usage frames are validated before settlement, and
-bounded concurrent sessions must each produce one terminal lease, usage, hold, and
-ledger effect. Runtime soak evidence is intentionally separate from protocol
-compatibility and does not introduce a legacy wire contract.
+## Billable request lifecycle
 
-Provider errors stay byte-preserving when the inbound and upstream protocols are
-the same. When Gateway crosses protocol boundaries, it extracts the bounded
-status/type/message contract and emits the target OpenAI, Anthropic, or Gemini
-error envelope; standard HTTP status semantics win over a conflicting provider
-label. This is a new product contract and does not define compatibility with
-Sub2API error bodies.
+1. Gateway validates the protocol envelope, requires a product API key and sends
+   only its hash plus a speculative auth-version hint to Platform. Gateway does not
+   decide whether the key is valid or authorized.
+2. Platform authoritatively validates the key, scope, capability and policy, then
+   selects an eligible Provider account under durable scheduler constraints.
+3. Platform creates one idempotent request lease with an immutable price snapshot
+   and a maximum hold before Provider contact.
+4. Gateway obtains durable `forwarded` acknowledgement before sending upstream and
+   durably records `output_started` no later than the first successful client write.
+5. Gateway extracts bounded terminal usage or records an evidence-classified
+   failure. Timeout disconnect and partial output do not prove no Provider charge.
+6. Platform commits exactly one settlement or proven no-charge release. Unknown
+   charge state retains the hold and creates operator-visible reconciliation work.
+7. Outboxes project committed state to Orleans/Garnet and integrations. Projection
+   failure cannot undo or duplicate the PostgreSQL transaction.
 
-## Platform
+The idempotency identity spans retries and process replacement. A completed
+non-stream response may retain a bounded replay body; active or unknown requests
+cannot be silently re-dispatched.
 
-Platform owns identity, groups, API keys, provider accounts and encrypted
-credentials, scheduler state, lease state machines, balance holds, decimal pricing,
-append-only ledger entries, usage settlement, content policy, media metadata, and Admin/User APIs.
-Orleans coordinates concurrency; PostgreSQL is the durable business and accounting
-source of truth. Orleans storage internals are never used as a business listing API.
+## Durable data rules
 
-Provider pricing is an explicit source boundary. A bounded HTTPS-by-default catalog
-adapter accepts only the new JSON decimal quote contract, authenticates without
-logging credentials, and normalizes each snapshot to a deterministic checksum. The
-Platform persists source/provider/model metadata and immutable NUMERIC versions in
-PostgreSQL, closes only the prior open version for the same source/model, and leaves
-identical snapshots as idempotent replays. Provider-specific adapters and tokenizers
-must publish into this boundary rather than changing lease settlement logic. When
-multiple sources quote the same model, an effective administrative price is
-authoritative over later provider refreshes; lease settlement uses the selected
-immutable NUMERIC version and never reprices an active lease.
+- Product migrations are forward-only and must bootstrap an empty PostgreSQL
+  database without any reference-project schema or data.
+- Every monetary mutation locks the product account serialization domain and
+  appends a stable-effect ledger entry.
+- Price and usage values use PostgreSQL `NUMERIC` and immutable versioned
+  snapshots rather than binary floating point.
+- Holds can be released automatically only for a proven never-forwarded or
+  Provider-confirmed no-charge outcome.
+- Business listing and reconciliation query PostgreSQL rather than Orleans
+  storage internals or Garnet.
+- Cross-process workers use PostgreSQL advisory locks or fenced expiring claims;
+  process-local leadership is insufficient.
+- Schema names and internal contracts are free to change atomically before
+  release. No legacy aliases or compatibility branches are retained.
 
-Passkey authentication is a native Fido2/WebAuthn boundary. PostgreSQL stores only
-short-lived flow-scoped challenge options and credential public material; private keys
-remain in authenticators. Challenge consumption is atomic, signature counters are
-monotonic, and credential registration/revocation audits are written with the state
-mutation. The public login endpoint issues the same rotating session contract as
-password/OAuth login; browser ceremony and anti-abuse policy remain release gates.
+## Provider contract
 
-Password-reset and email-verification notifications use a separate Platform-owned
-outbox. Token hashes remain the authentication lookup authority; only AES-GCM
-protected token material is stored for delivery. A bounded worker claims rows with
-PostgreSQL leases, sends through the configured SMTP adapter (or an explicit local
-filesystem capture provider), retries with backoff, and records sent/failed evidence.
-Superseded tokens cancel pending notifications in the same issuance transaction.
-Live provider delivery, metrics, and abuse limits remain release gates.
+A Provider label is not a support claim. Each advertised capability requires an
+explicit matrix covering:
 
-Maintenance is a Platform-owned data boundary. `/user/export` uses a repeatable-read
-snapshot and returns only bounded non-secret account, usage, session, and Passkey
-metadata. Admin cleanup is a separate idempotent command with explicit retention and
-row limits; it removes only expired authentication/ceremony records and writes the
-operation plus actor audit in the same transaction. Media/object retention and
-immutable audit retention are separate lifecycle controls.
+- native path method headers request response stream and error semantics;
+- credential lifecycle and target-header compilation;
+- account health cooldown quota and catalogue behavior;
+- usage units price selection and terminal settlement evidence;
+- bounded success authentication rate-limit timeout malformed and disconnect
+  fixtures;
+- explicit upstream-error exposure, normalization, monitoring-suppression and
+  redaction rules rather than reference-system pass-through behavior;
+- feature gates surfaced consistently by Admin Gateway and scheduling.
 
-Announcements are also Platform-owned. Admin remains the publisher of announcement
-content and lifecycle state; User Web reads only published, unexpired rows through an
-authenticated user-scoped query. The `announcement_reads` table is a user/announcement
-unique acknowledgement state, and the first acknowledgement writes its audit event in
-the same transaction. Read tracking is deliberately separate from publication,
-targeting, and scheduling so those policies can be added without changing billing or
-identity state.
+OpenAI-shaped transport may be reused where correct but does not imply native
+xAI/Grok Search voice image video realtime OAuth or quota support. Unsupported
+capabilities return a stable ScalaAPI-native error and remain unadvertised.
 
-`accounting_accounts` is the monetary authority: one row per product user stores a
-NUMERIC posted balance and monotonically increasing ledger version. The account,
-append-only `balance_ledger`, `request_leases`, `balance_holds`, request idempotency,
-usage events, and outboxes form one durable billing boundary. All current monetary
-effects acquire the same per-user PostgreSQL transaction lock. Media operations use their
-own idempotency key and lifecycle table because asynchronous response metadata must
-survive provider polling. A repeated synchronous/streaming key is checked before
-scheduling and returns replay or fingerprint conflict; completed non-stream
-responses additionally retain a bounded body for replay after settlement. Active
-duplicates remain 409 until the completion report is durable, and streaming replay
-is a separate protocol concern. Each lease also stores an immutable price version
-and NUMERIC unit-rate snapshot; settlement never reprices from mutable process
-configuration. An active subscription adds a second NUMERIC entitlement boundary:
-the lease transaction locks the selected subscription row and reserves its maximum
-hold before Provider dispatch. `quota_reserved_usd` is consumed by the same normal
-usage settlement or released by a proven no-charge/never-forwarded terminal path;
-unknown Provider outcomes retain the reservation for reconciliation. This prevents
-distributed concurrent requests from overselling a grant without duplicating
-accounting SQL in Gateway or Admin. A zero grant is finite, while users without an
-active subscription continue to use account balance only.
-The Admin-owned subscription lifecycle worker consumes due `renewal_at` rows with
-`SKIP LOCKED`: non-renewing rows become `expired`, internal plans reset the next
-grant only after `quota_reserved_usd` reaches zero, and rows with unresolved holds
-become `past_due` until the lease terminal state is known. Expiry and renewal events
-use deterministic period keys in `subscription_events`; external payment providers
-must explicitly advance a future adapter before a `past_due` row can renew.
+Provider credentials are semantic encrypted fields. Platform compiles a bounded
+target credential set; Gateway prevents inbound client authentication from
+replacing it and excludes values from logs metrics errors and response headers.
 
-After authentication and API-key capability authorization, Platform evaluates the
-bounded request content against active, scope-aware `log`/`block` rules. Matches
-are persisted in `content_audit_logs` with an explicit `request` or `response`
-stage and rule identity. A request blocking decision terminates dispatch before
-group rate accounting, scheduling, credential hydration, lease/hold creation, or
-Provider contact. For successful non-stream Chat responses, Gateway evaluates the
-Provider body through the same lease-bound RPC before delivery. A response block
-replaces the body with HTTP 400 `content_policy_violation` while normal Provider
-usage still completes the lease and the policy response is retained for exact
-idempotency replay. For SSE, Gateway buffers one bounded event until the same
-lease-bound decision allows it, then emits a protocol-shaped terminal policy error
-for block or fail-closed outcomes without leaking the blocked event. A blocked or
-failed stream retains unknown-charge evidence for reconciliation. The shared
-`unicode-confusable-v1` evaluator performs deterministic NFKC/case-folding,
-format-character removal, and bounded confusable mapping before local matching.
-Rules persist evaluator version, classifier choice, redaction, and a monotonic
-policy revision. The configured `external` classifier uses the source-owned HTTP
-adapter contract `POST /v1/classifier/evaluate` with JSON fields `content`,
-`pattern`, and `evaluator_version`. Platform bounds the UTF-8 request to 129 KiB,
-the pattern to 1024 bytes, the response to 8 KiB, and the timeout to 100-5000 ms.
-HTTP 429/5xx and transport/timeout failures map to retryable
-`content_policy_classifier_unavailable`; non-success or malformed/unknown JSON
-maps to `content_policy_classifier_protocol_error`. The Provider mock implements
-match, no-match, outage, malformed, oversized, and timeout fixtures for this
-contract. An unavailable adapter fails closed; it is not a silent local fallback.
-Every Admin rule create/update/delete increments the
-revision and appends an actor/IP audit row plus a PostgreSQL change-outbox event
-in the same transaction. A hosted Platform worker claims those events with
-`FOR UPDATE SKIP LOCKED`, publishes the latest revision and invalidation counter
-to authenticated Garnet, and clears or retries the claim with bounded error
-evidence. Policy blocks and classifier/evaluator failures append deterministic,
-redacted alert events in the same policy-decision transaction. Admin exposes
-protected paged change and alert queries; PostgreSQL remains authoritative when
-Garnet is unavailable.
+## Specialized and asynchronous operations
 
-A request begins `held`. Gateway must persist `forwarded` before contacting a
-Provider and records `output_started` after its first successful client write. The
-immutable `request_lease_events` journal records these facts and abort disposition.
-A TTL may safely expire and release only a lease that remained `held`. A timed-out
-`forwarded` or `output_started` lease enters `reconciliation_needed`, keeps its hold
-active, blocks the same idempotency key, and may still accept one late durable usage
-completion. Elapsed wall-clock time, connection loss, or a synthesized Gateway
-error is never evidence of no Provider charge.
+Search audio image video and realtime are separate product capabilities rather
+than aliases for Chat:
 
-User creation and configuration never carry a balance. Administrative funding,
-payment credit/refund, redeem bonus, and usage debit use stable effect IDs and one
-repository. An accepted effect atomically updates the account, appends the next
-versioned ledger row, and upserts the latest projection snapshot. Administrative
-commands additionally require an idempotency key/reason, verify active holds, and
-persist actor audit. Dispatch availability is computed from posted balance minus
-active SQL holds in the same serialization domain.
+- Search owns bounded query filters normalized results source metadata history
+  privacy and per-query settlement.
+- TTS and STT own audio byte limits object metadata signed access retention voice
+  authorization and character or duration pricing.
+- Image and video operations own durable operation/item state deterministic
+  object keys polling cancellation repair retention and specialized usage.
+- Each advertised Realtime protocol (for example Responses WebSocket, Live sideband
+  or a Provider-native session) is a separate contract. It owns concurrency,
+  backpressure, cancellation, terminal usage and one durable lease per session. Its
+  initial request and every bounded text frame cross the same request/response policy
+  boundary; binary/audio and attestation behavior are explicit product decisions.
 
-Orleans is not a monetary authority. The user Grain stores only the last projected
-ledger version and balance, ignores older snapshots, and permits same-version repair
-when its stored value is corrupt. Admin requests may project immediately; a Platform
-hosted worker drains `accounting_projection_outbox` with expiring claims and bounded
-backoff. A failed projection never rolls back or duplicates committed money. A
-PostgreSQL advisory lock serializes periodic reconciliation across all Silos and
-Admin-triggered runs. Each run proves account balance/version and ledger contiguity,
-usage/debit equality, lease/hold terminal state, and Grain projection state. It may
-repair only terminal holds and stale projections whose expected outcome is proven;
-all other drift and unknown Provider charges become durable operator-visible
-incidents. Admin operators may resolve an open `unknown_provider_charge` incident
-through a token-protected Platform command: `settle` reuses the normal usage effect
-and price snapshot, while `release` is accepted only with explicit no-charge
-evidence. The resolution row, lease terminal transition, hold/accounting effect,
-immutable operator lease event, and actor audit are committed atomically; the
-incident remains resolved on later reconciliation runs. Gateway and Platform have
-opt-in, one-shot fault hooks around dispatch, Provider completion, settlement
-commit, and outbox acknowledgement. A claim marker prevents a restarted process
-from repeating the same injected crash. The Podman single-silo smoke enables an
-explicit Orleans membership recovery mode to retire stale active rows before the
-replacement silo joins; multi-silo deployments retain normal liveness voting.
-One post-settlement-commit crash is source-smoke proven; the full hook matrix and
-multi-instance evidence remain release gates.
+Object completion requires both durable metadata and verified bytes. Partial PUT
+or a lost success response must converge without a duplicate object or debit.
 
-## Garnet
+## Identity commercial and policy boundaries
 
-Garnet is a separate Microsoft Garnet Server, pinned by image digest and reached by
-TCP on the private service network. The product uses Garnet's RESP transport but
-does not run Redis or an in-process RESP server. Development uses password
-authentication. Both clients support TLS 1.2/1.3 with certificate-name validation.
-The checked-in `deploy/stack/docker-compose.tls.yml` enables Garnet server TLS
-with a password-protected PFX, mounts the CA read-only into Platform and Gateway,
-and passes the configured DNS server name to both clients. The accompanying
-`deploy/stack/garnet_tls_smoke.sh` creates a short-lived test chain and exercises
-the full source smoke through the production TLS readiness path. The wrapper then
-rotates the mounted PFX through Garnet's configured refresh period, forces client
-reconnects, rejects wrong-name and expired bundles, restores the valid bundle, and
-proves a new billable request. The default development stack remains plaintext;
-partitioned multi-process convergence remains a deployment gate.
+Password sessions OAuth TOTP Passkeys reset and verification flows are native
+ScalaAPI state machines. Tokens are hashed for lookup or encrypted only when a
+delivery worker needs recoverable material. Public entry points share explicit
+anti-enumeration captcha domain and distributed-rate policies.
 
-Key namespaces are prefixed with `scalaapi:v1`. Auth, model, route, sticky-session,
-rate-window, content-policy revision, and invalidation keys have explicit TTLs or
-are version counters.
-All keys are projections and may be rebuilt from the product registry and Orleans
-aggregate projections through the protected Platform rebuild operation. Garnet outage makes
-new rate-sensitive dispatch fail closed while settlement and recovery outboxes stay
-available.
+Payments subscriptions redeem and referral effects enter the same accounting
+authority through idempotent effect IDs. A checkout or webhook does not grant
+balance until its provider-specific authenticity and state transition are durable.
 
-Passive monitoring and scheduled operations use PostgreSQL authority plus fenced,
-expiring claims or advisory locks. Channel Monitor V2 keeps its mode separate from
-manual probes, advances durable watermarks in bounded batches, stores privacy-aware
-rollups rather than raw cross-user payloads, and permits only one cluster worker to
-own a backfill segment. Scheduled backups likewise require cluster-singleton
-leadership while manual backup remains an independent idempotent command; Garnet or
-another cache may coordinate a lease but cannot be the sole history or artifact
-authority.
+Content policy coverage is an explicit capability matrix. Every advertised textual
+request and response path runs at its bounded pre-Provider/pre-client point; binary
+and opaque media have an explicit allow, block or classifier decision rather than an
+implicit omission. Policy state and audits live in PostgreSQL; Garnet only
+distributes revision projections. A classifier outage follows the configured
+fail-closed contract and cannot silently fall back to a different policy.
 
-## Provider and object storage
+## Operations
 
-Gateway owns the streaming Provider transport behind a common adapter contract.
-Platform owns account selection, credential protection, scheduling, and settlement.
-Provider names and generic credentials are discovery metadata, not an implementation
-claim. A provider is supported only when its capability matrix, native path/method,
-request/response/stream semantics, credential lifecycle, account health and quota
-state, model catalogue, usage units, pricing, error/account-penalty policy, and
-source-owned fixtures are explicit. This prevents the current generic `grok`/`xai`
-label and Bearer path from being mistaken for Grok parity.
+Active monitoring requires one fenced cluster owner and real bounded probes.
+Passive monitoring requires durable watermarks deduplication privacy-aware
+rollups and fenced backfill ownership.
 
-Specialized capabilities remain first-class contracts. Web/X Search needs bounded
-filters, source/result normalization, dedicated usage counts, and stable feature
-gates. TTS, STT, and custom voices need separate media, authorization, retention,
-and character/hour/minute settlement semantics. Generic Chat, alpha-search routing,
-realtime WebSocket transport, or video storage may be reused, but none is sufficient
-evidence that those APIs exist.
+Backup completion means an artifact was created encrypted or signed as configured
+and its bytes and checksum were verified. Offsite completion requires actual
+transfer and readback evidence. Restore targets are isolated from live authority
+and must pass schema identity and accounting checks.
 
-Pricing records four independent model identities when available: client-requested,
-channel-mapped, upstream-target, and terminal Provider-observed response model. A
-response-model billing policy must conservatively reject conflicts, never select a
-more expensive model than the authorized request basis, never turn a positive price
-into zero, never bypass an explicit administrative quote, and never apply token-model
-selection to search/audio/image/video unit charges. Group exact/wildcard overrides,
-long-context tiers, and specialized units become immutable lease snapshots before
-Provider contact.
+Runtime acceptance uses source-built images and an empty volume. Load and fault
+harnesses must fail when any child exits early any query is invalid or settlement
+does not converge. A one-hour run is evidence only when its final durable
+invariants and cleanup succeed.
 
-Provider quota/tier snapshots are scheduler inputs rather than monetary authority.
-Each provider adapter bounds and timestamps its snapshot; unknown or stale state has
-an explicit fail/soft-gate policy, refresh is fenced across Silos, and account/model
-cooldowns are audited. Subscription claims embedded in Provider tokens never replace
-ScalaAPI's own balance, hold, subscription, or ledger authority.
+Initial installation has one ScalaAPI-native bootstrap contract for dependency
+checks and the first administrator. It may be an authenticated deployment command
+or a bounded setup UI, but it cannot depend on Sub2API state or silently create
+production authority from default credentials.
 
-Stored Provider credentials are semantic encrypted fields, not an unbounded list of
-HTTP headers. Platform alone compiles those fields into the source-owned target:
-OpenAI-compatible API keys become Bearer authorization, Anthropic keys become
-`x-api-key` with an explicit `anthropic-version` and optional bounded
-`anthropic-beta`, and Gemini keys become `x-goog-api-key`. Gateway validates the
-target header set, never lets inbound client authentication replace it, and never
-includes credential values in errors, logs, metrics, or response headers. Provider
-base URLs remain account configuration while Platform owns the escaped native path
-and method; API keys are not appended to URLs.
+## Contract and release discipline
 
-OAuth refresh is a leased, generation-fenced account transition. A bounded token
-endpoint `invalid_grant` is terminal: the lease winner clears encrypted access,
-refresh, and client-secret material, advances the credential generation, records
-only bounded revocation metadata, and makes the account unschedulable. Hydration
-and stale refresh completion fail closed. An explicit complete OAuth replacement
-advances the generation again and is the only recovery path; metadata-only edits do
-not revive a revoked credential. Refresh audit rows never contain token material.
+Platform owns the canonical Cap'n Proto schemas. A paired change updates canonical
+schemas Gateway vendors generated bindings digests and tests atomically. Handwritten
+numeric enums are not an independent contract authority.
 
-Native Provider 401/403 responses are account-health failures rather than caller
-authentication failures: Gateway applies the bounded account failover policy and,
-when no eligible account remains, exposes 503 `provider_unavailable`. Each explicit
-Provider rejection still terminates its lease through the no-charge path, releases
-the hold, and writes no usage or debit. The source-owned mock returns the native 401
-envelope directly, so mock-level authentication and product-level failover are
-tested as distinct contracts.
-For native SSE, successful HTTP status is not settlement evidence. Anthropic
-requires `message_stop`; Gemini requires a terminal candidate, and both require the
-exact `text/event-stream` media type. EOF before the protocol terminal event keeps
-the lease unknown unless a bounded, valid Provider usage object was already
-observed. That usage is durably reported against the same lease and may settle the
-unknown state exactly once. Missing/invalid usage or wrong media type never triggers
-a debit and keeps the hold for reconciliation. Platform `f99db88` and the
-`scalaapi-native-stream-0811b` empty-volume gate prove this same contract for native
-Anthropic and Gemini streams: late usage completes the original unknown lease once,
-while wrong media type creates no retry or financial effect.
+A releasable manifest records:
 
-Client cancellation is independent of Provider stream completion. Gateway observes
-ingress hangup without consuming request bytes, shuts down the one owned Provider
-socket, and terminates the corresponding header/body read without Photon retry or
-account failover. Because transport cancellation cannot prove that the Provider did
-not charge, a forwarded request retains one `reconciliation_needed` lease and
-active hold unless valid final usage is durably settled later. The transport never
-manufactures a zero-usage completion or terminal SSE event.
+- Platform and Gateway immutable commits;
+- canonical contract and generated-binding digests;
+- migration manifest and empty-schema double-run result;
+- executed passed failed and skipped test totals;
+- Web build and backend-backed browser evidence;
+- source-built image digests and short plus one-hour runtime evidence;
+- security supply-chain restore and cleanup results.
 
-The source-owned Provider mock deterministically exercises JSON, SSE, 429, 500,
-delay, disconnect, and malformed usage. Normalized request fields select faults,
-while separate seeded accounts isolate scheduler cooldown and retry state. Gateway
-rejects an incomplete payload-bearing 2xx before usage extraction. S3-compatible
-storage owns media bytes; PostgreSQL owns object keys, metadata, retention, and
-authorization. Platform's metadata-only object reconciler claims due succeeded
-rows with `SKIP LOCKED`, verifies signed `HEAD` ETag/size/existence, and records
-retryable object metadata failures without changing a settled operation or lease;
-object listing/orphan deletion and restore are separate lifecycle controls.
+Sub2API refs data and artifacts never appear in that manifest.
+Roll forward and rollback replace the paired immutable Platform/Gateway deployment.
+The services do not download and mutate their own binaries; any Admin endpoint that
+claims an update must control and verify the external deployment transaction or be
+removed.
 
-## Internal contract
+## Current deviations
 
-Platform owns the single Cap'n Proto source under `platform/contracts/capnp`.
-Gateway vendors byte-identical schemas so its repository builds independently, and
-both repositories check the same schema digest. Platform CI restores the pinned
-`capnpc-csharp` 1.3.118 local tool, builds the official Cap'n Proto 1.0.2 compiler at
-commit `1a0e12c0a3ba1f0dbbad45ddfef555166e0a14fc`, regenerates all C# artifacts in a
-temporary directory, and byte-compares them with the checked-in output. The contract
-is currently revision 3 and contains no compatibility branches or deprecated
-fields. Its dispatch request carries the request body for the pre-dispatch policy
-decision, and Platform rejects bodies above 128 KiB before billable work. Revisions
-replace the single greenfield contract; they do not preserve old wire behavior.
+The architecture above is the target invariant not a claim that every path is
+complete. At the audit baseline:
+
+| Deviation | Consequence |
+| --- | --- |
+| Migration `055-search-history.sql` references `users` and `api_keys`; migration 056 repeats those names | An empty product database cannot reach the current schema |
+| Gateway's vendored `dispatch.capnp` omits audio enum values present in Platform | Cross-repository contract verification fails |
+| Database tests directly return when the connection variable is absent | The 502-test no-database run is not integration evidence |
+| Scheduler benchmarks cannot resolve `ISlotLeaseStore` in their Orleans Silo | All four required cases exit without valid reports |
+| Greenfield CI does not pass a Gateway path to contract verification | Hosted greenfield verification never proves canonical/vendor equality |
+| Platform and Gateway each have independent tag publishers, and local release scripts bypass or invent evidence | Images/tags and pass reports can be produced without one paired pre-publication gate |
+| Realtime dispatch omits request content, raw-relays later frames, skips ordinary query validation and uses the direct peer IP | Content policy and trusted-proxy identity do not cover the WebSocket path |
+| HTTP response policy is selected by a chat-only predicate | Search, Antigravity, audio/media, embeddings and models do not receive equivalent response evaluation |
+| Gateway accepts 32 MiB but Platform RPC accepts only 1 MiB | Large multipart/media can disconnect before a durable dispatch decision |
+| `output_started` is a one-shot RPC after client output and failures are log-only; non-retryable unacknowledged usage is deleted | Provider-charge evidence can lack a durable reconciliation record |
+| Gateway construction tolerates failed dependencies or bind/listen and readiness checks only dispatch UDS | A live process or successful `/ready` response does not prove Garnet, usage durability or every listener is usable |
+| Anonymous model discovery returns an empty 200 response when Garnet is unavailable | Cache failure can masquerade as an authoritative empty catalogue |
+| Platform target method/path/general headers and TLS profile fields are not fully enforced by Gateway | Invalid target compilation or metadata-only TLS profiles can reach outbound transport |
+| Search is registered as stream-capable but the handler enables streaming only for chat-classified capabilities | Advertised Search streaming is unreachable in the current path |
+| Admin `/admin/system/update` fetches only release metadata and reports a binary as downloaded without downloading or installing it | The UI/API can claim an update that never happened; this conflicts with paired immutable deployment ownership |
+| No selected inventory row previously stated the initial-admin/setup or configurable upstream-error decision | Reference breadth could be silently omitted or mistaken for an implicit compatibility requirement |
+| Channel monitor and passive monitor use process-local or placeholder leadership | Multi-process scheduling is not proven |
+| Provider quota refresh rewrites seeded snapshots instead of calling Provider adapters | Quota freshness is not production behavior |
+| Scheduled backup marks a claim complete without creating an artifact | Scheduler success is not backup success |
+| Offsite upload records a destination without transferring bytes | Offsite status can overstate durability |
+| Stress scripts query tables outside the actual ownership model and tolerate some child failures | Historical stress completion claims are invalid |
+
+These deviations are tracked in
+[feature-gap-report.md](feature-gap-report.md),
+[implementation-task-list.zh-CN.md](implementation-task-list.zh-CN.md),
+[risk-register.md](risk-register.md) and
+[verification.md](verification.md). They must be resolved or removed from advertised
+scope; none may be hidden with compatibility data or reference-project services.
