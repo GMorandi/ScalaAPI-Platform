@@ -237,21 +237,38 @@ static async Task BootstrapAdminAsync(IServiceProvider services, IConfiguration 
     if (password.Length < 12)
         throw new InvalidOperationException("Admin:Password must be at least 12 characters");
 
+    var rejectedPasswords = new[]
+    {
+        "replace-with-a-strong-admin-password",
+        "admin", "password", "changeme", "administrator",
+    };
+    if (rejectedPasswords.Contains(password.Trim().ToLowerInvariant()))
+        throw new InvalidOperationException("Admin:Password must not be a well-known default");
+
     await using var scope = services.CreateAsyncScope();
     var db = scope.ServiceProvider.GetRequiredService<ISqlSugarClient>();
     var registry = scope.ServiceProvider.GetRequiredService<ListingRepository>();
-    var normalized = username.Trim().ToLowerInvariant();
-    var existing = await db.Queryable<ScalaAPI.Data.Entities.UserAccountEntity>()
-        .Where(x => x.Email == normalized).FirstAsync();
-    if (existing is not null)
+
+    var existingAdminCount = await db.Queryable<ScalaAPI.Data.Entities.UserAccountEntity>()
+        .Where(x => x.Role == "admin").CountAsync();
+    if (existingAdminCount > 0)
     {
-        await registry.RegisterInteger("user", existing.Id);
-        return;
+        var normalized = username.Trim().ToLowerInvariant();
+        var existing = await db.Queryable<ScalaAPI.Data.Entities.UserAccountEntity>()
+            .Where(x => x.Email == normalized).FirstAsync();
+        if (existing is not null)
+        {
+            await registry.RegisterInteger("user", existing.Id);
+            return;
+        }
+        throw new InvalidOperationException(
+            "An admin account already exists; refusing to create a second admin. " +
+            "Use the admin API to manage additional accounts.");
     }
 
     var account = new ScalaAPI.Data.Entities.UserAccountEntity
     {
-        Email = normalized,
+        Email = username.Trim().ToLowerInvariant(),
         PasswordHash = BCrypt.Net.BCrypt.HashPassword(password),
         Role = "admin",
         Status = "active",
@@ -260,6 +277,6 @@ static async Task BootstrapAdminAsync(IServiceProvider services, IConfiguration 
     await db.Insertable(account).ExecuteCommandAsync();
     account.Id = Convert.ToInt64(await db.Ado.GetScalarAsync(
         "SELECT id FROM user_accounts WHERE email = @email",
-        new SqlSugar.SugarParameter("@email", normalized)));
+        new SqlSugar.SugarParameter("@email", account.Email)));
     await registry.RegisterInteger("user", account.Id);
 }
