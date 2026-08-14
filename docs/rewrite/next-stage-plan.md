@@ -1,7 +1,7 @@
 # ScalaAPI Rewrite Next-Stage Plan
 
-Baseline: Platform `bc083d1`, Gateway `b6e4e02`, Sub2API research snapshot
-`origin/main@fbfdcef`; audit date 2026-08-14.
+Baseline: Platform `30d82d0`, Gateway `98c62fd`, ScalaAPI pair `032721b`, and
+Sub2API research snapshot `origin/main@fbfdcef`; audit date 2026-08-14.
 
 This plan completes a greenfield implementation. It does not migrate, emulate or
 remain compatible with Sub2API. The research repository can suggest candidate
@@ -28,11 +28,11 @@ design without a compatibility period.
 
 ### G0-01 Repair the greenfield migration chain
 
-Status: `TODO`, release blocking.
+Status: `DONE` on Platform `30d82d0`; keep as a release gate.
 
-- Replace erroneous `users` / `api_keys` references in migrations 055 and 056 with
-  product-owned `user_accounts` / `user_api_keys`, and audit migrations 057-066 for
-  every referenced table, column and FK.
+- The erroneous `users` / `api_keys` references in migrations 055 and 056 were
+  replaced with product-owned `user_accounts` / `user_api_keys`; migrations 057-066
+  were audited for referenced tables, columns and FKs.
 - Decide whether the absent 054 is intentional. Gaps are allowed in a greenfield
   sequence, but the manifest/report must not claim a contiguous 001-066 chain.
 - Run the actual migrator against empty PostgreSQL 17 twice. Expected count is 66
@@ -40,82 +40,64 @@ Status: `TODO`, release blocking.
 - Run `MigrationSchemaTests` and the complete database-enabled solution immediately
   after that same migration, without runtime ORM table creation.
 
-Exit: both migration passes exit 0, the second reports 66 skips, and no product
+Evidence: an isolated PostgreSQL 17 run applied 66 records and a second run skipped
+66 records; the database-enabled Platform suite then passed 502/502. No product
 schema object comes from Sub2API or startup-time CodeFirst.
 
 ### G0-02 Repair the canonical/vendor contract release
 
-Status: `TODO`, release blocking.
+Status: `DONE` on Platform `30d82d0` / Gateway `98c62fd`; keep as a paired gate.
 
-- Keep `audioTts @12` / `audioStt @13` in the canonical greenfield contract if those
-  capabilities remain; update Gateway's vendored schema and digest.
-- Regenerate Platform C# from the pinned compiler and remove the hand-maintained
-  numeric C++ enum as an independent authority (derive it from generated schema or
-  add a compile-time equality gate).
-- Checkout the paired Gateway with explicit credentials and pass its path to
-  `verify-contracts.sh <gateway>`; the current greenfield job omits the argument and
-  therefore exits after Platform-local digest verification.
-- Record the paired Platform/Gateway SHAs in one immutable manifest before image
-  publication. No compatibility negotiation is needed for old internal revisions.
+- Canonical Platform and vendored Gateway schemas now contain the same bytes and
+  digests, including `audioTts @12` / `audioStt @13`.
+- Checked-in C# output matches Cap'n Proto 1.0.2, and the centralized workflow
+  compares both repositories before publishing. No compatibility negotiation is
+  needed for old internal revisions.
 
-Exit: byte comparison, both repository digests, generated C# comparison, both builds
-and audio dispatch tests pass at the paired refs.
+Evidence: `verify-contracts.sh ../gateway`, generated C# comparison and both local
+digest checks pass at the latest component heads. A clean Gateway build remains a
+separate acceptance item because the current worktree has uncommitted changes.
 
 ### G0-03 Make test and CI results truthful
 
-Status: `TODO`, release blocking.
+Status: `DONE` on Platform `30d82d0`; keep as a required CI gate.
 
-- Replace 123 database-test early returns with explicit integration traits/fixtures.
-  The greenfield job must fail if PostgreSQL/Garnet prerequisites are absent; local
-  unit jobs may report real skips with counts and reasons.
-- Remove the duplicate/nonblocking Admin typecheck path (`continue-on-error: true`).
-- Register `ISlotLeaseStore` and the production-equivalent scheduler dependencies in
-  the benchmark Silo. Require all Scheduler cases to emit valid reports before
-  applying threshold checks.
-- Make Platform ordinary and release CI invoke the greenfield database job or an
-  equivalent required reusable workflow.
-- Make cross-repo contract, Web typecheck/build, Playwright, migration double-run,
-  smoke and security checks required rather than merely present in separate YAML.
-- Do not publish `latest` until all paired release gates pass.
-- Delete or gate the independent tag-triggered `docker.yml` publish path. Move every
-  image push after clean rebuild and paired verification.
-- Delete or gate Gateway's independent `v*` release publisher as well; a passing
-  Gateway-local digest/build/test/benchmark is not a paired release.
-- Replace `deploy/release.sh`'s hard-coded pass report with captured command results;
-  it must run tests, benchmarks, migrations, clean builds and cross-repo byte comparison
-  before creating or pushing either repository tag.
+- Database-required tests now fail visibly when `GREENFIELD_SCHEMA_CONNECTION` is
+  missing; the current negative control reports 113 Host failures instead of a
+  false green result.
+- Admin typecheck is blocking, the Scheduler Silo registers `ISlotLeaseStore`, and
+  all six Platform benchmark cases now emit successful reports.
+- Platform component publishing was removed from the old bypass paths. ScalaAPI's
+  central workflow owns pair validation, database gates, Web builds and release
+  evidence; it publishes only exact superproject tags.
 
-Exit: CI summary reports exact tests executed/skipped, database identity, migration
-count, benchmark reports, paired commits and image digests; intentional DB/contract/
-benchmark/typecheck failures make the top job non-zero.
+Evidence: the current local commands and centralized workflow fail on missing
+database, contract, benchmark or typecheck prerequisites. Full browser and runtime
+smoke gates remain separate release work.
 
 ### G0-04 Repair the runtime verification harness
 
-Status: `TODO`, release blocking.
+Status: `DONE` for corrected SQL and failure propagation on Platform `30d82d0`;
+runtime duration gates remain open.
 
-- Fix stress queries that refer to nonexistent PostgreSQL tables
-  (`gateway_usage_outbox`, `reconciliation_incidents`). Gateway's durable usage
-  outbox is SQLite and Platform incidents use the product table names.
-- Fail when a load/fault child exits early; the current loop logs a dead child but
-  can continue without accumulating a failure.
-- Remove readiness/admin URL fallbacks that hide failures, and make settlement
-  timeout a hard failure.
-- Add shell/static contract tests for every SQL query used by smoke/stress scripts.
+- Stress queries now use `usage_outbox` and
+  `accounting_reconciliation_incidents` with the current column names.
+- Background child exits and settlement timeouts now set a fatal status, and the
+  verifier returns non-zero after a failed verification phase.
 
-Exit: a short deterministic fault run first passes, then an injected bad query and
-an early-dead load child each fail the top-level command.
+Evidence: shell syntax and static ownership checks pass. A full short fault run and
+the 3600-second runtime gate are still required before REL-02 can close.
 
 ### G0-05 Make fresh-stack setup and Gateway readiness truthful
 
-Status: `TODO`, release blocking. Dependencies: G0-01.
+Status: `DONE` for startup/readiness and first-admin source guards on Platform
+`30d82d0` / Gateway `98c62fd`; runtime deployment evidence remains open.
 
-- Fail Gateway startup if any per-core listener, dispatch client, Garnet client or
-  usage SQLite authority is unusable; `/ready` must cover the mandatory set.
-- Choose one ScalaAPI-native first-administrator bootstrap contract: an authenticated
-  deployment command or a bounded one-time setup API/UI. Do not copy Sub2API setup
-  envelopes, defaults or state.
-- Prove dependency failure, concurrent/replayed initialization, default-secret
-  rejection, completion lockout and clean empty-volume startup.
+- Gateway startup and `/ready` now include dispatch, Garnet, SQLite and listener
+  dependency checks. Platform first-admin bootstrap has one-time locking and
+  default-secret rejection guards.
+- The setup contract remains ScalaAPI-native; it does not copy Sub2API defaults or
+  state.
 
 Exit: negative dependency/listener probes fail readiness and the one-time bootstrap
 creates exactly one authorized initial administrator without reference-system data.
@@ -123,6 +105,8 @@ creates exactly one authorized initial administrator without reference-system da
 ## Phase 1: Close the monetary and Provider core
 
 ### P0-01 Revalidate leases, scheduler and settlement on the repaired schema
+
+Status: `PARTIAL`; focused database evidence passes, multi-process runtime evidence remains.
 
 Dependencies: G0-01, G0-03.
 
@@ -141,6 +125,10 @@ Exit: all monetary invariants are queried from PostgreSQL after process replacem
 no test asserts only in-memory Grain state.
 
 ### P0-02 Finish the protocol conversion matrix
+
+Status: `PARTIAL`; current Gateway HEAD includes substantial conversion and policy
+fixes and its clean source build passes, but cross-component runtime acceptance is
+still missing.
 
 Dependencies: G0-02, P0-01.
 
@@ -166,6 +154,9 @@ groups pass without silently taking only the first text candidate.
 
 ### P0-03 Finish provider catalogue, tokenization, pricing and quota authority
 
+Status: `PARTIAL`; real quota clients and model-catalogue refresh are present, but
+controlled Provider and stale/unknown runtime evidence is missing.
+
 Dependencies: P0-01.
 
 - Define versioned provider adapters for model catalogues, token counting, price
@@ -184,6 +175,9 @@ checksums and settlement without secrets.
 
 ### P0-04 Complete xAI/Grok as a provider, not a label
 
+Status: `PARTIAL`; xAI quota support is now wired, while the full native capability
+matrix and billing/runtime evidence remain open.
+
 Dependencies: P0-02, P0-03.
 
 - Freeze an explicit xAI capability matrix: catalogue, text JSON/SSE, Responses,
@@ -198,6 +192,10 @@ Exit: Admin and scheduler expose truthful capabilities; no generic Bearer route 
 described as full native Grok support.
 
 ### P0-05 Close the realtime content-policy boundary
+
+Status: `PARTIAL`; the clean Gateway HEAD dispatches the initial body and applies
+non-chat policy selection, while the current uncommitted frame-policy change does
+not compile and later-frame runtime evidence is absent.
 
 Dependencies: P0-01, P0-02.
 
@@ -218,10 +216,13 @@ and one explainable financial outcome across disconnect and process replacement.
 
 ### P1-01 Web Search and X Search
 
+Status: `PARTIAL`; greenfield schema/history and mock contracts pass, but real Web/X
+adapters, streaming and settlement evidence are not complete.
+
 Dependencies: G0-01, P0-03, P0-04 for xAI routes.
 
-- Repair `search_history` FKs and freeze bounded query/domain/recency/result/source
-  contracts plus privacy/redaction policy.
+- Keep the repaired `search_history` FKs in the empty-schema gate and freeze bounded
+  query/domain/recency/result/source contracts plus privacy/redaction policy.
 - Implement distinct Web/X adapters, per-query settlement, retry/account-penalty
   semantics and owner-scoped history.
 - Make declared Search streaming use the bounded stream/policy/usage path, or remove
@@ -230,9 +231,13 @@ Dependencies: G0-01, P0-03, P0-04 for xAI routes.
 
 ### P1-02 TTS, STT and custom voices
 
+Status: `PARTIAL`; migrations, contract bytes, stores and mock routes pass, while
+provider audio/object/ownership E2E remains open.
+
 Dependencies: G0-01, G0-02, P0-03.
 
-- Repair voice/audio FKs and the contract vendor drift.
+- Keep the repaired voice/audio FKs and canonical/vendor contract in the paired
+  empty-schema and byte-equality gates.
 - Implement bounded multipart/audio input and output, real object metadata, signed
   access, owner authorization, cancellation, retention and missing-object repair.
 - Snapshot character/audio-duration/storage pricing before Provider contact and
@@ -274,11 +279,15 @@ operation/lease; restart and retention cannot duplicate objects or financial eff
 
 ### P2-03 Active/passive monitoring and observability
 
-- Replace process-local monitor leadership with PostgreSQL advisory/fenced claims.
-- Replace simulated checks with bounded actual channel/Provider probes and close
-  incidents on recovery.
-- Replace Passive V2's leader placeholder, prove watermark/dedup/backfill across
-  process replacement and enforce privacy defaults.
+Status: `PARTIAL`; PostgreSQL leadership, real channel probes and passive watermark
+logic are implemented, but multi-process outage/recovery evidence is pending.
+
+- Exercise the implemented PostgreSQL advisory-lock leadership under concurrent
+  Platform processes and prove one active owner, handoff and fencing after failure.
+- Exercise the bounded HTTP channel probes against success, timeout, malformed and
+  recovery targets, including incident open/close behavior.
+- Prove Passive V2 watermark/dedup/backfill across process replacement and enforce
+  privacy defaults under the implemented distributed leadership path.
 - Correlate Gateway/Platform/Provider metrics by bounded request/lease IDs and add
   alert delivery/recovery without sensitive labels.
 - Fail Gateway startup when any per-core listener or mandatory durable dependency is
@@ -286,9 +295,13 @@ operation/lease; restart and retention cannot duplicate objects or financial eff
 
 ### P2-04 Backup, restore and disaster recovery
 
-- Make the scheduler create encrypted/signed backups under a fenced singleton claim.
-- Replace the no-I/O offsite placeholder with real S3-compatible upload, HEAD/readback
-  checksum, retry and retention deletion.
+Status: `PARTIAL`; scheduled creation and offsite upload code now exists, but
+corruption, restore and measured RPO/RTO drills are pending.
+
+- Exercise scheduled encrypted/signed backup creation under concurrent workers and
+  prove the singleton claim cannot create duplicate artifacts.
+- Extend the implemented S3-compatible PUT with HEAD/readback checksum, retry and
+  remote retention deletion, then prove it against an isolated object store.
 - Restore only to an isolated target, run post-restore schema/user/accounting checks,
   inject corruption/target/credential failures and record measured RPO/RTO.
 - Exercise rolling forward and rollback using paired Platform/Gateway release refs.
@@ -328,6 +341,9 @@ Garnet, PostgreSQL, object-storage, TLS and process faults. Required outcomes:
 Publish only after the same manifest pins Platform SHA, Gateway SHA, contract digest,
 migration manifest, image digests, test totals/skips and release evidence artifacts.
 The release never includes Sub2API refs or data because it is not an upgrade path.
+Generate test totals/skips by parsing the uploaded Platform TRX and explicit
+Gateway/Web result artifacts; do not synthesize `status: passed` or `skipped: []`
+from job dependency names alone.
 Remove or disable the current Admin self-update endpoint that reports a metadata
 lookup as a download; rollout and rollback are external paired-deployment transactions.
 

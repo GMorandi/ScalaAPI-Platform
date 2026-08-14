@@ -1,6 +1,10 @@
 # ScalaAPI Greenfield Architecture
 
-Audit baseline: Platform `bc083d1` and Gateway `b6e4e02` on 2026-08-14.
+Audit baseline: Platform `30d82d01c2daed1ff0460fa020cad5d9ff434cdd`,
+Gateway `98c62fdec99836929f1ab47412ef46c7f2c67683` and ScalaAPI
+superproject `032721b65a3960171ce66a390451b98364f4b94a` on 2026-08-14.
+The superproject currently pins Platform `e73a5d8` and Gateway `777278e`, not the
+latest standalone component heads.
 
 This document defines ScalaAPI's own architecture. Sub2API is non-normative
 research input used only to discover capability families. Its API behavior,
@@ -201,27 +205,27 @@ complete. At the audit baseline:
 
 | Deviation | Consequence |
 | --- | --- |
-| Migration `055-search-history.sql` references `users` and `api_keys`; migration 056 repeats those names | An empty product database cannot reach the current schema |
-| Gateway's vendored `dispatch.capnp` omits audio enum values present in Platform | Cross-repository contract verification fails |
-| Database tests directly return when the connection variable is absent | The 502-test no-database run is not integration evidence |
-| Scheduler benchmarks cannot resolve `ISlotLeaseStore` in their Orleans Silo | All four required cases exit without valid reports |
-| Greenfield CI does not pass a Gateway path to contract verification | Hosted greenfield verification never proves canonical/vendor equality |
-| Platform and Gateway each have independent tag publishers, and local release scripts bypass or invent evidence | Images/tags and pass reports can be produced without one paired pre-publication gate |
-| Realtime dispatch omits request content, raw-relays later frames, skips ordinary query validation and uses the direct peer IP | Content policy and trusted-proxy identity do not cover the WebSocket path |
-| HTTP response policy is selected by a chat-only predicate | Search, Antigravity, audio/media, embeddings and models do not receive equivalent response evaluation |
+| The ScalaAPI superproject still pins `e73a5d8/777278e` while standalone heads are `30d82d0/98c62fd` | The latest component implementations are not yet one supported or released pair; standalone branch state must not be presented as paired release evidence |
+| The shared Gateway worktree has two user edits and does not compile because it refers to nonexistent `LeaseAbortDisposition::Safe` | Those realtime-frame changes cannot enter a release until reconciled and reverified; clean `98c62fd` is unaffected and passes 161/161 CTest cases plus 16 benchmarks |
 | Gateway accepts 32 MiB but Platform RPC accepts only 1 MiB | Large multipart/media can disconnect before a durable dispatch decision |
-| `output_started` is a one-shot RPC after client output and failures are log-only; non-retryable unacknowledged usage is deleted | Provider-charge evidence can lack a durable reconciliation record |
-| Gateway construction tolerates failed dependencies or bind/listen and readiness checks only dispatch UDS | A live process or successful `/ready` response does not prove Garnet, usage durability or every listener is usable |
-| Anonymous model discovery returns an empty 200 response when Garnet is unavailable | Cache failure can masquerade as an authoritative empty catalogue |
-| Platform target method/path/general headers and TLS profile fields are not fully enforced by Gateway | Invalid target compilation or metadata-only TLS profiles can reach outbound transport |
-| Search is registered as stream-capable but the handler enables streaming only for chat-classified capabilities | Advertised Search streaming is unreachable in the current path |
-| Admin `/admin/system/update` fetches only release metadata and reports a binary as downloaded without downloading or installing it | The UI/API can claim an update that never happened; this conflicts with paired immutable deployment ownership |
-| No selected inventory row previously stated the initial-admin/setup or configurable upstream-error decision | Reference breadth could be silently omitted or mistaken for an implicit compatibility requirement |
-| Channel monitor and passive monitor use process-local or placeholder leadership | Multi-process scheduling is not proven |
-| Provider quota refresh rewrites seeded snapshots instead of calling Provider adapters | Quota freshness is not production behavior |
-| Scheduled backup marks a claim complete without creating an artifact | Scheduler success is not backup success |
-| Offsite upload records a destination without transferring bytes | Offsite status can overstate durability |
-| Stress scripts query tables outside the actual ownership model and tolerate some child failures | Historical stress completion claims are invalid |
+| Clean unit and benchmark evidence exists for both component heads, but a source-built two-Silo/two-Gateway deployment has not been exercised from the intended pair | Listener, dependency, failover, usage durability and cross-process behavior are not promoted to verified runtime behavior |
+| Provider quota clients, model-catalogue refresh and bounded channel probes are implemented, but this audit did not execute live OpenAI, Anthropic, Gemini or xAI acceptance contracts | Provider-specific auth, rate-limit, timeout, malformed-response and catalogue/quota semantics remain runtime evidence gaps |
+| Active/passive monitor leadership is PostgreSQL-fenced in source, but no controlled multi-process ownership/failover drill was run | Leadership uniqueness, lease expiry, backfill fencing and recovery remain partially evidenced |
+| Scheduled backup creation and offsite upload paths exist, but no isolated object-store partition, readback, restore or reconciliation drill was run | Backup and offsite completion cannot yet be treated as operational durability proof |
+| Authenticated Admin/User browser workflows were not run against the source-built backend | Passing TypeScript checks and production bundles do not establish persisted end-to-end product behavior |
+| Both Web dependency trees report the high-severity `nanoid <3.3.18` advisory | Production release needs an upgrade or an explicit, documented security gate decision |
+| The complete 3600-second mixed fault/load test has not been run against the latest exact pair | Long-duration settlement convergence, cleanup and failure-detection claims remain unverified |
+| The centralized ScalaAPI CI/release workflow currently validates and publishes its older pinned pair | A new manifest, exact image digests and release tag are required after deliberately advancing and verifying both gitlinks |
+| Release evidence records fixed gate names and `skipped: []` without parsing uploaded TRX or other job results | The artifact cannot substantiate executed/passed/failed/skipped totals even when workflow dependencies are green |
+
+The audit also confirms that several former deviations are closed at the latest
+Platform/Gateway heads: an empty PostgreSQL 17 database applies all 66 migration
+inputs and skips all 66 on rerun; the four database-backed Platform assemblies
+pass 502/502 and fail visibly without their required database; all six Platform
+benchmarks execute; canonical and vendored contracts and generated C# output
+match; and clean Gateway `98c62fd` builds, passes 161/161 CTest cases and runs all
+16 benchmark entries. These checks are prerequisites, not substitutes for the
+remaining paired runtime and release evidence above.
 
 These deviations are tracked in
 [feature-gap-report.md](feature-gap-report.md),

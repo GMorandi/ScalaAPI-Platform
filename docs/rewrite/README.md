@@ -1,6 +1,7 @@
 # ScalaAPI Rewrite Documentation
 
-Authoritative audit snapshot: 2026-08-14, Platform `bc083d1`, Gateway `b6e4e02`.
+Authoritative audit snapshot: 2026-08-14, Platform `30d82d0`, Gateway `98c62fd`,
+ScalaAPI pair `032721b`.
 
 ScalaAPI is an independent greenfield product. Sub2API is non-normative research
 input only: it does not define compatibility, automatic scope, migration or release
@@ -17,12 +18,14 @@ acceptance. This directory is the only active product documentation set.
 | [Risk register](risk-register.md) | Open, partial, controlled and accepted risks |
 | [Verification](verification.md) | Commands actually run, results, limitations and post-repair gates |
 
-Current release posture: **blocked**. The reproduced blockers are the empty-schema
-migration, canonical/vendor Cap'n Proto drift, the Scheduler benchmark dependency
-failure, false-green database test reporting and incomplete operational/runtime
-paths. Gateway evidence durability/readiness and current publish scripts also bypass
-or overstate required guarantees.
+Current release posture: **implementation in progress; paired release not
+certified**. The empty-schema migration, canonical/vendor contract, database test
+gate and Scheduler benchmark now pass on the latest Platform head. Remaining gaps
+are the uncommitted Gateway worktree/build, stale superproject pins, runtime/browser/
+fault-load evidence, live Provider/operations proof and a high-severity `nanoid`
+dependency advisory in both Web applications.
 
-Current selected inventory: **65 domains** = 1 `verified`, 52 `partial`, 7
-`scaffold`, 5 `blocked`, 0 `missing` (P0 37 / P1 24 / P2 4).
-Historical logs and commit messages do not override this snapshot.
+The selected inventory still contains 65 domains, but statuses are being re-promoted
+against the current evidence in [current-state](current-state.md) and
+[verification](verification.md). Historical logs and commit messages do not
+override this snapshot, and no row is promoted merely because its source exists.
