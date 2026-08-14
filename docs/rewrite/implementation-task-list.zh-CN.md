@@ -113,9 +113,12 @@
 - **状态**：`PARTIAL`；**依赖**：G0-01、G0-03、G0-04。
 - **已有**：PostgreSQL lease/hold/idempotency/usage/ledger/outbox/reconciliation，持久 slot
   lease、account health、Gateway SQLite outbox 和保守 unknown-charge 状态。
-- **补齐**：两 Silo/Gateway contention；pre-forward/forwarded/output/commit/outbox-ack/
-  cancellation crash；把 `output_started` 变成持久证据，未确认 non-retryable usage 不能删除；
-  HTTP/realtime 共用 identity；media observed model TODO。
+- **本轮补齐**：`output_started` 持久证据（Gateway evidence_outbox + reporter 重试）；未确认
+  non-retryable usage 改为 dead-letter 保留而非删除；HTTP/realtime 共用 trusted-proxy
+  identity 和 query 验证；media observed model 从 provider 响应传入 settlement；
+  `after_output_started` / `during_cancellation` fault hook 和 smoke 用例。
+- **剩余**：两 Silo chat/stream dispatch contention 长跑；全 crash matrix 在完整
+  docker-compose 环境执行验证。
 - **验收**：每个 request 只能得到一次 debit、一次安全 release 或一个可解释 incident；
   进程替换后无重复 Provider dispatch/usage/object。
 
