@@ -128,7 +128,8 @@ scripts/validate-pair.sh
 scripts/generate-pair-manifest.sh /tmp/scalaapi-pair-manifest.json
 ```
 
-Result: PASS for superproject `032721b`; Platform `e73a5d8`; Gateway `777278e`.
+Result: PASS for superproject `fc86002` (documentation-only commit after the
+`032721b` pair definition); Platform `e73a5d8`; Gateway `777278e`.
 The manifest records three identical Cap'n Proto files, contract digest
 `736ad7a5da2c760a4e3a8e64b0c61044ed092d910df82116143c580d5d2464e6`, and 66
 migration inputs. This proves pair identity and contract integrity, not that the
@@ -140,9 +141,10 @@ The latest hosted runs were checked on 2026-08-14:
 
 | Workflow | Commit | Result |
 | --- | --- | --- |
-| [ScalaAPI Paired CI #6](https://github.com/GMorandi/ScalaAPI/actions/runs/31772708393) | `032721b` | PASS; pair, Gateway, Platform greenfield, Web and manifest jobs completed |
+| [ScalaAPI Paired CI #7](https://github.com/GMorandi/ScalaAPI/actions/runs/31787074783) | `fc86002` | PASS; all six jobs completed, including pair, Gateway, Platform greenfield, Web and manifest gates |
+| [ScalaAPI Paired CI #6](https://github.com/GMorandi/ScalaAPI/actions/runs/31772708393) | `032721b` | PASS; prior pair baseline |
 | [Gateway CI #5](https://github.com/GMorandi/ScalaAPI-GateWay/actions/runs/31780006907) | `98c62fd` | PASS |
-| [Platform .NET Build #256](https://github.com/GMorandi/ScalaAPI-Platform/actions/runs/31780538220) | `30d82d0` | PASS |
+| [Platform .NET Build #257](https://github.com/GMorandi/ScalaAPI-Platform/actions/runs/31787047222) | `ef4673f` | PASS |
 | [Platform Greenfield Verification #242](https://github.com/GMorandi/ScalaAPI-Platform/actions/runs/31780538193) | `30d82d0` | FAIL during the second checkout of obsolete `scalaapi/gateway`; build, tests and benchmark steps were skipped |
 
 The obsolete Platform cross-repository workflow has now been removed. Its former
