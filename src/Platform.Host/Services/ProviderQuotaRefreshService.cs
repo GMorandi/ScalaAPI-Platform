@@ -11,6 +11,8 @@ namespace ScalaAPI.Host.Services;
 public sealed class ProviderQuotaRefreshService(
     NpgsqlDataSource dataSource,
     IProviderQuotaStore quotaStore,
+    ProviderCredentialRefreshService credentials,
+    ProviderQuotaClientFactory quotaClientFactory,
     IConfiguration configuration,
     ILogger<ProviderQuotaRefreshService> logger) : BackgroundService
 {
@@ -46,9 +48,9 @@ public sealed class ProviderQuotaRefreshService(
     }
 
     /// <summary>
-    /// Refreshes quota for all active accounts that have a quota snapshot row.
-    /// In a real deployment this would call the provider's usage/quota API;
-    /// here we ensure the row exists and bump the generation to prove CAS works.
+    /// Refreshes quota for all active accounts by calling the provider's quota API.
+    /// Uses CAS-based refresh so that two silos refreshing simultaneously produce
+    /// only one valid generation.
     /// </summary>
     public async Task<int> RefreshActiveAccountsAsync(CancellationToken ct = default)
     {
@@ -59,10 +61,29 @@ public sealed class ProviderQuotaRefreshService(
         {
             try
             {
+                var creds = await credentials.GetFreshAsync(accountId, ct);
+                var client = quotaClientFactory.GetClient(creds.Platform);
+
+                ProviderQuotaInfo? quotaInfo = null;
+                if (client != null)
+                {
+                    quotaInfo = await client.GetQuotaAsync(creds, ct);
+                }
+
                 var result = await quotaStore.RefreshAsync(accountId, current =>
                 {
-                    // If there's no existing snapshot, create a default one.
-                    // In production this would call the provider's quota API.
+                    if (quotaInfo != null)
+                    {
+                        return new ProviderQuotaUpdate(
+                            quotaInfo.Tier,
+                            quotaInfo.RemainingQuota,
+                            quotaInfo.WindowStart,
+                            quotaInfo.WindowEnd,
+                            "refresh_worker",
+                            quotaInfo.ExpiresAt);
+                    }
+
+                    // Fallback: if no quota client or call failed, preserve existing values
                     var tier = current?.Tier ?? "free";
                     var remaining = current?.RemainingQuota;
                     var expiresAt = current?.ExpiresAt
