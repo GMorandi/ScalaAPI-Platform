@@ -2169,6 +2169,10 @@ gateway_fault_claimed() {
             marker_name=gateway-after-provider-completion.claimed ;;
         gateway.before_provider_dispatch)
             marker_name=gateway-before-provider-dispatch.claimed ;;
+        gateway.after_output_started)
+            marker_name=gateway-after-output-started.claimed ;;
+        gateway.during_cancellation)
+            marker_name=gateway-during-cancellation.claimed ;;
         *)
             return 1 ;;
     esac
@@ -2225,6 +2229,37 @@ if [[ "${GATEWAY_FAULT_HOOK:-}" == "gateway.after_provider_completion" ||
         gateway_hook_unknown_incidents=1
         echo "PASS: Gateway after-provider-completion crash retained one reconciliable lease"
     fi
+fi
+
+if [[ "${GATEWAY_FAULT_HOOK:-}" == "gateway.after_output_started" ]]; then
+    stream_body='{"model":"gpt-4o-mini","messages":[{"role":"user","content":"Write a long paragraph about testing."}],"stream":true}'
+    set +e
+    curl -sS --max-time 30 -N "$gateway_url/v1/chat/completions" \
+        -H "Authorization: Bearer $api_key" -H "Content-Type: application/json" \
+        -H "X-Request-ID: $gateway_fault_request_id" \
+        -H "Idempotency-Key: $gateway_fault_idempotency_key" \
+        --data "$stream_body" >/dev/null 2>&1
+    gateway_fault_exit=$?
+    set -e
+    start_gateway_after_fault
+    wait_for "Gateway after-output-started marker" 30 gateway_fault_claimed
+    wait_for "Gateway output evidence retried" 60 '[[ "$(db_query "SELECT count(*) FROM request_lease_events WHERE lease_token = (SELECT lease_token FROM request_leases WHERE request_id = '"'"'$gateway_fault_request_id'"'"') AND event_type = '"'"'output_started'"'"')")" -ge 1 ]]'
+    echo "PASS: Gateway after-output-started crash preserved durable evidence"
+fi
+
+if [[ "${GATEWAY_FAULT_HOOK:-}" == "gateway.during_cancellation" ]]; then
+    stream_body='{"model":"gpt-4o-mini","messages":[{"role":"user","content":"Write a very long essay about crash recovery."}],"stream":true}'
+    set +e
+    timeout 3 curl -sS -N "$gateway_url/v1/chat/completions" \
+        -H "Authorization: Bearer $api_key" -H "Content-Type: application/json" \
+        -H "X-Request-ID: $gateway_fault_request_id" \
+        -H "Idempotency-Key: $gateway_fault_idempotency_key" \
+        --data "$stream_body" >/dev/null 2>&1 || true
+    set -e
+    start_gateway_after_fault
+    wait_for "Gateway during-cancellation marker" 30 gateway_fault_claimed
+    wait_for "Gateway cancellation lease reconciliation" 90 '[[ "$(db_query "SELECT count(*) FROM request_leases WHERE request_id = '"'"'$gateway_fault_request_id'"'"' AND status IN ('"'"'reconciliation_needed'"'"', '"'"'expired'"'"')")" -ge 1 ]]'
+    echo "PASS: Gateway during-cancellation crash retained lease for reconciliation"
 fi
 
 chat_response="$(curl -fsS "$gateway_url/v1/chat/completions" \
