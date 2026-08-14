@@ -384,12 +384,14 @@ public sealed record PassiveMonitorEvent(
 /// </summary>
 public sealed class PassiveMonitorV2Service(
     PassiveMonitorV2Store store,
+    NpgsqlDataSource dataSource,
     ILogger<PassiveMonitorV2Service> logger) : BackgroundService
 {
     private static readonly TimeSpan CycleInterval = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan RetentionCheckInterval = TimeSpan.FromHours(1);
     private const int MaxBatchSize = 1000;
     private const int DefaultRetentionDays = 90;
+    private const int LeadershipAdvisoryLockId = 0x504D5632; // "PMV2" in hex
 
     /// <summary>
     /// Window size for rollup aggregation (1 hour).
@@ -397,7 +399,7 @@ public sealed class PassiveMonitorV2Service(
     private static readonly TimeSpan WindowSize = TimeSpan.FromHours(1);
 
     /// <summary>
-    /// Leader token for fencing. In production this would use pg_advisory_lock.
+    /// Leader token for fencing. Uses PostgreSQL advisory lock for distributed leadership.
     /// </summary>
     private string _leaderToken = Guid.NewGuid().ToString("N");
 
@@ -405,9 +407,7 @@ public sealed class PassiveMonitorV2Service(
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        IsLeader = true;
-        _leaderToken = Guid.NewGuid().ToString("N");
-        logger.LogInformation("Passive monitor V2 service started as leader {LeaderToken}", _leaderToken);
+        logger.LogInformation("Passive monitor V2 service starting");
 
         var lastRetentionCheck = DateTime.MinValue;
 
@@ -415,6 +415,28 @@ public sealed class PassiveMonitorV2Service(
         {
             try
             {
+                // Try to acquire or verify leadership
+                if (!IsLeader)
+                {
+                    IsLeader = await TryAcquireLeadershipAsync(stoppingToken);
+                    if (IsLeader)
+                    {
+                        _leaderToken = Guid.NewGuid().ToString("N");
+                        logger.LogInformation("Acquired leadership with token {LeaderToken}", _leaderToken);
+                    }
+                }
+                else
+                {
+                    // Verify we still hold the lock
+                    var stillLeader = await VerifyLeadershipAsync(stoppingToken);
+                    if (!stillLeader)
+                    {
+                        IsLeader = false;
+                        _leaderToken = Guid.NewGuid().ToString("N");
+                        logger.LogWarning("Lost leadership, will retry");
+                    }
+                }
+
                 if (!IsLeader)
                 {
                     await Task.Delay(CycleInterval, stoppingToken);
@@ -441,6 +463,42 @@ public sealed class PassiveMonitorV2Service(
                 logger.LogError(ex, "Passive monitor V2 cycle failed");
                 await Task.Delay(TimeSpan.FromSeconds(10), stoppingToken);
             }
+        }
+    }
+
+    private async Task<bool> TryAcquireLeadershipAsync(CancellationToken ct)
+    {
+        try
+        {
+            await using var conn = await dataSource.OpenConnectionAsync(ct);
+            await using var cmd = conn.CreateCommand();
+            cmd.CommandText = "SELECT pg_try_advisory_lock(@lockId)";
+            cmd.Parameters.AddWithValue("lockId", LeadershipAdvisoryLockId);
+            var result = await cmd.ExecuteScalarAsync(ct);
+            return result is bool acquired && acquired;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Failed to acquire leadership lock");
+            return false;
+        }
+    }
+
+    private async Task<bool> VerifyLeadershipAsync(CancellationToken ct)
+    {
+        try
+        {
+            await using var conn = await dataSource.OpenConnectionAsync(ct);
+            await using var cmd = conn.CreateCommand();
+            cmd.CommandText = "SELECT pg_advisory_lock(@lockId)";
+            cmd.Parameters.AddWithValue("lockId", LeadershipAdvisoryLockId);
+            await cmd.ExecuteNonQueryAsync(ct);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Leadership verification failed");
+            return false;
         }
     }
 
