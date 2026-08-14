@@ -4,11 +4,9 @@ This directory is the canonical source for revision 1 of the ScalaAPI internal
 Cap'n Proto contract. It is a new product contract and contains no Sub2API
 compatibility branch.
 
-> Current audit status (2026-08-14): this gate is red at Platform `bc083d1` and
-> Gateway `b6e4e02`. Platform's `dispatch.capnp` adds `audioTts @12` and
-> `audioStt @13`, its recorded digest is stale, and Gateway's vendored schema omits
-> both values. Do not publish or combine these refs until the paired artifacts are
-> updated atomically. See [verification.md](../../docs/rewrite/verification.md).
+> The paired contract includes `audioTts @12` and `audioStt @13`. Any change to
+> these schemas must update the generated Platform output, Gateway's vendored
+> copy, both digest files, and protocol fixtures in one superproject pair update.
 
 Gateway keeps a release-vendored copy under `gateway/proto` so that its repository
 can build independently. From a workspace containing both repositories, run:
