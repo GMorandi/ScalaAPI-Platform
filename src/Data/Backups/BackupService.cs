@@ -12,9 +12,11 @@ namespace ScalaAPI.Data.Backups;
 /// </summary>
 public sealed class BackupService(
     NpgsqlDataSource dataSource,
+    IHttpClientFactory httpClientFactory,
     ILogger<BackupService> logger)
 {
     private readonly NpgsqlDataSource _dataSource = dataSource;
+    private readonly IHttpClientFactory _httpClientFactory = httpClientFactory;
     private readonly ILogger<BackupService> _logger = logger;
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
@@ -217,14 +219,15 @@ public sealed class BackupService(
 
         try
         {
-            // In production, this would use the AWS SDK or S3-compatible client.
-            // For now, we record the upload intent and mark it as completed for local testing.
-            // The actual upload would be:
-            // var targetUrl = $"{offsiteUrl.TrimEnd('/')}/{backupId}/{Path.GetFileName(artifactPath)}";
-            // await using var stream = File.OpenRead(artifactPath);
-            // await httpClient.PutAsync(targetUrl, new StreamContent(stream), ct);
-
             var remoteUrl = $"{offsiteUrl.TrimEnd('/')}/{backupId}/{Path.GetFileName(artifactPath)}";
+
+            using var client = _httpClientFactory.CreateClient("BackupOffsite");
+            await using var stream = File.OpenRead(artifactPath);
+            using var content = new StreamContent(stream);
+            content.Headers.Add("Content-SHA256", checksum);
+
+            var response = await client.PutAsync(remoteUrl, content, ct);
+            response.EnsureSuccessStatusCode();
 
             await using var connection = await _dataSource.OpenConnectionAsync(ct);
             await using var update = connection.CreateCommand();

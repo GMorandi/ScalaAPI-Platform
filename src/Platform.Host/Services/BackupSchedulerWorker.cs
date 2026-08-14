@@ -71,8 +71,61 @@ public sealed class BackupSchedulerWorker(
         var policy = await _backupService.GetRetentionPolicyAsync(ct);
         if (policy is null) return;
 
+        // Create a backup if none completed recently (within 24 hours).
+        var backupDue = await IsBackupDueAsync(ct);
+        if (backupDue)
+        {
+            var idempotencyKey = $"scheduled_{DateTime.UtcNow:yyyyMMdd_HH}";
+            var jobId = $"bak_{Guid.NewGuid():N}";
+            var retentionDays = policy.KeepDaily;
+
+            try
+            {
+                await using var connection = await _dataSource.OpenConnectionAsync(ct);
+                await using var cmd = connection.CreateCommand();
+                cmd.CommandText = """
+                    INSERT INTO backup_jobs (id, kind, idempotency_key, request_fingerprint,
+                        status, retention_until, created_by)
+                    VALUES ($1, 'postgres', $2, $3, 'running', now() + ($4 || ' days')::interval, 'scheduler')
+                    ON CONFLICT (idempotency_key) DO NOTHING
+                    """;
+                cmd.Parameters.AddWithValue(jobId);
+                cmd.Parameters.AddWithValue(idempotencyKey);
+                cmd.Parameters.AddWithValue($"postgres|{retentionDays}");
+                cmd.Parameters.AddWithValue(retentionDays.ToString());
+
+                var inserted = await cmd.ExecuteNonQueryAsync(ct);
+                if (inserted > 0)
+                {
+                    _logger.LogInformation("Scheduled backup created: {JobId}", jobId);
+                    // Note: Actual pg_dump execution would be triggered here or by a separate worker
+                }
+                else
+                {
+                    _logger.LogDebug("Scheduled backup already exists for idempotency key {Key}", idempotencyKey);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Scheduled backup creation failed");
+            }
+        }
+
         // Record last run status.
         await UpdateScheduleClaimAsync("completed", ct);
+    }
+
+    private async Task<bool> IsBackupDueAsync(CancellationToken ct)
+    {
+        await using var connection = await _dataSource.OpenConnectionAsync(ct);
+        await using var cmd = connection.CreateCommand();
+        cmd.CommandText = """
+            SELECT COUNT(*) FROM backup_jobs
+            WHERE status = 'completed'
+              AND completed_at > now() - interval '24 hours'
+            """;
+        var count = Convert.ToInt32(await cmd.ExecuteScalarAsync(ct));
+        return count == 0;
     }
 
     private async Task<bool> TryClaimScheduleAsync(CancellationToken ct)
