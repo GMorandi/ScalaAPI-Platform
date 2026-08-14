@@ -42,10 +42,12 @@ public sealed class BackupService(
         aes.Encrypt(nonce, plaintext, ciphertext, tag);
 
         // Output format: [nonce(12)][tag(16)][ciphertext]
-        await using var output = File.Create(artifactPath + ".enc");
-        await output.WriteAsync(nonce, ct);
-        await output.WriteAsync(tag, ct);
-        await output.WriteAsync(ciphertext, ct);
+        await using (var output = File.Create(artifactPath + ".enc"))
+        {
+            await output.WriteAsync(nonce, ct);
+            await output.WriteAsync(tag, ct);
+            await output.WriteAsync(ciphertext, ct);
+        }
 
         File.Delete(artifactPath);
         File.Move(artifactPath + ".enc", artifactPath);

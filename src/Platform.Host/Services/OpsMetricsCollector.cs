@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Npgsql;
+using NpgsqlTypes;
 
 namespace ScalaAPI.Host.Services;
 
@@ -111,7 +112,8 @@ public sealed class OpsMetricsSampleStore(NpgsqlDataSource dataSource)
             RETURNING sample_id
             """);
         command.Parameters.AddWithValue(metricName);
-        command.Parameters.AddWithValue(labels.GetRawText());
+        var labelsParameter = command.Parameters.AddWithValue(labels.GetRawText());
+        labelsParameter.NpgsqlDbType = NpgsqlDbType.Jsonb;
         command.Parameters.AddWithValue(value);
         command.Parameters.AddWithValue((object?)requestId ?? DBNull.Value);
         command.Parameters.AddWithValue((object?)leaseId ?? DBNull.Value);

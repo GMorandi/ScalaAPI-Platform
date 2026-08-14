@@ -222,9 +222,10 @@ public sealed class ChannelMonitorTemplateStore(NpgsqlDataSource dataSource)
             SET status = 'failed', completed_at = now(),
                 error_message = 'Claim reclaimed: worker stale'
             WHERE status = 'running'
-              AND started_at < now() - (timeout_seconds || ' seconds')::interval
-              AND template_id IN (
-                  SELECT template_id FROM channel_monitor_templates
+              AND started_at < now() - (
+                  SELECT (template.timeout_seconds || ' seconds')::interval
+                  FROM channel_monitor_templates AS template
+                  WHERE template.template_id = channel_monitor_checks.template_id
               )
             """);
         return await command.ExecuteNonQueryAsync(ct);

@@ -158,7 +158,8 @@ public sealed class BackupRestoreTests
             Assert.NotNull(encResult);
 
             // Try to decrypt with the wrong key.
-            var result = await service.DecryptArtifactAsync(path, key2.KeyId, encResult.Nonce);
+            var wrongKey = encResult.KeyId == key1.KeyId ? key2 : key1;
+            var result = await service.DecryptArtifactAsync(path, wrongKey.KeyId, encResult.Nonce);
             Assert.False(result);
         }
         finally
@@ -388,9 +389,7 @@ public sealed class BackupRestoreTests
         var result1 = await store.CreateAsync(1, idemKey, "postgres", 14, "127.0.0.1");
         // Second call with same key should replay.
         var result2 = await store.CreateAsync(1, idemKey, "postgres", 14, "127.0.0.1");
-        Assert.Equal(result1.Status == ScalaAPI.Admin.Data.BackupCommandStatus.Created
-            ? ScalaAPI.Admin.Data.BackupCommandStatus.Replayed
-            : result1.Status, result2.Status);
+        Assert.Equal(ScalaAPI.Admin.Data.BackupCommandStatus.Replayed, result2.Status);
     }
 
     // --- Artifact verification tests ---

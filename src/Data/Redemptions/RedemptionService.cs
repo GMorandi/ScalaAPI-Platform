@@ -99,6 +99,25 @@ public sealed class RedemptionService(NpgsqlDataSource dataSource)
                 return new RedemptionResult(RedemptionStatus.Expired);
             }
 
+            // A repeated redemption by the same user remains a duplicate even
+            // after the code has exhausted its global usage quota.
+            await using (var existingHistory = connection.CreateCommand())
+            {
+                existingHistory.Transaction = transaction;
+                existingHistory.CommandText = """
+                    SELECT 1 FROM redemption_history
+                    WHERE code_id = $1 AND user_id = $2
+                    LIMIT 1
+                    """;
+                existingHistory.Parameters.AddWithValue(codeId);
+                existingHistory.Parameters.AddWithValue(userId);
+                if (await existingHistory.ExecuteScalarAsync(ct) is not null)
+                {
+                    await transaction.RollbackAsync(ct);
+                    return new RedemptionResult(RedemptionStatus.Duplicate);
+                }
+            }
+
             // Check usage limit
             if (currentUses >= maxUses)
             {

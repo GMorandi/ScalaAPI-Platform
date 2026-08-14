@@ -112,9 +112,9 @@ public sealed class PassiveMonitorV2Store(NpgsqlDataSource dataSource)
                 (dimension, dimension_value, window_start, window_end,
                  event_count, error_count, unique_event_ids)
             VALUES ($1, $2, $3, $4,
-                    CASE WHEN NOT ($5 = ANY($8)) THEN 1 ELSE 0 END,
-                    CASE WHEN NOT ($5 = ANY($8)) AND $6 THEN 1 ELSE 0 END,
-                    CASE WHEN $5 = ANY($8) THEN $8 ELSE $8 || $5 END)
+                    1,
+                    CASE WHEN $6 THEN 1 ELSE 0 END,
+                    ARRAY[$5])
             ON CONFLICT (dimension, dimension_value, window_start) DO UPDATE SET
                 event_count = monitor_v2_rollups.event_count +
                     CASE WHEN NOT ($5 = ANY(monitor_v2_rollups.unique_event_ids)) THEN 1 ELSE 0 END,
@@ -131,7 +131,6 @@ public sealed class PassiveMonitorV2Store(NpgsqlDataSource dataSource)
         command.Parameters.AddWithValue(windowEnd);
         command.Parameters.AddWithValue(eventHash);
         command.Parameters.AddWithValue(isError);
-        command.Parameters.AddWithValue(new long[] { eventHash });
         await command.ExecuteNonQueryAsync(ct);
     }
 

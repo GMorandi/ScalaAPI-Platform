@@ -273,6 +273,7 @@ public sealed class ExportService(
         await using var reader = await validate.ExecuteReaderAsync(ct);
         if (!await reader.ReadAsync(ct))
         {
+            await reader.DisposeAsync();
             await transaction.RollbackAsync(ct);
             return null; // Invalid token or job not found.
         }

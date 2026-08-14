@@ -171,14 +171,22 @@ public sealed class SubscriptionLifecycleTests
         }
         finally
         {
-            await using var cleanup = dataSource.CreateCommand();
-            cleanup.CommandText = """
+            await using (var cleanupHistory = dataSource.CreateCommand())
+            {
+                cleanupHistory.CommandText = """
                 DELETE FROM redemption_history WHERE code_id IN
-                    (SELECT code_id FROM redemption_codes WHERE plan_id = $1);
-                DELETE FROM redemption_codes WHERE plan_id = $1;
+                    (SELECT code_id FROM redemption_codes WHERE plan_id = $1)
                 """;
-            cleanup.Parameters.AddWithValue(planId);
-            await cleanup.ExecuteNonQueryAsync();
+                cleanupHistory.Parameters.AddWithValue(planId);
+                await cleanupHistory.ExecuteNonQueryAsync();
+            }
+
+            await using (var cleanupCodes = dataSource.CreateCommand(
+                "DELETE FROM redemption_codes WHERE plan_id = $1"))
+            {
+                cleanupCodes.Parameters.AddWithValue(planId);
+                await cleanupCodes.ExecuteNonQueryAsync();
+            }
         }
     }
 
@@ -225,14 +233,22 @@ public sealed class SubscriptionLifecycleTests
         }
         finally
         {
-            await using var cleanup = dataSource.CreateCommand();
-            cleanup.CommandText = """
+            await using (var cleanupHistory = dataSource.CreateCommand())
+            {
+                cleanupHistory.CommandText = """
                 DELETE FROM redemption_history WHERE code_id IN
-                    (SELECT code_id FROM redemption_codes WHERE plan_id = $1);
-                DELETE FROM redemption_codes WHERE plan_id = $1;
+                    (SELECT code_id FROM redemption_codes WHERE plan_id = $1)
                 """;
-            cleanup.Parameters.AddWithValue(planId);
-            await cleanup.ExecuteNonQueryAsync();
+                cleanupHistory.Parameters.AddWithValue(planId);
+                await cleanupHistory.ExecuteNonQueryAsync();
+            }
+
+            await using (var cleanupCodes = dataSource.CreateCommand(
+                "DELETE FROM redemption_codes WHERE plan_id = $1"))
+            {
+                cleanupCodes.Parameters.AddWithValue(planId);
+                await cleanupCodes.ExecuteNonQueryAsync();
+            }
         }
     }
 
@@ -296,6 +312,8 @@ public sealed class SubscriptionLifecycleTests
 
         await using var dataSource = NpgsqlDataSource.Create(connectionString);
         var userId = Random.Shared.NextInt64(600_000_000, 900_000_000);
+        var announcementTitle = $"Test Announcement {Guid.NewGuid():N}";
+        var announcementContent = $"Test content {Guid.NewGuid():N}";
         var service = new AnnouncementService(dataSource);
 
         try
@@ -304,7 +322,7 @@ public sealed class SubscriptionLifecycleTests
 
             // Create an announcement
             var created = await service.CreateAsync(
-                "Test Announcement", "Test content", "all", null, null, null);
+                announcementTitle, announcementContent, "all", null, null, null);
             Assert.Equal(AnnouncementCreationStatus.Created, created.Status);
             Assert.NotNull(created.AnnouncementId);
 
@@ -330,14 +348,22 @@ public sealed class SubscriptionLifecycleTests
         }
         finally
         {
-            await using var cleanup = dataSource.CreateCommand();
-            cleanup.CommandText = """
-                DELETE FROM announcement_reads WHERE user_id = $1;
-                DELETE FROM announcements WHERE title = 'Test Announcement'
-                    AND content = 'Test content';
-                """;
-            cleanup.Parameters.AddWithValue(userId);
-            await cleanup.ExecuteNonQueryAsync();
+            await using (var cleanupReads = dataSource.CreateCommand(
+                "DELETE FROM announcement_reads WHERE user_id = $1"))
+            {
+                cleanupReads.Parameters.AddWithValue(userId);
+                await cleanupReads.ExecuteNonQueryAsync();
+            }
+
+            await using (var cleanupAnnouncements = dataSource.CreateCommand("""
+                DELETE FROM announcements
+                WHERE title = $1 AND content = $2
+                """))
+            {
+                cleanupAnnouncements.Parameters.AddWithValue(announcementTitle);
+                cleanupAnnouncements.Parameters.AddWithValue(announcementContent);
+                await cleanupAnnouncements.ExecuteNonQueryAsync();
+            }
         }
     }
 
@@ -423,14 +449,22 @@ public sealed class SubscriptionLifecycleTests
         }
         finally
         {
-            await using var cleanup = dataSource.CreateCommand();
-            cleanup.CommandText = """
+            await using (var cleanupHistory = dataSource.CreateCommand())
+            {
+                cleanupHistory.CommandText = """
                 DELETE FROM redemption_history WHERE code_id IN
-                    (SELECT code_id FROM redemption_codes WHERE plan_id = $1);
-                DELETE FROM redemption_codes WHERE plan_id = $1;
+                    (SELECT code_id FROM redemption_codes WHERE plan_id = $1)
                 """;
-            cleanup.Parameters.AddWithValue(planId);
-            await cleanup.ExecuteNonQueryAsync();
+                cleanupHistory.Parameters.AddWithValue(planId);
+                await cleanupHistory.ExecuteNonQueryAsync();
+            }
+
+            await using (var cleanupCodes = dataSource.CreateCommand(
+                "DELETE FROM redemption_codes WHERE plan_id = $1"))
+            {
+                cleanupCodes.Parameters.AddWithValue(planId);
+                await cleanupCodes.ExecuteNonQueryAsync();
+            }
         }
     }
 
@@ -464,14 +498,19 @@ public sealed class SubscriptionLifecycleTests
     private static async Task CleanupAsync(
         NpgsqlDataSource dataSource, long userId, string planId, long paymentOrderId)
     {
-        await using var cleanup = dataSource.CreateCommand();
-        cleanup.CommandText = """
-            DELETE FROM subscription_purchases WHERE user_id = $1 AND plan_id = $2;
-            DELETE FROM payment_orders WHERE id = $3;
-            """;
-        cleanup.Parameters.AddWithValue(userId);
-        cleanup.Parameters.AddWithValue(planId);
-        cleanup.Parameters.AddWithValue(paymentOrderId);
-        await cleanup.ExecuteNonQueryAsync();
+        await using (var cleanupPurchases = dataSource.CreateCommand(
+            "DELETE FROM subscription_purchases WHERE user_id = $1 AND plan_id = $2"))
+        {
+            cleanupPurchases.Parameters.AddWithValue(userId);
+            cleanupPurchases.Parameters.AddWithValue(planId);
+            await cleanupPurchases.ExecuteNonQueryAsync();
+        }
+
+        await using (var cleanupPayment = dataSource.CreateCommand(
+            "DELETE FROM payment_orders WHERE id = $1"))
+        {
+            cleanupPayment.Parameters.AddWithValue(paymentOrderId);
+            await cleanupPayment.ExecuteNonQueryAsync();
+        }
     }
 }
