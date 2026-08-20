@@ -97,14 +97,16 @@ ScalaAPI requirements.
 - Canonical/vendor SHA256 manifests and all three Cap'n Proto files match. The
   checked-in C# output also matches the pinned Cap'n Proto 1.0.2 compiler output.
 - Admin Web and User Web typecheck and production builds pass. `npm audit` reports
-  one high-severity `nanoid` advisory (`<3.3.18`) in each application and is not
-  currently a blocking paired CI step.
+  zero high-severity advisories after resolving the transitive `nanoid` advisory.
 - Retired-dependency scanning and all checked-in shell syntax checks pass.
 - The latest Platform source includes PostgreSQL-fenced active/passive monitor
   leadership, real bounded channel probes, Provider quota clients for OpenAI,
-  Anthropic, Gemini and xAI, model-catalogue refresh, scheduled backup creation
-  and offsite upload code. These slices still need source-built multi-process or
-  live-Provider acceptance evidence before promotion to `verified`.
+  Anthropic, Gemini and xAI with real account discovery and stale tracking,
+  model-catalogue refresh, scheduled backup execution with inline pg_dump,
+  offsite upload with remote readback verification, blob upload RPC for large
+  media bodies (>512KiB), and realtime session caps with safe abort disposition.
+  These slices still need source-built multi-process or live-Provider acceptance
+  evidence before promotion to `verified`.
 
 ## Current release blockers and gaps
 
@@ -119,12 +121,12 @@ ScalaAPI requirements.
    object-store fault recovery and the full 3600-second mixed fault/load run are
    not current evidence. Script presence and unit tests do not promote these
    domains.
-4. The new quota, catalogue, monitor and backup workers have focused source/tests
-   but still require controlled multi-process, Provider and object-store runtime
-   proof, including retry, fencing, outage and reconciliation assertions.
-5. Both Web applications carry the same high-severity `nanoid` advisory. Resolve
-   or explicitly gate this before a production release.
-6. The paired release workflow is centralized in ScalaAPI and no longer has the
+4. The quota, catalogue, monitor and backup workers have focused source/tests
+   including contract tests, real account discovery, stale tracking, inline
+   pg_dump execution and offsite readback verification, but still require
+   controlled multi-process, Provider and object-store runtime proof, including
+   retry, fencing, outage and reconciliation assertions.
+5. The paired release workflow is centralized in ScalaAPI and no longer has the
    old component `latest` bypass, but it currently builds the pinned pair. A
    release manifest must never imply that standalone branch heads were released.
 7. The release workflow uploads Platform TRX files, but

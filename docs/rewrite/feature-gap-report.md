@@ -110,7 +110,7 @@ workflow is production-complete.
 | CORE-04 | P0 | partial | Encrypted semantic credentials, refresh CAS, terminal revoke/replacement and audits | Live Provider profiles, key rotation and multi-Silo refresh contention |
 | CORE-05 | P0 | partial | Scheduler, persistent slot leases, health, sticky/rate/fallback logic; Scheduler Dry benchmarks execute | Database-backed two-Silo load/failure and regression thresholds |
 | CORE-06 | P1 | partial | Versioned config store, propagation/rollback APIs and node status | Prove all dynamic consumers converge and reject rollback under process faults |
-| CORE-07 | P1 | partial | Active-account refresh worker, CAS quota state and OpenAI/Anthropic/Gemini/xAI HTTP quota clients exist | Replace seeded quota-table account discovery, define stale/unknown behavior and run fenced Provider fault evidence |
+| CORE-07 | P1 | partial | Active-account refresh now queries accounts table, stale tracking with consecutive_failures/state, contract tests for all 4 quota clients | Run fenced Provider fault evidence and multi-process refresh contention |
 
 ## Usage and billing
 
@@ -140,7 +140,7 @@ workflow is production-complete.
 | OPS-01 | P0 | partial | Broad Admin API and 16-page source application; typecheck/build pass | Authenticated backend-backed CRUD/authorization/error browser E2E |
 | OPS-02 | P0 | partial | Metric collector/store, summaries, alerts and Operations page | Automatic cross-service correlation, delivery/recovery and multi-process budgets |
 | OPS-03 | P1 | partial | Monitor templates/claims/retries/incidents/UI plus PostgreSQL advisory-lock leadership and bounded HTTP probes | Two-process fencing, Provider-specific checks, outage/incident/recovery runtime evidence |
-| OPS-04 | P1 | partial | Backup/restore/checksum/crypto/policy APIs, claimed scheduled jobs and real HTTP PUT offsite upload source | Execute scheduled jobs into artifacts, remote HEAD/readback checksum, retention and isolated restore drills |
+| OPS-04 | P1 | partial | Backup/restore/checksum/crypto/policy APIs, scheduled jobs now execute inline pg_dump, offsite upload wired with remote readback SHA-256 verification, zombie row reclaim | End-to-end restore drill, measured RPO/RTO and isolated restore evidence |
 | OPS-05 | P2 | partial | Export jobs/tokens and cleanup/retention stores | Scheduled lifecycle, object cleanup, authorization and immutable audit proof |
 | OPS-06 | P1 | partial | Passive rollup/watermark/privacy stores, percentile fix and PostgreSQL advisory-lock leadership | Duplicate/out-of-order/backfill/restart/privacy evidence across processes |
 
@@ -158,8 +158,8 @@ workflow is production-complete.
 
 | ID | Pri | Status | Current implementation | Required closure |
 | --- | --- | --- | --- | --- |
-| UI-01 | P0 | partial | Admin Web passes clean install, typecheck and production build | Blocking authenticated backend-backed workflow matrix and `nanoid` remediation |
-| UI-02 | P0 | partial | User Web passes clean install, typecheck and production build | Cross-user authorization, refresh/replay, real mutations and `nanoid` remediation |
+| UI-01 | P0 | partial | Admin Web passes clean install, typecheck and production build | Blocking authenticated backend-backed workflow matrix and nanoid advisory resolved |
+| UI-02 | P0 | partial | User Web passes clean install, typecheck and production build | Cross-user authorization, refresh/replay, real mutations and nanoid advisory resolved |
 | UI-03 | P1 | partial | Auth/recovery/OAuth/TOTP/Passkey page source | Real mail/authenticator/callback/expiry/failure flows |
 | UI-04 | P1 | partial | Billing/subscription/redeem/referral page source | Provider checkout and complete browser lifecycle |
 | UI-05 | P1 | partial | Reconciliation/policy/operations/monitor/backup pages | Authorized mutations against persistent backend state |
@@ -173,9 +173,9 @@ workflow is production-complete.
 | DEP-02 | P0 | verified | Retired-dependency scan finds no Sub2API/Redis/CDC/Debezium runtime or data dependency | Preserve this greenfield invariant in review and CI |
 | DEP-03 | P0 | partial | Compose/probes, fail-fast readiness and one-time/default-secret first-admin guards exist | Clean empty-volume multi-service startup, concurrent/replayed setup and dependency/listener negative probes |
 | DEP-04 | P0 | scaffold | Two-Silo/two-Gateway topology and rolling/fault scripts exist | Execute drain/outage/rejoin/partition scenarios with exact financial/object assertions |
-| DEP-05 | P0 | partial | TLS/backup/restore crypto and policy source, scheduled job claims and offsite PUT path exist | End-to-end artifact creation/readback/restore, measured RPO/RTO, ingress and rollback drills |
-| DEP-06 | P1 | partial | ScalaAPI central CI/release validates an immutable pair, exact tags and evidence; current supported pair is older than standalone heads | Clean the Gateway worktree, advance both gitlinks deliberately, run all paired gates and remove the false-success self-update endpoint |
-| DEP-07 | P0 | partial | Smoke/stress/load/fault scripts exist; ownership SQL and fatal child/settlement handling are corrected | Run current short negative controls and the real 3600-second gate with cleanup evidence |
+| DEP-05 | P0 | partial | TLS/backup/restore crypto and policy source, scheduled jobs execute inline with offsite upload and remote readback verification | End-to-end restore drill, measured RPO/RTO, ingress and rollback drills |
+| DEP-06 | P1 | partial | ScalaAPI central CI/release validates an immutable pair, exact tags and evidence; Gateway worktree clean, both gitlinks advanced to latest, fake self-update endpoint removed, nanoid advisory resolved, pair validation passes | Run all paired gates with full evidence archive |
+| DEP-07 | P0 | partial | Smoke/stress/load/fault scripts exist and are syntactically validated; pair validation passes; dual-process leadership assertions added | Run current short negative controls and the real 3600-second gate with cleanup evidence |
 
 ## Research capability decisions
 
