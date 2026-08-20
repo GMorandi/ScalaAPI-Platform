@@ -160,6 +160,7 @@ public enum LeaseAbortDisposition
 {
     NoCharge,
     Unknown,
+    Safe,
 }
 
 public sealed record OutboxItem(long Id, string LeaseToken, string EventType, int Attempts);
@@ -995,6 +996,7 @@ public sealed class RequestLeaseStore(
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
         var unknown = disposition == LeaseAbortDisposition.Unknown;
+        var safe = disposition == LeaseAbortDisposition.Safe;
         command.CommandText = unknown
             ? """
                 UPDATE request_leases
@@ -1020,10 +1022,11 @@ public sealed class RequestLeaseStore(
         }
         await FinalizeIdempotencyAsync(connection, transaction, lease.LeaseToken,
             unknown ? "reconciliation_needed" : "aborted", ct);
-        await EnqueueAsync(connection, transaction, leaseToken, unknown ? "reconcile" : "abort", ct);
+        var eventType = unknown ? "reconcile" : safe ? "abort_safe" : "abort";
+        await EnqueueAsync(connection, transaction, leaseToken, eventType, ct);
+        var eventLabel = unknown ? "aborted_unknown" : safe ? "aborted_safe" : "aborted_no_charge";
         await AppendLeaseEventAsync(connection, transaction, leaseToken,
-            unknown ? "aborted_unknown" : "aborted_no_charge", source, reason,
-            providerStatusCode, ct);
+            eventLabel, source, reason, providerStatusCode, ct);
         if (unknown)
             await AppendLeaseEventAsync(connection, transaction, leaseToken,
                 "reconciliation_needed", "platform", "Provider charge outcome is unknown",

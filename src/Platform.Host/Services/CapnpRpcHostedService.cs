@@ -144,6 +144,7 @@ public class CapnpRpcHostedService : IHostedService
                 5 => await HandleMediaOperationAsync(dispatchService, capnpData),
                 6 => await HandleLeaseEvidenceAsync(dispatchService, capnpData),
                 7 => await HandleContentPolicyAsync(dispatchService, capnpData),
+                8 => HandleUploadBlob(capnpData),
                 _ => SerializeRejectResponse("unknown method"),
             };
         }
@@ -158,6 +159,8 @@ public class CapnpRpcHostedService : IHostedService
                 : method is 7
                     ? SerializeContentPolicyResponse(ContentPolicyRpcResult.Error(
                         "platform_error", "Content policy service failed", retryable: true))
+                : method is 8
+                    ? SerializeBlobChunkAck(false, "platform_error", "", "", 0)
                 : method == 1
                     ? SerializeRejectResponse("Platform dispatch failed; retry may be safe",
                         CapnpGen.RejectInfo.RejectCode.platformUnavailable)
@@ -231,7 +234,11 @@ public class CapnpRpcHostedService : IHostedService
             ForcePlatform: capnpReq.ForcePlatform ?? "",
             RequestFingerprint: capnpReq.RequestFingerprint ?? "",
             RequestQuery: capnpReq.RequestQuery ?? "",
-            RequestBody: capnpReq.RequestBody ?? "");
+            RequestBody: capnpReq.RequestBody ?? "",
+            RequestBodyRef: state.ReadText(18, null) ?? "",
+            RequestBodyDigest: state.ReadText(19, null) ?? "",
+            RequestBodySize: state.ReadDataULong(128UL, 0UL),
+            RequestBodyTruncated: state.ReadDataBool(192UL, false));
 
         var result = (await svc.HandleDispatch(req)) with
         {
@@ -403,8 +410,12 @@ public class CapnpRpcHostedService : IHostedService
         var reader = CapnpGen.AbortRequest.READER.create(state);
         var leaseToken = reader.LeaseToken ?? "";
         var reason = reader.Reason ?? "";
-        var disposition = reader.TheDisposition == CapnpGen.AbortRequest.Disposition.unknown
-            ? LeaseAbortDisposition.Unknown : LeaseAbortDisposition.NoCharge;
+        var disposition = reader.TheDisposition switch
+        {
+            CapnpGen.AbortRequest.Disposition.unknown => LeaseAbortDisposition.Unknown,
+            CapnpGen.AbortRequest.Disposition.safe => LeaseAbortDisposition.Safe,
+            _ => LeaseAbortDisposition.NoCharge,
+        };
         var providerStatusCode = reader.ProviderStatusCode is >= 100 and <= 999
             ? reader.ProviderStatusCode : (int?)null;
 
@@ -494,6 +505,36 @@ public class CapnpRpcHostedService : IHostedService
         writer.MatchedRuleId = result.MatchedRuleId;
         writer.Message = result.Message;
         return SerializeToFrame(0x87, message.Frame);
+    }
+
+    private byte[] HandleUploadBlob(ReadOnlyMemory<byte> capnpData)
+    {
+        var blobStore = _services.GetRequiredService<DispatchBlobStore>();
+        var state = DeserializeRoot(capnpData);
+        var reader = CapnpGen.BlobChunk.READER.create(state);
+        var result = blobStore.IngestChunk(new BlobChunkRpc
+        {
+            BlobId = reader.BlobId ?? "",
+            Seq = reader.Seq,
+            Index = reader.Index,
+            Data = reader.Data ?? [],
+            IsLast = reader.IsLast,
+        });
+        return SerializeBlobChunkAck(result.Accepted, result.ErrorCode,
+            result.BlobId, result.Digest, result.TotalBytes);
+    }
+
+    private static byte[] SerializeBlobChunkAck(bool accepted, string errorCode,
+        string blobId, string digest, ulong totalBytes)
+    {
+        var message = MessageBuilder.Create();
+        var writer = message.BuildRoot<CapnpGen.BlobChunkAck.WRITER>();
+        writer.Accepted = accepted;
+        writer.ErrorCode = errorCode;
+        writer.BlobId = blobId;
+        writer.Digest = digest;
+        writer.TotalBytes = totalBytes;
+        return SerializeToFrame(0x88, message.Frame);
     }
 
     private static byte[] SerializeEmptyResponse(byte method)
@@ -1527,7 +1568,9 @@ public record DispatchRequest(
     string Operation = "", string InboundFormat = "", string HttpMethod = "POST",
     string RequestPath = "", string ContentType = "", string Capability = "",
     string IdempotencyKey = "", bool RealtimeSession = false, string ForcePlatform = "",
-    string RequestFingerprint = "", string RequestQuery = "", string RequestBody = "");
+    string RequestFingerprint = "", string RequestQuery = "", string RequestBody = "",
+    string RequestBodyRef = "", string RequestBodyDigest = "",
+    ulong RequestBodySize = 0, bool RequestBodyTruncated = false);
 
 public record UsageReportRequest(
     string LeaseToken, int InputTokens, int OutputTokens,

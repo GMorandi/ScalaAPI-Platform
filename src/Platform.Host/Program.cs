@@ -100,6 +100,13 @@ builder.Services.AddSingleton<IGarnetService>(sp => sp.GetRequiredService<Remote
 // Cap'n Proto RPC Server (dispatch service)
 builder.Services.AddSingleton<CapnpRpcHostedService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<CapnpRpcHostedService>());
+builder.Services.AddSingleton(sp =>
+{
+    var cfg = sp.GetRequiredService<IConfiguration>();
+    var ttlMinutes = cfg.GetValue<int>("Dispatch:BlobTtlMinutes", 15);
+    var maxTotalBytes = cfg.GetValue<long>("Dispatch:BlobMaxTotalBytes", 256L * 1024 * 1024);
+    return new DispatchBlobStore(TimeSpan.FromMinutes(ttlMinutes), maxTotalBytes);
+});
 
 // Garnet write-through service (used by grains)
 builder.Services.AddSingleton<GarnetWriteThroughService>();

@@ -1192,6 +1192,164 @@ namespace CapnpGen
         }
     }
 
+    [System.CodeDom.Compiler.GeneratedCode("capnpc-csharp", "1.3.0.0")]
+    public class BlobChunk : ICapnpSerializable
+    {
+        void ICapnpSerializable.Deserialize(DeserializerState arg_)
+        {
+            var reader = READER.create(arg_);
+            BlobId = reader.BlobId;
+            Seq = reader.Seq;
+            Index = reader.Index;
+            Data = reader.Data;
+            IsLast = reader.IsLast;
+        }
+
+        public void serialize(WRITER writer)
+        {
+            writer.BlobId = BlobId;
+            writer.Seq = Seq;
+            writer.Index = Index;
+            writer.Data = Data;
+            writer.IsLast = IsLast;
+        }
+
+        void ICapnpSerializable.Serialize(SerializerState arg_)
+        {
+            serialize(arg_.Rewrap<WRITER>());
+        }
+
+        public void applyDefaults() { }
+        public string BlobId { get; set; } = "";
+        public uint Seq { get; set; }
+        public uint Index { get; set; }
+        public byte[] Data { get; set; } = [];
+        public bool IsLast { get; set; }
+
+        public struct READER
+        {
+            readonly DeserializerState ctx;
+            public READER(DeserializerState ctx) { this.ctx = ctx; }
+            public static READER create(DeserializerState ctx) => new READER(ctx);
+            public static implicit operator DeserializerState(READER r) => r.ctx;
+            public static implicit operator READER(DeserializerState ctx) => new READER(ctx);
+            public string BlobId => ctx.ReadText(0, null);
+            public uint Seq => ctx.ReadDataUInt(0UL, 0U);
+            public uint Index => ctx.ReadDataUInt(32UL, 0U);
+            public byte[] Data => ctx.ReadList(1).CastByte().ToArray();
+            public bool IsLast => ctx.ReadDataBool(64UL, false);
+        }
+
+        public class WRITER : SerializerState
+        {
+            public WRITER() { this.SetStruct(2, 2); }
+            public string BlobId
+            {
+                get => this.ReadText(0, null);
+                set => this.WriteText(0, value, null);
+            }
+            public uint Seq
+            {
+                get => this.ReadDataUInt(0UL, 0U);
+                set => this.WriteData(0UL, value, 0U);
+            }
+            public uint Index
+            {
+                get => this.ReadDataUInt(32UL, 0U);
+                set => this.WriteData(32UL, value, 0U);
+            }
+            public byte[] Data
+            {
+                get => [];
+                set => BuildPointer<ListOfPrimitivesSerializer<byte>>(1).Init(value);
+            }
+            public bool IsLast
+            {
+                get => this.ReadDataBool(64UL, false);
+                set => this.WriteData(64UL, value, false);
+            }
+        }
+    }
+
+    [System.CodeDom.Compiler.GeneratedCode("capnpc-csharp", "1.3.0.0")]
+    public class BlobChunkAck : ICapnpSerializable
+    {
+        void ICapnpSerializable.Deserialize(DeserializerState arg_)
+        {
+            var reader = READER.create(arg_);
+            Accepted = reader.Accepted;
+            ErrorCode = reader.ErrorCode;
+            BlobId = reader.BlobId;
+            Digest = reader.Digest;
+            TotalBytes = reader.TotalBytes;
+        }
+
+        public void serialize(WRITER writer)
+        {
+            writer.Accepted = Accepted;
+            writer.ErrorCode = ErrorCode;
+            writer.BlobId = BlobId;
+            writer.Digest = Digest;
+            writer.TotalBytes = TotalBytes;
+        }
+
+        void ICapnpSerializable.Serialize(SerializerState arg_)
+        {
+            serialize(arg_.Rewrap<WRITER>());
+        }
+
+        public void applyDefaults() { }
+        public bool Accepted { get; set; }
+        public string ErrorCode { get; set; } = "";
+        public string BlobId { get; set; } = "";
+        public string Digest { get; set; } = "";
+        public ulong TotalBytes { get; set; }
+
+        public struct READER
+        {
+            readonly DeserializerState ctx;
+            public READER(DeserializerState ctx) { this.ctx = ctx; }
+            public static READER create(DeserializerState ctx) => new READER(ctx);
+            public static implicit operator DeserializerState(READER r) => r.ctx;
+            public static implicit operator READER(DeserializerState ctx) => new READER(ctx);
+            public bool Accepted => ctx.ReadDataBool(0UL, false);
+            public string ErrorCode => ctx.ReadText(0, null);
+            public string BlobId => ctx.ReadText(1, null);
+            public string Digest => ctx.ReadText(2, null);
+            public ulong TotalBytes => ctx.ReadDataULong(64UL, 0UL);
+        }
+
+        public class WRITER : SerializerState
+        {
+            public WRITER() { this.SetStruct(2, 3); }
+            public bool Accepted
+            {
+                get => this.ReadDataBool(0UL, false);
+                set => this.WriteData(0UL, value, false);
+            }
+            public string ErrorCode
+            {
+                get => this.ReadText(0, null);
+                set => this.WriteText(0, value, null);
+            }
+            public string BlobId
+            {
+                get => this.ReadText(1, null);
+                set => this.WriteText(1, value, null);
+            }
+            public string Digest
+            {
+                get => this.ReadText(2, null);
+                set => this.WriteText(2, value, null);
+            }
+            public ulong TotalBytes
+            {
+                get => this.ReadDataULong(64UL, 0UL);
+                set => this.WriteData(64UL, value, 0UL);
+            }
+        }
+    }
+
     [System.CodeDom.Compiler.GeneratedCode("capnpc-csharp", "1.3.0.0"), TypeId(0x9fa0c5002b3d792cUL)]
     public class DispatchRequest : ICapnpSerializable
     {
@@ -2142,7 +2300,8 @@ namespace CapnpGen
         public enum Disposition : ushort
         {
             noCharge,
-            unknown
+            unknown,
+            safe
         }
     }
 
