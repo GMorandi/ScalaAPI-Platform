@@ -1,0 +1,619 @@
+#include "forwarder/stream_pipe.h"
+#include "protocol/formats.h"
+#include "platform/logging.h"
+
+#include <photon/thread/thread.h>
+#include <photon/common/timeout.h>
+
+#include <chrono>
+#include <cstring>
+#include <cerrno>
+#include <algorithm>
+#include <limits>
+#include <rapidjson/document.h>
+#include <rapidjson/writer.h>
+#include <rapidjson/stringbuffer.h>
+
+namespace gateway::forwarder {
+
+static uint64_t now_ms() {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+}
+
+static bool provider_disconnect_errno(int error) {
+    // Photon reports an incomplete chunked body as -1 while preserving the
+    // socket's zero errno.  Transport resets use the same terminal meaning.
+    return error == 0 || error == ECONNRESET || error == ECONNABORTED
+        || error == EPIPE || error == ENOTCONN;
+}
+
+static bool valid_usage_count(const rapidjson::Value& value) {
+    if (value.IsInt()) return value.GetInt() >= 0;
+    if (value.IsInt64())
+        return value.GetInt64() >= 0 && value.GetInt64() <= std::numeric_limits<int>::max();
+    if (value.IsUint()) return value.GetUint() <= std::numeric_limits<int>::max();
+    if (value.IsUint64()) return value.GetUint64() <= std::numeric_limits<int>::max();
+    return false;
+}
+
+static bool usage_has_invalid_counts(const rapidjson::Value& usage) {
+    constexpr const char* count_fields[] = {
+        "input_tokens", "prompt_tokens", "output_tokens", "completion_tokens",
+        "cache_creation_input_tokens", "cache_read_input_tokens",
+        "promptTokenCount", "candidatesTokenCount", "cachedContentTokenCount",
+        "reasoning_tokens", "thoughtsTokenCount"};
+    for (const auto* field : count_fields) {
+        if (usage.HasMember(field) && !valid_usage_count(usage[field])) return true;
+    }
+    for (const auto* details_name : {"prompt_tokens_details", "input_tokens_details",
+                                     "output_tokens_details"}) {
+        if (!usage.HasMember(details_name)) continue;
+        const auto& details = usage[details_name];
+        if (!details.IsObject()) return true;
+        for (const auto* field : {"cached_tokens", "reasoning_tokens"}) {
+            if (details.HasMember(field) && !valid_usage_count(details[field])) return true;
+        }
+    }
+    return false;
+}
+
+StreamPipe::StreamPipe(const StreamPipeConfig& config, ProtocolMode mode,
+                       protocol::Format source, protocol::Format target)
+    : config_(config), mode_(mode), source_format_(source), target_format_(target) {
+    read_buf_.resize(config_.read_buf_size);
+    write_buf_.resize(config_.write_buf_size);
+}
+
+bool StreamPipe::write_all(WriteFn& write, std::string_view data, StreamResult& result) {
+    size_t written = 0;
+    while (written < data.size()) {
+        const auto count = write(data.data() + written, data.size() - written);
+        if (count <= 0) {
+            result.client_disconnect = true;
+            return false;
+        }
+        written += static_cast<size_t>(count);
+    }
+    result.bytes_forwarded += static_cast<int64_t>(data.size());
+    return true;
+}
+
+bool StreamPipe::apply_policy(std::string_view provider_event,
+                              std::string_view client_event,
+                              StreamResult& result) {
+    // [DONE] and Anthropic's empty message_stop carry no user-visible text.
+    // Other terminal events (notably response.completed) may still contain
+    // the final output envelope and must be evaluated.
+    if (!config_.policy
+        || provider_event.find("data: [DONE]") != std::string_view::npos
+        || (source_format_ == protocol::Format::Anthropic
+            && provider_event.find("event: message_stop") != std::string_view::npos)) {
+        return true;
+    }
+
+    const auto content = client_event.empty() ? provider_event : client_event;
+    StreamPolicyDecision decision;
+    if (content.size() > config_.max_policy_event_bytes) {
+        decision = StreamPolicyDecision::FailedClosed(
+            "content_policy_payload_too_large",
+            "A streaming response event exceeded the content policy limit");
+    } else {
+        decision = config_.policy(content);
+    }
+
+    if (decision.disposition == StreamPolicyDisposition::Allow) return true;
+
+    result.policy_blocked = decision.disposition == StreamPolicyDisposition::Block;
+    result.policy_failed_closed = decision.disposition == StreamPolicyDisposition::FailClosed;
+    result.policy_error_code = decision.error_code.empty()
+        ? (result.policy_blocked ? "content_policy_blocked" : "content_policy_unavailable")
+        : std::move(decision.error_code);
+    result.policy_message = decision.message.empty()
+        ? (result.policy_blocked
+            ? "Provider response was withheld by the active content policy"
+            : "Provider response could not be cleared for delivery")
+        : std::move(decision.message);
+    result.incomplete = true;
+    return false;
+}
+
+static std::string json_quote(std::string_view value) {
+    static constexpr char hex[] = "0123456789abcdef";
+    std::string quoted;
+    quoted.reserve(value.size() + 2);
+    quoted.push_back('"');
+    for (const auto ch : value) {
+        const auto byte = static_cast<unsigned char>(ch);
+        switch (byte) {
+        case '"': quoted += "\\\""; break;
+        case '\\': quoted += "\\\\"; break;
+        case '\b': quoted += "\\b"; break;
+        case '\f': quoted += "\\f"; break;
+        case '\n': quoted += "\\n"; break;
+        case '\r': quoted += "\\r"; break;
+        case '\t': quoted += "\\t"; break;
+        default:
+            if (byte < 0x20) {
+                quoted += "\\u00";
+                quoted.push_back(hex[byte >> 4]);
+                quoted.push_back(hex[byte & 0x0f]);
+            } else {
+                quoted.push_back(static_cast<char>(byte));
+            }
+            break;
+        }
+    }
+    quoted.push_back('"');
+    return quoted;
+}
+
+std::string StreamPipe::policy_error_event(const StreamResult& result) const {
+    const auto code = json_quote(result.policy_error_code);
+    const auto message = json_quote(result.policy_message);
+    if (target_format_ == protocol::Format::Anthropic) {
+        return "event: error\ndata: {\"type\":\"error\",\"error\":{\"type\":"
+            + code + ",\"message\":" + message + "}}\n\n";
+    }
+    if (target_format_ == protocol::Format::OpenAIResponses) {
+        return "event: response.failed\ndata: {\"type\":\"response.failed\",\"response\":{"
+            "\"status\":\"failed\",\"error\":{\"code\":" + code
+            + ",\"message\":" + message + "}}}\n\n";
+    }
+    return "data: {\"error\":{\"type\":" + code + ",\"message\":"
+        + message + "}}\n\n";
+}
+
+bool StreamPipe::emit_policy_error(WriteFn& write, StreamResult& result) {
+    const auto error = policy_error_event(result);
+    return write_all(write, error, result);
+}
+
+StreamResult StreamPipe::run(ReadFn upstream_read, WriteFn client_write) {
+    if (mode_ == ProtocolMode::Passthrough) {
+        return run_passthrough(upstream_read, client_write);
+    }
+    return run_transform(upstream_read, client_write);
+}
+
+StreamResult StreamPipe::run_passthrough(ReadFn& read, WriteFn& write) {
+    StreamResult result;
+    auto stream_start = now_ms();
+    uint64_t last_data_ms = stream_start;
+    uint64_t last_write_ms = stream_start;
+    bool first_token_received = false;
+    const bool policy_enabled = static_cast<bool>(config_.policy);
+
+    while (true) {
+        auto elapsed = now_ms() - stream_start;
+        if (elapsed > config_.total_timeout_ms) {
+            LOG_WARN("Stream total timeout exceeded ({}ms)", elapsed);
+            result.incomplete = true;
+            result.timed_out = true;
+            break;
+        }
+
+        // Read from upstream (coroutine yields on epoll until data arrives)
+        ssize_t n = read(read_buf_.data(), read_buf_.size());
+
+        if (n < 0) {
+            if (provider_disconnect_errno(errno)) {
+                result.incomplete = true;
+                result.provider_disconnect = true;
+                break;
+            }
+            // Timeout or error
+            auto since_last = now_ms() - last_data_ms;
+            if (!first_token_received && since_last > config_.first_token_timeout_ms) {
+                LOG_WARN("First token timeout ({}ms)", since_last);
+                result.incomplete = true;
+                result.timed_out = true;
+                break;
+            }
+            if (first_token_received && since_last > config_.inter_chunk_timeout_ms) {
+                LOG_WARN("Inter-chunk timeout ({}ms)", since_last);
+                result.incomplete = true;
+                result.timed_out = true;
+                break;
+            }
+            // Inject keepalive toward client if silent
+            if (config_.inject_keepalive) {
+                if (inject_keepalive(write, last_write_ms)) {
+                    result.client_disconnect = true;
+                    result.total_duration_ms = static_cast<int>(now_ms() - stream_start);
+                    return result;
+                }
+            }
+            continue;
+        }
+
+        if (n == 0) {
+            // Upstream closed connection — stream complete
+            result.completed = true;
+            if (!result.terminal_event_seen) {
+                result.incomplete = true;
+                result.provider_disconnect = true;
+            }
+            break;
+        }
+
+        last_data_ms = now_ms();
+
+        if (!first_token_received) {
+            first_token_received = true;
+            result.first_token_ms = static_cast<int>(last_data_ms - stream_start);
+        }
+
+        // Without a policy callback, preserve the zero-copy path. When policy
+        // is enabled, complete SSE events are held until the decision returns.
+        if (!policy_enabled) {
+            size_t written = 0;
+            while (written < static_cast<size_t>(n)) {
+                ssize_t w = write(read_buf_.data() + written, n - written);
+                if (w <= 0) {
+                    result.client_disconnect = true;
+                    result.incomplete = !result.terminal_event_seen;
+                    result.total_duration_ms = static_cast<int>(now_ms() - stream_start);
+                    return result;
+                }
+                written += w;
+                last_write_ms = now_ms();
+            }
+            result.bytes_forwarded += n;
+        }
+
+        // Parse complete SSE events for usage without searching arbitrary text
+        // chunks.  This handles a usage object split across reads.
+        event_accumulator_.append(read_buf_.data(), n);
+        size_t consumed = 0;
+        while (true) {
+            auto lf = event_accumulator_.find("\n\n", consumed);
+            auto crlf = event_accumulator_.find("\r\n\r\n", consumed);
+            auto delim = lf;
+            size_t delim_size = 2;
+            if (crlf != std::string::npos && (delim == std::string::npos || crlf < delim)) {
+                delim = crlf;
+                delim_size = 4;
+            }
+            if (delim == std::string::npos) break;
+            const auto event = std::string_view(
+                event_accumulator_.data() + consumed, delim - consumed + delim_size);
+            extract_usage_from_event(event, result);
+            const auto terminal = is_terminal_event(event);
+            if (terminal) {
+                result.terminal_event_seen = true;
+            }
+            if (policy_enabled) {
+                if (!apply_policy(event, event, result)) {
+                    emit_policy_error(write, result);
+                    result.total_duration_ms = static_cast<int>(now_ms() - stream_start);
+                    return result;
+                }
+                if (!write_all(write, event, result)) {
+                    result.incomplete = !result.terminal_event_seen;
+                    result.total_duration_ms = static_cast<int>(now_ms() - stream_start);
+                    return result;
+                }
+                last_write_ms = now_ms();
+            }
+            consumed = delim + delim_size;
+        }
+        if (consumed > 0) event_accumulator_.erase(0, consumed);
+        if (policy_enabled && event_accumulator_.size() > config_.max_policy_event_bytes) {
+            apply_policy(event_accumulator_, event_accumulator_, result);
+            emit_policy_error(write, result);
+            result.total_duration_ms = static_cast<int>(now_ms() - stream_start);
+            return result;
+        }
+        if (event_accumulator_.size() > config_.read_buf_size * 4) {
+            event_accumulator_.erase(0, event_accumulator_.size() - config_.read_buf_size);
+        }
+    }
+
+    result.total_duration_ms = static_cast<int>(now_ms() - stream_start);
+    return result;
+}
+
+StreamResult StreamPipe::run_transform(ReadFn& read, WriteFn& write) {
+    StreamResult result;
+    auto stream_start = now_ms();
+    uint64_t last_data_ms = stream_start;
+    bool first_token_received = false;
+
+    while (true) {
+        auto elapsed = now_ms() - stream_start;
+        if (elapsed > config_.total_timeout_ms) {
+            result.incomplete = true;
+            result.timed_out = true;
+            break;
+        }
+
+        ssize_t n = read(read_buf_.data(), read_buf_.size());
+
+        if (n < 0) {
+            if (provider_disconnect_errno(errno)) {
+                result.incomplete = true;
+                result.provider_disconnect = true;
+                break;
+            }
+            auto since_last = now_ms() - last_data_ms;
+            if (!first_token_received && since_last > config_.first_token_timeout_ms) {
+                result.incomplete = true;
+                result.timed_out = true;
+                break;
+            }
+            if (first_token_received && since_last > config_.inter_chunk_timeout_ms) {
+                result.incomplete = true;
+                result.timed_out = true;
+                break;
+            }
+            continue;
+        }
+
+        if (n == 0) {
+            result.completed = true;
+            if (!result.terminal_event_seen) {
+                result.incomplete = true;
+                result.provider_disconnect = true;
+            }
+            break;
+        }
+
+        last_data_ms = now_ms();
+
+        if (!first_token_received) {
+            first_token_received = true;
+            result.first_token_ms = static_cast<int>(last_data_ms - stream_start);
+        }
+
+        // Accumulate into event buffer and process complete SSE events
+        event_accumulator_.append(read_buf_.data(), n);
+
+        // Process complete SSE events. Providers use both LF and CRLF, and a
+        // delimiter may be split across arbitrary socket reads.
+        size_t pos = 0;
+        while (true) {
+            auto lf_delim = event_accumulator_.find("\n\n", pos);
+            auto crlf_delim = event_accumulator_.find("\r\n\r\n", pos);
+            auto delim = lf_delim;
+            size_t delim_size = 2;
+            if (crlf_delim != std::string::npos
+                && (delim == std::string::npos || crlf_delim < delim)) {
+                delim = crlf_delim;
+                delim_size = 4;
+            }
+            if (delim == std::string::npos) break;
+
+            std::string_view event(event_accumulator_.data() + pos, delim - pos + delim_size);
+
+            // Transform the event between protocols
+            auto transformed = transform_event(event);
+
+            // Extract usage before the policy decision so a policy failure
+            // after a provider usage frame still has late-settlement evidence.
+            if (event.find("\"usage\"") != std::string_view::npos
+                || event.find("\"usageMetadata\"") != std::string_view::npos
+                || event.find("message_stop") != std::string_view::npos) {
+                extract_usage_from_event(event, result);
+            }
+            const auto terminal = is_terminal_event(event);
+            if (terminal) result.terminal_event_seen = true;
+
+            if (!apply_policy(event, transformed, result)) {
+                emit_policy_error(write, result);
+                result.total_duration_ms = static_cast<int>(now_ms() - stream_start);
+                return result;
+            }
+
+            // Write transformed event to client
+            if (!transformed.empty()) {
+                if (!write_all(write, transformed, result)) {
+                    result.incomplete = !result.terminal_event_seen;
+                    result.total_duration_ms = static_cast<int>(now_ms() - stream_start);
+                    return result;
+                }
+            }
+
+            pos = delim + delim_size;
+        }
+
+        // Keep unprocessed remainder
+        if (pos > 0) {
+            event_accumulator_.erase(0, pos);
+        }
+    }
+
+    result.total_duration_ms = static_cast<int>(now_ms() - stream_start);
+    return result;
+}
+
+bool StreamPipe::is_terminal_event(std::string_view event_data) const {
+    std::string_view event_type;
+    std::string_view data_payload;
+    size_t pos = 0;
+    while (pos < event_data.size()) {
+        auto line_end = event_data.find('\n', pos);
+        if (line_end == std::string_view::npos) line_end = event_data.size();
+        auto line = event_data.substr(pos, line_end - pos);
+        if (line.starts_with("event:")) {
+            event_type = line.substr(6);
+            while (!event_type.empty() && event_type.front() == ' ') event_type.remove_prefix(1);
+            while (!event_type.empty() && event_type.back() == '\r') event_type.remove_suffix(1);
+        } else if (line.starts_with("data:")) {
+            data_payload = line.substr(5);
+            while (!data_payload.empty() && data_payload.front() == ' ') data_payload.remove_prefix(1);
+            while (!data_payload.empty() && data_payload.back() == '\r') data_payload.remove_suffix(1);
+        }
+        pos = line_end == event_data.size() ? event_data.size() : line_end + 1;
+    }
+
+    if (source_format_ == protocol::Format::Anthropic) return event_type == "message_stop";
+    if (data_payload == "[DONE]") return true;
+
+    rapidjson::Document document;
+    document.Parse(data_payload.data(), data_payload.size());
+    if (document.HasParseError() || !document.IsObject()) return false;
+    if (source_format_ == protocol::Format::OpenAIResponses) {
+        return document.HasMember("type") && document["type"].IsString()
+            && document["type"].GetString() == std::string_view("response.completed");
+    }
+    if (source_format_ == protocol::Format::OpenAIChatCompletions
+        && document.HasMember("choices") && document["choices"].IsArray()) {
+        for (const auto& choice : document["choices"].GetArray()) {
+            if (choice.IsObject() && choice.HasMember("finish_reason")
+                && choice["finish_reason"].IsString()
+                && std::strlen(choice["finish_reason"].GetString()) > 0) return true;
+        }
+    }
+    if (source_format_ == protocol::Format::Gemini
+        && document.HasMember("candidates") && document["candidates"].IsArray()) {
+        for (const auto& candidate : document["candidates"].GetArray()) {
+            if (candidate.IsObject() && candidate.HasMember("finishReason")
+                && candidate["finishReason"].IsString()
+                && std::strlen(candidate["finishReason"].GetString()) > 0) return true;
+        }
+    }
+    return false;
+}
+
+void StreamPipe::extract_usage_from_event(std::string_view event_data,
+                                           StreamResult& result) {
+    auto data = event_data.find("data:");
+    if (data == std::string_view::npos) return;
+    data += 5;
+    while (data < event_data.size() && (event_data[data] == ' ' || event_data[data] == '\t')) ++data;
+    auto end = event_data.find('\n', data);
+    if (end == std::string_view::npos) end = event_data.size();
+    while (end > data && event_data[end - 1] == '\r') --end;
+    if (end <= data || event_data.substr(data, end - data) == "[DONE]") return;
+
+    rapidjson::Document document;
+    document.Parse(event_data.data() + data, end - data);
+    if (document.HasParseError() || !document.IsObject()) return;
+    const rapidjson::Value* usage = nullptr;
+    if (document.HasMember("usage") && document["usage"].IsObject()) usage = &document["usage"];
+    if (!usage && document.HasMember("usageMetadata") && document["usageMetadata"].IsObject())
+        usage = &document["usageMetadata"];
+    if (!usage && document.HasMember("message") && document["message"].IsObject()
+        && document["message"].HasMember("usage")
+        && document["message"]["usage"].IsObject())
+        usage = &document["message"]["usage"];
+    if (!usage && document.HasMember("response") && document["response"].IsObject()
+        && document["response"].HasMember("usage") && document["response"]["usage"].IsObject())
+        usage = &document["response"]["usage"];
+    if (!usage) return;
+    result.malformed_usage = usage_has_invalid_counts(*usage);
+    auto integer = [&](const rapidjson::Value& object, const char* key) {
+        const auto& value = object[key];
+        if (value.IsInt()) return value.GetInt();
+        if (value.IsInt64()) return static_cast<int>(value.GetInt64());
+        return 0;
+    };
+    if (usage->HasMember("input_tokens")) result.input_tokens = std::max(result.input_tokens, integer(*usage, "input_tokens"));
+    if (usage->HasMember("prompt_tokens")) result.input_tokens = std::max(result.input_tokens, integer(*usage, "prompt_tokens"));
+    if (usage->HasMember("promptTokenCount")) result.input_tokens = std::max(result.input_tokens, integer(*usage, "promptTokenCount"));
+    if (usage->HasMember("output_tokens")) result.output_tokens = std::max(result.output_tokens, integer(*usage, "output_tokens"));
+    if (usage->HasMember("completion_tokens")) result.output_tokens = std::max(result.output_tokens, integer(*usage, "completion_tokens"));
+    if (usage->HasMember("candidatesTokenCount")) result.output_tokens = std::max(result.output_tokens, integer(*usage, "candidatesTokenCount"));
+    if (usage->HasMember("cache_creation_input_tokens")) result.cache_create_tokens = std::max(result.cache_create_tokens, integer(*usage, "cache_creation_input_tokens"));
+    if (usage->HasMember("cache_read_input_tokens")) result.cache_read_tokens = std::max(result.cache_read_tokens, integer(*usage, "cache_read_input_tokens"));
+    if (usage->HasMember("cachedContentTokenCount")) result.cache_read_tokens = std::max(result.cache_read_tokens, integer(*usage, "cachedContentTokenCount"));
+    if (usage->HasMember("reasoning_tokens")) result.reasoning_tokens = std::max(result.reasoning_tokens, integer(*usage, "reasoning_tokens"));
+    if (usage->HasMember("thoughtsTokenCount")) result.reasoning_tokens = std::max(result.reasoning_tokens, integer(*usage, "thoughtsTokenCount"));
+    if (usage->HasMember("output_tokens_details") && (*usage)["output_tokens_details"].IsObject()) {
+        const auto& details = (*usage)["output_tokens_details"];
+        if (details.HasMember("reasoning_tokens"))
+            result.reasoning_tokens = std::max(result.reasoning_tokens,
+                integer(details, "reasoning_tokens"));
+    }
+    rapidjson::StringBuffer buffer;
+    rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+    usage->Accept(writer);
+    result.provider_usage_json.assign(buffer.GetString(),
+        std::min<size_t>(buffer.GetSize(), 1024 * 1024));
+}
+
+std::string StreamPipe::transform_event(std::string_view event_data) {
+    std::string_view event_type;
+    std::string_view data_payload;
+
+    // Parse SSE frame: extract "event:" and "data:" fields
+    size_t pos = 0;
+    while (pos < event_data.size()) {
+        auto line_end = event_data.find('\n', pos);
+        if (line_end == std::string_view::npos) line_end = event_data.size();
+        auto line = event_data.substr(pos, line_end - pos);
+
+        if (line.starts_with("event:")) {
+            event_type = line.substr(6);
+            while (!event_type.empty() && event_type.front() == ' ')
+                event_type.remove_prefix(1);
+            while (!event_type.empty() && event_type.back() == '\r')
+                event_type.remove_suffix(1);
+        } else if (line.starts_with("data:")) {
+            auto payload = line.substr(5);
+            while (!payload.empty() && payload.front() == ' ')
+                payload.remove_prefix(1);
+            data_payload = payload;
+        }
+        pos = line_end + 1;
+    }
+
+    if (data_payload.empty()) return std::string(event_data);
+
+    protocol::StreamDelta delta;
+
+    if (mode_ == ProtocolMode::CrossProtocol || source_format_ != target_format_) {
+        switch (source_format_) {
+        case protocol::Format::Anthropic:
+            delta = protocol::anthropic::parse_stream_event(event_type, data_payload);
+            break;
+        case protocol::Format::OpenAIChatCompletions:
+            delta = protocol::openai::parse_stream_event(data_payload);
+            break;
+        case protocol::Format::OpenAIResponses:
+            delta = protocol::openai_responses::parse_stream_event(data_payload);
+            break;
+        case protocol::Format::Gemini:
+            delta = protocol::gemini::parse_stream_event(data_payload);
+            break;
+        }
+        switch (target_format_) {
+        case protocol::Format::Anthropic: return protocol::anthropic::serialize_stream_event(delta);
+        case protocol::Format::OpenAIChatCompletions: return protocol::openai::serialize_stream_event(delta);
+        case protocol::Format::OpenAIResponses: return protocol::openai_responses::serialize_stream_event(delta);
+        case protocol::Format::Gemini: return protocol::gemini::serialize_stream_event(delta);
+        }
+    }
+
+    switch (mode_) {
+    case ProtocolMode::AnthropicToOpenAI:
+        delta = protocol::anthropic::parse_stream_event(event_type, data_payload);
+        return protocol::openai::serialize_stream_event(delta);
+
+    case ProtocolMode::OpenAIToAnthropic:
+        delta = protocol::openai::parse_stream_event(data_payload);
+        return protocol::anthropic::serialize_stream_event(delta);
+
+    case ProtocolMode::GeminiCompat:
+        delta = protocol::gemini::parse_stream_event(data_payload);
+        return protocol::openai::serialize_stream_event(delta);
+
+    default:
+        return std::string(event_data);
+    }
+}
+
+bool StreamPipe::inject_keepalive(WriteFn& write, uint64_t last_write_ms) {
+    auto silence = now_ms() - last_write_ms;
+    if (silence < config_.keepalive_interval_ms) return false;
+
+    // SSE keepalive: comment line (ignored by SSE clients)
+    static constexpr char keepalive[] = ": keepalive\n\n";
+    // Return true only when the client write failed.  A zero-length write is
+    // a disconnect too; treating it as success would spin until the upstream
+    // timeout while the client is already gone.
+    return write(keepalive, sizeof(keepalive) - 1) <= 0;
+}
+
+}  // namespace gateway::forwarder

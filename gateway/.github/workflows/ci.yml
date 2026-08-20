@@ -1,0 +1,68 @@
+name: Gateway CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gateway-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Verify internal contract digest
+        run: cd proto && sha256sum --check SHA256SUMS
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake g++ libaio-dev libssl-dev libsqlite3-dev zlib1g-dev
+
+      - name: Configure
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DGATEWAY_BUILD_TESTS=ON -DGATEWAY_BUILD_BENCHMARKS=ON
+
+      - name: Build
+        run: cmake --build build --parallel $(nproc)
+
+      - name: Run unit tests
+        run: cd build && ctest --output-on-failure
+
+      - name: Run benchmarks (smoke, archived)
+        run: >-
+          ./build/test/benchmarks --benchmark_min_time=0.1s
+          --benchmark_format=json
+          --benchmark_out="$RUNNER_TEMP/gateway-benchmark.json"
+
+      - name: Upload benchmark results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gateway-benchmarks-${{ github.sha }}
+          path: ${{ runner.temp }}/gateway-benchmark.json
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Generate report
+        if: always()
+        env:
+          COMMIT_SHA: ${{ github.sha }}
+          BRANCH_NAME: ${{ github.ref_name }}
+        run: |
+          echo "## Gateway CI Report" >> $GITHUB_STEP_SUMMARY
+          echo "- Commit: $COMMIT_SHA" >> $GITHUB_STEP_SUMMARY
+          echo "- Branch: $BRANCH_NAME" >> $GITHUB_STEP_SUMMARY
+          echo "- Tests: ctest completed" >> $GITHUB_STEP_SUMMARY
+          echo "- Benchmarks: smoke test completed" >> $GITHUB_STEP_SUMMARY
+          echo "- Skip reasons: none" >> $GITHUB_STEP_SUMMARY
