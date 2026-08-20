@@ -18,6 +18,7 @@ namespace CapnpGen
         Task<CapnpGen.MediaOperationResponse> MediaOperation(CapnpGen.MediaOperationRequest request, CancellationToken cancellationToken_ = default);
         Task<CapnpGen.WriteAck> RecordLeaseEvidence(CapnpGen.LeaseEvidence evidence, CancellationToken cancellationToken_ = default);
         Task<CapnpGen.ContentPolicyResponse> EvaluateContent(CapnpGen.ContentPolicyRequest request, CancellationToken cancellationToken_ = default);
+        Task<CapnpGen.BlobChunkAck> UploadBlob(CapnpGen.BlobChunk chunk, CancellationToken cancellationToken_ = default);
     }
 
     [System.CodeDom.Compiler.GeneratedCode("capnpc-csharp", "1.3.0.0"), TypeId(0xf48b621dd5cd54e3UL)]
@@ -113,6 +114,19 @@ namespace CapnpGen
                 return (r_.Response);
             }
         }
+
+        public async Task<CapnpGen.BlobChunkAck> UploadBlob(CapnpGen.BlobChunk chunk, CancellationToken cancellationToken_ = default)
+        {
+            var in_ = SerializerState.CreateForRpc<CapnpGen.GatewayDispatch.Params_UploadBlob.WRITER>();
+            var arg_ = new CapnpGen.GatewayDispatch.Params_UploadBlob()
+            {Chunk = chunk};
+            arg_?.serialize(in_);
+            using (var d_ = await Call(17621285847297774819UL, 7, in_.Rewrap<DynamicSerializerState>(), false, cancellationToken_).WhenReturned)
+            {
+                var r_ = CapnpSerializable.Create<CapnpGen.GatewayDispatch.Result_UploadBlob>(d_);
+                return (r_.Ack);
+            }
+        }
     }
 
     [System.CodeDom.Compiler.GeneratedCode("capnpc-csharp", "1.3.0.0"), TypeId(0xf48b621dd5cd54e3UL)]
@@ -120,7 +134,7 @@ namespace CapnpGen
     {
         public GatewayDispatch_Skeleton()
         {
-            SetMethodTable(Dispatch, ReportUsage, Abort, ReportUpstreamError, MediaOperation, RecordLeaseEvidence, EvaluateContent);
+            SetMethodTable(Dispatch, ReportUsage, Abort, ReportUpstreamError, MediaOperation, RecordLeaseEvidence, EvaluateContent, UploadBlob);
         }
 
         public override ulong InterfaceId => 17621285847297774819UL;
@@ -235,6 +249,23 @@ namespace CapnpGen
                 {
                     var s_ = SerializerState.CreateForRpc<CapnpGen.GatewayDispatch.Result_EvaluateContent.WRITER>();
                     var r_ = new CapnpGen.GatewayDispatch.Result_EvaluateContent{Response = response};
+                    r_.serialize(s_);
+                    return s_;
+                }
+
+                );
+            }
+        }
+
+        Task<AnswerOrCounterquestion> UploadBlob(DeserializerState d_, CancellationToken cancellationToken_)
+        {
+            using (d_)
+            {
+                var in_ = CapnpSerializable.Create<CapnpGen.GatewayDispatch.Params_UploadBlob>(d_);
+                return Impatient.MaybeTailCall(Impl.UploadBlob(in_.Chunk, cancellationToken_), ack =>
+                {
+                    var s_ = SerializerState.CreateForRpc<CapnpGen.GatewayDispatch.Result_UploadBlob.WRITER>();
+                    var r_ = new CapnpGen.GatewayDispatch.Result_UploadBlob{Ack = ack};
                     r_.serialize(s_);
                     return s_;
                 }
@@ -1085,6 +1116,126 @@ namespace CapnpGen
                 }
             }
         }
+
+        [System.CodeDom.Compiler.GeneratedCode("capnpc-csharp", "1.3.0.0"), TypeId(0xdd076f16ad672fe7UL)]
+        public class Params_UploadBlob : ICapnpSerializable
+        {
+            public const UInt64 typeId = 0xdd076f16ad672fe7UL;
+            void ICapnpSerializable.Deserialize(DeserializerState arg_)
+            {
+                var reader = READER.create(arg_);
+                Chunk = CapnpSerializable.Create<CapnpGen.BlobChunk>(reader.Chunk);
+                applyDefaults();
+            }
+
+            public void serialize(WRITER writer)
+            {
+                Chunk?.serialize(writer.Chunk);
+            }
+
+            void ICapnpSerializable.Serialize(SerializerState arg_)
+            {
+                serialize(arg_.Rewrap<WRITER>());
+            }
+
+            public void applyDefaults()
+            {
+            }
+
+            public CapnpGen.BlobChunk Chunk
+            {
+                get;
+                set;
+            }
+
+            public struct READER
+            {
+                readonly DeserializerState ctx;
+                public READER(DeserializerState ctx)
+                {
+                    this.ctx = ctx;
+                }
+
+                public static READER create(DeserializerState ctx) => new READER(ctx);
+                public static implicit operator DeserializerState(READER reader) => reader.ctx;
+                public static implicit operator READER(DeserializerState ctx) => new READER(ctx);
+                public CapnpGen.BlobChunk.READER Chunk => ctx.ReadStruct(0, CapnpGen.BlobChunk.READER.create);
+            }
+
+            public class WRITER : SerializerState
+            {
+                public WRITER()
+                {
+                    this.SetStruct(0, 1);
+                }
+
+                public CapnpGen.BlobChunk.WRITER Chunk
+                {
+                    get => BuildPointer<CapnpGen.BlobChunk.WRITER>(0);
+                    set => Link(0, value);
+                }
+            }
+        }
+
+        [System.CodeDom.Compiler.GeneratedCode("capnpc-csharp", "1.3.0.0"), TypeId(0xfb05ace52bb96babUL)]
+        public class Result_UploadBlob : ICapnpSerializable
+        {
+            public const UInt64 typeId = 0xfb05ace52bb96babUL;
+            void ICapnpSerializable.Deserialize(DeserializerState arg_)
+            {
+                var reader = READER.create(arg_);
+                Ack = CapnpSerializable.Create<CapnpGen.BlobChunkAck>(reader.Ack);
+                applyDefaults();
+            }
+
+            public void serialize(WRITER writer)
+            {
+                Ack?.serialize(writer.Ack);
+            }
+
+            void ICapnpSerializable.Serialize(SerializerState arg_)
+            {
+                serialize(arg_.Rewrap<WRITER>());
+            }
+
+            public void applyDefaults()
+            {
+            }
+
+            public CapnpGen.BlobChunkAck Ack
+            {
+                get;
+                set;
+            }
+
+            public struct READER
+            {
+                readonly DeserializerState ctx;
+                public READER(DeserializerState ctx)
+                {
+                    this.ctx = ctx;
+                }
+
+                public static READER create(DeserializerState ctx) => new READER(ctx);
+                public static implicit operator DeserializerState(READER reader) => reader.ctx;
+                public static implicit operator READER(DeserializerState ctx) => new READER(ctx);
+                public CapnpGen.BlobChunkAck.READER Ack => ctx.ReadStruct(0, CapnpGen.BlobChunkAck.READER.create);
+            }
+
+            public class WRITER : SerializerState
+            {
+                public WRITER()
+                {
+                    this.SetStruct(0, 1);
+                }
+
+                public CapnpGen.BlobChunkAck.WRITER Ack
+                {
+                    get => BuildPointer<CapnpGen.BlobChunkAck.WRITER>(0);
+                    set => Link(0, value);
+                }
+            }
+        }
     }
 
     [System.CodeDom.Compiler.GeneratedCode("capnpc-csharp", "1.3.0.0"), TypeId(0xb19cff78b6511427UL)]
@@ -1192,164 +1343,6 @@ namespace CapnpGen
         }
     }
 
-    [System.CodeDom.Compiler.GeneratedCode("capnpc-csharp", "1.3.0.0")]
-    public class BlobChunk : ICapnpSerializable
-    {
-        void ICapnpSerializable.Deserialize(DeserializerState arg_)
-        {
-            var reader = READER.create(arg_);
-            BlobId = reader.BlobId;
-            Seq = reader.Seq;
-            Index = reader.Index;
-            Data = reader.Data;
-            IsLast = reader.IsLast;
-        }
-
-        public void serialize(WRITER writer)
-        {
-            writer.BlobId = BlobId;
-            writer.Seq = Seq;
-            writer.Index = Index;
-            writer.Data = Data;
-            writer.IsLast = IsLast;
-        }
-
-        void ICapnpSerializable.Serialize(SerializerState arg_)
-        {
-            serialize(arg_.Rewrap<WRITER>());
-        }
-
-        public void applyDefaults() { }
-        public string BlobId { get; set; } = "";
-        public uint Seq { get; set; }
-        public uint Index { get; set; }
-        public byte[] Data { get; set; } = [];
-        public bool IsLast { get; set; }
-
-        public struct READER
-        {
-            readonly DeserializerState ctx;
-            public READER(DeserializerState ctx) { this.ctx = ctx; }
-            public static READER create(DeserializerState ctx) => new READER(ctx);
-            public static implicit operator DeserializerState(READER r) => r.ctx;
-            public static implicit operator READER(DeserializerState ctx) => new READER(ctx);
-            public string BlobId => ctx.ReadText(0, null);
-            public uint Seq => ctx.ReadDataUInt(0UL, 0U);
-            public uint Index => ctx.ReadDataUInt(32UL, 0U);
-            public byte[] Data => ctx.ReadList(1).CastByte().ToArray();
-            public bool IsLast => ctx.ReadDataBool(64UL, false);
-        }
-
-        public class WRITER : SerializerState
-        {
-            public WRITER() { this.SetStruct(2, 2); }
-            public string BlobId
-            {
-                get => this.ReadText(0, null);
-                set => this.WriteText(0, value, null);
-            }
-            public uint Seq
-            {
-                get => this.ReadDataUInt(0UL, 0U);
-                set => this.WriteData(0UL, value, 0U);
-            }
-            public uint Index
-            {
-                get => this.ReadDataUInt(32UL, 0U);
-                set => this.WriteData(32UL, value, 0U);
-            }
-            public byte[] Data
-            {
-                get => [];
-                set => BuildPointer<ListOfPrimitivesSerializer<byte>>(1).Init(value);
-            }
-            public bool IsLast
-            {
-                get => this.ReadDataBool(64UL, false);
-                set => this.WriteData(64UL, value, false);
-            }
-        }
-    }
-
-    [System.CodeDom.Compiler.GeneratedCode("capnpc-csharp", "1.3.0.0")]
-    public class BlobChunkAck : ICapnpSerializable
-    {
-        void ICapnpSerializable.Deserialize(DeserializerState arg_)
-        {
-            var reader = READER.create(arg_);
-            Accepted = reader.Accepted;
-            ErrorCode = reader.ErrorCode;
-            BlobId = reader.BlobId;
-            Digest = reader.Digest;
-            TotalBytes = reader.TotalBytes;
-        }
-
-        public void serialize(WRITER writer)
-        {
-            writer.Accepted = Accepted;
-            writer.ErrorCode = ErrorCode;
-            writer.BlobId = BlobId;
-            writer.Digest = Digest;
-            writer.TotalBytes = TotalBytes;
-        }
-
-        void ICapnpSerializable.Serialize(SerializerState arg_)
-        {
-            serialize(arg_.Rewrap<WRITER>());
-        }
-
-        public void applyDefaults() { }
-        public bool Accepted { get; set; }
-        public string ErrorCode { get; set; } = "";
-        public string BlobId { get; set; } = "";
-        public string Digest { get; set; } = "";
-        public ulong TotalBytes { get; set; }
-
-        public struct READER
-        {
-            readonly DeserializerState ctx;
-            public READER(DeserializerState ctx) { this.ctx = ctx; }
-            public static READER create(DeserializerState ctx) => new READER(ctx);
-            public static implicit operator DeserializerState(READER r) => r.ctx;
-            public static implicit operator READER(DeserializerState ctx) => new READER(ctx);
-            public bool Accepted => ctx.ReadDataBool(0UL, false);
-            public string ErrorCode => ctx.ReadText(0, null);
-            public string BlobId => ctx.ReadText(1, null);
-            public string Digest => ctx.ReadText(2, null);
-            public ulong TotalBytes => ctx.ReadDataULong(64UL, 0UL);
-        }
-
-        public class WRITER : SerializerState
-        {
-            public WRITER() { this.SetStruct(2, 3); }
-            public bool Accepted
-            {
-                get => this.ReadDataBool(0UL, false);
-                set => this.WriteData(0UL, value, false);
-            }
-            public string ErrorCode
-            {
-                get => this.ReadText(0, null);
-                set => this.WriteText(0, value, null);
-            }
-            public string BlobId
-            {
-                get => this.ReadText(1, null);
-                set => this.WriteText(1, value, null);
-            }
-            public string Digest
-            {
-                get => this.ReadText(2, null);
-                set => this.WriteText(2, value, null);
-            }
-            public ulong TotalBytes
-            {
-                get => this.ReadDataULong(64UL, 0UL);
-                set => this.WriteData(64UL, value, 0UL);
-            }
-        }
-    }
-
     [System.CodeDom.Compiler.GeneratedCode("capnpc-csharp", "1.3.0.0"), TypeId(0x9fa0c5002b3d792cUL)]
     public class DispatchRequest : ICapnpSerializable
     {
@@ -1380,6 +1373,10 @@ namespace CapnpGen
             RequestFingerprint = reader.RequestFingerprint;
             RequestQuery = reader.RequestQuery;
             RequestBody = reader.RequestBody;
+            RequestBodyRef = reader.RequestBodyRef;
+            RequestBodyDigest = reader.RequestBodyDigest;
+            RequestBodySize = reader.RequestBodySize;
+            RequestBodyTruncated = reader.RequestBodyTruncated;
             applyDefaults();
         }
 
@@ -1408,6 +1405,10 @@ namespace CapnpGen
             writer.RequestFingerprint = RequestFingerprint;
             writer.RequestQuery = RequestQuery;
             writer.RequestBody = RequestBody;
+            writer.RequestBodyRef = RequestBodyRef;
+            writer.RequestBodyDigest = RequestBodyDigest;
+            writer.RequestBodySize = RequestBodySize;
+            writer.RequestBodyTruncated = RequestBodyTruncated;
         }
 
         void ICapnpSerializable.Serialize(SerializerState arg_)
@@ -1557,6 +1558,30 @@ namespace CapnpGen
             set;
         }
 
+        public string RequestBodyRef
+        {
+            get;
+            set;
+        }
+
+        public string RequestBodyDigest
+        {
+            get;
+            set;
+        }
+
+        public ulong RequestBodySize
+        {
+            get;
+            set;
+        }
+
+        public bool RequestBodyTruncated
+        {
+            get;
+            set;
+        }
+
         public struct READER
         {
             readonly DeserializerState ctx;
@@ -1591,13 +1616,17 @@ namespace CapnpGen
             public string RequestFingerprint => ctx.ReadText(15, null);
             public string RequestQuery => ctx.ReadText(16, null);
             public string RequestBody => ctx.ReadText(17, null);
+            public string RequestBodyRef => ctx.ReadText(18, null);
+            public string RequestBodyDigest => ctx.ReadText(19, null);
+            public ulong RequestBodySize => ctx.ReadDataULong(128UL, 0UL);
+            public bool RequestBodyTruncated => ctx.ReadDataBool(98UL, false);
         }
 
         public class WRITER : SerializerState
         {
             public WRITER()
             {
-                this.SetStruct(2, 18);
+                this.SetStruct(3, 20);
             }
 
             public string ApiKeyHash
@@ -1736,6 +1765,30 @@ namespace CapnpGen
             {
                 get => this.ReadText(17, null);
                 set => this.WriteText(17, value, null);
+            }
+
+            public string RequestBodyRef
+            {
+                get => this.ReadText(18, null);
+                set => this.WriteText(18, value, null);
+            }
+
+            public string RequestBodyDigest
+            {
+                get => this.ReadText(19, null);
+                set => this.WriteText(19, value, null);
+            }
+
+            public ulong RequestBodySize
+            {
+                get => this.ReadDataULong(128UL, 0UL);
+                set => this.WriteData(128UL, value, 0UL);
+            }
+
+            public bool RequestBodyTruncated
+            {
+                get => this.ReadDataBool(98UL, false);
+                set => this.WriteData(98UL, value, false);
             }
         }
 
@@ -3125,6 +3178,246 @@ namespace CapnpGen
             {
                 get => this.ReadText(8, null);
                 set => this.WriteText(8, value, null);
+            }
+        }
+    }
+
+    [System.CodeDom.Compiler.GeneratedCode("capnpc-csharp", "1.3.0.0"), TypeId(0xef62ff29924fb099UL)]
+    public class BlobChunk : ICapnpSerializable
+    {
+        public const UInt64 typeId = 0xef62ff29924fb099UL;
+        void ICapnpSerializable.Deserialize(DeserializerState arg_)
+        {
+            var reader = READER.create(arg_);
+            BlobId = reader.BlobId;
+            Seq = reader.Seq;
+            Index = reader.Index;
+            Data = reader.Data;
+            IsLast = reader.IsLast;
+            applyDefaults();
+        }
+
+        public void serialize(WRITER writer)
+        {
+            writer.BlobId = BlobId;
+            writer.Seq = Seq;
+            writer.Index = Index;
+            writer.Data.Init(Data);
+            writer.IsLast = IsLast;
+        }
+
+        void ICapnpSerializable.Serialize(SerializerState arg_)
+        {
+            serialize(arg_.Rewrap<WRITER>());
+        }
+
+        public void applyDefaults()
+        {
+        }
+
+        public string BlobId
+        {
+            get;
+            set;
+        }
+
+        public uint Seq
+        {
+            get;
+            set;
+        }
+
+        public uint Index
+        {
+            get;
+            set;
+        }
+
+        public IReadOnlyList<byte> Data
+        {
+            get;
+            set;
+        }
+
+        public bool IsLast
+        {
+            get;
+            set;
+        }
+
+        public struct READER
+        {
+            readonly DeserializerState ctx;
+            public READER(DeserializerState ctx)
+            {
+                this.ctx = ctx;
+            }
+
+            public static READER create(DeserializerState ctx) => new READER(ctx);
+            public static implicit operator DeserializerState(READER reader) => reader.ctx;
+            public static implicit operator READER(DeserializerState ctx) => new READER(ctx);
+            public string BlobId => ctx.ReadText(0, null);
+            public uint Seq => ctx.ReadDataUInt(0UL, 0U);
+            public uint Index => ctx.ReadDataUInt(32UL, 0U);
+            public IReadOnlyList<byte> Data => ctx.ReadList(1).CastByte();
+            public bool IsLast => ctx.ReadDataBool(64UL, false);
+        }
+
+        public class WRITER : SerializerState
+        {
+            public WRITER()
+            {
+                this.SetStruct(2, 2);
+            }
+
+            public string BlobId
+            {
+                get => this.ReadText(0, null);
+                set => this.WriteText(0, value, null);
+            }
+
+            public uint Seq
+            {
+                get => this.ReadDataUInt(0UL, 0U);
+                set => this.WriteData(0UL, value, 0U);
+            }
+
+            public uint Index
+            {
+                get => this.ReadDataUInt(32UL, 0U);
+                set => this.WriteData(32UL, value, 0U);
+            }
+
+            public ListOfPrimitivesSerializer<byte> Data
+            {
+                get => BuildPointer<ListOfPrimitivesSerializer<byte>>(1);
+                set => Link(1, value);
+            }
+
+            public bool IsLast
+            {
+                get => this.ReadDataBool(64UL, false);
+                set => this.WriteData(64UL, value, false);
+            }
+        }
+    }
+
+    [System.CodeDom.Compiler.GeneratedCode("capnpc-csharp", "1.3.0.0"), TypeId(0xf6147ae309775d0cUL)]
+    public class BlobChunkAck : ICapnpSerializable
+    {
+        public const UInt64 typeId = 0xf6147ae309775d0cUL;
+        void ICapnpSerializable.Deserialize(DeserializerState arg_)
+        {
+            var reader = READER.create(arg_);
+            Accepted = reader.Accepted;
+            ErrorCode = reader.ErrorCode;
+            BlobId = reader.BlobId;
+            Digest = reader.Digest;
+            TotalBytes = reader.TotalBytes;
+            applyDefaults();
+        }
+
+        public void serialize(WRITER writer)
+        {
+            writer.Accepted = Accepted;
+            writer.ErrorCode = ErrorCode;
+            writer.BlobId = BlobId;
+            writer.Digest = Digest;
+            writer.TotalBytes = TotalBytes;
+        }
+
+        void ICapnpSerializable.Serialize(SerializerState arg_)
+        {
+            serialize(arg_.Rewrap<WRITER>());
+        }
+
+        public void applyDefaults()
+        {
+        }
+
+        public bool Accepted
+        {
+            get;
+            set;
+        }
+
+        public string ErrorCode
+        {
+            get;
+            set;
+        }
+
+        public string BlobId
+        {
+            get;
+            set;
+        }
+
+        public string Digest
+        {
+            get;
+            set;
+        }
+
+        public ulong TotalBytes
+        {
+            get;
+            set;
+        }
+
+        public struct READER
+        {
+            readonly DeserializerState ctx;
+            public READER(DeserializerState ctx)
+            {
+                this.ctx = ctx;
+            }
+
+            public static READER create(DeserializerState ctx) => new READER(ctx);
+            public static implicit operator DeserializerState(READER reader) => reader.ctx;
+            public static implicit operator READER(DeserializerState ctx) => new READER(ctx);
+            public bool Accepted => ctx.ReadDataBool(0UL, false);
+            public string ErrorCode => ctx.ReadText(0, null);
+            public string BlobId => ctx.ReadText(1, null);
+            public string Digest => ctx.ReadText(2, null);
+            public ulong TotalBytes => ctx.ReadDataULong(64UL, 0UL);
+        }
+
+        public class WRITER : SerializerState
+        {
+            public WRITER()
+            {
+                this.SetStruct(2, 3);
+            }
+
+            public bool Accepted
+            {
+                get => this.ReadDataBool(0UL, false);
+                set => this.WriteData(0UL, value, false);
+            }
+
+            public string ErrorCode
+            {
+                get => this.ReadText(0, null);
+                set => this.WriteText(0, value, null);
+            }
+
+            public string BlobId
+            {
+                get => this.ReadText(1, null);
+                set => this.WriteText(1, value, null);
+            }
+
+            public string Digest
+            {
+                get => this.ReadText(2, null);
+                set => this.WriteText(2, value, null);
+            }
+
+            public ulong TotalBytes
+            {
+                get => this.ReadDataULong(64UL, 0UL);
+                set => this.WriteData(64UL, value, 0UL);
             }
         }
     }

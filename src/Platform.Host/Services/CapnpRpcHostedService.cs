@@ -517,7 +517,7 @@ public class CapnpRpcHostedService : IHostedService
             BlobId = reader.BlobId ?? "",
             Seq = reader.Seq,
             Index = reader.Index,
-            Data = reader.Data ?? [],
+            Data = reader.Data is null ? [] : [.. reader.Data],
             IsLast = reader.IsLast,
         });
         return SerializeBlobChunkAck(result.Accepted, result.ErrorCode,
