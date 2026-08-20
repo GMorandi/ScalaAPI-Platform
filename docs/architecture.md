@@ -1,10 +1,16 @@
 # ScalaAPI Greenfield Architecture
 
-Audit baseline: Platform `30d82d01c2daed1ff0460fa020cad5d9ff434cdd`,
+Audit baseline (historical snapshot): Platform `30d82d01c2daed1ff0460fa020cad5d9ff434cdd`,
 Gateway `98c62fdec99836929f1ab47412ef46c7f2c67683` and ScalaAPI
 superproject `032721b65a3960171ce66a390451b98364f4b94a` on 2026-08-14.
 The superproject currently pins Platform `e73a5d8` and Gateway `777278e`, not the
 latest standalone component heads.
+
+Migration note: the superproject pairing was retired on 2026-08-20. The gateway
+now lives in-tree under `gateway/` (history-preserving subtree import of
+GMorandi/ScalaAPI-GateWay master `3349d64`), the Cap'n Proto contract exists as
+the single canonical copy in `contracts/capnp`, and releases are cut from this
+repository with a single tag.
 
 This document defines ScalaAPI's own architecture. Sub2API is non-normative
 research input used only to discover capability families. Its API behavior,
@@ -37,9 +43,9 @@ Platform
   +--> Providers         catalogues credentials quota and inference
 ```
 
-Gateway and Platform are released as a paired product. A release identifies both
-immutable commits and the exact contract digest; neither repository can infer
-compatibility from a local build alone.
+Gateway and Platform live in this single repository and are released together
+from one tag. A release identifies the exact repository commit and the contract
+digest; a local build alone cannot infer compatibility with any other commit.
 
 ## Ownership
 
@@ -178,13 +184,15 @@ production authority from default credentials.
 
 ## Contract and release discipline
 
-Platform owns the canonical Cap'n Proto schemas. A paired change updates canonical
-schemas Gateway vendors generated bindings digests and tests atomically. Handwritten
-numeric enums are not an independent contract authority.
+This repository owns the canonical Cap'n Proto schemas in `contracts/capnp`. The
+gateway consumes that directory directly at build time; there is no vendored
+copy. A contract change updates the canonical schemas, `SHA256SUMS`, the
+generated C# output, the gateway protocol fixtures, and tests in one commit.
+Handwritten numeric enums are not an independent contract authority.
 
 A releasable manifest records:
 
-- Platform and Gateway immutable commits;
+- the immutable repository commit;
 - canonical contract and generated-binding digests;
 - migration manifest and empty-schema double-run result;
 - executed passed failed and skipped test totals;
@@ -193,7 +201,7 @@ A releasable manifest records:
 - security supply-chain restore and cleanup results.
 
 Sub2API refs data and artifacts never appear in that manifest.
-Roll forward and rollback replace the paired immutable Platform/Gateway deployment.
+Roll forward and rollback replace the immutable deployment of a release tag.
 The services do not download and mutate their own binaries; any Admin endpoint that
 claims an update must control and verify the external deployment transaction or be
 removed.
@@ -205,8 +213,6 @@ complete. At the audit baseline:
 
 | Deviation | Consequence |
 | --- | --- |
-| The ScalaAPI superproject still pins `e73a5d8/777278e` while standalone heads are `30d82d0/98c62fd` | The latest component implementations are not yet one supported or released pair; standalone branch state must not be presented as paired release evidence |
-| The shared Gateway worktree has two user edits and does not compile because it refers to nonexistent `LeaseAbortDisposition::Safe` | Those realtime-frame changes cannot enter a release until reconciled and reverified; clean `98c62fd` is unaffected and passes 161/161 CTest cases plus 16 benchmarks |
 | Gateway accepts 32 MiB but Platform RPC accepts only 1 MiB | Large multipart/media can disconnect before a durable dispatch decision |
 | Clean unit and benchmark evidence exists for both component heads, but a source-built two-Silo/two-Gateway deployment has not been exercised from the intended pair | Listener, dependency, failover, usage durability and cross-process behavior are not promoted to verified runtime behavior |
 | Provider quota clients, model-catalogue refresh and bounded channel probes are implemented, but this audit did not execute live OpenAI, Anthropic, Gemini or xAI acceptance contracts | Provider-specific auth, rate-limit, timeout, malformed-response and catalogue/quota semantics remain runtime evidence gaps |
@@ -215,7 +221,6 @@ complete. At the audit baseline:
 | Authenticated Admin/User browser workflows were not run against the source-built backend | Passing TypeScript checks and production bundles do not establish persisted end-to-end product behavior |
 | Both Web dependency trees report the high-severity `nanoid <3.3.18` advisory | Production release needs an upgrade or an explicit, documented security gate decision |
 | The complete 3600-second mixed fault/load test has not been run against the latest exact pair | Long-duration settlement convergence, cleanup and failure-detection claims remain unverified |
-| The centralized ScalaAPI CI/release workflow currently validates and publishes its older pinned pair | A new manifest, exact image digests and release tag are required after deliberately advancing and verifying both gitlinks |
 | Release evidence records fixed gate names and `skipped: []` without parsing uploaded TRX or other job results | The artifact cannot substantiate executed/passed/failed/skipped totals even when workflow dependencies are green |
 
 The audit also confirms that several former deviations are closed at the latest

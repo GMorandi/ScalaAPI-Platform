@@ -2,12 +2,12 @@
 
 [English](README.md) | **简体中文**
 
-ScalaAPI 平台的高性能 LLM API 边缘网关。基于 C++20 与
+ScalaAPI 平台的高性能 LLM API 边缘网关。基于 C++23 与
 [Photon](https://github.com/alibaba/PhotonLibOS) 协程运行时构建,终结客户端协议、
 执行网关侧策略,并通过 Cap'n Proto IPC 通道将每一个计费请求转发给 ScalaAPI 平台。
 
-> 状态:积极开发中,尚未通过发布认证。请仅作为
-> [ScalaAPI 超项目](https://github.com/GMorandi/ScalaAPI)配对发布的一部分部署。
+> 状态:积极开发中,尚未通过发布认证。本目录以保留历史的树内 subtree 形式在
+> ScalaAPI-Platform 仓库内开发与发布;独立的 ScalaAPI-GateWay 仓库已归档。
 
 ## 功能
 
@@ -35,28 +35,29 @@ src/
   cache/       基于 Garnet 的目录/配置缓存
   platform/    平台通道管理
   usage/       用量事件采集与上报
-proto/         Cap'n Proto 契约(vendored 副本;权威副本位于
-               ScalaAPI-Platform/contracts/capnp,两份必须字节一致)
+               Cap'n Proto 契约:权威副本位于 ../contracts/capnp,
+               构建期直接消费(无 vendored 副本)
 test/          单元测试(CTest)与基准测试
 ```
 
 ## 构建
 
-需要 C++20 编译器、CMake 3.16+,首次配置需要网络(Cap'n Proto v1.0.2 与 Photon
-通过 `FetchContent` 拉取)。
+需要 C++23 编译器、CMake 3.20+,首次配置需要网络(Cap'n Proto v1.0.2 与 Photon
+通过 `FetchContent` 拉取)。必须在 ScalaAPI-Platform checkout 内构建,因为 CMake
+会消费 `../contracts/capnp` 的权威契约。在仓库根执行:
 
 ```sh
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_POLICY_VERSION_MINIMUM=3.5
-cmake --build build -j"$(nproc)"
+cmake -S gateway -B gateway/build -DCMAKE_BUILD_TYPE=Release -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+cmake --build gateway/build -j"$(nproc)"
 ```
 
 CMake 4.x 必须加 `-DCMAKE_POLICY_VERSION_MINIMUM=3.5`(内嵌 Cap'n Proto 所需)。
 测试与基准为可选:
 
 ```sh
-cmake -S . -B build -DGATEWAY_BUILD_TESTS=ON -DGATEWAY_BUILD_BENCHMARKS=ON
-cmake --build build -j"$(nproc)"
-ctest --test-dir build --output-on-failure
+cmake -S gateway -B gateway/build -DGATEWAY_BUILD_TESTS=ON -DGATEWAY_BUILD_BENCHMARKS=ON
+cmake --build gateway/build -j"$(nproc)"
+ctest --test-dir gateway/build --output-on-failure
 ```
 
 ## 运行
@@ -75,5 +76,7 @@ ctest --test-dir build --output-on-failure
 
 ## 契约纪律
 
-Cap'n Proto schema 由网关与平台共享。任何 schema 变更都必须是跨两个仓库的原子
-配对变更;超项目的 `validate-pair.sh` 会拒绝契约副本不一致的配对。
+Cap'n Proto schema 的唯一权威副本位于 `../contracts/capnp`,本构建直接消费。
+任何 schema 变更必须在同一提交内更新 schemas、`SHA256SUMS`、生成的 Platform C#
+输出以及网关协议 fixtures;仓库根的 `scripts/verify-contracts.sh` 与
+`scripts/verify-generated-contracts.sh` 校验记录的摘要。

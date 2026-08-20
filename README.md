@@ -8,8 +8,9 @@ service cluster that owns accounts, credentials, routing, quotas, leases,
 settlement, billing, and operations, fronted by a C++ gateway over a Cap'n Proto
 IPC contract.
 
-> Status: active development, not yet release-certified. Deploy only as part of
-> the paired release described in the [ScalaAPI superproject](https://github.com/GMorandi/ScalaAPI).
+> Status: active development, not yet release-certified. The gateway lives
+> in-tree under `gateway/`; releases are cut from this repository with a single
+> tag.
 
 ## Architecture at a glance
 
@@ -41,7 +42,8 @@ src/
   ObjectStorage.FaultProxy/  Fault-injection proxy for object-storage drills
   admin-web/         Admin console (Vue)
   user-web/          User portal (Vue)
-contracts/capnp/     Canonical Cap'n Proto contract (gateway holds a vendored copy)
+gateway/             C++ edge gateway (in-tree subtree, history preserved)
+contracts/capnp/     Canonical Cap'n Proto contract (consumed directly by the gateway build)
 deploy/migrations/   001–068 greenfield schema migrations
 deploy/stack/        Compose topology, smoke/stress/fault gates
 test/                Host/Admin/Grains/Provider-Mock test suites
@@ -86,8 +88,14 @@ docker compose -p scalaapi-dev --env-file dev.env -f deploy/stack/docker-compose
 Admin console: `http://localhost:3000` · User portal: `http://localhost:3001` ·
 Gateway: `http://localhost:8080`.
 
+Production deployments pin release images, for example
+`GATEWAY_IMAGE=ghcr.io/gmorandi/scalaapi-platform/gateway:<tag>`.
+
 ## Contract discipline
 
-`contracts/capnp/` is canonical; the gateway repository vendors a byte-identical
-copy, and `validate-pair.sh` in the superproject rejects drifting pairs. Schema
-changes are atomic paired changes across both repositories.
+`contracts/capnp/` is the single canonical copy of the contract; the gateway
+compiles these schemas directly (`gateway/CMakeLists.txt` references
+`../contracts/capnp`). `scripts/verify-contracts.sh` validates the recorded
+digests. Schema changes must update the schemas, `SHA256SUMS`, the generated
+C# output (`scripts/verify-generated-contracts.sh` must pass), and the gateway
+protocol fixtures in the same commit.

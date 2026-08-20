@@ -2,13 +2,15 @@
 
 **English** | [简体中文](README.zh-CN.md)
 
-High-performance LLM API edge gateway for the ScalaAPI platform. Built in C++20
+High-performance LLM API edge gateway for the ScalaAPI platform. Built in C++23
 on the [Photon](https://github.com/alibaba/PhotonLibOS) coroutine runtime, it
 terminates client protocols, enforces gateway-side policy, and forwards every
 billable request to the ScalaAPI platform over a Cap'n Proto IPC channel.
 
-> Status: active development, not yet release-certified. Deploy only as part of
-> the paired release described in the [ScalaAPI superproject](https://github.com/GMorandi/ScalaAPI).
+> Status: active development, not yet release-certified. Developed and released
+> inside the ScalaAPI-Platform repository (this directory is an in-tree subtree
+> with preserved history); the standalone ScalaAPI-GateWay repository is
+> archived.
 
 ## What it does
 
@@ -40,28 +42,30 @@ src/
   cache/       Garnet-backed catalogue/config cache
   platform/    Platform channel management
   usage/       Usage event collection and reporting
-proto/         Cap'n Proto contract (vendored copy; canonical copy lives in
-               ScalaAPI-Platform/contracts/capnp and must stay byte-identical)
+               Cap'n Proto contract: canonical copy at ../contracts/capnp,
+               consumed directly at build time (no vendored copy)
 test/          Unit tests (CTest) and benchmarks
 ```
 
 ## Build
 
-Requires a C++20 compiler, CMake 3.16+, and network access on first configure
-(Cap'n Proto v1.0.2 and Photon are fetched by `FetchContent`).
+Requires a C++23 compiler, CMake 3.20+, and network access on first configure
+(Cap'n Proto v1.0.2 and Photon are fetched by `FetchContent`). The gateway must
+be built from inside a ScalaAPI-Platform checkout because CMake consumes the
+canonical contract at `../contracts/capnp`. From the repository root:
 
 ```sh
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_POLICY_VERSION_MINIMUM=3.5
-cmake --build build -j"$(nproc)"
+cmake -S gateway -B gateway/build -DCMAKE_BUILD_TYPE=Release -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+cmake --build gateway/build -j"$(nproc)"
 ```
 
 On CMake 4.x the `-DCMAKE_POLICY_VERSION_MINIMUM=3.5` flag is required by the
 bundled Cap'n Proto build. Tests and benchmarks are optional:
 
 ```sh
-cmake -S . -B build -DGATEWAY_BUILD_TESTS=ON -DGATEWAY_BUILD_BENCHMARKS=ON
-cmake --build build -j"$(nproc)"
-ctest --test-dir build --output-on-failure
+cmake -S gateway -B gateway/build -DGATEWAY_BUILD_TESTS=ON -DGATEWAY_BUILD_BENCHMARKS=ON
+cmake --build gateway/build -j"$(nproc)"
+ctest --test-dir gateway/build --output-on-failure
 ```
 
 ## Running
@@ -81,6 +85,9 @@ silos, PostgreSQL, Garnet, MinIO, provider mock). Key environment variables:
 
 ## Contract discipline
 
-The Cap'n Proto schema is shared between gateway and platform. Any schema change
-must be an atomic paired change across both repositories; `validate-pair.sh` in
-the superproject rejects pairs whose contract copies diverge.
+The Cap'n Proto schema has a single canonical copy at `../contracts/capnp`,
+which this build consumes directly. Any schema change must update the schemas,
+`SHA256SUMS`, the generated Platform C# output, and the gateway protocol
+fixtures in the same commit; `scripts/verify-contracts.sh` and
+`scripts/verify-generated-contracts.sh` at the repository root enforce the
+recorded digests.

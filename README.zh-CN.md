@@ -6,8 +6,8 @@
 权威:一个 .NET 10 服务集群,掌管账号、凭证、路由、配额、租约、结算、计费与运维,
 由 C++ 网关通过 Cap'n Proto IPC 契约接入。
 
-> 状态:积极开发中,尚未通过发布认证。请仅作为
-> [ScalaAPI 超项目](https://github.com/GMorandi/ScalaAPI)配对发布的一部分部署。
+> 状态:积极开发中,尚未通过发布认证。网关已迁入本仓库 `gateway/` 目录,
+> 发布由本仓库以单一 tag 完成。
 
 ## 架构一览
 
@@ -36,7 +36,8 @@ src/
   ObjectStorage.FaultProxy/  对象存储故障注入代理
   admin-web/         管理控制台(Vue)
   user-web/          用户门户(Vue)
-contracts/capnp/     权威 Cap'n Proto 契约(网关仓库持有字节一致的副本)
+gateway/             C++ 边缘网关(树内 subtree,保留完整历史)
+contracts/capnp/     权威 Cap'n Proto 契约(网关构建直接消费)
 deploy/migrations/   001–068 绿地带 schema 迁移
 deploy/stack/        Compose 拓扑、smoke/stress/fault 门禁
 test/                Host/Admin/Grains/Provider-Mock 测试套件
@@ -79,7 +80,13 @@ docker compose -p scalaapi-dev --env-file dev.env -f deploy/stack/docker-compose
 管理控制台:`http://localhost:3000` · 用户门户:`http://localhost:3001` ·
 网关:`http://localhost:8080`。
 
+生产部署固定发布镜像,例如
+`GATEWAY_IMAGE=ghcr.io/gmorandi/scalaapi-platform/gateway:<tag>`。
+
 ## 契约纪律
 
-`contracts/capnp/` 为权威;网关仓库持有字节一致的副本,超项目的
-`validate-pair.sh` 会拒绝漂移的配对。schema 变更必须是跨两个仓库的原子配对变更。
+`contracts/capnp/` 是唯一权威副本;网关直接编译这些 schema
+(`gateway/CMakeLists.txt` 引用 `../contracts/capnp`)。
+`scripts/verify-contracts.sh` 校验记录的摘要。schema 变更必须在同一提交内更新
+schemas、`SHA256SUMS`、生成的 C# 输出(`scripts/verify-generated-contracts.sh`
+必须通过)以及网关协议 fixtures。
