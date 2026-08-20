@@ -30,4 +30,17 @@
     <ProjectReference Include="../Platform.Host/Platform.Host.csproj" />
   </ItemGroup>
 
+  <!-- Platform.Host is a Web SDK project, so its appsettings.json flows
+       transitively into this project's publish output and collides with
+       our own copy (NETSDK1152). Drop the transitive copy before the
+       conflict check keeps only Admin.Api's appsettings.json. -->
+  <Target Name="ExcludeTransitiveHostAppSettings"
+          BeforeTargets="_HandleFileConflictsForPublish">
+    <ItemGroup>
+      <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)"
+        Condition="'%(ResolvedFileToPublish.RelativePath)' == 'appsettings.json'
+                   and $([System.String]::Copy('%(ResolvedFileToPublish.Identity)').Contains('Platform.Host'))" />
+    </ItemGroup>
+  </Target>
+
 </Project>
