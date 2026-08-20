@@ -137,19 +137,17 @@ public sealed class BackupSchedulerWorker(
         await using var connection = await _dataSource.OpenConnectionAsync(ct);
         await using var cmd = connection.CreateCommand();
         cmd.CommandText = """
-            SELECT COUNT(*) FROM backup_jobs
-            WHERE status = 'completed'
-              AND completed_at > now() - interval '24 hours'
-            UNION ALL
-            SELECT COUNT(*) FROM backup_jobs
-            WHERE status = 'running'
-              AND created_at > now() - interval '1 hour'
+            SELECT
+              (SELECT COUNT(*) FROM backup_jobs
+               WHERE status = 'completed'
+                 AND completed_at > now() - interval '24 hours'),
+              (SELECT COUNT(*) FROM backup_jobs
+               WHERE status = 'running'
+                 AND created_at > now() - interval '1 hour')
             """;
         await using var reader = await cmd.ExecuteReaderAsync(ct);
         await reader.ReadAsync(ct);
         var completedRecent = reader.GetInt64(0);
-        await reader.NextResultAsync(ct);
-        await reader.ReadAsync(ct);
         var runningRecent = reader.GetInt64(1);
         return completedRecent == 0 && runningRecent == 0;
     }

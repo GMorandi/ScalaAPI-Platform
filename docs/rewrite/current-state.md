@@ -110,30 +110,27 @@ ScalaAPI requirements.
 
 ## Current release blockers and gaps
 
-1. The shared Gateway worktree does not compile because uncommitted
-   realtime-frame changes call the nonexistent `LeaseAbortDisposition::Safe`.
-   This is user worktree state; the clean remote commit `98c62fd` independently
-   builds and passes CTest and benchmark smoke.
-2. The ScalaAPI superproject still pins `e73a5d8/777278e`; advancing to
-   `30d82d0/98c62fd` is a release decision that requires a clean Gateway worktree,
-   pair validation, both builds and refreshed evidence.
-3. Compose smoke, authenticated browser workflows, live Provider contracts,
+1. The paired superproject now pins Platform `1cfbb25` and Gateway `cdc7505`
+   with passing pair validation and matched Cap'n Proto contracts. Promotion of
+   a newer pair is a release decision that requires both component builds,
+   paired CI gates and refreshed evidence.
+2. Compose smoke, authenticated browser workflows, live Provider contracts,
    object-store fault recovery and the full 3600-second mixed fault/load run are
    not current evidence. Script presence and unit tests do not promote these
    domains.
-4. The quota, catalogue, monitor and backup workers have focused source/tests
+3. The quota, catalogue, monitor and backup workers have focused source/tests
    including contract tests, real account discovery, stale tracking, inline
    pg_dump execution and offsite readback verification, but still require
    controlled multi-process, Provider and object-store runtime proof, including
    retry, fencing, outage and reconciliation assertions.
-5. The paired release workflow is centralized in ScalaAPI and no longer has the
+4. The paired release workflow is centralized in ScalaAPI and no longer has the
    old component `latest` bypass, but it currently builds the pinned pair. A
    release manifest must never imply that standalone branch heads were released.
-7. The release workflow uploads Platform TRX files, but
+5. The release workflow uploads Platform TRX files, but
    `generate-release-evidence.sh` does not parse them or Gateway/Web results. It
    writes fixed gate names with `status: "passed"` and `skipped: []`, so the
    artifact does not yet contain executed/passed/failed/skipped totals.
-8. The former Platform cross-repository Greenfield Verification workflow was
+6. The former Platform cross-repository Greenfield Verification workflow was
    removed from this component repository. Its last hosted run failed during the
    second checkout because it referenced the obsolete `scalaapi/gateway` repository;
    cross-repository verification now belongs only to ScalaAPI's paired workflow.

@@ -98,11 +98,11 @@ public sealed class ProviderQuotaRefreshService(
                         expiresAt);
                 }, ct);
 
+                // Clients return null (not throw) on 429/timeout/5xx, so stale
+                // tracking must key off quotaInfo rather than store application.
+                await UpdateStaleStateAsync(accountId, success: quotaInfo is not null, ct);
                 if (result.Applied)
-                {
                     refreshed++;
-                    await UpdateStaleStateAsync(accountId, success: true, ct);
-                }
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {
