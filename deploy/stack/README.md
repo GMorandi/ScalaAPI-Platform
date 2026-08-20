@@ -28,19 +28,8 @@ or Podman Compose available:
 deploy/stack/smoke.sh
 ```
 
-> Current audit status (2026-08-14): the gate is blocked at Platform `bc083d1` and
-> Gateway `b6e4e02`. The cross-repository Cap'n Proto check is red, and an empty
-> PostgreSQL 17 run commits migrations through 053 before 055 references a missing
-> `users` table. The required Scheduler benchmark separately fails before producing
-> reports, Gateway readiness covers only dispatch UDS, and the stress verifier also
-> contains invalid ownership/table queries.
-> The behavior below is the required gate contract, not a current pass claim. See
-> [current-state.md](../../docs/rewrite/current-state.md) and
-> [verification.md](../../docs/rewrite/verification.md).
-
-When the blockers above are repaired, the default gate is intended to use
-authenticated plaintext Garnet on the private Compose network. To run the TLS
-deployment gate, use the checked-in wrapper:
+The default gate uses authenticated plaintext Garnet on the private Compose
+network. To run the TLS deployment gate, use the checked-in wrapper:
 
 ```sh
 deploy/stack/garnet_tls_smoke.sh

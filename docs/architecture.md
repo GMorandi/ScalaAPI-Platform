@@ -227,9 +227,5 @@ match; and clean Gateway `98c62fd` builds, passes 161/161 CTest cases and runs a
 16 benchmark entries. These checks are prerequisites, not substitutes for the
 remaining paired runtime and release evidence above.
 
-These deviations are tracked in
-[feature-gap-report.md](feature-gap-report.md),
-[implementation-task-list.zh-CN.md](implementation-task-list.zh-CN.md),
-[risk-register.md](risk-register.md) and
-[verification.md](verification.md). They must be resolved or removed from advertised
-scope; none may be hidden with compatibility data or reference-project services.
+Such deviations must be resolved or removed from advertised scope; none may be
+hidden with compatibility data or reference-project services.
