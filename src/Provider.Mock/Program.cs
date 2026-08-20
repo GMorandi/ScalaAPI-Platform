@@ -263,6 +263,14 @@ app.MapGet("/oauth/user/emails", (HttpRequest request) =>
 app.MapGet("/v1/models", (HttpRequest request) =>
 {
     var scenario = request.Query["mock_scenario"].ToString();
+    if (scenario == "rate_limit")
+        return Results.Json(new { error = new { message = "rate limit exceeded", type = "rate_limit" } },
+            statusCode: 429);
+    if (scenario == "timeout")
+    {
+        Thread.Sleep(30_000);
+        return Results.Ok(new { @object = "list", data = Array.Empty<object>() });
+    }
     if (scenario == "malformed")
         return Results.Text("{not-json", "application/json", statusCode: 200);
     if (scenario == "duplicate")
@@ -275,7 +283,8 @@ app.MapGet("/v1/models", (HttpRequest request) =>
                 new { id = "gpt-4o", @object = "model", created = 1_700_000_000L, owned_by = "scalaapi-provider-mock" },
             }
         });
-    return Results.Ok(new
+
+    var response = Results.Ok(new
     {
         @object = "list",
         data = new[]
@@ -291,6 +300,7 @@ app.MapGet("/v1/models", (HttpRequest request) =>
             new { id = "grok-2-image", @object = "model", created = 1_700_000_008L, owned_by = "xai" },
         }
     });
+    return response;
 });
 
 app.MapGet("/v1beta/models", (HttpRequest request) =>

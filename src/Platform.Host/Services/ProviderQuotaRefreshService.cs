@@ -99,7 +99,10 @@ public sealed class ProviderQuotaRefreshService(
                 }, ct);
 
                 if (result.Applied)
+                {
                     refreshed++;
+                    await UpdateStaleStateAsync(accountId, success: true, ct);
+                }
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {
@@ -109,6 +112,7 @@ public sealed class ProviderQuotaRefreshService(
             {
                 logger.LogWarning(ex,
                     "Quota refresh failed for account {AccountId}", accountId);
+                await UpdateStaleStateAsync(accountId, success: false, ct);
             }
         }
 
@@ -117,14 +121,48 @@ public sealed class ProviderQuotaRefreshService(
 
     private async Task<long[]> GetActiveAccountIdsAsync(CancellationToken ct)
     {
-        // Read account IDs from the provider_quota_state table that have
-        // been seeded. In production this would come from the account listing.
         await using var command = dataSource.CreateCommand();
-        command.CommandText = "SELECT account_id FROM provider_quota_state";
+        command.CommandText = """
+            SELECT id FROM accounts
+            WHERE status = 'active' AND deleted_at IS NULL
+            """;
         await using var reader = await command.ExecuteReaderAsync(ct);
         var ids = new List<long>();
         while (await reader.ReadAsync(ct))
             ids.Add(reader.GetInt64(0));
         return ids.ToArray();
+    }
+
+    private async Task UpdateStaleStateAsync(long accountId, bool success, CancellationToken ct)
+    {
+        try
+        {
+            await using var connection = await dataSource.OpenConnectionAsync(ct);
+            await using var cmd = connection.CreateCommand();
+            if (success)
+            {
+                cmd.CommandText = """
+                    UPDATE provider_quota_state
+                    SET consecutive_failures = 0, state = 'fresh', updated_at = now()
+                    WHERE account_id = $1
+                    """;
+            }
+            else
+            {
+                cmd.CommandText = """
+                    UPDATE provider_quota_state
+                    SET consecutive_failures = consecutive_failures + 1,
+                        state = CASE WHEN consecutive_failures + 1 >= 3 THEN 'stale' ELSE state END,
+                        updated_at = now()
+                    WHERE account_id = $1
+                    """;
+            }
+            cmd.Parameters.AddWithValue(accountId);
+            await cmd.ExecuteNonQueryAsync(ct);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Failed to update stale state for account {AccountId}", accountId);
+        }
     }
 }
