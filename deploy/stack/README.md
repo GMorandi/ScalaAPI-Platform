@@ -1,8 +1,8 @@
 # ScalaAPI Development Stack
 
 This directory is the versioned source of truth for the independent ScalaAPI
-stack. It expects the `gateway` repository next to this `platform` repository and
-does not read or start Sub2API.
+stack. It builds the in-tree `gateway/` from the repository-root build context
+and does not read or start Sub2API.
 
 Create an environment file from `.env.example`, replace every secret placeholder,
 then run from this directory:
@@ -55,7 +55,7 @@ wrapper or by setting `GARNET_TLS=true` together with all required certificate
 paths.
 
 The gate is designed to create a unique Compose project and new named volumes, build
-the current Platform and sibling Gateway sources, and remove only that project on
+the current Platform and in-tree Gateway sources, and remove only that project on
 exit. Its acceptance contract applies all migrations, runs the migrator again,
 configures a new user,
 API key, Provider mock groups, and active price versions through product APIs,

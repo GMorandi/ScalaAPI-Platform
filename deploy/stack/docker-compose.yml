@@ -223,7 +223,10 @@ services:
 
   gateway-1:
     image: ${GATEWAY_IMAGE:-scalaapi-gateway:dev}
-    build: ../../../gateway
+    build:
+      context: ../..
+      dockerfile: gateway/Dockerfile
+      target: runtime
     restart: on-failure
     stop_grace_period: 30s
     networks:
@@ -261,7 +264,10 @@ services:
 
   gateway-2:
     image: ${GATEWAY_IMAGE:-scalaapi-gateway:dev}
-    build: ../../../gateway
+    build:
+      context: ../..
+      dockerfile: gateway/Dockerfile
+      target: runtime
     restart: on-failure
     stop_grace_period: 30s
     environment:

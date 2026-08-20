@@ -1,0 +1,13 @@
+# BuildKit per-Dockerfile ignore file: takes precedence over the repository
+# root .dockerignore for builds that use gateway/Dockerfile (context = repo
+# root). Allowlist only what the gateway image build consumes.
+*
+!gateway
+!gateway/**
+!contracts
+!contracts/capnp
+!contracts/capnp/**
+# Never let local artifacts enter the build context.
+gateway/build
+gateway/Testing
+gateway/.github
