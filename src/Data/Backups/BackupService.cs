@@ -1,6 +1,8 @@
+using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Npgsql;
 
@@ -13,11 +15,21 @@ namespace ScalaAPI.Data.Backups;
 public sealed class BackupService(
     NpgsqlDataSource dataSource,
     IHttpClientFactory httpClientFactory,
+    IConfiguration configuration,
     ILogger<BackupService> logger)
 {
     private readonly NpgsqlDataSource _dataSource = dataSource;
     private readonly IHttpClientFactory _httpClientFactory = httpClientFactory;
     private readonly ILogger<BackupService> _logger = logger;
+    private readonly string _directory = configuration["Backup:Directory"]?.Trim() is { Length: > 0 } dir
+        ? dir : "/var/lib/scalaapi/backups";
+    private readonly string _pgDump = configuration["Backup:PgDumpPath"]?.Trim() is { Length: > 0 } dump
+        ? dump : "pg_dump";
+    private readonly int _timeoutSeconds = Math.Clamp(
+        configuration.GetValue("Backup:CommandTimeoutSeconds", 120), 5, 900);
+    private readonly IConfiguration _configuration = configuration;
+    private string SourceConnection => _configuration.GetConnectionString("Postgres")
+        ?? throw new InvalidOperationException("ConnectionStrings:Postgres is required for pg_dump");
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
     /// <summary>
@@ -264,6 +276,218 @@ public sealed class BackupService(
 
             return new OffsiteUploadResult(uploadId, null, null, size, "failed");
         }
+    }
+
+    /// <summary>
+    /// Executes pg_dump for a scheduled backup job, updates the job row on success/failure.
+    /// Returns the artifact path on success, null on failure.
+    /// </summary>
+    public async Task<string?> RunScheduledDumpAsync(string jobId, CancellationToken ct = default)
+    {
+        var finalPath = Path.Combine(_directory, jobId + ".dump");
+        var temporaryPath = Path.Combine(_directory, "." + jobId + ".tmp");
+
+        try
+        {
+            Directory.CreateDirectory(_directory);
+            await RunPgDumpAsync(temporaryPath, ct);
+
+            var info = new FileInfo(temporaryPath);
+            if (!info.Exists || info.Length <= 0)
+                throw new InvalidOperationException("pg_dump produced an empty artifact");
+
+            var sha = await Sha256FileAsync(temporaryPath, ct);
+            File.Move(temporaryPath, finalPath);
+
+            await using var connection = await _dataSource.OpenConnectionAsync(ct);
+            await using var update = connection.CreateCommand();
+            update.CommandText = """
+                UPDATE backup_jobs
+                SET status = 'completed', artifact_path = $2, size_bytes = $3,
+                    sha256 = $4, completed_at = now()
+                WHERE id = $1 AND status = 'running'
+                """;
+            update.Parameters.AddWithValue(jobId);
+            update.Parameters.AddWithValue(Path.GetFileName(finalPath));
+            update.Parameters.AddWithValue(info.Length);
+            update.Parameters.AddWithValue(sha);
+            await update.ExecuteNonQueryAsync(ct);
+
+            _logger.LogInformation("Scheduled dump completed for job {JobId}, size={Size}",
+                jobId, info.Length);
+            return finalPath;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Scheduled dump failed for job {JobId}", jobId);
+            await FailScheduledDumpAsync(jobId, "dump_failed", SanitizeError(ex.Message));
+            if (File.Exists(temporaryPath))
+                TryDelete(temporaryPath);
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Verifies an offsite upload by reading it back and comparing SHA-256.
+    /// Updates the upload row with verified_at and verify_status.
+    /// </summary>
+    public async Task<bool> VerifyOffsiteUploadAsync(
+        string uploadId,
+        string remoteUrl,
+        string expectedChecksum,
+        CancellationToken ct = default)
+    {
+        try
+        {
+            using var client = _httpClientFactory.CreateClient("BackupOffsite");
+            await using var stream = await client.GetStreamAsync(remoteUrl, ct);
+            var hash = await SHA256.HashDataAsync(stream, ct);
+            var actual = Convert.ToHexString(hash).ToLowerInvariant();
+
+            var verified = string.Equals(actual, expectedChecksum, StringComparison.OrdinalIgnoreCase);
+            var status = verified ? "verified" : "mismatch";
+
+            await using var connection = await _dataSource.OpenConnectionAsync(ct);
+            await using var update = connection.CreateCommand();
+            update.CommandText = """
+                UPDATE backup_offsite_uploads
+                SET verified_at = now(), verify_status = $2
+                WHERE upload_id = $1
+                """;
+            update.Parameters.AddWithValue(uploadId);
+            update.Parameters.AddWithValue(status);
+            await update.ExecuteNonQueryAsync(ct);
+
+            if (!verified)
+                _logger.LogWarning("Offsite verification mismatch for upload {UploadId}: expected={Expected}, actual={Actual}",
+                    uploadId, expectedChecksum, actual);
+            else
+                _logger.LogInformation("Offsite upload {UploadId} verified", uploadId);
+
+            return verified;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Offsite verification unreachable for upload {UploadId}", uploadId);
+
+            await using var connection = await _dataSource.OpenConnectionAsync(ct);
+            await using var update = connection.CreateCommand();
+            update.CommandText = """
+                UPDATE backup_offsite_uploads
+                SET verified_at = now(), verify_status = 'unreachable'
+                WHERE upload_id = $1
+                """;
+            update.Parameters.AddWithValue(uploadId);
+            await update.ExecuteNonQueryAsync(ct);
+
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Reclaims zombie backup jobs stuck in 'running' state for over 1 hour.
+    /// Marks them as failed with error_code 'zombie_reclaimed'.
+    /// </summary>
+    public async Task<int> ReclaimZombieBackupsAsync(CancellationToken ct = default)
+    {
+        await using var connection = await _dataSource.OpenConnectionAsync(ct);
+        await using var cmd = connection.CreateCommand();
+        cmd.CommandText = """
+            UPDATE backup_jobs
+            SET status = 'failed', error_code = 'zombie_reclaimed',
+                error_detail = 'reclaimed by scheduler: stuck running >1h',
+                completed_at = now()
+            WHERE status = 'running'
+              AND created_at < now() - interval '1 hour'
+            """;
+        var reclaimed = await cmd.ExecuteNonQueryAsync(ct);
+        if (reclaimed > 0)
+            _logger.LogWarning("Reclaimed {Count} zombie backup jobs", reclaimed);
+        return reclaimed;
+    }
+
+    private async Task FailScheduledDumpAsync(string jobId, string errorCode, string errorDetail)
+    {
+        try
+        {
+            await using var connection = await _dataSource.OpenConnectionAsync();
+            await using var update = connection.CreateCommand();
+            update.CommandText = """
+                UPDATE backup_jobs
+                SET status = 'failed', error_code = $2, error_detail = $3, completed_at = now()
+                WHERE id = $1 AND status = 'running'
+                """;
+            update.Parameters.AddWithValue(jobId);
+            update.Parameters.AddWithValue(errorCode);
+            update.Parameters.AddWithValue(errorDetail);
+            await update.ExecuteNonQueryAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Unable to persist failed backup {JobId}", jobId);
+        }
+    }
+
+    private async Task RunPgDumpAsync(string path, CancellationToken ct)
+    {
+        var connection = new NpgsqlConnectionStringBuilder(SourceConnection);
+        var psi = new ProcessStartInfo
+        {
+            FileName = _pgDump,
+            RedirectStandardError = true,
+            RedirectStandardOutput = true,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+        };
+        psi.ArgumentList.Add("--host");
+        psi.ArgumentList.Add(connection.Host ?? "localhost");
+        psi.ArgumentList.Add("--port");
+        psi.ArgumentList.Add(connection.Port.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        psi.ArgumentList.Add("--username");
+        psi.ArgumentList.Add(connection.Username ?? "");
+        psi.ArgumentList.Add("--dbname");
+        psi.ArgumentList.Add(connection.Database ?? "postgres");
+        psi.ArgumentList.Add("--format=custom");
+        psi.ArgumentList.Add("--no-owner");
+        psi.ArgumentList.Add("--no-privileges");
+        psi.ArgumentList.Add("--file");
+        psi.ArgumentList.Add(path);
+        psi.Environment["PGPASSWORD"] = connection.Password;
+
+        using var process = new Process { StartInfo = psi, EnableRaisingEvents = true };
+        if (!process.Start())
+            throw new InvalidOperationException("Unable to start pg_dump");
+
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        timeout.CancelAfter(TimeSpan.FromSeconds(_timeoutSeconds));
+        var stderr = process.StandardError.ReadToEndAsync(timeout.Token);
+        _ = await process.StandardOutput.ReadToEndAsync(timeout.Token);
+
+        try
+        {
+            await process.WaitForExitAsync(timeout.Token);
+        }
+        catch
+        {
+            try { process.Kill(entireProcessTree: true); } catch { /* best effort */ }
+            throw new TimeoutException("pg_dump exceeded the configured timeout");
+        }
+
+        var error = await stderr;
+        if (process.ExitCode != 0)
+            throw new InvalidOperationException($"pg_dump failed: {SanitizeError(error)}");
+    }
+
+    private static async Task<string> Sha256FileAsync(string path, CancellationToken ct)
+    {
+        await using var stream = File.OpenRead(path);
+        var hash = await SHA256.HashDataAsync(stream, ct);
+        return Convert.ToHexString(hash).ToLowerInvariant();
+    }
+
+    private static void TryDelete(string path)
+    {
+        try { File.Delete(path); } catch { /* best effort */ }
     }
 
     /// <summary>

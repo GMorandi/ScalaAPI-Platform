@@ -105,7 +105,7 @@ public sealed class BackupRestoreTests
         if (string.IsNullOrWhiteSpace(connectionString)) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
 
         await using var dataSource = NpgsqlDataSource.Create(connectionString);
-        var service = new BackupService(dataSource, new NullHttpClientFactory(), NullLogger<BackupService>.Instance);
+        var service = new BackupService(dataSource, new NullHttpClientFactory(), new ConfigurationBuilder().Build(), NullLogger<BackupService>.Instance);
 
         // Create a key for encryption.
         var key = await service.CreateKeyAsync("aes-256-gcm");
@@ -149,7 +149,7 @@ public sealed class BackupRestoreTests
         if (string.IsNullOrWhiteSpace(connectionString)) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
 
         await using var dataSource = NpgsqlDataSource.Create(connectionString);
-        var service = new BackupService(dataSource, new NullHttpClientFactory(), NullLogger<BackupService>.Instance);
+        var service = new BackupService(dataSource, new NullHttpClientFactory(), new ConfigurationBuilder().Build(), NullLogger<BackupService>.Instance);
 
         // Create two keys.
         var key1 = await service.CreateKeyAsync("aes-256-gcm");
@@ -182,7 +182,7 @@ public sealed class BackupRestoreTests
         if (string.IsNullOrWhiteSpace(connectionString)) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
 
         await using var dataSource = NpgsqlDataSource.Create(connectionString);
-        var service = new BackupService(dataSource, new NullHttpClientFactory(), NullLogger<BackupService>.Instance);
+        var service = new BackupService(dataSource, new NullHttpClientFactory(), new ConfigurationBuilder().Build(), NullLogger<BackupService>.Instance);
 
         // Create a signing key.
         var key = await service.CreateKeyAsync("hmac-sha256");
@@ -214,7 +214,7 @@ public sealed class BackupRestoreTests
         if (string.IsNullOrWhiteSpace(connectionString)) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
 
         await using var dataSource = NpgsqlDataSource.Create(connectionString);
-        var service = new BackupService(dataSource, new NullHttpClientFactory(), NullLogger<BackupService>.Instance);
+        var service = new BackupService(dataSource, new NullHttpClientFactory(), new ConfigurationBuilder().Build(), NullLogger<BackupService>.Instance);
 
         var key = await service.CreateKeyAsync("hmac-sha256");
 
@@ -246,7 +246,7 @@ public sealed class BackupRestoreTests
         if (string.IsNullOrWhiteSpace(connectionString)) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
 
         await using var dataSource = NpgsqlDataSource.Create(connectionString);
-        var service = new BackupService(dataSource, new NullHttpClientFactory(), NullLogger<BackupService>.Instance);
+        var service = new BackupService(dataSource, new NullHttpClientFactory(), new ConfigurationBuilder().Build(), NullLogger<BackupService>.Instance);
 
         var key1 = await service.CreateKeyAsync("hmac-sha256");
         Assert.Equal("active", key1.Status);
@@ -321,7 +321,7 @@ public sealed class BackupRestoreTests
         if (string.IsNullOrWhiteSpace(connectionString)) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
 
         await using var dataSource = NpgsqlDataSource.Create(connectionString);
-        var service = new BackupService(dataSource, new NullHttpClientFactory(), NullLogger<BackupService>.Instance);
+        var service = new BackupService(dataSource, new NullHttpClientFactory(), new ConfigurationBuilder().Build(), NullLogger<BackupService>.Instance);
 
         var policy = await service.UpsertRetentionPolicyAsync(
             keepDaily: 14, keepWeekly: 8, keepMonthly: 24,
@@ -351,7 +351,7 @@ public sealed class BackupRestoreTests
         if (string.IsNullOrWhiteSpace(connectionString)) throw new InvalidOperationException("GREENFIELD_SCHEMA_CONNECTION is not set");
 
         await using var dataSource = NpgsqlDataSource.Create(connectionString);
-        var service = new BackupService(dataSource, new NullHttpClientFactory(), NullLogger<BackupService>.Instance);
+        var service = new BackupService(dataSource, new NullHttpClientFactory(), new ConfigurationBuilder().Build(), NullLogger<BackupService>.Instance);
 
         var record = await service.RecordRpoRtoAsync(
             backupId: null,
@@ -515,7 +515,7 @@ public sealed class BackupRestoreTests
         var dataSource = string.IsNullOrWhiteSpace(connectionString)
             ? NpgsqlDataSource.Create("Host=localhost;Database=test")
             : NpgsqlDataSource.Create(connectionString);
-        return new BackupService(dataSource, new NullHttpClientFactory(), NullLogger<BackupService>.Instance);
+        return new BackupService(dataSource, new NullHttpClientFactory(), new ConfigurationBuilder().Build(), NullLogger<BackupService>.Instance);
     }
 
     private static RestoreService CreateRestoreService()

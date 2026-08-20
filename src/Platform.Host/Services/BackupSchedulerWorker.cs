@@ -58,6 +58,9 @@ public sealed class BackupSchedulerWorker(
 
         _logger.LogInformation("Worker {WorkerId} claimed backup schedule", _workerId);
 
+        // Reclaim any zombie running rows stuck >1h.
+        await _backupService.ReclaimZombieBackupsAsync(ct);
+
         // Enforce retention policy.
         var retention = await _backupService.EnforceRetentionAsync(ct);
         if (retention.Deleted > 0 || retention.Failed > 0)
@@ -71,7 +74,6 @@ public sealed class BackupSchedulerWorker(
         var policy = await _backupService.GetRetentionPolicyAsync(ct);
         if (policy is null) return;
 
-        // Create a backup if none completed recently (within 24 hours).
         var backupDue = await IsBackupDueAsync(ct);
         if (backupDue)
         {
@@ -98,7 +100,22 @@ public sealed class BackupSchedulerWorker(
                 if (inserted > 0)
                 {
                     _logger.LogInformation("Scheduled backup created: {JobId}", jobId);
-                    // Note: Actual pg_dump execution would be triggered here or by a separate worker
+
+                    // Execute pg_dump inline.
+                    var artifactPath = await _backupService.RunScheduledDumpAsync(jobId, ct);
+                    if (artifactPath is not null && policy.OffsiteEnabled
+                        && !string.IsNullOrWhiteSpace(policy.OffsiteUrl))
+                    {
+                        var upload = await _backupService.UploadOffsiteAsync(
+                            jobId, artifactPath, policy.OffsiteUrl,
+                            policy.OffsiteBucket, ct);
+                        if (upload.Status == "completed" && upload.RemoteUrl is not null
+                            && upload.RemoteChecksum is not null)
+                        {
+                            await _backupService.VerifyOffsiteUploadAsync(
+                                upload.UploadId, upload.RemoteUrl, upload.RemoteChecksum, ct);
+                        }
+                    }
                 }
                 else
                 {
@@ -123,9 +140,18 @@ public sealed class BackupSchedulerWorker(
             SELECT COUNT(*) FROM backup_jobs
             WHERE status = 'completed'
               AND completed_at > now() - interval '24 hours'
+            UNION ALL
+            SELECT COUNT(*) FROM backup_jobs
+            WHERE status = 'running'
+              AND created_at > now() - interval '1 hour'
             """;
-        var count = Convert.ToInt32(await cmd.ExecuteScalarAsync(ct));
-        return count == 0;
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        await reader.ReadAsync(ct);
+        var completedRecent = reader.GetInt64(0);
+        await reader.NextResultAsync(ct);
+        await reader.ReadAsync(ct);
+        var runningRecent = reader.GetInt64(1);
+        return completedRecent == 0 && runningRecent == 0;
     }
 
     private async Task<bool> TryClaimScheduleAsync(CancellationToken ct)
