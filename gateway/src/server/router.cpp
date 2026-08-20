@@ -132,7 +132,8 @@ int Router::handle_request(const HttpRequest& req, HttpResponse& resp) {
         // provider-aware catalog.
         if (capability.spec->capability == Capability::Models
             && req.authorization.empty() && req.x_api_key.empty()) {
-            auto cached = impl_->garnet->get("models:list");
+            // Must match GarnetKeyspace.ModelsList on the platform side.
+            auto cached = impl_->garnet->get("scalaapi:v1:models:list");
             if (cached.error) {
                 resp.status_code = 503;
                 resp.body = R"({"error":{"type":"cache_unavailable","message":"Model catalog temporarily unavailable"}})";

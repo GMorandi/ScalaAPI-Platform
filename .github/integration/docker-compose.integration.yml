@@ -88,7 +88,7 @@ services:
         - type=gha,scope=scalaapi-platform-silo
     restart: on-failure
     stop_grace_period: 30s
-    environment:
+    environment: &silo_env
       ConnectionStrings__Postgres: "Host=postgres;Database=${POSTGRES_DB:-platform};Username=${POSTGRES_USER:-platform};Password=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}"
       CapnpRpc__SocketPath: /var/run/scalaapi/dispatch.sock
       Garnet__Host: garnet
@@ -119,7 +119,7 @@ services:
       ASPNETCORE_URLS: http://0.0.0.0:5000
     volumes:
       - runtime_sockets:/var/run/scalaapi
-    depends_on:
+    depends_on: &silo_deps
       migrate:
         condition: service_completed_successfully
       provider-mock:
@@ -128,6 +128,26 @@ services:
         condition: service_healthy
       garnet-health:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:5000/ready"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  platform-silo-2:
+    build:
+      context: ../..
+      target: platform-silo
+      cache_from:
+        - type=gha,scope=scalaapi-platform-silo
+    restart: on-failure
+    stop_grace_period: 30s
+    environment:
+      <<: *silo_env
+      CapnpRpc__SocketPath: /var/run/scalaapi/dispatch-2.sock
+    volumes:
+      - runtime_sockets:/var/run/scalaapi
+    depends_on: *silo_deps
     healthcheck:
       test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:5000/ready"]
       interval: 5s

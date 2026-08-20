@@ -18,6 +18,7 @@ using ScalaAPI.Data.Repositories;
 using ScalaAPI.Data.Subscriptions;
 using ScalaAPI.Data.Accounting;
 using ScalaAPI.Data.Provider;
+using ScalaAPI.Data.ProviderQuota;
 using ScalaAPI.Data.Search;
 using ScalaAPI.Data.Voice;
 using ScalaAPI.Data.Backups;
@@ -85,6 +86,8 @@ builder.Services.AddSingleton<ScalaAPI.Data.Payments.IPaymentProvider,
     ScalaAPI.Data.Payments.MockPaymentProvider>();
 builder.Services.AddSingleton(NpgsqlDataSource.Create(pgConnection));
 builder.Services.AddSingleton<ProviderCredentialRefreshAuditStore>();
+builder.Services.AddSingleton<ProviderQuotaStore>();
+builder.Services.AddSingleton<IProviderQuotaStore>(sp => sp.GetRequiredService<ProviderQuotaStore>());
 builder.Services.AddSingleton<ApiKeyAuditStore>();
 builder.Services.AddSingleton<OpsMetricsStore>();
 builder.Services.AddSingleton<AuditLogStore>();

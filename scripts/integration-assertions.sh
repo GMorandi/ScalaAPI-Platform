@@ -76,7 +76,10 @@ admin_request() {
     local body=${3:-}
     local token=${4:-}
     local idempotency_key=${5:-}
-    local arguments=(-fsS -X "$method" -H "Content-Type: application/json")
+    # X-Requested-With satisfies the CSRF check in Admin.Api's
+    # SecurityMiddleware for state-changing requests.
+    local arguments=(-fsS -X "$method" -H "Content-Type: application/json"
+        -H "X-Requested-With: integration-assertions")
     if [[ -n "$token" ]]; then
         arguments+=(-H "Authorization: Bearer $token")
     fi
@@ -131,9 +134,16 @@ echo "PASS: provider mock suite seeded"
 echo "== Creating the test user and API key =="
 user_email="integration@scalaapi.test"
 user_password="integration-user-password"
+# Registration requires a verified captcha challenge. Provision one directly
+# in the database (mirroring CaptchaVerificationService.IssueChallengeAsync)
+# and present a mock-provider pass token.
+captcha_nonce="integration-captcha-nonce"
+db_query "INSERT INTO captcha_challenges (challenge_nonce, action, expires_at)
+          VALUES ('$captcha_nonce', 'register', now() + interval '5 minutes');" >/dev/null
 register_response="$(admin_request POST /auth/register \
-    "$(jq -cn --arg email "$user_email" --arg password "$user_password" \
-        '{email:$email,password:$password,displayName:"Paired integration"}')")"
+    "$(jq -cn --arg email "$user_email" --arg password "$user_password" --arg nonce "$captcha_nonce" \
+        '{email:$email,password:$password,displayName:"Paired integration",
+          captchaNonce:$nonce,captchaToken:"mock-captcha-pass-integration"}')")"
 user_id="$(jq -er '.id' <<<"$register_response")" ||
     fail "user registration did not return an id"
 
@@ -163,7 +173,7 @@ echo "PASS: price version published"
 
 echo "== Waiting for the anonymous model catalog =="
 models_ready() {
-    curl -fsS "$gateway_url/v1/models" 2>/dev/null | grep -q published
+    curl -fsS "$gateway_url/v1/models" 2>/dev/null | grep -q '"id":"gpt-4o"'
 }
 wait_for "gateway /v1/models catalog from Garnet" 30 models_ready ||
     fail "model catalog did not reach the gateway cache"

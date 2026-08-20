@@ -154,6 +154,9 @@ jobs:
             echo "ADMIN_PASSWORD=$(openssl rand -hex 12)"
             echo "OBJECT_STORAGE_SECRET_KEY=$(openssl rand -hex 16)"
             echo "INTERNAL_RECONCILIATION_TOKEN=$(openssl rand -hex 16)"
+            # The provider mock serves its OAuth token endpoint over plain
+            # HTTP; credential refresh must accept it in this stack.
+            echo "PROVIDER_CREDENTIALS_ALLOW_INSECURE=true"
             echo "GATEWAY_PORT=18080"
             echo "USER_WEB_PORT=13001"
           } > "$RUNNER_TEMP/integration.env"
