@@ -10,15 +10,26 @@ on:
     paths:
       - "user-web/**"
 
+permissions:
+  contents: read
+
+concurrency:
+  group: platform-user-web-ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     defaults:
       run:
         working-directory: user-web
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+        with:
+          persist-credentials: false
+      - name: Setup Node
+        uses: actions/setup-node@v4
         with:
           node-version: "22"
           cache: npm
@@ -26,3 +37,18 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm run build
+
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
+
+      - name: E2E tests
+        run: npm run test:e2e
+
+      - name: Upload Playwright results
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: user-web-playwright-${{ github.sha }}
+          path: user-web/test-results/
+          if-no-files-found: ignore
+          retention-days: 14

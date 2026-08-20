@@ -10,14 +10,24 @@ on:
     paths:
       - "admin-web/**"
 
+permissions:
+  contents: read
+
+concurrency:
+  group: platform-admin-web-ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     defaults:
       run:
         working-directory: admin-web
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -34,3 +44,18 @@ jobs:
 
       - name: Build
         run: npx vite build
+
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
+
+      - name: E2E tests
+        run: npm run test:e2e
+
+      - name: Upload Playwright results
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: admin-web-playwright-${{ github.sha }}
+          path: admin-web/test-results/
+          if-no-files-found: ignore
+          retention-days: 14

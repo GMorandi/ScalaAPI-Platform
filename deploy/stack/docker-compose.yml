@@ -226,6 +226,10 @@ services:
     build: ../../../gateway
     restart: on-failure
     stop_grace_period: 30s
+    networks:
+      default:
+        aliases:
+          - gateway
     environment: &gw_env
       GATEWAY_CORES: ${GATEWAY_CORES:-2}
       GATEWAY_LISTEN_PORT: 8080
