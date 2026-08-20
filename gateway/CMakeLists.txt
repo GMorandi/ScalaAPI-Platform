@@ -15,7 +15,17 @@ option(GATEWAY_BUILD_BENCHMARKS "Build benchmarks" OFF)
 include(cmake/dependencies.cmake)
 
 # --- Cap'n Proto schema compilation ---
-file(GLOB CAPNP_SCHEMAS ${CMAKE_SOURCE_DIR}/proto/*.capnp)
+# The canonical contract lives at contracts/capnp in this repository; the
+# gateway consumes it directly (no vendored copy under gateway/proto).
+set(SCALAAPI_CONTRACT_DIR "${CMAKE_SOURCE_DIR}/../contracts/capnp")
+get_filename_component(SCALAAPI_CONTRACT_DIR "${SCALAAPI_CONTRACT_DIR}" ABSOLUTE)
+if(NOT EXISTS "${SCALAAPI_CONTRACT_DIR}/SHA256SUMS")
+    message(FATAL_ERROR
+        "Cap'n Proto contract manifest not found at ${SCALAAPI_CONTRACT_DIR}. "
+        "Configure the gateway from the repository root, e.g. "
+        "cmake -S gateway -B gateway/build.")
+endif()
+file(GLOB CAPNP_SCHEMAS ${SCALAAPI_CONTRACT_DIR}/*.capnp)
 set(CAPNP_OUTPUT_DIR ${CMAKE_BINARY_DIR}/gen)
 file(MAKE_DIRECTORY ${CAPNP_OUTPUT_DIR})
 
@@ -32,7 +42,7 @@ set(CAPNPC_CXX ${CMAKE_BINARY_DIR}/_deps/capnproto-build/c++/src/capnp/capnpc-c+
 
 add_custom_command(
     OUTPUT ${CAPNP_GENERATED_SRCS} ${CAPNP_GENERATED_HDRS}
-    COMMAND ${CAPNP_EXECUTABLE} compile --src-prefix=${CMAKE_SOURCE_DIR}/proto
+    COMMAND ${CAPNP_EXECUTABLE} compile --src-prefix=${SCALAAPI_CONTRACT_DIR}
             -o ${CAPNPC_CXX}:${CAPNP_OUTPUT_DIR}
             ${CAPNP_SCHEMAS}
     DEPENDS ${CAPNP_SCHEMAS} capnp_tool capnpc_cpp

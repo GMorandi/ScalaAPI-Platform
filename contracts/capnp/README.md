@@ -5,14 +5,15 @@ Cap'n Proto contract. It is a new product contract and contains no Sub2API
 compatibility branch.
 
 > The paired contract includes `audioTts @12` and `audioStt @13`. Any change to
-> these schemas must update the generated Platform output, Gateway's vendored
-> copy, both digest files, and protocol fixtures in one superproject pair update.
+> these schemas must update the generated Platform output, the digest files, and
+> protocol fixtures in one commit.
 
-Gateway keeps a release-vendored copy under `gateway/proto` so that its repository
-can build independently. From a workspace containing both repositories, run:
+The gateway builds directly against this directory: `gateway/CMakeLists.txt`
+compiles every schema here via `${CMAKE_SOURCE_DIR}/../contracts/capnp`. Verify
+recorded digests from the repository root with:
 
 ```sh
-scripts/verify-contracts.sh ../gateway
+scripts/verify-contracts.sh
 ```
 
 The checked-in Platform C# output is generated with Cap'n Proto `1.0.2` and the
@@ -23,6 +24,6 @@ script at that exact compiler build:
 CAPNP_COMPILER=/path/to/capnp-1.0.2 scripts/verify-generated-contracts.sh
 ```
 
-The command fails if the vendor copy or the recorded digest differs. Contract
-changes must update the canonical schemas, generated C# files, the Gateway vendor
-copy, both digest files, and protocol fixtures in the same release.
+The command fails if the generated output or the recorded digest differs. Contract
+changes must update the canonical schemas, generated C# files, the digest files,
+and protocol fixtures in the same commit.
