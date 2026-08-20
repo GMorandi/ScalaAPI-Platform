@@ -1,0 +1,262 @@
+name: ScalaAPI Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: scalaapi-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  dotnet-gates:
+    name: Platform .NET gates
+    uses: ./.github/workflows/dotnet.yml
+
+  gateway-gates:
+    name: Gateway gates
+    uses: ./.github/workflows/gateway.yml
+
+  admin-web-gates:
+    name: Admin Web gates
+    uses: ./.github/workflows/admin-web.yml
+
+  user-web-gates:
+    name: User Web gates
+    uses: ./.github/workflows/user-web.yml
+
+  stack-gates:
+    name: Images and integration
+    uses: ./.github/workflows/stack.yml
+
+  release-metadata:
+    name: Validate release identity
+    needs: [dotnet-gates, gateway-gates, admin-web-gates, user-web-gates, stack-gates]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: read
+    outputs:
+      repository_sha: ${{ steps.metadata.outputs.repository_sha }}
+      contract_digest: ${{ steps.metadata.outputs.contract_digest }}
+      migration_digest: ${{ steps.metadata.outputs.migration_digest }}
+    steps:
+      - name: Check out the release commit
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Validate the release tag
+        run: scripts/validate-release-tag.sh "$GITHUB_REF_NAME"
+
+      - name: Generate release manifest
+        run: scripts/generate-release-manifest.sh "$RUNNER_TEMP/release-manifest.json"
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Refuse to republish an existing release tag
+        run: scripts/validate-release-images.sh "$GITHUB_REF_NAME"
+
+      - name: Export immutable metadata
+        id: metadata
+        run: |
+          {
+            echo "repository_sha=$(jq -r '.repository.commit' "$RUNNER_TEMP/release-manifest.json")"
+            echo "contract_digest=$(jq -r '.contract.digest' "$RUNNER_TEMP/release-manifest.json")"
+            echo "migration_digest=$(jq -r '.migrations.digest' "$RUNNER_TEMP/release-manifest.json")"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Upload release manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: scalaapi-release-manifest-${{ github.ref_name }}
+          path: ${{ runner.temp }}/release-manifest.json
+          if-no-files-found: error
+          retention-days: 90
+
+  build-images:
+    name: Build ${{ matrix.key }} image
+    needs: release-metadata
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - key: gateway
+            dockerfile: gateway/Dockerfile
+            target: runtime
+          - key: platform-silo
+            dockerfile: Dockerfile
+            target: platform-silo
+          - key: admin-api
+            dockerfile: Dockerfile
+            target: admin-api
+          - key: migrator
+            dockerfile: Dockerfile
+            target: migrate
+          - key: provider-mock
+            dockerfile: Dockerfile
+            target: provider-mock
+    steps:
+      - name: Check out the release commit
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build the release image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          target: ${{ matrix.target }}
+          push: false
+          cache-from: type=gha,scope=scalaapi-${{ matrix.key }}
+          cache-to: type=gha,mode=max,scope=scalaapi-${{ matrix.key }}
+
+  publish-images:
+    name: Publish release images
+    needs: [release-metadata, build-images]
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: write
+    env:
+      REPOSITORY_SHA: ${{ needs.release-metadata.outputs.repository_sha }}
+      CONTRACT_DIGEST: ${{ needs.release-metadata.outputs.contract_digest }}
+      MIGRATION_DIGEST: ${{ needs.release-metadata.outputs.migration_digest }}
+      RELEASE_TAG: ${{ github.ref_name }}
+    steps:
+      - name: Check out the release commit
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish every release image
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/image-metadata"
+          publish_image() {
+            local key="$1" dockerfile="$2" target="$3" repository="$4" component="$5"
+            local metadata_file="$RUNNER_TEMP/build-metadata-$key.json"
+            # Only :$RELEASE_TAG is ever published. This pipeline never
+            # publishes or moves a latest tag.
+            docker buildx build \
+              --file "$dockerfile" --target "$target" \
+              --tag "$repository:$RELEASE_TAG" \
+              --label "org.opencontainers.image.source=${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}" \
+              --label "org.opencontainers.image.revision=$REPOSITORY_SHA" \
+              --label "org.opencontainers.image.version=$RELEASE_TAG" \
+              --label "io.scalaapi.component=$component" \
+              --label "io.scalaapi.component.revision=$REPOSITORY_SHA" \
+              --label "io.scalaapi.contract.digest=sha256:$CONTRACT_DIGEST" \
+              --label "io.scalaapi.migrations.digest=sha256:$MIGRATION_DIGEST" \
+              --cache-from "type=gha,scope=scalaapi-$key" \
+              --metadata-file "$metadata_file" \
+              --push .
+            local digest
+            digest="$(jq -r '."containerimage.digest"' "$metadata_file")"
+            [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || {
+              echo "invalid digest for $key: $digest" >&2; return 1; }
+            jq -n --arg repository "$repository" --arg tag "$RELEASE_TAG" \
+              --arg reference "$repository:$RELEASE_TAG" --arg digest "$digest" \
+              --arg component "$component" --arg component_commit "$REPOSITORY_SHA" \
+              --arg contract_digest "$CONTRACT_DIGEST" \
+              --arg migration_digest "$MIGRATION_DIGEST" \
+              --arg dockerfile "$dockerfile" --arg target "$target" \
+              '{repository:$repository, tag:$tag, reference:$reference,
+                digest:$digest, component:$component, component_commit:$component_commit,
+                contract_digest:$contract_digest, migration_digest:$migration_digest,
+                build:{dockerfile:$dockerfile, target:$target}}' \
+              > "$RUNNER_TEMP/image-metadata/$key.json"
+          }
+          publish_image gateway        gateway/Dockerfile runtime       ghcr.io/gmorandi/scalaapi-platform/gateway       gateway
+          publish_image platform-silo  Dockerfile         platform-silo ghcr.io/gmorandi/scalaapi-platform/platform-silo platform
+          publish_image admin-api      Dockerfile         admin-api     ghcr.io/gmorandi/scalaapi-platform/admin-api     platform
+          publish_image migrator       Dockerfile         migrate       ghcr.io/gmorandi/scalaapi-platform/migrator      platform
+          publish_image provider-mock  Dockerfile         provider-mock ghcr.io/gmorandi/scalaapi-platform/provider-mock platform
+          test "$(find "$RUNNER_TEMP/image-metadata" -maxdepth 1 -type f -name '*.json' | wc -l)" -eq 5
+
+      - name: Upload image metadata
+        uses: actions/upload-artifact@v4
+        with:
+          name: scalaapi-release-images-${{ github.ref_name }}
+          path: ${{ runner.temp }}/image-metadata/*.json
+          if-no-files-found: error
+          retention-days: 90
+
+  release-evidence:
+    name: Assemble release evidence
+    needs: [release-metadata, publish-images]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+      checks: read
+    steps:
+      - name: Check out the release commit
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Regenerate the release manifest
+        run: |
+          scripts/validate-release-tag.sh "$GITHUB_REF_NAME"
+          scripts/generate-release-manifest.sh "$RUNNER_TEMP/release-manifest.json"
+
+      - name: Download image metadata
+        uses: actions/download-artifact@v4
+        with:
+          name: scalaapi-release-images-${{ github.ref_name }}
+          path: ${{ runner.temp }}/image-metadata
+
+      - name: Collect the producing run's gate conclusions
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: scripts/collect-gate-results.sh --output "$RUNNER_TEMP/gates.json"
+
+      - name: Assemble the release evidence
+        run: >-
+          scripts/generate-release-evidence.sh
+          --version "$GITHUB_REF_NAME"
+          --release-manifest "$RUNNER_TEMP/release-manifest.json"
+          --images-dir "$RUNNER_TEMP/image-metadata"
+          --gates-json "$RUNNER_TEMP/gates.json"
+          --output "$RUNNER_TEMP/release-evidence.json"
+
+      - name: Upload release evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: scalaapi-release-evidence-${{ github.ref_name }}
+          path: |
+            ${{ runner.temp }}/release-evidence.json
+            ${{ runner.temp }}/release-manifest.json
+          if-no-files-found: error
+          retention-days: 90
