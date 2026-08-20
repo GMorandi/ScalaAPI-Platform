@@ -1,0 +1,202 @@
+name: Image Build and Integration
+
+on:
+  workflow_call:
+  workflow_dispatch:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  schedule:
+    # Weekly drift sentinel: floating inputs (apt packages, base image patch
+    # releases, runner updates) surface here instead of on release day.
+    - cron: "0 3 * * 1"
+
+permissions:
+  contents: read
+
+concurrency:
+  # The event name keeps scheduled sentinel runs from cancelling in-flight
+  # push or pull-request validation of the same ref.
+  group: platform-stack-ci-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: true
+
+jobs:
+  image-build:
+    name: Build and scan ${{ matrix.key }} image
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - key: gateway
+            context: .
+            dockerfile: gateway/Dockerfile
+            target: runtime
+          - key: platform-silo
+            context: .
+            dockerfile: Dockerfile
+            target: platform-silo
+          - key: admin-api
+            context: .
+            dockerfile: Dockerfile
+            target: admin-api
+          - key: migrator
+            context: .
+            dockerfile: Dockerfile
+            target: migrate
+          - key: provider-mock
+            context: .
+            dockerfile: Dockerfile
+            target: provider-mock
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build the image
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          target: ${{ matrix.target }}
+          push: false
+          load: true
+          tags: scalaapi-${{ matrix.key }}:ci
+          cache-from: type=gha,scope=scalaapi-${{ matrix.key }}
+          cache-to: type=gha,mode=max,scope=scalaapi-${{ matrix.key }}
+
+      - name: Scan the image for vulnerabilities
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: scalaapi-${{ matrix.key }}:ci
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: 1
+          format: table
+
+      - name: Smoke the image
+        run: |
+          set -euo pipefail
+          case "${{ matrix.key }}" in
+            provider-mock)
+              container_id="$(docker run -d -p 18081:8081 scalaapi-provider-mock:ci)"
+              trap 'docker rm -f "$container_id" >/dev/null 2>&1 || true' EXIT
+              for attempt in $(seq 1 30); do
+                if curl -fsS http://127.0.0.1:18081/health >/dev/null 2>&1; then
+                  echo "provider-mock /health reachable"
+                  exit 0
+                fi
+                sleep 2
+              done
+              echo "provider-mock /health did not become reachable" >&2
+              exit 1
+              ;;
+            migrator)
+              # The image entrypoint already passes /app/migrations, so run
+              # the assembly bare to reach its argument validation.
+              output="$(docker run --rm --entrypoint dotnet scalaapi-migrator:ci \
+                migrate/Db.Migrator.dll 2>&1 || true)"
+              grep -q "Usage: Db.Migrator" <<<"$output" || {
+                echo "migrator entrypoint did not reach its argument check" >&2
+                exit 1
+              }
+              echo "migrator entrypoint executes and validates arguments"
+              ;;
+            platform-silo)
+              docker run --rm --entrypoint sh scalaapi-platform-silo:ci \
+                -c 'test -f platform/ScalaAPI.Platform.Host.dll'
+              echo "platform-silo image contains the host assembly"
+              ;;
+            admin-api)
+              docker run --rm --entrypoint sh scalaapi-admin-api:ci \
+                -c 'test -f admin/Admin.Api.dll'
+              echo "admin-api image contains the API assembly"
+              ;;
+            gateway)
+              docker run --rm --entrypoint sh scalaapi-gateway:ci \
+                -c 'test -x /usr/local/bin/gateway'
+              echo "gateway image contains the runtime binary"
+              ;;
+          esac
+
+  integration:
+    name: Full stack integration and live UI
+    needs: image-build
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      INTEGRATION_COMPOSE_FILE: .github/integration/docker-compose.integration.yml
+      INTEGRATION_PROJECT_NAME: scalaapi-integration-${{ github.run_id }}
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Generate the integration environment
+        run: |
+          set -euo pipefail
+          umask 077
+          {
+            echo "POSTGRES_DB=platform"
+            echo "POSTGRES_USER=platform"
+            echo "POSTGRES_PASSWORD=$(openssl rand -hex 16)"
+            echo "GARNET_PASSWORD=$(openssl rand -hex 16)"
+            echo "SECURITY_MASTER_KEY=$(openssl rand -base64 32)"
+            echo "JWT_KEY=$(openssl rand -hex 24)"
+            echo "ADMIN_USERNAME=admin@scalaapi.test"
+            echo "ADMIN_PASSWORD=$(openssl rand -hex 12)"
+            echo "OBJECT_STORAGE_SECRET_KEY=$(openssl rand -hex 16)"
+            echo "INTERNAL_RECONCILIATION_TOKEN=$(openssl rand -hex 16)"
+            echo "GATEWAY_PORT=18080"
+            echo "USER_WEB_PORT=13001"
+          } > "$RUNNER_TEMP/integration.env"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Start the stack
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          docker compose \
+            --project-name "$INTEGRATION_PROJECT_NAME" \
+            --env-file "$RUNNER_TEMP/integration.env" \
+            --file "$INTEGRATION_COMPOSE_FILE" \
+            up --detach --build
+
+      - name: Run cross-component assertions
+        env:
+          INTEGRATION_ENV_FILE: ${{ runner.temp }}/integration.env
+        run: |
+          set -euo pipefail
+          set -a
+          . "$INTEGRATION_ENV_FILE"
+          set +a
+          scripts/integration-assertions.sh
+
+      - name: Run the live User Web spec
+        env:
+          PUBLIC_UI_BASE_URL: http://127.0.0.1:13001
+        working-directory: user-web
+        run: |
+          set -euo pipefail
+          npm ci
+          npx playwright install chromium
+          npm run test:e2e -- tests/public-pages.live.spec.ts
+
+      - name: Tear down the integration stack
+        if: always()
+        run: |
+          docker compose \
+            --project-name "$INTEGRATION_PROJECT_NAME" \
+            --env-file "$RUNNER_TEMP/integration.env" \
+            --file "$INTEGRATION_COMPOSE_FILE" \
+            down --volumes --remove-orphans || true

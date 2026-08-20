@@ -1,0 +1,247 @@
+# Integration stack. Owned by this repository; builds the in-tree gateway and
+# the .NET services from the repository-root build context. Service definitions,
+# health checks, and environment contracts mirror deploy/stack/docker-compose.yml;
+# keep both aligned when contracts change.
+# The gateway carries the `gateway` network alias that user-web's nginx
+# configuration resolves.
+services:
+  postgres:
+    image: docker.io/library/postgres:17-alpine@sha256:af194ccf3e2d7fe367012c7b88ce8b816c5c889b18a5b316799a1f0d7eac746a
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-platform}
+      POSTGRES_USER: ${POSTGRES_USER:-platform}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  migrate:
+    build:
+      context: ../..
+      target: migrate
+      cache_from:
+        - type=gha,scope=scalaapi-migrator
+    environment:
+      ConnectionStrings__Postgres: "Host=postgres;Database=${POSTGRES_DB:-platform};Username=${POSTGRES_USER:-platform};Password=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  garnet:
+    image: ghcr.io/microsoft/garnet:sha-e7025a6@sha256:e105e6163812110f049bb3f92ea89b6921963cb6f23813ad3c5109df3f8683b1
+    command: ["--auth", "Password", "--password", "${GARNET_PASSWORD:?GARNET_PASSWORD is required}"]
+    volumes:
+      - garnet_data:/data
+
+  garnet-health:
+    image: docker.io/library/busybox:1.36.1@sha256:b7f3d86d6e84fc17718c48bcde1450807faa2d56704205c697b4bd5df7b9e29f
+    command: ["sh", "-c", "while true; do sleep 3600; done"]
+    environment:
+      GARNET_PASSWORD: ${GARNET_PASSWORD:?GARNET_PASSWORD is required}
+    depends_on:
+      garnet:
+        condition: service_started
+    healthcheck:
+      test: 'pass="$${GARNET_PASSWORD}"; len=$$(printf %s "$${pass}" | wc -c); { printf ''*2\r\n$$4\r\nAUTH\r\n$$%s\r\n%s\r\n'' "$${len}" "$${pass}"; printf ''*1\r\n$$4\r\nPING\r\n''; } | nc -w 2 garnet 6379 | grep PONG >/dev/null'
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  object-storage:
+    image: docker.io/minio/minio:latest@sha256:a1a8bd4ac40ad7881a245bab97323e18f971e4d4cba2c2007ec1bedd21cbaba2
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${OBJECT_STORAGE_ACCESS_KEY:-platform}
+      MINIO_ROOT_PASSWORD: ${OBJECT_STORAGE_SECRET_KEY:?OBJECT_STORAGE_SECRET_KEY is required}
+    volumes:
+      - object_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:9000/minio/health/live"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  provider-mock:
+    build:
+      context: ../..
+      target: provider-mock
+      cache_from:
+        - type=gha,scope=scalaapi-provider-mock
+    environment:
+      MediaPollDelayMs: ${PROVIDER_MOCK_MEDIA_POLL_DELAY_MS:-0}
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:8081/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  platform-silo-1:
+    build:
+      context: ../..
+      target: platform-silo
+      cache_from:
+        - type=gha,scope=scalaapi-platform-silo
+    restart: on-failure
+    stop_grace_period: 30s
+    environment:
+      ConnectionStrings__Postgres: "Host=postgres;Database=${POSTGRES_DB:-platform};Username=${POSTGRES_USER:-platform};Password=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}"
+      CapnpRpc__SocketPath: /var/run/scalaapi/dispatch.sock
+      Garnet__Host: garnet
+      Garnet__Port: 6379
+      Garnet__Password: ${GARNET_PASSWORD:?GARNET_PASSWORD is required}
+      Garnet__UseTls: ${GARNET_TLS:-false}
+      Garnet__ServerName: ${GARNET_SERVER_NAME:-garnet}
+      Garnet__CaCertificatePath: ${GARNET_CA_CERT_PATH:-}
+      Security__MasterKey: ${SECURITY_MASTER_KEY:?SECURITY_MASTER_KEY is required}
+      ProviderCredentials__AllowInsecureTokenEndpoints: ${PROVIDER_CREDENTIALS_ALLOW_INSECURE:-false}
+      ProviderMock__BaseUrl: http://provider-mock:8081
+      ContentClassifier__Endpoint: ${CONTENT_CLASSIFIER_ENDPOINT:-http://provider-mock:8081/v1/classifier/evaluate}
+      ContentClassifier__TimeoutMs: ${CONTENT_CLASSIFIER_TIMEOUT_MS:-750}
+      Dispatch__LeaseTtlSeconds: ${DISPATCH_LEASE_TTL_SECONDS:-360}
+      Pricing__AllowInsecureProviderEndpoints: ${PRICING_ALLOW_INSECURE_PROVIDER_ENDPOINTS:-true}
+      Pricing__Providers__mock__Endpoint: ${PRICING_PROVIDER_MOCK_ENDPOINT:-http://provider-mock:8081/v1/pricing}
+      Payments__AllowInsecureProviderEndpoints: ${PAYMENTS_ALLOW_INSECURE_PROVIDER_ENDPOINTS:-true}
+      Payments__Providers__mock__Endpoint: ${PAYMENTS_PROVIDER_MOCK_ENDPOINT:-http://provider-mock:8081/v1/payments/checkout}
+      Payments__Providers__mock__RefundEndpoint: ${PAYMENTS_PROVIDER_MOCK_REFUND_ENDPOINT:-http://provider-mock:8081/v1/payments/refunds}
+      Payments__Providers__mock__ApiKey: ${PAYMENTS_PROVIDER_MOCK_API_KEY:-mock-payment-key}
+      Internal__CacheRebuildToken: ${INTERNAL_CACHE_REBUILD_TOKEN:-}
+      Internal__ReconciliationToken: ${INTERNAL_RECONCILIATION_TOKEN:?INTERNAL_RECONCILIATION_TOKEN is required}
+      ObjectStorage__Endpoint: http://object-storage:9000
+      ObjectStorage__PublicEndpoint: ${OBJECT_STORAGE_PUBLIC_ENDPOINT:-http://127.0.0.1:9000}
+      ObjectStorage__Bucket: ${OBJECT_STORAGE_BUCKET:-scalaapi-media}
+      ObjectStorage__AccessKey: ${OBJECT_STORAGE_ACCESS_KEY:-platform}
+      ObjectStorage__SecretKey: ${OBJECT_STORAGE_SECRET_KEY:?OBJECT_STORAGE_SECRET_KEY is required}
+      ASPNETCORE_URLS: http://0.0.0.0:5000
+    volumes:
+      - runtime_sockets:/var/run/scalaapi
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      provider-mock:
+        condition: service_healthy
+      object-storage:
+        condition: service_healthy
+      garnet-health:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:5000/ready"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  admin-api:
+    build:
+      context: ../..
+      target: admin-api
+      cache_from:
+        - type=gha,scope=scalaapi-admin-api
+    environment:
+      ConnectionStrings__Postgres: "Host=postgres;Database=${POSTGRES_DB:-platform};Username=${POSTGRES_USER:-platform};Password=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}"
+      ASPNETCORE_URLS: http://0.0.0.0:5001
+      Jwt__Key: ${JWT_KEY:?JWT_KEY is required}
+      Jwt__Issuer: ${JWT_ISSUER:-platform-admin}
+      Admin__Username: ${ADMIN_USERNAME:?ADMIN_USERNAME is required}
+      Admin__Password: ${ADMIN_PASSWORD:?ADMIN_PASSWORD is required}
+      Security__MasterKey: ${SECURITY_MASTER_KEY:?SECURITY_MASTER_KEY is required}
+      Platform__InternalUrl: http://platform-silo-1:5000
+      Internal__ReconciliationToken: ${INTERNAL_RECONCILIATION_TOKEN:?INTERNAL_RECONCILIATION_TOKEN is required}
+      Payments__AllowInsecureProviderEndpoints: ${PAYMENTS_ALLOW_INSECURE_PROVIDER_ENDPOINTS:-true}
+      Payments__Providers__mock__Endpoint: ${PAYMENTS_PROVIDER_MOCK_ENDPOINT:-http://provider-mock:8081/v1/payments/checkout}
+      Payments__Providers__mock__RefundEndpoint: ${PAYMENTS_PROVIDER_MOCK_REFUND_ENDPOINT:-http://provider-mock:8081/v1/payments/refunds}
+      Payments__Providers__mock__ApiKey: ${PAYMENTS_PROVIDER_MOCK_API_KEY:-mock-payment-key}
+      PasswordReset__ExposeToken: ${PASSWORD_RESET_EXPOSE_TOKEN:-false}
+      EmailVerification__ExposeToken: ${EMAIL_VERIFICATION_EXPOSE_TOKEN:-false}
+      Email__Provider: ${EMAIL_PROVIDER:-smtp}
+      Email__PublicBaseUrl: ${EMAIL_PUBLIC_BASE_URL:-http://localhost:5173}
+      Email__PollSeconds: ${EMAIL_POLL_SECONDS:-5}
+      Email__CaptureDirectory: ${EMAIL_CAPTURE_DIRECTORY:-/tmp/scalaapi-email}
+      Backup__Directory: /var/lib/scalaapi/backups
+      Backup__RestoreTargetConnection: ${BACKUP_RESTORE_TARGET_CONNECTION:-}
+      Smtp__Host: ${SMTP_HOST:-}
+      Smtp__Port: ${SMTP_PORT:-587}
+      Smtp__Username: ${SMTP_USERNAME:-}
+      Smtp__Password: ${SMTP_PASSWORD:-}
+      Smtp__From: ${SMTP_FROM:-noreply@example.invalid}
+      Smtp__SecureSocketOptions: ${SMTP_SECURE_SOCKET_OPTIONS:-StartTls}
+      OAuth__GitHub__ClientId: ${OAUTH_GITHUB_CLIENT_ID:-mock-client}
+      OAuth__GitHub__ClientSecret: ${OAUTH_GITHUB_CLIENT_SECRET:-mock-secret}
+      OAuth__GitHub__AuthorizationEndpoint: ${OAUTH_GITHUB_AUTHORIZATION_ENDPOINT:-http://provider-mock:8081/oauth/authorize}
+      OAuth__GitHub__TokenEndpoint: ${OAUTH_GITHUB_TOKEN_ENDPOINT:-http://provider-mock:8081/oauth/token}
+      OAuth__GitHub__UserEndpoint: ${OAUTH_GITHUB_USER_ENDPOINT:-http://provider-mock:8081/oauth/user}
+      OAuth__Google__ClientId: ${OAUTH_GOOGLE_CLIENT_ID:-mock-client}
+      OAuth__Google__ClientSecret: ${OAUTH_GOOGLE_CLIENT_SECRET:-mock-secret}
+      OAuth__Google__AuthorizationEndpoint: ${OAUTH_GOOGLE_AUTHORIZATION_ENDPOINT:-http://provider-mock:8081/oauth/authorize}
+      OAuth__Google__TokenEndpoint: ${OAUTH_GOOGLE_TOKEN_ENDPOINT:-http://provider-mock:8081/oauth/token}
+      OAuth__Google__UserEndpoint: ${OAUTH_GOOGLE_USER_ENDPOINT:-http://provider-mock:8081/oauth/user}
+    volumes:
+      - backup_data:/var/lib/scalaapi/backups
+    depends_on:
+      platform-silo-1:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:5001/ready"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  gateway-1:
+    image: ${GATEWAY_IMAGE:-scalaapi-gateway:integration}
+    build:
+      context: ../..
+      dockerfile: gateway/Dockerfile
+      target: runtime
+      cache_from:
+        - type=gha,scope=scalaapi-gateway
+    restart: on-failure
+    stop_grace_period: 30s
+    networks:
+      default:
+        aliases:
+          - gateway
+    environment:
+      GATEWAY_CORES: ${GATEWAY_CORES:-2}
+      GATEWAY_LISTEN_PORT: 8080
+      GARNET_HOST: garnet
+      GARNET_PORT: 6379
+      GARNET_PASSWORD: ${GARNET_PASSWORD:?GARNET_PASSWORD is required}
+      GARNET_TLS: ${GARNET_TLS:-false}
+      GARNET_SERVER_NAME: ${GARNET_SERVER_NAME:-garnet}
+      GARNET_CA_CERT_PATH: ${GARNET_CA_CERT_PATH:-}
+      CAPNP_UDS_PATH: /var/run/scalaapi/dispatch.sock
+      GATEWAY_USAGE_DB: /var/lib/scalaapi/usage-outbox.db
+      GATEWAY_TRUSTED_PROXY_CIDRS: ${GATEWAY_TRUSTED_PROXY_CIDRS:-}
+    volumes:
+      - runtime_sockets:/var/run/scalaapi
+      - gateway_data:/var/lib/scalaapi
+    ports:
+      - "${GATEWAY_PORT:-18080}:8080"
+    depends_on:
+      platform-silo-1:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:8080/ready"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  user-web:
+    build:
+      context: ../../user-web
+    ports:
+      - "${USER_WEB_PORT:-13001}:80"
+    depends_on:
+      admin-api:
+        condition: service_healthy
+
+volumes:
+  pgdata:
+  garnet_data:
+  object_data:
+  runtime_sockets:
+  gateway_data:
+  backup_data:

@@ -1,6 +1,7 @@
 name: Admin Web Build
 
 on:
+  workflow_call:
   push:
     branches: [master]
     paths:
@@ -19,6 +20,7 @@ concurrency:
 
 jobs:
   build:
+    name: admin-web typecheck, build, and e2e
     runs-on: ubuntu-latest
     timeout-minutes: 25
     defaults:

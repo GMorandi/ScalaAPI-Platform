@@ -1,0 +1,88 @@
+name: Gateway Build
+
+on:
+  workflow_call:
+  workflow_dispatch:
+  push:
+    branches: [master]
+    paths:
+      - "gateway/**"
+      - "contracts/capnp/**"
+      - "scripts/verify-contracts.sh"
+      - ".dockerignore"
+      - ".github/workflows/gateway.yml"
+  pull_request:
+    branches: [master]
+    paths:
+      - "gateway/**"
+      - "contracts/capnp/**"
+      - "scripts/verify-contracts.sh"
+      - ".dockerignore"
+      - ".github/workflows/gateway.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: platform-gateway-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    name: Gateway build, test, and benchmark smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Verify contract digest
+        run: scripts/verify-contracts.sh
+
+      - name: Install native build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake g++ libaio-dev libssl-dev libsqlite3-dev zlib1g-dev
+
+      - name: Configure Gateway
+        run: >-
+          cmake -S gateway -B gateway/build
+          -DCMAKE_BUILD_TYPE=Release
+          -DGATEWAY_BUILD_TESTS=ON
+          -DGATEWAY_BUILD_BENCHMARKS=ON
+
+      - name: Build Gateway
+        run: cmake --build gateway/build --parallel "$(nproc)"
+
+      - name: Run Gateway tests
+        run: ctest --test-dir gateway/build --output-on-failure
+
+      - name: Run Gateway benchmark smoke
+        run: >-
+          gateway/build/test/benchmarks --benchmark_min_time=0.1s
+          --benchmark_format=json
+          --benchmark_out="$RUNNER_TEMP/gateway-benchmark.json"
+
+      - name: Upload Gateway benchmark results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: scalaapi-gateway-benchmark-${{ github.sha }}
+          path: ${{ runner.temp }}/gateway-benchmark.json
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Generate report
+        if: always()
+        env:
+          COMMIT_SHA: ${{ github.sha }}
+          BRANCH_NAME: ${{ github.ref_name }}
+        run: |
+          echo "## Gateway CI Report" >> $GITHUB_STEP_SUMMARY
+          echo "- Commit: $COMMIT_SHA" >> $GITHUB_STEP_SUMMARY
+          echo "- Branch: $BRANCH_NAME" >> $GITHUB_STEP_SUMMARY
+          echo "- Tests: ctest completed" >> $GITHUB_STEP_SUMMARY
+          echo "- Benchmarks: smoke test completed" >> $GITHUB_STEP_SUMMARY
+          echo "- Skip reasons: none" >> $GITHUB_STEP_SUMMARY

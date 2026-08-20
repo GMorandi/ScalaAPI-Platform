@@ -1,10 +1,15 @@
 name: .NET Build
 
 on:
+  workflow_call:
   push:
     branches: [master]
+    paths-ignore:
+      - "gateway/**"
   pull_request:
     branches: [master]
+    paths-ignore:
+      - "gateway/**"
 
 permissions:
   contents: read
@@ -15,6 +20,7 @@ concurrency:
 
 jobs:
   build:
+    name: Platform .NET build, tests, and benchmark smoke
     runs-on: ubuntu-latest
     timeout-minutes: 60
     services:
