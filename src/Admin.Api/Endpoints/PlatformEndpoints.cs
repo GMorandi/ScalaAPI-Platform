@@ -1665,26 +1665,6 @@ public static class PlatformEndpoints
             return Results.Ok(new { latest = (string?)null });
         });
 
-        group.MapPost("/update", async (IHttpClientFactory httpFactory, IConfiguration config) =>
-        {
-            var manifestUrl = config["Update:ReleaseManifestUrl"];
-            if (string.IsNullOrWhiteSpace(manifestUrl))
-                return Results.BadRequest(new { error = "Update release manifest is not configured" });
-            var client = httpFactory.CreateClient();
-            client.DefaultRequestHeaders.UserAgent.ParseAdd("Platform");
-            var resp = await client.GetAsync(manifestUrl);
-            if (!resp.IsSuccessStatusCode)
-                return Results.BadRequest(new { error = "Failed to check for updates" });
-
-            var data = await resp.Content.ReadFromJsonAsync<Dictionary<string, object>>();
-            var tag = data?.GetValueOrDefault("tag_name")?.ToString();
-            if (tag is null)
-                return Results.BadRequest(new { error = "No release found" });
-
-            var installPath = config["Update:InstallPath"] ?? "/usr/local/bin/platform";
-            return Results.Ok(new { message = $"Update to {tag} downloaded. Restart required.", version = tag, path = installPath });
-        });
-
         group.MapPost("/send-email", async (EmailRequest req, IConfiguration config) =>
         {
             var smtpHost = config["Smtp:Host"];
