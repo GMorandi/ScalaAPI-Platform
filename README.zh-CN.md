@@ -127,11 +127,15 @@ ctest --test-dir gateway/build --output-on-failure
 Admin API、管理/用户 Web)定义在
 [deploy/stack/docker-compose.yml](deploy/stack/docker-compose.yml)。需要提供若干
 环境变量(密钥、端口)——权威供给方式见
-[deploy/stack/README.md](deploy/stack/README.md) 与 `smoke.sh`。变量导出后:
+[deploy/stack/README.md](deploy/stack/README.md) 与 `smoke.sh`。变量导出后(或在
+Compose 文件旁放置 `dev.env`):
 
 ```sh
-docker compose -p scalaapi-dev --env-file dev.env -f deploy/stack/docker-compose.yml up -d --build
+deploy/stack/start.sh
 ```
+
+该脚本自动探测容器运行时(Docker Compose 或 Podman Compose,可用
+`CONTAINER_CLI` 覆盖),并从源码构建全部组件。
 
 | 服务 | 地址 |
 | --- | --- |
@@ -139,8 +143,10 @@ docker compose -p scalaapi-dev --env-file dev.env -f deploy/stack/docker-compose
 | 用户门户 | `http://localhost:3001` |
 | 网关 | `http://localhost:8080` |
 
-生产部署固定发布镜像,例如
-`GATEWAY_IMAGE=ghcr.io/gmorandi/scalaapi-platform/gateway:<tag>`。
+生产部署通过 `GATEWAY_IMAGE`、`PLATFORM_SILO_IMAGE`、`ADMIN_API_IMAGE`、
+`MIGRATOR_IMAGE`、`PROVIDER_MOCK_IMAGE` 固定发布镜像,例如
+`GATEWAY_IMAGE=ghcr.io/gmorandi/scalaapi-platform/gateway:<tag>`(详见
+[deploy/stack/README.md](deploy/stack/README.md))。
 
 ### 验证部署门禁
 

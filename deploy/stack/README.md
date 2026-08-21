@@ -8,8 +8,28 @@ Create an environment file from `.env.example`, replace every secret placeholder
 then run from this directory:
 
 ```sh
-docker compose up --build -d
+./start.sh
 ```
+
+`start.sh` detects the container runtime automatically: it uses Docker Compose
+when available and falls back to Podman Compose. Set `CONTAINER_CLI=docker` or
+`CONTAINER_CLI=podman` to override the detection, and pass `--env-file FILE` to
+use an environment file other than the default `dev.env`.
+
+Unset image variables build every component from source. To deploy a release
+instead, pin the published images and skip the build:
+
+```sh
+GATEWAY_IMAGE=ghcr.io/gmorandi/scalaapi-platform/gateway:v0.1.1
+PLATFORM_SILO_IMAGE=ghcr.io/gmorandi/scalaapi-platform/platform-silo:v0.1.1
+ADMIN_API_IMAGE=ghcr.io/gmorandi/scalaapi-platform/admin-api:v0.1.1
+MIGRATOR_IMAGE=ghcr.io/gmorandi/scalaapi-platform/migrator:v0.1.1
+PROVIDER_MOCK_IMAGE=ghcr.io/gmorandi/scalaapi-platform/provider-mock:v0.1.1
+./start.sh --no-build
+```
+
+The admin-web and user-web frontends always build from source; the release
+publishes only the five service images above.
 
 `SECURITY_MASTER_KEY` must be Base64 for exactly 32 bytes. The checked-in profile
 uses authenticated Garnet over the private container network. Set `GARNET_TLS=true`,

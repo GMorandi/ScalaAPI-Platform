@@ -139,11 +139,16 @@ silos, two gateways, Admin API, admin/user web) is defined in
 [deploy/stack/docker-compose.yml](deploy/stack/docker-compose.yml). Several
 environment variables (secrets, ports) are required — see
 [deploy/stack/README.md](deploy/stack/README.md) and `smoke.sh` for the
-authoritative provisioning. With the variables exported:
+authoritative provisioning. With the variables exported (or a `dev.env` next to
+the Compose file):
 
 ```sh
-docker compose -p scalaapi-dev --env-file dev.env -f deploy/stack/docker-compose.yml up -d --build
+deploy/stack/start.sh
 ```
+
+The script auto-detects the container runtime (Docker Compose or Podman
+Compose; override with `CONTAINER_CLI`) and builds every component from
+source.
 
 | Service | URL |
 | --- | --- |
@@ -151,8 +156,11 @@ docker compose -p scalaapi-dev --env-file dev.env -f deploy/stack/docker-compose
 | User portal | `http://localhost:3001` |
 | Gateway | `http://localhost:8080` |
 
-Production deployments pin release images, for example
-`GATEWAY_IMAGE=ghcr.io/gmorandi/scalaapi-platform/gateway:<tag>`.
+Production deployments pin release images via `GATEWAY_IMAGE`,
+`PLATFORM_SILO_IMAGE`, `ADMIN_API_IMAGE`, `MIGRATOR_IMAGE`, and
+`PROVIDER_MOCK_IMAGE`, for example
+`GATEWAY_IMAGE=ghcr.io/gmorandi/scalaapi-platform/gateway:<tag>` (see
+[deploy/stack/README.md](deploy/stack/README.md)).
 
 ### Verify the deployment gate
 
