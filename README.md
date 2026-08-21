@@ -14,8 +14,8 @@ IPC contract.
 
 ## Architecture at a glance
 
-- **PostgreSQL** is the single business/monetary authority (68 ordered
-  greenfield migrations; no imported history).
+- **PostgreSQL** is the single business/monetary authority (67 ordered
+  greenfield migrations, numbered 001–068; no imported history).
 - **Orleans** virtual actors coordinate aggregate execution in the platform silo.
 - **Garnet** holds rebuildable projections/caches (catalogue, config).
 - **S3-compatible storage (MinIO)** owns media and backup bytes.
@@ -36,17 +36,17 @@ src/
   Admin.Api/         Admin/user HTTP API, backup/restore store, first-admin setup
   Data/              Persistence: accounting, quotas, backups, provider state
   Grains(.Interfaces)/ Orleans grain contracts and implementations
-  Security/          Crypto, JWT, redaction, master-key operations
+  Security/          Redaction and certificate tracking
   Db.Migrator/       Ordered migration runner
   Provider.Mock/     Deterministic upstream provider mock (all four protocols)
   ObjectStorage.FaultProxy/  Fault-injection proxy for object-storage drills
-  admin-web/         Admin console (Vue)
-  user-web/          User portal (Vue)
+admin-web/           Admin console (SolidJS)
+user-web/            User portal (SolidJS)
 gateway/             C++ edge gateway (in-tree subtree, history preserved)
 contracts/capnp/     Canonical Cap'n Proto contract (consumed directly by the gateway build)
-deploy/migrations/   001–068 greenfield schema migrations
+deploy/migrations/   Greenfield schema migrations 001–068 (no 054)
 deploy/stack/        Compose topology, smoke/stress/fault gates
-test/                Host/Admin/Grains/Provider-Mock test suites
+test/                Host/Admin/Grains/Provider-Mock test suites plus benchmarks
 ```
 
 ## Build and test
@@ -55,11 +55,10 @@ Requires .NET 10 SDK.
 
 ```sh
 dotnet build
-dotnet test test/Host.Tests            # unit tests run without a database
 ```
 
-Database-backed tests need a migrated schema and read the connection string
-from `GREENFIELD_SCHEMA_CONNECTION`:
+Most tests are database-backed: they need a migrated schema and read the
+connection string from `GREENFIELD_SCHEMA_CONNECTION` (unset, they fail fast):
 
 ```sh
 export GREENFIELD_SCHEMA_CONNECTION="Host=localhost;Database=platform;Username=platform;Password=..."

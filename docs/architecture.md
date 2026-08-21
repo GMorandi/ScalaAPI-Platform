@@ -3,8 +3,8 @@
 Audit baseline (historical snapshot): Platform `30d82d01c2daed1ff0460fa020cad5d9ff434cdd`,
 Gateway `98c62fdec99836929f1ab47412ef46c7f2c67683` and ScalaAPI
 superproject `032721b65a3960171ce66a390451b98364f4b94a` on 2026-08-14.
-The superproject currently pins Platform `e73a5d8` and Gateway `777278e`, not the
-latest standalone component heads.
+At the audit snapshot, the superproject pinned Platform `e73a5d8` and Gateway
+`777278e`, not the latest standalone component heads.
 
 Migration note: the superproject pairing was retired on 2026-08-20. The gateway
 now lives in-tree under `gateway/` (history-preserving subtree import of
@@ -219,17 +219,19 @@ complete. At the audit baseline:
 | Active/passive monitor leadership is PostgreSQL-fenced in source, but no controlled multi-process ownership/failover drill was run | Leadership uniqueness, lease expiry, backfill fencing and recovery remain partially evidenced |
 | Scheduled backup creation and offsite upload paths exist, but no isolated object-store partition, readback, restore or reconciliation drill was run | Backup and offsite completion cannot yet be treated as operational durability proof |
 | Authenticated Admin/User browser workflows were not run against the source-built backend | Passing TypeScript checks and production bundles do not establish persisted end-to-end product behavior |
-| Both Web dependency trees report the high-severity `nanoid <3.3.18` advisory | Production release needs an upgrade or an explicit, documented security gate decision |
 | The complete 3600-second mixed fault/load test has not been run against the latest exact pair | Long-duration settlement convergence, cleanup and failure-detection claims remain unverified |
 | Release evidence records fixed gate names and `skipped: []` without parsing uploaded TRX or other job results | The artifact cannot substantiate executed/passed/failed/skipped totals even when workflow dependencies are green |
 
 The audit also confirms that several former deviations are closed at the latest
-Platform/Gateway heads: an empty PostgreSQL 17 database applies all 66 migration
-inputs and skips all 66 on rerun; the four database-backed Platform assemblies
-pass 502/502 and fail visibly without their required database; all six Platform
-benchmarks execute; canonical and vendored contracts and generated C# output
-match; and clean Gateway `98c62fd` builds, passes 161/161 CTest cases and runs all
-16 benchmark entries. These checks are prerequisites, not substitutes for the
+Platform/Gateway heads: an empty PostgreSQL 17 database applies all 65 migration
+inputs and skips all 65 on rerun (the current tree carries 67, numbered 001–068
+with no 054); the four database-backed Platform assemblies pass 502/502 at the
+baseline and fail visibly without their required database (the current tree adds
+further cases); all six Platform benchmarks execute; canonical and vendored
+contracts and generated C# output match; and clean Gateway `98c62fd` builds,
+passes 161/161 CTest cases and runs all 16 benchmark entries. Since the audit,
+both Web dependency trees have also pinned `nanoid` 3.3.18, closing the former
+high-severity advisory. These checks are prerequisites, not substitutes for the
 remaining paired runtime and release evidence above.
 
 Such deviations must be resolved or removed from advertised scope; none may be

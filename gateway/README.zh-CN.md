@@ -52,7 +52,8 @@ cmake --build gateway/build -j"$(nproc)"
 ```
 
 CMake 4.x 必须加 `-DCMAKE_POLICY_VERSION_MINIMUM=3.5`(内嵌 Cap'n Proto 所需)。
-测试与基准为可选:
+测试默认随构建生成(`GATEWAY_BUILD_TESTS=ON`);基准为可选
+(`-DGATEWAY_BUILD_BENCHMARKS=ON`):
 
 ```sh
 cmake -S gateway -B gateway/build -DGATEWAY_BUILD_TESTS=ON -DGATEWAY_BUILD_BENCHMARKS=ON
@@ -63,20 +64,24 @@ ctest --test-dir gateway/build --output-on-failure
 ## 运行
 
 网关设计为与平台 silo 同容器网络运行,dispatch 套接字通过卷共享。参考拓扑
-(网关、两个平台 silo、PostgreSQL、Garnet、MinIO、provider mock)见 ScalaAPI-Platform
+(两个网关、两个平台 silo、Admin API、管理/用户 Web、PostgreSQL、Garnet、MinIO、
+provider mock)见 ScalaAPI-Platform
 的 [`deploy/stack/`](https://github.com/GMorandi/ScalaAPI-Platform/tree/master/deploy/stack)。
 主要环境变量:
 
 | 变量 | 用途 |
 | --- | --- |
-| `SCALAPI_DISPATCH_SOCKET` | 平台 dispatch Unix 套接字路径 |
-| `GATEWAY_PORT` / `GATEWAY_CORES` | 监听端口与 Photon vCPU 数 |
+| `CAPNP_UDS_PATH` | 平台 dispatch Unix 套接字路径(默认 `/var/run/scalaapi/dispatch.sock`) |
+| `GATEWAY_LISTEN_PORT` / `GATEWAY_CORES` | 监听端口(默认 8080)与 Photon vCPU 数 |
 | `SCALAPI_MAX_SESSION_BYTES` / `_FRAMES` / `_DURATION_SEC` | 实时会话上限 |
-| `SCALAPI_MAX_INLINE_BODY_BYTES` | blob 卸载前的内联请求体阈值 |
+
+blob 卸载前的内联请求体阈值是固定 512 KiB 的常量(`kMaxInlineRequestBodyBytes`),
+不可通过环境变量配置。
 
 ## 契约纪律
 
 Cap'n Proto schema 的唯一权威副本位于 `../contracts/capnp`,本构建直接消费。
 任何 schema 变更必须在同一提交内更新 schemas、`SHA256SUMS`、生成的 Platform C#
-输出以及网关协议 fixtures;仓库根的 `scripts/verify-contracts.sh` 与
-`scripts/verify-generated-contracts.sh` 校验记录的摘要。
+输出以及网关协议 fixtures。仓库根的 `scripts/verify-contracts.sh` 校验记录的
+摘要,`scripts/verify-generated-contracts.sh` 则用 pinned 编译器重新生成 C# 输出
+并逐字节比对。

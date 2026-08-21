@@ -11,7 +11,7 @@
 
 ## 架构一览
 
-- **PostgreSQL** 是唯一的 business/资金权威(68 个有序绿地带迁移,不导入历史)。
+- **PostgreSQL** 是唯一的 business/资金权威(67 个有序绿地带迁移,编号 001–068;不导入历史)。
 - **Orleans** 虚拟 Actor 在平台 silo 内协调聚合执行。
 - **Garnet** 承载可重建的投影/缓存(目录、配置)。
 - **S3 兼容存储(MinIO)** 掌管媒体与备份字节。
@@ -30,17 +30,17 @@ src/
   Admin.Api/         管理/用户 HTTP API、备份恢复、first-admin 初始化
   Data/              持久化:记账、配额、备份、provider 状态
   Grains(.Interfaces)/ Orleans grain 契约与实现
-  Security/          加密、JWT、脱敏、主密钥操作
+  Security/          脱敏与证书跟踪
   Db.Migrator/       有序迁移执行器
   Provider.Mock/     确定性上游 provider mock(四种协议)
   ObjectStorage.FaultProxy/  对象存储故障注入代理
-  admin-web/         管理控制台(Vue)
-  user-web/          用户门户(Vue)
+admin-web/           管理控制台(SolidJS)
+user-web/            用户门户(SolidJS)
 gateway/             C++ 边缘网关(树内 subtree,保留完整历史)
 contracts/capnp/     权威 Cap'n Proto 契约(网关构建直接消费)
-deploy/migrations/   001–068 绿地带 schema 迁移
+deploy/migrations/   绿地带 schema 迁移 001–068(无 054)
 deploy/stack/        Compose 拓扑、smoke/stress/fault 门禁
-test/                Host/Admin/Grains/Provider-Mock 测试套件
+test/                Host/Admin/Grains/Provider-Mock 测试套件及基准测试
 ```
 
 ## 构建与测试
@@ -49,10 +49,10 @@ test/                Host/Admin/Grains/Provider-Mock 测试套件
 
 ```sh
 dotnet build
-dotnet test test/Host.Tests            # 单元测试无需数据库
 ```
 
-数据库测试需要已迁移的 schema,连接串取自 `GREENFIELD_SCHEMA_CONNECTION`:
+大多数测试依赖数据库:需要已迁移的 schema,连接串取自
+`GREENFIELD_SCHEMA_CONNECTION`(未设置会直接失败):
 
 ```sh
 export GREENFIELD_SCHEMA_CONNECTION="Host=localhost;Database=platform;Username=platform;Password=..."

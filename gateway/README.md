@@ -60,7 +60,8 @@ cmake --build gateway/build -j"$(nproc)"
 ```
 
 On CMake 4.x the `-DCMAKE_POLICY_VERSION_MINIMUM=3.5` flag is required by the
-bundled Cap'n Proto build. Tests and benchmarks are optional:
+bundled Cap'n Proto build. Tests build by default (`GATEWAY_BUILD_TESTS=ON`);
+benchmarks are optional (`-DGATEWAY_BUILD_BENCHMARKS=ON`):
 
 ```sh
 cmake -S gateway -B gateway/build -DGATEWAY_BUILD_TESTS=ON -DGATEWAY_BUILD_BENCHMARKS=ON
@@ -73,21 +74,25 @@ ctest --test-dir gateway/build --output-on-failure
 The gateway is designed to run as a container beside the platform silos, with
 the dispatch socket shared through a volume. See
 [`deploy/stack/`](https://github.com/GMorandi/ScalaAPI-Platform/tree/master/deploy/stack)
-in ScalaAPI-Platform for the reference Compose topology (gateway, two platform
-silos, PostgreSQL, Garnet, MinIO, provider mock). Key environment variables:
+in ScalaAPI-Platform for the reference Compose topology (two gateways, two
+platform silos, the Admin API, admin/user web, PostgreSQL, Garnet, MinIO,
+provider mock). Key environment variables:
 
 | Variable | Purpose |
 | --- | --- |
-| `SCALAPI_DISPATCH_SOCKET` | Platform dispatch Unix socket path |
-| `GATEWAY_PORT` / `GATEWAY_CORES` | Listen port and Photon vCPU count |
+| `CAPNP_UDS_PATH` | Platform dispatch Unix socket path (default `/var/run/scalaapi/dispatch.sock`) |
+| `GATEWAY_LISTEN_PORT` / `GATEWAY_CORES` | Listen port (default 8080) and Photon vCPU count |
 | `SCALAPI_MAX_SESSION_BYTES` / `_FRAMES` / `_DURATION_SEC` | Realtime session caps |
-| `SCALAPI_MAX_INLINE_BODY_BYTES` | Inline body threshold before blob offload |
+
+The inline body threshold before blob offload is a fixed 512 KiB constant
+(`kMaxInlineRequestBodyBytes`), not an environment setting.
 
 ## Contract discipline
 
 The Cap'n Proto schema has a single canonical copy at `../contracts/capnp`,
 which this build consumes directly. Any schema change must update the schemas,
 `SHA256SUMS`, the generated Platform C# output, and the gateway protocol
-fixtures in the same commit; `scripts/verify-contracts.sh` and
-`scripts/verify-generated-contracts.sh` at the repository root enforce the
-recorded digests.
+fixtures in the same commit. At the repository root,
+`scripts/verify-contracts.sh` checks the recorded digests, and
+`scripts/verify-generated-contracts.sh` regenerates the C# output with the
+pinned compiler and compares it byte-for-byte.

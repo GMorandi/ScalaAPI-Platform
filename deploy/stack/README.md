@@ -16,8 +16,8 @@ uses authenticated Garnet over the private container network. Set `GARNET_TLS=tr
 set the certificate service name, and mount a trusted CA through a production
 override before using an untrusted network.
 
-The root workspace Compose file is a convenience launcher. Changes must be applied
-to this versioned file first and verified against an empty volume set. The stack
+This versioned Compose file is the stack definition; changes must be applied
+here first and verified against an empty volume set. The stack
 serves the Admin Web on port 3000 and the authenticated User Web on port 3001;
 both are independent clients of the new Admin API contracts.
 
@@ -44,7 +44,7 @@ read-only with rootless-container relabeling, and passes the CA path and server
 name to both production clients. Its acceptance contract requires TLS through
 Platform's real authenticated Garnet readiness path, then the source-built fault,
 restart, reconciliation, and object-storage matrix. During the TLS gate, the
-wrapper replaces the PFX with a second certificate signed by the same CA,
+PFX is replaced with a second certificate signed by the same CA,
 forces Platform/Gateway reconnects, rejects a wrong-SAN certificate and an
 expired certificate through readiness, restores the valid certificate, and
 settles one new billable request. Set
@@ -80,16 +80,22 @@ The normal `docker-compose.yml` does not include this proxy and Platform connect
 directly to the S3-compatible service, so the test control API is absent from the
 ordinary development and production topology.
 
-The same gate seeds independent Provider mock accounts for HTTP 429, HTTP 500,
-malformed usage, upstream disconnect, and timeout scenarios. For every scenario
-it requires a terminal aborted lease, a released balance hold, no usage event,
-no usage log, no ledger entry, no request log, and one aborted idempotency record.
-Independent accounts prevent one scenario's scheduler cooldown from masking the
-next scenario.
+The same gate seeds independent Provider mock accounts for ten chat fault
+scenarios: HTTP 429, HTTP 500, malformed usage, upstream timeout and disconnect,
+stream disconnects (mid-stream, before output, and after usage), client
+disconnect, and invalid content type. Explicit 429/500 rejections require a
+terminal aborted lease, a released balance hold, no usage event, no usage log,
+no ledger entry, and one aborted idempotency record. Malformed usage, timeout,
+and disconnect outcomes leave the upstream charge state unknown, so the gate
+requires one `reconciliation_needed` lease with the active hold retained for
+operator reconciliation. Independent accounts prevent one scenario's scheduler
+cooldown from masking the next scenario.
 
-The source-owned Provider matrix also seeds six Anthropic Messages and six
-Gemini generation groups. The full smoke sends provider-native JSON/SSE requests
-for 429, 500, malformed payload, timeout, and disconnect profiles. Explicit
+The source-owned Provider matrix also seeds nine Anthropic Messages and nine
+Gemini generation groups, plus one revoked-OAuth credential profile per
+provider. The full smoke sends provider-native JSON/SSE requests for 429, 500,
+malformed payload, timeout, disconnect, client disconnect, disconnect after
+usage, invalid content type, and auth rejection profiles. Explicit
 429/500 responses must release the hold without usage or debit; malformed,
 timeout, and disconnect outcomes must retain one `reconciliation_needed` lease
 and active hold. The Provider.Mock contract suite additionally covers the
@@ -124,7 +130,7 @@ boundary and must become ready and rejoin Orleans before the next cycle.
 
 Use `CONTAINER_CLI=podman` or `CONTAINER_CLI=docker` to select the runtime. Set
 `KEEP_STACK=1` to retain a failed or successful project for inspection, and set
-the `SMOKE_*_PORT` variables documented in `smoke.sh` when the default host ports
+the `SMOKE_*_PORT` variables shown in `smoke.sh` when the default host ports
 are occupied. To exercise a previously built Gateway image without rebuilding
 it, set `GATEWAY_IMAGE` together with `SMOKE_SKIP_BUILD=1`; the default still
 builds the sibling source. By default, the cleanup trap removes only the unique
