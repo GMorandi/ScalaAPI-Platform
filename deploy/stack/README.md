@@ -17,8 +17,14 @@ when available and falls back to Podman Compose. Set `CONTAINER_CLI=docker` or
 use an environment file other than the default `dev.env`. If required
 variables are missing, empty, or still set to `.env.example` placeholder
 values, the script lists every problem and stops before invoking Compose. For
-a throwaway demo run, `./start.sh --demo` instead generates every such value
-with openssl, prints them to the terminal, and uses them for that run only.
+a demo run, `./start.sh --demo` instead generates every such value with
+openssl, prints them to the terminal, and saves them into the environment
+file (created with mode 600 when missing) so later runs reuse them.
+
+PostgreSQL applies `POSTGRES_PASSWORD` only while initializing an empty data
+volume. Rotating any secret on an existing deployment breaks access to the
+stored data; reset the stack with `docker compose down -v` (or the Podman
+equivalent — this deletes all data) or migrate the data first.
 
 Unset image variables build every component from source. To deploy a release
 instead, pull the published images (anonymous access, no registry login

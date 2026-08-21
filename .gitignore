@@ -4,3 +4,5 @@ obj/
 .vs/
 BenchmarkDotNet.Artifacts/
 src/Garnet.Host/CapnpApiProbe.cs
+deploy/stack/dev.env
+deploy/stack/.env
