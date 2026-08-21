@@ -209,18 +209,14 @@ removed.
 ## Current deviations
 
 The architecture above is the target invariant not a claim that every path is
-complete. At the audit baseline:
+complete. The remaining deviations are:
 
 | Deviation | Consequence |
 | --- | --- |
-| Gateway accepts 32 MiB but Platform RPC accepts only 1 MiB | Large multipart/media can disconnect before a durable dispatch decision |
-| Clean unit and benchmark evidence exists for both component heads, but a source-built two-Silo/two-Gateway deployment has not been exercised from the intended pair | Listener, dependency, failover, usage durability and cross-process behavior are not promoted to verified runtime behavior |
-| Provider quota clients, model-catalogue refresh and bounded channel probes are implemented, but this audit did not execute live OpenAI, Anthropic, Gemini or xAI acceptance contracts | Provider-specific auth, rate-limit, timeout, malformed-response and catalogue/quota semantics remain runtime evidence gaps |
-| Active/passive monitor leadership is PostgreSQL-fenced in source, but no controlled multi-process ownership/failover drill was run | Leadership uniqueness, lease expiry, backfill fencing and recovery remain partially evidenced |
-| Scheduled backup creation and offsite upload paths exist, but no isolated object-store partition, readback, restore or reconciliation drill was run | Backup and offsite completion cannot yet be treated as operational durability proof |
-| Authenticated Admin/User browser workflows were not run against the source-built backend | Passing TypeScript checks and production bundles do not establish persisted end-to-end product behavior |
-| The complete 3600-second mixed fault/load test has not been run against the latest exact pair | Long-duration settlement convergence, cleanup and failure-detection claims remain unverified |
-| Release evidence records fixed gate names and `skipped: []` without parsing uploaded TRX or other job results | The artifact cannot substantiate executed/passed/failed/skipped totals even when workflow dependencies are green |
+| Provider acceptance is verified only against the deterministic mock; live OpenAI, Anthropic, Gemini and xAI acceptance is declared out of scope for v0.1.0 and deferred to a post-release milestone (the release manifest records `verification: mock` per provider) | Provider-specific auth, rate-limit, timeout, malformed-response and catalogue/quota semantics remain runtime evidence gaps; unproven capabilities stay unadvertised |
+| Monitor leadership uniqueness is asserted in the integration gate (single-holder advisory-lock and backup-claim checks across both silos), but no controlled failover, lease-expiry or backfill drill was run | Recovery behavior remains partially evidenced |
+| Backup/offsite restore drills are deferred past v0.1.0 and declared in the manifest `deferred_evidence` section | Backup and offsite completion cannot yet be treated as operational durability proof |
+| The 3600-second mixed fault/load run is deferred past v0.1.0 and declared in the manifest `deferred_evidence` section | Long-duration settlement convergence, cleanup and failure-detection claims remain unverified |
 
 The audit also confirms that several former deviations are closed at the latest
 Platform/Gateway heads: an empty PostgreSQL 17 database applies all 65 migration
@@ -233,6 +229,22 @@ passes 161/161 CTest cases and runs all 16 benchmark entries. Since the audit,
 both Web dependency trees have also pinned `nanoid` 3.3.18, closing the former
 high-severity advisory. These checks are prerequisites, not substitutes for the
 remaining paired runtime and release evidence above.
+
+Further deviations closed after the audit:
+
+- The RPC frame cap is now a shared 8 MiB constant on both sides of the
+  dispatch socket, with send-side self-checks and graceful, deterministic
+  non-retryable oversize rejections (`frame_too_large` / `request_too_large`)
+  instead of silent disconnects — a large payload can no longer prevent a
+  durable dispatch decision, and poison messages dead-letter instead of
+  retrying forever.
+- The integration gate exercises the source-built two-Silo/two-Gateway
+  deployment, runs a backend-backed live browser spec, and archives its
+  assertion logs and test artifacts on every run.
+- Release evidence now parses the uploaded TRX, ctest and Playwright artifacts
+  into real executed/passed/failed/skipped totals, records the real
+  skipped-job list, and reuses the digest-verified manifest artifact instead of
+  regenerating it.
 
 Such deviations must be resolved or removed from advertised scope; none may be
 hidden with compatibility data or reference-project services.

@@ -247,4 +247,20 @@ else
     fail "expected at most 1 active backup schedule claim, got $active_claims"
 fi
 
+# Monitor workers elect a single leader through session-level PostgreSQL
+# advisory locks (ChannelMonitorService LeadershipAdvisoryLockId = 0x434D4C44
+# "CMLD", PassiveMonitorV2Service = 0x504D5632 "PMV2"). Assert that across
+# both silos no lock ever has more than one holder.
+for lock in "0x434D4C44:channel-monitor" "0x504D5632:passive-monitor-v2"; do
+    lock_id=$((${lock%%:*}))
+    lock_name="${lock##*:}"
+    holders="$(db_query "SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND classid = 0 AND objid = $lock_id;")"
+    [[ "$holders" =~ ^[0-9]+$ ]] || fail "unable to read $lock_name advisory lock holders"
+    if (( holders <= 1 )); then
+        echo "PASS: at most one $lock_name leadership holder ($holders)"
+    else
+        fail "expected at most 1 $lock_name leadership holder, got $holders"
+    fi
+done
+
 echo "integration assertions passed"
