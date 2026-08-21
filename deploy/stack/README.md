@@ -14,7 +14,9 @@ then run from this directory:
 `start.sh` detects the container runtime automatically: it uses Docker Compose
 when available and falls back to Podman Compose. Set `CONTAINER_CLI=docker` or
 `CONTAINER_CLI=podman` to override the detection, and pass `--env-file FILE` to
-use an environment file other than the default `dev.env`.
+use an environment file other than the default `dev.env`. Without an
+environment file or the exported variables, the script lists the required
+variables that are missing and stops.
 
 Unset image variables build every component from source. To deploy a release
 instead, pin the published images and skip the build:
