@@ -2,33 +2,75 @@
 
 **English** | [简体中文](README.zh-CN.md)
 
+[![ScalaAPI Release](https://github.com/GMorandi/ScalaAPI-Platform/actions/workflows/release.yml/badge.svg)](https://github.com/GMorandi/ScalaAPI-Platform/actions/workflows/release.yml)
+[![.NET Build](https://github.com/GMorandi/ScalaAPI-Platform/actions/workflows/dotnet.yml/badge.svg)](https://github.com/GMorandi/ScalaAPI-Platform/actions/workflows/dotnet.yml)
+[![Gateway Build](https://github.com/GMorandi/ScalaAPI-Platform/actions/workflows/gateway.yml/badge.svg)](https://github.com/GMorandi/ScalaAPI-Platform/actions/workflows/gateway.yml)
+[![Image Build and Integration](https://github.com/GMorandi/ScalaAPI-Platform/actions/workflows/stack.yml/badge.svg)](https://github.com/GMorandi/ScalaAPI-Platform/actions/workflows/stack.yml)
+
 The business and monetary authority of the
 [ScalaAPI](https://github.com/GMorandi/ScalaAPI) LLM API platform: a .NET 10
 service cluster that owns accounts, credentials, routing, quotas, leases,
-settlement, billing, and operations, fronted by a C++ gateway over a Cap'n Proto
-IPC contract.
+settlement, billing, and operations — fronted by a C++23 edge gateway over a
+canonical Cap'n Proto IPC contract.
 
-> Status: active development, not yet release-certified. The gateway lives
+> **Status**: active development, not yet release-certified. The gateway lives
 > in-tree under `gateway/`; releases are cut from this repository with a single
 > tag.
 
-## Architecture at a glance
+## Why ScalaAPI
 
-- **PostgreSQL** is the single business/monetary authority (67 ordered
-  greenfield migrations, numbered 001–068; no imported history).
-- **Orleans** virtual actors coordinate aggregate execution in the platform silo.
-- **Garnet** holds rebuildable projections/caches (catalogue, config).
-- **S3-compatible storage (MinIO)** owns media and backup bytes.
-- **Cap'n Proto RPC** over a Unix domain socket serves gateway dispatch:
-  request leases, balance holds, usage settlement, aborts, content policy, and
-  chunked blob upload for large request bodies.
-- The stack runs two silos + two gateways; background workers (backup scheduler,
-  provider quota refresh, channel monitor, reconciliation) elect a single leader
-  through database claims and advisory locks.
+API-relay products live or die by billing correctness. ScalaAPI is built around
+one rule: **PostgreSQL is the only authority for business and monetary state**.
+Everything else — Orleans actors, the Garnet cache, the gateway itself — is a
+rebuildable projection or an untrusted edge.
 
-See [docs/architecture.md](docs/architecture.md) for the full document.
+- **Exactly-once settlement** — every billable request carries one idempotent
+  lease with an immutable price snapshot and a bounded balance hold. An unknown
+  upstream charge state becomes operator-visible reconciliation work instead of
+  silent loss.
+- **Evidence-driven dispatch** — the gateway must obtain a durable `forwarded`
+  acknowledgement before contacting a provider, and records `output_started` no
+  later than the first client write.
+- **Protocol translation at the edge** — OpenAI Chat Completions / Responses,
+  Anthropic Messages, and Gemini generateContent (JSON and SSE), plus
+  embeddings, audio (TTS/STT), realtime WebSocket sessions, and media
+  generation.
+- **Fail-closed content policy** — bounded pre-provider and pre-client
+  evaluation with audited rules and explicit classifier-outage behavior.
+- **Operations built in** — backup/restore with offsite verification, provider
+  quota refresh, channel monitoring, and a source-built smoke/stress/fault gate
+  suite.
 
-## Layout
+## Architecture
+
+```text
+Clients
+  │  product-native HTTP / SSE / WebSocket
+  ▼
+┌────────────────────────────────────────────────┐
+│ Gateway (C++23, Photon coroutines)             │
+│ protocol validation · translation · streaming  │
+└────────────────────────────────────────────────┘
+  │  Cap'n Proto RPC over a Unix domain socket
+  ▼
+┌────────────────────────────────────────────────┐
+│ Platform (.NET 10, Orleans virtual actors)     │
+│ identity · policy · scheduling · leases ·      │
+│ pricing · accounting                           │
+└────────────────────────────────────────────────┘
+  ├──▶ PostgreSQL 17   durable business & accounting authority
+  ├──▶ Garnet          rebuildable projections/cache, never authoritative
+  ├──▶ S3 (MinIO)      media & backup bytes
+  └──▶ Providers       catalogues, credentials, quota, inference
+```
+
+The reference deployment runs **two platform silos and two gateways**;
+background workers (backup scheduler, provider quota refresh, channel monitor,
+reconciliation) elect a single leader through PostgreSQL claims and advisory
+locks. See [docs/architecture.md](docs/architecture.md) for the full
+architecture document.
+
+## Repository layout
 
 ```
 src/
@@ -42,16 +84,33 @@ src/
   ObjectStorage.FaultProxy/  Fault-injection proxy for object-storage drills
 admin-web/           Admin console (SolidJS)
 user-web/            User portal (SolidJS)
-gateway/             C++ edge gateway (in-tree subtree, history preserved)
+gateway/             C++23 edge gateway (in-tree subtree, history preserved)
 contracts/capnp/     Canonical Cap'n Proto contract (consumed directly by the gateway build)
 deploy/migrations/   Greenfield schema migrations 001–068 (no 054)
 deploy/stack/        Compose topology, smoke/stress/fault gates
 test/                Host/Admin/Grains/Provider-Mock test suites plus benchmarks
 ```
 
-## Build and test
+## Tech stack
 
-Requires .NET 10 SDK.
+| Layer | Technology |
+| --- | --- |
+| Backend | .NET 10, ASP.NET Core, Orleans (ADO.NET clustering/storage/reminders) |
+| Gateway | C++23, PhotonLibOS coroutines, Cap'n Proto 1.0.2 |
+| Data | PostgreSQL 17 (authority), Garnet (projections), S3-compatible object storage |
+| Frontend | SolidJS, Vite, Tailwind CSS, Playwright e2e |
+| Contract | Cap'n Proto schemas with pinned digests and generated bindings |
+| Release | Single-tag releases, pinned container images, evidence manifest |
+
+## Getting started
+
+### Prerequisites
+
+- .NET 10 SDK
+- Docker or Podman with Compose (for the full stack)
+- Cap'n Proto 1.0.2 toolchain (only when regenerating contract bindings)
+
+### Build and test
 
 ```sh
 dotnet build
@@ -65,16 +124,18 @@ export GREENFIELD_SCHEMA_CONNECTION="Host=localhost;Database=platform;Username=p
 dotnet test test/Host.Tests test/Admin.Tests
 ```
 
-Generated Cap'n Proto C# output must match the pinned compiler exactly:
+The gateway builds and tests with CMake/CTest from the repository root:
 
 ```sh
-CAPNP_COMPILER=/path/to/capnp-1.0.2 scripts/verify-generated-contracts.sh
+cmake -S gateway -B gateway/build -DCMAKE_BUILD_TYPE=Release -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+cmake --build gateway/build -j"$(nproc)"
+ctest --test-dir gateway/build --output-on-failure
 ```
 
-## Run the full stack
+### Run the full stack
 
 The reference topology (PostgreSQL, Garnet, MinIO, provider mock, two platform
-silos, two gateways, admin/user web) is defined in
+silos, two gateways, Admin API, admin/user web) is defined in
 [deploy/stack/docker-compose.yml](deploy/stack/docker-compose.yml). Several
 environment variables (secrets, ports) are required — see
 [deploy/stack/README.md](deploy/stack/README.md) and `smoke.sh` for the
@@ -84,17 +145,45 @@ authoritative provisioning. With the variables exported:
 docker compose -p scalaapi-dev --env-file dev.env -f deploy/stack/docker-compose.yml up -d --build
 ```
 
-Admin console: `http://localhost:3000` · User portal: `http://localhost:3001` ·
-Gateway: `http://localhost:8080`.
+| Service | URL |
+| --- | --- |
+| Admin console | `http://localhost:3000` |
+| User portal | `http://localhost:3001` |
+| Gateway | `http://localhost:8080` |
 
 Production deployments pin release images, for example
 `GATEWAY_IMAGE=ghcr.io/gmorandi/scalaapi-platform/gateway:<tag>`.
 
+### Verify the deployment gate
+
+`deploy/stack/smoke.sh` builds everything from source into a throwaway Compose
+project and exercises the full acceptance contract: migrations (applied, then
+skipped on rerun), chat settlement, idempotent replay, realtime sessions,
+provider fault matrices, media storage under injected failures, and
+cross-process restarts. `deploy/stack/garnet_tls_smoke.sh` runs the same gate
+with Garnet TLS enabled.
+
 ## Contract discipline
 
-`contracts/capnp/` is the single canonical copy of the contract; the gateway
-compiles these schemas directly (`gateway/CMakeLists.txt` references
-`../contracts/capnp`). `scripts/verify-contracts.sh` validates the recorded
-digests. Schema changes must update the schemas, `SHA256SUMS`, the generated
-C# output (`scripts/verify-generated-contracts.sh` must pass), and the gateway
-protocol fixtures in the same commit.
+`contracts/capnp/` is the single canonical copy of the gateway↔platform
+contract; the gateway compiles these schemas directly (`gateway/CMakeLists.txt`
+references `../contracts/capnp`). Any schema change must update the schemas,
+`SHA256SUMS`, the generated C# output, and the gateway protocol fixtures in the
+same commit. At the repository root, `scripts/verify-contracts.sh` checks the
+recorded digests, and `scripts/verify-generated-contracts.sh` regenerates the
+C# output with the pinned compiler and compares it byte-for-byte:
+
+```sh
+CAPNP_COMPILER=/path/to/capnp-1.0.2 scripts/verify-generated-contracts.sh
+```
+
+## Documentation
+
+- [docs/architecture.md](docs/architecture.md) — system boundary, ownership
+  rules, billable request lifecycle, durable data rules, release discipline
+- [gateway/README.md](gateway/README.md) — gateway build, runtime, and
+  environment variables
+- [contracts/capnp/README.md](contracts/capnp/README.md) — contract layout and
+  verification
+- [deploy/stack/README.md](deploy/stack/README.md) — topology, environment
+  provisioning, and the acceptance gates
