@@ -78,7 +78,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Upload release manifest
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: scalaapi-release-manifest-${{ github.ref_name }}
           path: ${{ runner.temp }}/release-manifest.json
@@ -203,7 +203,7 @@ jobs:
           test "$(find "$RUNNER_TEMP/image-metadata" -maxdepth 1 -type f -name '*.json' | wc -l)" -eq 5
 
       - name: Upload image metadata
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: scalaapi-release-images-${{ github.ref_name }}
           path: ${{ runner.temp }}/image-metadata/*.json
@@ -252,7 +252,7 @@ jobs:
           --output "$RUNNER_TEMP/release-evidence.json"
 
       - name: Upload release evidence
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: scalaapi-release-evidence-${{ github.ref_name }}
           path: |
