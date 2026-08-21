@@ -169,13 +169,14 @@ parse_trx_counters() {
 parse_junit_results() {
     local result_file="$1"
     grep -q '<testsuite ' "$result_file" || return 1
-    local tests failures skipped skipped_cases
-    tests="$(grep -o '<testsuite [^>]*' "$result_file" |
-        xml_attr tests | awk '{s += $1} END {print s + 0}')"
-    failures="$(grep -o '<testsuite [^>]*' "$result_file" |
-        xml_attr failures | awk '{s += $1} END {print s + 0}')"
-    skipped="$(grep -o '<testsuite [^>]*' "$result_file" |
-        xml_attr skipped | awk '{s += $1} END {print s + 0}')"
+    local suites tests failures skipped skipped_cases
+    # ctest spreads the <testsuite> opening tag across several lines, so
+    # flatten whitespace before matching the element.
+    suites="$(tr '\n\t' '  ' <"$result_file" | grep -o '<testsuite [^>]*>' || true)"
+    [[ -n "$suites" ]] || return 1
+    tests="$(xml_attr tests <<<"$suites" | awk '{s += $1} END {print s + 0}')"
+    failures="$(xml_attr failures <<<"$suites" | awk '{s += $1} END {print s + 0}')"
+    skipped="$(xml_attr skipped <<<"$suites" | awk '{s += $1} END {print s + 0}')"
     skipped_cases="$(grep -c '<skipped' "$result_file" || true)"
     if (( skipped == 0 && skipped_cases > 0 )); then
         skipped="$skipped_cases"
@@ -288,7 +289,9 @@ for source in "${test_result_sources[@]}"; do
                 done < <(find "$artifact_dir" -type f -name 'results.json' | sort)
                 ;;
             integration)
-                if [[ -f "$artifact_dir/integration-assertions.log" ]]; then
+                # upload-artifact preserves the least-common-ancestor layout,
+                # so the assertions log may land in a nested directory.
+                if find "$artifact_dir" -type f -name 'integration-assertions.log' | grep -q .; then
                     results_found=1
                 fi
                 while IFS= read -r result_file; do
