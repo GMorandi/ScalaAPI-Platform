@@ -148,7 +148,9 @@ deploy/stack/start.sh
 
 The script auto-detects the container runtime (Docker Compose or Podman
 Compose; override with `CONTAINER_CLI`) and builds every component from
-source.
+source. For a throwaway demo run, `deploy/stack/start.sh --demo` generates
+any missing secret, prints the values, and skips the environment file
+entirely.
 
 | Service | URL |
 | --- | --- |

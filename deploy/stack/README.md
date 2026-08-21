@@ -16,7 +16,9 @@ when available and falls back to Podman Compose. Set `CONTAINER_CLI=docker` or
 `CONTAINER_CLI=podman` to override the detection, and pass `--env-file FILE` to
 use an environment file other than the default `dev.env`. If required
 variables are missing, empty, or still set to `.env.example` placeholder
-values, the script lists every problem and stops before invoking Compose.
+values, the script lists every problem and stops before invoking Compose. For
+a throwaway demo run, `./start.sh --demo` instead generates every such value
+with openssl, prints them to the terminal, and uses them for that run only.
 
 Unset image variables build every component from source. To deploy a release
 instead, pin the published images and skip the build:

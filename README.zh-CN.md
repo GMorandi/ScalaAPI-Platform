@@ -135,7 +135,9 @@ deploy/stack/start.sh
 ```
 
 该脚本自动探测容器运行时(Docker Compose 或 Podman Compose,可用
-`CONTAINER_CLI` 覆盖),并从源码构建全部组件。
+`CONTAINER_CLI` 覆盖),并从源码构建全部组件。一次性演示可运行
+`deploy/stack/start.sh --demo`:脚本自动生成所需密钥并打印到终端,无需准备
+环境文件。
 
 | 服务 | 地址 |
 | --- | --- |

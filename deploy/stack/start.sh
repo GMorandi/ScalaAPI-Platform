@@ -2,16 +2,17 @@
 # Start the ScalaAPI stack with Docker or Podman (auto-detected).
 #
 # Usage:
-#   start.sh [--env-file FILE] [--build|--no-build]
+#   start.sh [--env-file FILE] [--build|--no-build] [--demo]
 #
 # Environment variables are read from --env-file (default: dev.env next to the
 # Compose file) when it exists, otherwise from the exported environment or a
 # .env file next to the Compose file. Before invoking Compose, every variable
 # the Compose file marks as required must have a real value: not unset, not
-# empty, and not an .env.example placeholder. The default builds every
-# component from source; pass --no-build to deploy pinned release images (the
-# *_IMAGE variables in the env file) instead. Set CONTAINER_CLI=docker|podman
-# to override runtime detection.
+# empty, and not an .env.example placeholder. Pass --demo to generate any such
+# value with openssl, print it to the terminal, and use it for this run. The
+# default builds every component from source; pass --no-build to deploy pinned
+# release images (the *_IMAGE variables in the env file) instead. Set
+# CONTAINER_CLI=docker|podman to override runtime detection.
 
 # Re-exec with bash when invoked through another shell (e.g. sh start.sh).
 if [ -z "${BASH_VERSION:-}" ]; then
@@ -23,6 +24,7 @@ stack_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 compose_file="$stack_dir/docker-compose.yml"
 env_file="$stack_dir/dev.env"
 build=1
+demo=0
 
 while (($#)); do
     case "$1" in
@@ -33,10 +35,16 @@ while (($#)); do
         --env-file=*) env_file="${1#*=}"; shift ;;
         --build) build=1; shift ;;
         --no-build) build=0; shift ;;
-        -h|--help) sed -n '2,14p' "$0"; exit 0 ;;
+        --demo) demo=1; shift ;;
+        -h|--help) sed -n '2,15p' "$0"; exit 0 ;;
         *) echo "unknown argument: $1" >&2; exit 2 ;;
     esac
 done
+
+if (( demo )) && ! command -v openssl >/dev/null 2>&1; then
+    echo "Demo mode requires openssl to generate secrets" >&2
+    exit 2
+fi
 
 container_cli="${CONTAINER_CLI:-}"
 if [[ -z "$container_cli" ]]; then
@@ -68,15 +76,27 @@ fi
 
 # Fail fast unless every variable the Compose file marks as required has a
 # real value in the exported environment or the env file compose will read.
+# Demo mode generates such values instead and exports them for the Compose run.
 missing=()
 placeholders=()
 invalid=()
+generated=()
 while IFS= read -r name; do
     value="${!name:-}"
     if [[ -z "$value" && -n "$check_file" ]]; then
         value="$(sed -nE "s/^[[:space:]]*(export[[:space:]]+)?${name}=(.*)$/\2/p" "$check_file" | tail -n 1)"
         value="${value%\"}"; value="${value#\"}"
         value="${value%\'}"; value="${value#\'}"
+    fi
+    if (( demo )) && { [[ -z "$value" ]] || [[ "$value" == *replace-with-* ]]; }; then
+        case "$name" in
+            ADMIN_USERNAME) value=admin ;;
+            SECURITY_MASTER_KEY) value="$(openssl rand -base64 32)" ;;
+            *) value="$(openssl rand -hex 32)" ;;
+        esac
+        export "$name=$value"
+        generated+=("$name=$value")
+        continue
     fi
     if [[ -z "$value" ]]; then
         missing+=("$name")
@@ -113,6 +133,12 @@ if ((${#missing[@]} + ${#placeholders[@]} + ${#invalid[@]})); then
         echo "Fill in real secrets first, for example with: openssl rand -base64 32" >&2
     fi
     exit 2
+fi
+
+if ((${#generated[@]})); then
+    echo "Demo mode generated these secrets (printed once, not persisted):"
+    printf '  %s\n' "${generated[@]}"
+    echo "Save them into an env file if the data must survive a restart."
 fi
 
 args=(up -d)
