@@ -17,6 +17,12 @@ public class CapnpRpcHostedService : IHostedService
 {
     private const decimal WireDecimalScale = 100_000_000m;
 
+    // Maximum RPC frame payload in bytes (method byte + capnp segment). Must
+    // stay in sync with kMaxFrameBytes in
+    // gateway/src/dispatch/capnp_dispatch_client.cpp; product-level bounds allow
+    // 4 MiB bodies, so both sides accept frames up to 8 MiB.
+    private const int MaxFrameBytes = 8 * 1024 * 1024;
+
     private readonly ILogger<CapnpRpcHostedService> _logger;
     private readonly IServiceProvider _services;
     private readonly string _socketPath;
@@ -89,14 +95,31 @@ public class CapnpRpcHostedService : IHostedService
         _logger.LogInformation("Gateway connected");
 
         var hdrBuf = new byte[4];
+        uint len = 0;
 
         try
         {
             while (!ct.IsCancellationRequested)
             {
+                len = 0;
                 if (!await ReadExactAsync(stream, hdrBuf, 4, ct)) break;
-                var len = BinaryPrimitives.ReadUInt32LittleEndian(hdrBuf);
-                if (len == 0 || len > 1024 * 1024) break;
+                len = BinaryPrimitives.ReadUInt32LittleEndian(hdrBuf);
+                if (len == 0) break;
+
+                if (len > MaxFrameBytes)
+                {
+                    _logger.LogWarning(
+                        "Discarding oversize RPC frame of {Length} bytes (cap {CapBytes})",
+                        len, MaxFrameBytes);
+                    // Read the method byte so the rejection matches the request
+                    // shape, then discard the rest of the declared payload to
+                    // keep the stream aligned for the next frame.
+                    var methodBuf = new byte[1];
+                    if (!await ReadExactAsync(stream, methodBuf, 1, ct)) break;
+                    if (!await DiscardExactAsync(stream, len - 1, ct)) break;
+                    await WriteFrameAsync(stream, BuildOversizeFrameErrorResponse(methodBuf[0]), ct);
+                    continue;
+                }
 
                 var payload = new byte[len];
                 if (!await ReadExactAsync(stream, payload, (int)len, ct)) break;
@@ -105,15 +128,21 @@ public class CapnpRpcHostedService : IHostedService
                 var capnpData = new ReadOnlyMemory<byte>(payload, 1, payload.Length - 1);
 
                 var response = await ProcessMessageAsync(method, capnpData);
-                var respHdr = new byte[4];
-                BinaryPrimitives.WriteUInt32LittleEndian(respHdr, (uint)response.Length);
-                await stream.WriteAsync(respHdr, ct);
-                await stream.WriteAsync(response, ct);
+                if (response.Length > MaxFrameBytes)
+                {
+                    // Never write a frame the peer must reject; answer with a
+                    // method-appropriate non-retryable error instead.
+                    _logger.LogWarning(
+                        "RPC response for method {Method} is {Length} bytes, over the {CapBytes} byte frame cap; replying with an error",
+                        method, response.Length, MaxFrameBytes);
+                    response = BuildOversizeFrameErrorResponse(method);
+                }
+                await WriteFrameAsync(stream, response, ct);
             }
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            _logger.LogDebug(ex, "Client disconnected");
+            _logger.LogWarning(ex, "Client disconnected (declared frame length {Length} bytes)", len);
         }
     }
 
@@ -127,6 +156,26 @@ public class CapnpRpcHostedService : IHostedService
             offset += n;
         }
         return true;
+    }
+
+    private static async Task<bool> DiscardExactAsync(NetworkStream stream, long count, CancellationToken ct)
+    {
+        var buf = new byte[64 * 1024];
+        while (count > 0)
+        {
+            var n = await stream.ReadAsync(buf.AsMemory(0, (int)Math.Min(buf.Length, count)), ct);
+            if (n == 0) return false;
+            count -= n;
+        }
+        return true;
+    }
+
+    private static async Task WriteFrameAsync(NetworkStream stream, byte[] response, CancellationToken ct)
+    {
+        var respHdr = new byte[4];
+        BinaryPrimitives.WriteUInt32LittleEndian(respHdr, (uint)response.Length);
+        await stream.WriteAsync(respHdr, ct);
+        await stream.WriteAsync(response, ct);
     }
 
     private async Task<byte[]> ProcessMessageAsync(byte method, ReadOnlyMemory<byte> capnpData)
@@ -563,6 +612,29 @@ public class CapnpRpcHostedService : IHostedService
         writer.Reject.Code = code;
         writer.ProtocolVersion = 3;
         return SerializeToFrame(0x81, response.Frame);
+    }
+
+    // Method-appropriate error response for a frame that exceeds MaxFrameBytes,
+    // used for both oversize inbound frames and oversize outbound responses.
+    // Every shape is non-retryable: an oversize frame can never succeed on
+    // retry, and WriteAck.Retryable = false routes the gateway usage reporter
+    // to its dead-letter path instead of retrying the frame forever. Dispatch
+    // has no retryable flag, so it rejects with noAccount, which the gateway
+    // maps to a non-retryable 503.
+    private static byte[] BuildOversizeFrameErrorResponse(byte method)
+    {
+        return method is 2 or 3 or 4 or 6
+            ? SerializeWriteAck((byte)(0x80 + method), WriteAck.Error("frame_too_large"))
+            : method is 5
+                ? SerializeMediaOperationResponse(MediaOperationRpcResult.Error(
+                    500, "frame_too_large", "RPC frame exceeds the size limit"))
+                : method is 7
+                    ? SerializeContentPolicyResponse(ContentPolicyRpcResult.Error(
+                        "frame_too_large", "RPC frame exceeds the size limit"))
+                    : method is 8
+                        ? SerializeBlobChunkAck(false, "frame_too_large", "", "", 0)
+                        : SerializeRejectResponse("RPC frame exceeds the size limit",
+                            CapnpGen.RejectInfo.RejectCode.noAccount);
     }
 }
 

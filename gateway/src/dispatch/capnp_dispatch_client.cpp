@@ -19,6 +19,15 @@
 
 namespace gateway::dispatch {
 
+// Maximum RPC frame payload in bytes (method byte + capnp segment). Must stay
+// in sync with MaxFrameBytes in src/Platform.Host/Services/CapnpRpcHostedService.cs;
+// product-level bounds allow 4 MiB bodies, so both sides accept frames up to 8 MiB.
+static constexpr uint32_t kMaxFrameBytes = 8 * 1024 * 1024;
+
+static bool frame_exceeds_cap(kj::ArrayPtr<const capnp::word> words) {
+    return words.asBytes().size() + 1 > kMaxFrameBytes;
+}
+
 enum class Method : uint8_t {
     Dispatch = 1,
     ReportUsage = 2,
@@ -62,6 +71,8 @@ struct CapnpDispatchClient::Impl {
     bool send_frame(Method method, kj::ArrayPtr<const capnp::word> words) {
         if (fd < 0) return false;
         auto bytes = words.asBytes();
+        // Never write a frame longer than the cap: the peer would discard it.
+        if (bytes.size() + 1 > kMaxFrameBytes) return false;
         uint32_t len = static_cast<uint32_t>(bytes.size() + 1);
         uint8_t hdr[4] = {
             static_cast<uint8_t>(len & 0xFF),
@@ -84,7 +95,7 @@ struct CapnpDispatchClient::Impl {
             got += n;
         }
         uint32_t len = hdr[0] | (hdr[1] << 8) | (hdr[2] << 16) | (hdr[3] << 24);
-        if (len == 0 || len > 1024 * 1024) return {};
+        if (len == 0 || len > kMaxFrameBytes) return {};
 
         std::vector<uint8_t> result(len);
         got = 0;
@@ -205,6 +216,14 @@ DispatchResult CapnpDispatchClient::dispatch(const DispatchRequest& req) {
     }
 
     auto words = capnp::messageToFlatArray(msg);
+    if (frame_exceeds_cap(words)) {
+        // Deterministic non-retryable failure: noAccount maps to a 503 without
+        // entering the platform-unavailable retry loop.
+        result.outcome = DispatchResult::Outcome::Rejected;
+        result.reject_message = "Dispatch request exceeds the RPC frame limit";
+        result.reject_code = static_cast<int>(::RejectInfo::RejectCode::NO_ACCOUNT);
+        return result;
+    }
     auto resp_bytes = impl_->exchange(Method::Dispatch, words);
     if (resp_bytes.empty()) {
         result.outcome = DispatchResult::Outcome::Rejected;
@@ -330,6 +349,11 @@ MediaOperationResult CapnpDispatchClient::media_operation(
     builder.setProgress(req.progress);
 
     auto words = capnp::messageToFlatArray(msg);
+    if (frame_exceeds_cap(words)) {
+        result.error_code = "request_too_large";
+        result.error_message = "Media operation request exceeds the RPC frame limit";
+        return result;
+    }
     auto response = impl_->exchange(Method::MediaOperation, words);
     if (response.empty() || response[0] != 0x85
         || (response.size() - 1) % sizeof(capnp::word) != 0) {
@@ -354,6 +378,15 @@ MediaOperationResult CapnpDispatchClient::media_operation(
     result.error_code = wire.getErrorCode();
     result.error_message = wire.getErrorMessage();
     return result;
+}
+
+static RpcAck oversize_reject_ack() {
+    // Deterministic non-retryable rejection for a frame that exceeds
+    // kMaxFrameBytes; nothing is written to the socket.
+    RpcAck ack;
+    ack.retryable = false;
+    ack.error_code = "request_too_large";
+    return ack;
 }
 
 static RpcAck parse_ack(const std::vector<uint8_t>& response, uint8_t method) {
@@ -411,6 +444,10 @@ RpcAck CapnpDispatchClient::report_usage(const UsageReportData& report) {
     builder.setResponseBody(report.response_body);
 
     auto words = capnp::messageToFlatArray(msg);
+    // An oversize report can never be accepted, so fail it as a deterministic
+    // non-retryable error: the durable usage reporter dead-letters the event
+    // instead of retrying the poison frame forever.
+    if (frame_exceeds_cap(words)) return oversize_reject_ack();
     auto ack = parse_ack(impl_->exchange(Method::ReportUsage, words), 0x82);
     // A missing or malformed frame means the peer closed or corrupted the
     // stream. Drop a live socket so the durable usage reporter reconnects
@@ -434,6 +471,7 @@ RpcAck CapnpDispatchClient::record_lease_evidence(
     builder.setDetail(detail);
 
     auto words = capnp::messageToFlatArray(msg);
+    if (frame_exceeds_cap(words)) return oversize_reject_ack();
     return parse_ack(impl_->exchange(Method::RecordLeaseEvidence, words), 0x86);
 }
 
@@ -456,6 +494,7 @@ RpcAck CapnpDispatchClient::abort(const std::string& lease_token,
     builder.setProviderStatusCode(provider_status_code);
 
     auto words = capnp::messageToFlatArray(msg);
+    if (frame_exceeds_cap(words)) return oversize_reject_ack();
     return parse_ack(impl_->exchange(Method::Abort, words), 0x83);
 }
 
@@ -471,6 +510,7 @@ RpcAck CapnpDispatchClient::report_upstream_error(const ErrorReportData& error) 
     builder.setErrorMessage(error.error_message);
 
     auto words = capnp::messageToFlatArray(msg);
+    if (frame_exceeds_cap(words)) return oversize_reject_ack();
     return parse_ack(impl_->exchange(Method::ReportUpstreamError, words), 0x84);
 }
 
@@ -488,6 +528,13 @@ ContentPolicyResult CapnpDispatchClient::evaluate_response_content(
     builder.setStage(::ContentPolicyRequest::Stage::RESPONSE);
 
     auto words = capnp::messageToFlatArray(msg);
+    // Fail closed without writing: an oversize evaluation request can never be
+    // answered, and the unevaluated result maps to a deterministic 503.
+    if (frame_exceeds_cap(words)) {
+        result.error_code = "request_too_large";
+        result.message = "Content evaluation request exceeds the RPC frame limit";
+        return result;
+    }
     auto response = impl_->exchange(Method::EvaluateContent, words);
     if (response.size() <= 1 || response[0] != 0x87
         || (response.size() - 1) % sizeof(capnp::word) != 0) {

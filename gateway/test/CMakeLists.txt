@@ -9,6 +9,7 @@ add_executable(unit_tests
     unit/test_router.cpp
     unit/test_fault_injection.cpp
     unit/test_proxy_auth.cpp
+    unit/test_dispatch_framing.cpp
 )
 target_link_libraries(unit_tests PRIVATE gateway_core GTest::gtest_main)
 target_compile_definitions(unit_tests PRIVATE GATEWAY_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
