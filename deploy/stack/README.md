@@ -21,7 +21,16 @@ a throwaway demo run, `./start.sh --demo` instead generates every such value
 with openssl, prints them to the terminal, and uses them for that run only.
 
 Unset image variables build every component from source. To deploy a release
-instead, pin the published images and skip the build:
+instead, pull the published images (anonymous access, no registry login
+needed):
+
+```sh
+./start.sh --release          # newest stable tag, looked up from ghcr.io
+./start.sh --release v0.1.1   # explicit tag
+```
+
+This exports the five `*_IMAGE` variables below; setting them by hand in the
+environment file and running `./start.sh --no-build` is equivalent:
 
 ```sh
 GATEWAY_IMAGE=ghcr.io/gmorandi/scalaapi-platform/gateway:v0.1.1

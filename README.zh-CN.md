@@ -137,7 +137,9 @@ deploy/stack/start.sh
 该脚本自动探测容器运行时(Docker Compose 或 Podman Compose,可用
 `CONTAINER_CLI` 覆盖),并从源码构建全部组件。一次性演示可运行
 `deploy/stack/start.sh --demo`:脚本自动生成所需密钥并打印到终端,无需准备
-环境文件。
+环境文件。如需直接部署已发布的镜像而非本地构建,使用
+`deploy/stack/start.sh --release [TAG]`(TAG 缺省时自动查询 ghcr.io 上最新的
+稳定版本)。
 
 | 服务 | 地址 |
 | --- | --- |

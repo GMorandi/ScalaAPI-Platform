@@ -150,7 +150,9 @@ The script auto-detects the container runtime (Docker Compose or Podman
 Compose; override with `CONTAINER_CLI`) and builds every component from
 source. For a throwaway demo run, `deploy/stack/start.sh --demo` generates
 any missing secret, prints the values, and skips the environment file
-entirely.
+entirely. To deploy the published release images instead of building, use
+`deploy/stack/start.sh --release [TAG]` (the tag defaults to the newest
+stable release on ghcr.io).
 
 | Service | URL |
 | --- | --- |

@@ -2,7 +2,7 @@
 # Start the ScalaAPI stack with Docker or Podman (auto-detected).
 #
 # Usage:
-#   start.sh [--env-file FILE] [--build|--no-build] [--demo]
+#   start.sh [--env-file FILE] [--build|--no-build] [--demo] [--release [TAG]]
 #
 # Environment variables are read from --env-file (default: dev.env next to the
 # Compose file) when it exists, otherwise from the exported environment or a
@@ -11,7 +11,9 @@
 # empty, and not an .env.example placeholder. Pass --demo to generate any such
 # value with openssl, print it to the terminal, and use it for this run. The
 # default builds every component from source; pass --no-build to deploy pinned
-# release images (the *_IMAGE variables in the env file) instead. Set
+# release images (the *_IMAGE variables in the env file) instead, or pass
+# --release to pull the published ghcr.io images directly (without TAG the
+# newest stable tag is looked up from the registry). Set
 # CONTAINER_CLI=docker|podman to override runtime detection.
 
 # Re-exec with bash when invoked through another shell (e.g. sh start.sh).
@@ -25,6 +27,7 @@ compose_file="$stack_dir/docker-compose.yml"
 env_file="$stack_dir/dev.env"
 build=1
 demo=0
+release_tag=""
 
 while (($#)); do
     case "$1" in
@@ -36,7 +39,16 @@ while (($#)); do
         --build) build=1; shift ;;
         --no-build) build=0; shift ;;
         --demo) demo=1; shift ;;
-        -h|--help) sed -n '2,15p' "$0"; exit 0 ;;
+        --release)
+            if [[ -n "${2:-}" && "${2:-}" != -* ]]; then
+                release_tag="$2"; shift 2
+            else
+                release_tag=auto; shift
+            fi
+            build=0
+            ;;
+        --release=*) release_tag="${1#*=}"; build=0; shift ;;
+        -h|--help) sed -n '2,17p' "$0"; exit 0 ;;
         *) echo "unknown argument: $1" >&2; exit 2 ;;
     esac
 done
@@ -44,6 +56,27 @@ done
 if (( demo )) && ! command -v openssl >/dev/null 2>&1; then
     echo "Demo mode requires openssl to generate secrets" >&2
     exit 2
+fi
+
+# Resolve a bare --release to the newest stable tag published on ghcr.io.
+if [[ "$release_tag" == "auto" ]]; then
+    if ! command -v curl >/dev/null 2>&1; then
+        echo "--release without a tag needs curl to look up the newest tag; pass it explicitly, e.g. --release v0.1.1" >&2
+        exit 2
+    fi
+    registry_token="$(curl -fsSL --max-time 15 \
+        "https://ghcr.io/token?scope=repository:gmorandi/scalaapi-platform/gateway:pull" \
+        | sed -n 's/.*"token"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')" || true
+    if [[ -n "$registry_token" ]]; then
+        release_tag="$(curl -fsSL --max-time 15 -H "Authorization: Bearer $registry_token" \
+            "https://ghcr.io/v2/gmorandi/scalaapi-platform/gateway/tags/list" \
+            | grep -oE '"v[0-9]+\.[0-9]+\.[0-9]+"' | tr -d '"' | sort -V | tail -n 1)" || true
+    fi
+    if [[ -z "$release_tag" || "$release_tag" == "auto" ]]; then
+        echo "Could not resolve the newest release tag; pass it explicitly, e.g. --release v0.1.1" >&2
+        exit 2
+    fi
+    echo "Newest published release: $release_tag"
 fi
 
 container_cli="${CONTAINER_CLI:-}"
@@ -133,6 +166,16 @@ if ((${#missing[@]} + ${#placeholders[@]} + ${#invalid[@]})); then
         echo "Fill in real secrets first, for example with: openssl rand -base64 32" >&2
     fi
     exit 2
+fi
+
+if [[ -n "$release_tag" ]]; then
+    : "${GATEWAY_IMAGE:=ghcr.io/gmorandi/scalaapi-platform/gateway:$release_tag}"
+    : "${PLATFORM_SILO_IMAGE:=ghcr.io/gmorandi/scalaapi-platform/platform-silo:$release_tag}"
+    : "${ADMIN_API_IMAGE:=ghcr.io/gmorandi/scalaapi-platform/admin-api:$release_tag}"
+    : "${MIGRATOR_IMAGE:=ghcr.io/gmorandi/scalaapi-platform/migrator:$release_tag}"
+    : "${PROVIDER_MOCK_IMAGE:=ghcr.io/gmorandi/scalaapi-platform/provider-mock:$release_tag}"
+    export GATEWAY_IMAGE PLATFORM_SILO_IMAGE ADMIN_API_IMAGE MIGRATOR_IMAGE PROVIDER_MOCK_IMAGE
+    echo "Deploying release images tagged $release_tag from ghcr.io/gmorandi/scalaapi-platform"
 fi
 
 if ((${#generated[@]})); then
