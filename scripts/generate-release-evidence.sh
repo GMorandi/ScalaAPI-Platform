@@ -62,17 +62,38 @@ jq -e '
     (.run_id | test("^[0-9]+$")) and
     (.run_attempt | test("^[0-9]+$")) and
     (.gates | type == "array" and length > 0) and
-    (all(.gates[]; .conclusion == "success"))
+    (all(.gates[]; .conclusion == "success")) and
+    (all(.gates[]; .tests == null or (
+        (.tests.executed | type == "number" and . >= 0) and
+        (.tests.passed | type == "number" and . >= 0) and
+        (.tests.failed | type == "number" and . >= 0) and
+        (.tests.skipped | type == "number" and . >= 0)
+    ))) and
+    (.tests | type == "object") and
+    (.tests.executed | type == "number" and . >= 0) and
+    (.tests.passed | type == "number" and . >= 0) and
+    (.tests.failed | type == "number" and . >= 0) and
+    (.tests.skipped | type == "number" and . >= 0) and
+    (.skipped_jobs | type == "array") and
+    (all(.skipped_jobs[]; type == "string")) and
+    (.artifacts | type == "array" and length > 0) and
+    (all(.artifacts[]; (.name | type == "string") and (.digest | test("^[0-9a-f]{64}$"))))
 ' "$gates_json" >/dev/null ||
     fail "gate results do not demonstrate fully green release gates: $gates_json"
 
 jq -e '
-    .manifest_version == 2 and
+    .manifest_version == 3 and
     (.repository.commit | test("^[0-9a-f]{40}$")) and
     (.components.platform.commit | test("^[0-9a-f]{40}$")) and
     (.components.gateway.commit | test("^[0-9a-f]{40}$")) and
     (.contract.digest | test("^[0-9a-f]{64}$")) and
-    (.migrations.digest | test("^[0-9a-f]{64}$"))
+    (.migrations.digest | test("^[0-9a-f]{64}$")) and
+    (.migrations.double_run == "passed") and
+    (.generated_bindings.digest | test("^[0-9a-f]{64}$")) and
+    (.deferred_evidence | type == "array" and length == 2) and
+    (all(.deferred_evidence[]; (.item | type == "string") and (.reason | type == "string"))) and
+    (.providers | type == "array" and length == 4) and
+    (all(.providers[]; .verification_level == "mock"))
 ' "$release_manifest" >/dev/null || fail "release manifest has an invalid schema"
 
 mapfile -t image_files < <(find "$images_dir" -maxdepth 1 -type f -name '*.json' -print | sort)
@@ -140,7 +161,7 @@ jq -n \
     --slurpfile gates "$gates_json" \
     --slurpfile images "$images_array_file" '
     {
-        evidence_version: 2,
+        evidence_version: 3,
         release: {
             tag: $version,
             repository_sha: $manifest[0].repository.commit,
@@ -148,13 +169,18 @@ jq -n \
         },
         release_manifest_digest: $release_manifest_digest,
         contract: $manifest[0].contract,
+        generated_bindings: $manifest[0].generated_bindings,
         migration_manifest: $manifest[0].migrations,
+        deferred_evidence: $manifest[0].deferred_evidence,
+        providers: $manifest[0].providers,
         verification: {
             status: $gates[0].status,
             run_id: $gates[0].run_id,
             run_attempt: $gates[0].run_attempt,
             gates: $gates[0].gates,
-            skipped: []
+            tests: $gates[0].tests,
+            skipped: $gates[0].skipped_jobs,
+            artifacts: $gates[0].artifacts
         },
         images: $images[0],
         workflow: {

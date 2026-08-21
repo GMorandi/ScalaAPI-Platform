@@ -57,7 +57,19 @@ jobs:
         run: cmake --build gateway/build --parallel "$(nproc)"
 
       - name: Run Gateway tests
-        run: ctest --test-dir gateway/build --output-on-failure
+        run: |
+          mkdir -p "$RUNNER_TEMP/ctest-results"
+          ctest --test-dir gateway/build --output-on-failure \
+            --output-junit "$RUNNER_TEMP/ctest-results/gateway-tests.xml"
+
+      - name: Upload Gateway test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gateway-test-results-${{ github.sha }}
+          path: ${{ runner.temp }}/ctest-results/gateway-tests.xml
+          if-no-files-found: error
+          retention-days: 30
 
       - name: Run Gateway benchmark smoke
         run: >-

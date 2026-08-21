@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="gateway" tests="6" failures="1" time="1.5">
+  <testcase name="dispatch.parses_frame" time="0.1"/>
+  <testcase name="dispatch.rejects_garbage" time="0.1">
+    <failure message="expected error code 7"/>
+  </testcase>
+  <testcase name="dispatch.disabled_path" time="0.0">
+    <skipped/>
+  </testcase>
+</testsuite>

@@ -54,6 +54,31 @@ while read -r digest contract_file; do
         '{path: $path, sha256: $sha256}' >> "$contract_rows"
 done < "$repo_root/contracts/capnp/SHA256SUMS"
 
+generated_rows="$temp_dir/generated-bindings.ndjson"
+generated_digest_input="$temp_dir/generated-binding-digests.txt"
+: > "$generated_rows"
+: > "$generated_digest_input"
+
+# Digest the generated contract bindings in deterministic (sorted) order so the
+# release evidence also pins what was compiled, not only the canonical schema.
+while IFS= read -r generated_path; do
+    generated_file_digest="$(sha256sum "$generated_path" | awk '{print $1}')"
+    generated_logical_path="src/Platform.Host/Generated/$(basename "$generated_path")"
+    jq -cn \
+        --arg path "$generated_logical_path" \
+        --arg sha256 "$generated_file_digest" \
+        '{path: $path, sha256: $sha256}' >> "$generated_rows"
+    printf '%s  %s\n' "$generated_file_digest" "$generated_logical_path" \
+        >> "$generated_digest_input"
+done < <(
+    find "$repo_root/src/Platform.Host/Generated" \
+        -maxdepth 1 -type f -name '*.capnp.cs' -print |
+        sort
+)
+
+[[ -s "$generated_digest_input" ]] ||
+    fail "no generated contract bindings found under src/Platform.Host/Generated"
+
 add_migration() {
     local logical_path="$1"
     local source_path="$2"
@@ -88,8 +113,10 @@ done < <(
 
 contract_array="$temp_dir/contracts.json"
 migration_array="$temp_dir/migrations.json"
+generated_array="$temp_dir/generated-bindings.json"
 jq -s '.' "$contract_rows" > "$contract_array"
 jq -s '.' "$migration_rows" > "$migration_array"
+jq -s '.' "$generated_rows" > "$generated_array"
 
 repository_sha="$(git -C "$repo_root" rev-parse HEAD)"
 repository_url="$(git -C "$repo_root" remote get-url origin 2>/dev/null || printf '%s' unknown)"
@@ -100,6 +127,10 @@ contract_digest="$(
 migration_digest="$(sha256sum "$migration_digest_input" | awk '{print $1}')"
 migration_count="$(jq 'length' "$migration_array")"
 latest_migration="$(jq -r '.[-1].path' "$migration_array")"
+generated_bindings_digest="$(sha256sum "$generated_digest_input" | awk '{print $1}')"
+# Result of the dotnet.yml empty-database migration double-run gate, passed
+# through by the release workflow; "not_run" when produced outside a release.
+migration_double_run="${MIGRATION_DOUBLE_RUN_RESULT:-not_run}"
 
 mkdir -p "$(dirname "$output_path")"
 temporary_output="$temp_dir/release-manifest.json"
@@ -111,9 +142,12 @@ jq -n \
     --arg migration_digest "$migration_digest" \
     --arg latest_migration "$latest_migration" \
     --argjson migration_count "$migration_count" \
+    --arg migration_double_run "$migration_double_run" \
     --slurpfile migrations "$migration_array" \
+    --arg generated_bindings_digest "$generated_bindings_digest" \
+    --slurpfile generated_bindings "$generated_array" \
     '{
-        manifest_version: 2,
+        manifest_version: 3,
         repository: {
             url: $repository_url,
             commit: $repository_sha
@@ -137,13 +171,36 @@ jq -n \
             canonical_path: "contracts/capnp",
             files: $contract_files[0]
         },
+        generated_bindings: {
+            algorithm: "sha256",
+            digest: $generated_bindings_digest,
+            path: "src/Platform.Host/Generated",
+            files: $generated_bindings[0]
+        },
         migrations: {
             algorithm: "sha256",
             digest: $migration_digest,
             latest: $latest_migration,
             count: $migration_count,
+            double_run: $migration_double_run,
             files: $migrations[0]
-        }
+        },
+        deferred_evidence: [
+            {
+                item: "one-hour runtime evidence",
+                reason: "deferred past v0.1.0, tracked as a documented deviation"
+            },
+            {
+                item: "backup restore drill",
+                reason: "deferred past v0.1.0, tracked as a documented deviation"
+            }
+        ],
+        providers: [
+            {provider: "openai", verification_level: "mock", live_acceptance: "deferred"},
+            {provider: "anthropic", verification_level: "mock", live_acceptance: "deferred"},
+            {provider: "gemini", verification_level: "mock", live_acceptance: "deferred"},
+            {provider: "xai", verification_level: "mock", live_acceptance: "deferred"}
+        ]
     }' > "$temporary_output"
 
 mv "$temporary_output" "$output_path"

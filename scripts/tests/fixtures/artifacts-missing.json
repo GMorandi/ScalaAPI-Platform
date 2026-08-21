@@ -1,0 +1,25 @@
+{
+  "total_count": 4,
+  "artifacts": [
+    {
+      "id": 102,
+      "name": "gateway-test-results-def123",
+      "expired": false
+    },
+    {
+      "id": 103,
+      "name": "admin-web-playwright-def123",
+      "expired": false
+    },
+    {
+      "id": 104,
+      "name": "user-web-playwright-def123",
+      "expired": false
+    },
+    {
+      "id": 105,
+      "name": "stack-integration-results-def123",
+      "expired": false
+    }
+  ]
+}

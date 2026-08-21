@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<TestRun xmlns="http://microsoft.com/schemas/VisualStudio/TeamTest/2010">
+  <Results>
+    <UnitTestResult testName="MigrationSchemaTests.AppliesCleanly" outcome="Passed" />
+    <UnitTestResult testName="LeaseGrainTests.Settles" outcome="Failed" />
+  </Results>
+  <ResultSummary outcome="Completed">
+    <Counters total="12" executed="10" passed="7" failed="3" notExecuted="2" />
+  </ResultSummary>
+</TestRun>

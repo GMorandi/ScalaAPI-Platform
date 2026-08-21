@@ -54,7 +54,7 @@ jobs:
         run: npm run test:e2e
 
       - name: Upload Playwright results
-        if: failure()
+        if: always()
         uses: actions/upload-artifact@v7
         with:
           name: admin-web-playwright-${{ github.sha }}

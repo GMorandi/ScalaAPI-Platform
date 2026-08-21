@@ -5,7 +5,7 @@ const liveBaseUrl = process.env.PUBLIC_UI_BASE_URL;
 export default defineConfig({
   testDir: "./tests",
   fullyParallel: true,
-  reporter: "list",
+  reporter: [["list"], ["json", { outputFile: "test-results/results.json" }]],
   use: {
     baseURL: liveBaseUrl ?? "http://127.0.0.1:5174",
     trace: "retain-on-failure",

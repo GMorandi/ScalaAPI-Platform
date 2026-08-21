@@ -56,6 +56,8 @@ jobs:
         run: scripts/validate-release-tag.sh "$GITHUB_REF_NAME"
 
       - name: Generate release manifest
+        env:
+          MIGRATION_DOUBLE_RUN_RESULT: ${{ needs.dotnet-gates.outputs.migration_double_run }}
         run: scripts/generate-release-manifest.sh "$RUNNER_TEMP/release-manifest.json"
 
       - name: Log in to GHCR
@@ -226,10 +228,25 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Regenerate the release manifest
+      - name: Download the release manifest
+        uses: actions/download-artifact@v4
+        with:
+          name: scalaapi-release-manifest-${{ github.ref_name }}
+          path: ${{ runner.temp }}/release-manifest
+
+      - name: Verify the release manifest digest
+        env:
+          EXPECTED_CONTRACT_DIGEST: ${{ needs.release-metadata.outputs.contract_digest }}
+          EXPECTED_MIGRATION_DIGEST: ${{ needs.release-metadata.outputs.migration_digest }}
         run: |
+          set -euo pipefail
+          manifest="$RUNNER_TEMP/release-manifest/release-manifest.json"
           scripts/validate-release-tag.sh "$GITHUB_REF_NAME"
-          scripts/generate-release-manifest.sh "$RUNNER_TEMP/release-manifest.json"
+          test "$(jq -r '.repository.commit' "$manifest")" = "$GITHUB_SHA"
+          test "$(jq -r '.contract.digest' "$manifest")" = "$EXPECTED_CONTRACT_DIGEST"
+          test "$(jq -r '.migrations.digest' "$manifest")" = "$EXPECTED_MIGRATION_DIGEST"
+          (cd contracts/capnp && sha256sum --check --strict SHA256SUMS) >/dev/null
+          echo "release manifest matches the release-metadata outputs"
 
       - name: Download image metadata
         uses: actions/download-artifact@v4
@@ -246,7 +263,7 @@ jobs:
         run: >-
           scripts/generate-release-evidence.sh
           --version "$GITHUB_REF_NAME"
-          --release-manifest "$RUNNER_TEMP/release-manifest.json"
+          --release-manifest "$RUNNER_TEMP/release-manifest/release-manifest.json"
           --images-dir "$RUNNER_TEMP/image-metadata"
           --gates-json "$RUNNER_TEMP/gates.json"
           --output "$RUNNER_TEMP/release-evidence.json"
@@ -257,6 +274,6 @@ jobs:
           name: scalaapi-release-evidence-${{ github.ref_name }}
           path: |
             ${{ runner.temp }}/release-evidence.json
-            ${{ runner.temp }}/release-manifest.json
+            ${{ runner.temp }}/release-manifest/release-manifest.json
           if-no-files-found: error
           retention-days: 90

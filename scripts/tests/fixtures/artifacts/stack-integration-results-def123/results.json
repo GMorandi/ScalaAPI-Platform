@@ -1,0 +1,13 @@
+{
+  "config": {},
+  "suites": [],
+  "errors": [],
+  "stats": {
+    "startTime": "2026-01-01T00:00:00.000Z",
+    "duration": 456,
+    "expected": 2,
+    "skipped": 1,
+    "unexpected": 0,
+    "flaky": 0
+  }
+}

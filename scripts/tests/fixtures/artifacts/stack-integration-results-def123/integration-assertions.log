@@ -1,0 +1,6 @@
+== Waiting for stack readiness ==
+PASS: gateway and admin-api report ready
+PASS: 2 migrations applied (Orleans schema + product migrations)
+PASS: provider mock suite seeded
+PASS: one completed lease, committed hold, usage event, ledger entry, and idempotency record
+integration assertions passed

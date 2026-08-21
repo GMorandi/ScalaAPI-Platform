@@ -1,0 +1,28 @@
+{
+  "status": "passed",
+  "repository": "example/scalaapi-platform",
+  "run_id": "12345",
+  "run_attempt": "1",
+  "gates": [
+    {
+      "name": "Platform .NET build, tests, and benchmark smoke",
+      "conclusion": "success",
+      "job_url": "https://example.test/jobs/1",
+      "tests": {"executed": 10, "passed": 7, "failed": 3, "skipped": 2},
+      "artifacts": [
+        {"name": "platform-test-results-def123", "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
+      ]
+    },
+    {
+      "name": "Build and scan gateway image",
+      "conclusion": "success",
+      "job_url": "https://example.test/jobs/5"
+    }
+  ],
+  "tests": {"executed": 28, "passed": 23, "failed": 5, "skipped": 5},
+  "skipped_jobs": ["Release dry-run notice"],
+  "artifacts": [
+    {"name": "platform-test-results-def123", "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+    {"name": "gateway-test-results-def123", "digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}
+  ]
+}

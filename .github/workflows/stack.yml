@@ -183,7 +183,7 @@ jobs:
           set -a
           . "$INTEGRATION_ENV_FILE"
           set +a
-          scripts/integration-assertions.sh
+          scripts/integration-assertions.sh 2>&1 | tee "$RUNNER_TEMP/integration-assertions.log"
 
       - name: Run the live User Web spec
         env:
@@ -194,6 +194,17 @@ jobs:
           npm ci
           npx playwright install chromium
           npm run test:e2e -- tests/public-pages.live.spec.ts
+
+      - name: Upload integration evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stack-integration-results-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/integration-assertions.log
+            user-web/test-results/
+          if-no-files-found: warn
+          retention-days: 30
 
       - name: Tear down the integration stack
         if: always()

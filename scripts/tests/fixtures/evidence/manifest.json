@@ -1,0 +1,56 @@
+{
+  "manifest_version": 3,
+  "repository": {
+    "url": "https://example.test/scalaapi-platform.git",
+    "commit": "1111111111111111111111111111111111111111"
+  },
+  "components": {
+    "platform": {
+      "repository": "https://example.test/scalaapi-platform.git",
+      "path": ".",
+      "commit": "1111111111111111111111111111111111111111"
+    },
+    "gateway": {
+      "repository": "https://github.com/GMorandi/ScalaAPI-GateWay.git",
+      "path": "gateway",
+      "commit": "1111111111111111111111111111111111111111",
+      "provenance": "test fixture"
+    }
+  },
+  "contract": {
+    "algorithm": "sha256",
+    "digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "canonical_path": "contracts/capnp",
+    "files": []
+  },
+  "generated_bindings": {
+    "algorithm": "sha256",
+    "digest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "path": "src/Platform.Host/Generated",
+    "files": []
+  },
+  "migrations": {
+    "algorithm": "sha256",
+    "digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "latest": "001-init.sql",
+    "count": 2,
+    "double_run": "passed",
+    "files": []
+  },
+  "deferred_evidence": [
+    {
+      "item": "one-hour runtime evidence",
+      "reason": "deferred past v0.1.0, tracked as a documented deviation"
+    },
+    {
+      "item": "backup restore drill",
+      "reason": "deferred past v0.1.0, tracked as a documented deviation"
+    }
+  ],
+  "providers": [
+    {"provider": "openai", "verification_level": "mock", "live_acceptance": "deferred"},
+    {"provider": "anthropic", "verification_level": "mock", "live_acceptance": "deferred"},
+    {"provider": "gemini", "verification_level": "mock", "live_acceptance": "deferred"},
+    {"provider": "xai", "verification_level": "mock", "live_acceptance": "deferred"}
+  ]
+}

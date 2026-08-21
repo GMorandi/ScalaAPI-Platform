@@ -1,0 +1,72 @@
+#!/usr/bin/env bash
+# Fake `gh` for the release tooling tests. Serves canned GitHub Actions API
+# responses from the directory named by FAKE_GH_FIXTURES:
+#   jobs.json                              workflow run jobs listing
+#   ${FAKE_GH_ARTIFACTS_FILE:-artifacts.json}  run artifacts listing
+#   artifacts/<artifact name>/             extracted artifact content, zipped
+#                                          on demand for /zip downloads
+set -euo pipefail
+export LC_ALL=C
+
+[[ -n "${FAKE_GH_FIXTURES:-}" ]] || {
+    echo "fake gh: FAKE_GH_FIXTURES is not set" >&2
+    exit 1
+}
+[[ "${1:-}" == "api" ]] || {
+    echo "fake gh: only 'gh api' is supported" >&2
+    exit 1
+}
+shift
+
+jq_filter=""
+url=""
+while (( $# > 0 )); do
+    case "$1" in
+        --jq)
+            jq_filter="$2"
+            shift 2
+            ;;
+        *)
+            url="$1"
+            shift
+            ;;
+    esac
+done
+
+artifacts_file="$FAKE_GH_FIXTURES/${FAKE_GH_ARTIFACTS_FILE:-artifacts.json}"
+
+case "$url" in
+    */actions/artifacts/*/zip)
+        artifact_id="${url%/zip}"
+        artifact_id="${artifact_id##*/}"
+        artifact_name="$(jq -r --argjson id "$artifact_id" \
+            '.artifacts[] | select(.id == $id) | .name' "$artifacts_file")"
+        if [[ -z "$artifact_name" ||
+            ! -d "$FAKE_GH_FIXTURES/artifacts/$artifact_name" ]]; then
+            echo "fake gh: unknown artifact id: $artifact_id" >&2
+            exit 1
+        fi
+        tmp_zip="$(mktemp)"
+        rm -f "$tmp_zip"
+        (cd "$FAKE_GH_FIXTURES/artifacts/$artifact_name" && zip -q -r "$tmp_zip" .)
+        cat "$tmp_zip"
+        rm -f "$tmp_zip"
+        exit 0
+        ;;
+    */actions/runs/*/attempts/*/jobs*)
+        response="$(cat "$FAKE_GH_FIXTURES/jobs.json")"
+        ;;
+    */actions/runs/*/artifacts*)
+        response="$(cat "$artifacts_file")"
+        ;;
+    *)
+        echo "fake gh: unexpected API URL: $url" >&2
+        exit 1
+        ;;
+esac
+
+if [[ -n "$jq_filter" ]]; then
+    jq "$jq_filter" <<<"$response"
+else
+    printf '%s\n' "$response"
+fi

@@ -1,0 +1,77 @@
+{
+  "total_count": 12,
+  "jobs": [
+    {
+      "name": "Platform .NET build, tests, and benchmark smoke",
+      "status": "completed",
+      "conclusion": "success",
+      "html_url": "https://example.test/jobs/1"
+    },
+    {
+      "name": "Gateway build, test, and benchmark smoke",
+      "status": "completed",
+      "conclusion": "success",
+      "html_url": "https://example.test/jobs/2"
+    },
+    {
+      "name": "admin-web typecheck, build, and e2e",
+      "status": "completed",
+      "conclusion": "success",
+      "html_url": "https://example.test/jobs/3"
+    },
+    {
+      "name": "user-web typecheck, build, and e2e",
+      "status": "completed",
+      "conclusion": "success",
+      "html_url": "https://example.test/jobs/4"
+    },
+    {
+      "name": "Images and integration / Build and scan gateway image",
+      "status": "completed",
+      "conclusion": "success",
+      "html_url": "https://example.test/jobs/5"
+    },
+    {
+      "name": "Images and integration / Build and scan platform-silo image",
+      "status": "completed",
+      "conclusion": "success",
+      "html_url": "https://example.test/jobs/6"
+    },
+    {
+      "name": "Images and integration / Build and scan admin-api image",
+      "status": "completed",
+      "conclusion": "success",
+      "html_url": "https://example.test/jobs/7"
+    },
+    {
+      "name": "Images and integration / Build and scan migrator image",
+      "status": "completed",
+      "conclusion": "success",
+      "html_url": "https://example.test/jobs/8"
+    },
+    {
+      "name": "Images and integration / Build and scan provider-mock image",
+      "status": "completed",
+      "conclusion": "success",
+      "html_url": "https://example.test/jobs/9"
+    },
+    {
+      "name": "Images and integration / Full stack integration and live UI",
+      "status": "completed",
+      "conclusion": "success",
+      "html_url": "https://example.test/jobs/10"
+    },
+    {
+      "name": "Release dry-run notice",
+      "status": "completed",
+      "conclusion": "skipped",
+      "html_url": "https://example.test/jobs/11"
+    },
+    {
+      "name": "Assemble release evidence",
+      "status": "in_progress",
+      "conclusion": null,
+      "html_url": "https://example.test/jobs/12"
+    }
+  ]
+}
