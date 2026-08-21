@@ -52,7 +52,7 @@ jobs:
             target: provider-mock
     steps:
       - name: Check out the repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           persist-credentials: false
 
@@ -135,7 +135,7 @@ jobs:
       INTEGRATION_PROJECT_NAME: scalaapi-integration-${{ github.run_id }}
     steps:
       - name: Check out the repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           persist-credentials: false
 
